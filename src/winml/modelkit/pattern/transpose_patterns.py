@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Transpose-related patterns for ONNX models.
 
 This module provides patterns for matching Reshape-Transpose-Reshape sequences

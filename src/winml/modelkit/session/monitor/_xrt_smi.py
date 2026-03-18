@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """xrt-smi subprocess wrapper for AMD NPU hardware context monitoring.
 
 Provides a clean Python interface to ``xrt-smi.exe``, the AMD NPU system

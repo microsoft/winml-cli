@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Custom ONNX graph fusions.
 
 These fusions extend ORT's transformer optimizer framework with

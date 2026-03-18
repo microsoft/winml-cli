@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Input generators for unary-like ONNX operators.
 
 Unary-like operators have one primary input tensor but may have additional

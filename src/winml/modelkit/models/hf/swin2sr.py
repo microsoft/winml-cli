@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Swin2SR (Swin Transformer V2 for Super-Resolution) HuggingFace Model Patches.
 
 This module will provide Swin2SR-specific patches for ONNX export compatibility.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Unified Optimization Framework for ModelExport.
 
 This module provides a unified optimization framework that applies optimizations

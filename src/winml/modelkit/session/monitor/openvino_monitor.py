@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """OpenVinoMonitor - Placeholder for future Intel OpenVINO-specific NPU monitoring.
 
 For real-time NPU utilization monitoring with OpenVINO EP, use HWMonitor

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """RMSNorm to LpNormalization fusion.
 
 Detects decomposed RMSNorm subgraphs and replaces them with

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX Node Tagger with Corrected Priority System.
 
 This module implements the corrected tagging strategy:

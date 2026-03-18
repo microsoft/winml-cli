@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Generate optimum_architectures.py from optimum-onnx source.
 
 Parses model_configs.py to extract all @register_tasks_manager_onnx

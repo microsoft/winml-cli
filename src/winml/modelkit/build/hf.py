@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Build API for HuggingFace models.
 
 Core pipeline: Load -> Export -> Optimize -> [Analyze] -> [Quantize] -> [Compile]

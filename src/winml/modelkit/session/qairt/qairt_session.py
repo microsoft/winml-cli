@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WinMLQairtSession - QAIRT SDK session for QNN compilation."""
 
 from __future__ import annotations

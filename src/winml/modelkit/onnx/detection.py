@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX model state detection functions.
 
 Canonical home for lightweight "is this model quantized / compiled?" checks

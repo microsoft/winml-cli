@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Performance benchmarking command.
 
 Benchmarks model inference performance using WinMLAutoModel and WinMLSession.

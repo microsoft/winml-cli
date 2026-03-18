@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for build CLI command — mock-based, no network, no actual builds.
 
 Tests the CLI wrapper around build_hf_model() API.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Input generators for pooling ONNX operators.
 
 This includes MaxPool, AveragePool, and LpPool.

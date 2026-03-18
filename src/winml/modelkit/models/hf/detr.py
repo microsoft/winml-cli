@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """DETR HuggingFace Model Configuration.
 
 DETR (DEtection TRansformer) uses a ResNet backbone with BatchNorm layers.

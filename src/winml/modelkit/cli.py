@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WinML ModelKit CLI - Universal ONNX export from command line.
 
 This module provides the main CLI entry point for ModelKit with automatic

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """InformationEngine - Generate actionable information from runtime check results.
 
 Implements FR-021-028 (Information generation), processes runtime results to create

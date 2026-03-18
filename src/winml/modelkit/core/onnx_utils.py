@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 # S112: try-except-continue for skipping malformed JSON in node iteration
 """ONNX Model Manipulation Utilities.
 

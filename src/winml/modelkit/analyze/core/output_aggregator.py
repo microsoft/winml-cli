@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """OutputAggregator - Assemble final JSON output from analysis results.
 
 Implements FR-026-031 (Output assembly and structure).

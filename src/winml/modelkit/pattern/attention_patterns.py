@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pattern matching for expanded attention subgraphs and Transpose+Attention equivalents.
 
 This module provides pattern definitions for:

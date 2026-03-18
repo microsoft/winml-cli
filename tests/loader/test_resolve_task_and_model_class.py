@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for resolve_task_and_model_class edge cases.
 
 Tests edge cases not covered by test_detect_task_and_class.py:

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Build pipeline for pre-exported ONNX models.
 
 Provides build_onnx_model() which runs the same stages as build_hf_model()

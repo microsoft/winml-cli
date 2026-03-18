@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Mandatory Optimization Verification Tests.
 
 This module documents and verifies mandatory optimizations that ORT applies

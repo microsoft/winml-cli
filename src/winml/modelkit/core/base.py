@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Base Classes and Shared Utilities for Model Export.
 
 This module provides the base hierarchy exporter interface and shared utilities

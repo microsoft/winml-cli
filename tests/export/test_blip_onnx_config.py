@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for BLIP ONNX config registration and I/O specs.
 
 Verifies that BlipCaptioningIOConfig is correctly registered with Optimum's

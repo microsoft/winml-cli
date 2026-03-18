@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for inspect CLI command -- mock-based, no network calls.
 
 Tests the CLI wrapper around inspect_model() API.

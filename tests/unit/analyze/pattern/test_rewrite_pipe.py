@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """RewritePipe integration tests using the pattern infrastructure.
 
 Verifies that RewritePipe correctly integrates with modelkit.pattern

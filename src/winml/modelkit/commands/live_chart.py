@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Live hardware monitor display for performance benchmarking.
 
 Renders a live NPU/CPU utilization chart during benchmarking using

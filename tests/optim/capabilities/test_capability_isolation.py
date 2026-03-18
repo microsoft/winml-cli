@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Capability Isolation Tests for ORT Graph Optimization.
 
 These tests verify that enabling ONE capability does NOT enable others.

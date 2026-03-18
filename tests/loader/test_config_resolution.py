@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for config-driven resolution in resolve_task_and_model_class.
 
 Covers gaps NOT tested by existing loader tests:

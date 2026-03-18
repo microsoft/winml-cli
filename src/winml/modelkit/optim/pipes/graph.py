@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Graph optimization pipe using ONNX Runtime SessionOptions.
 
 This pipe manages advanced graph optimizations (fusions, transformers) that we

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """RMSNormalization pattern definitions for ONNX pattern matching.
 
 This module provides patterns for matching RMSNormalization subgraphs:

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 from typing import TYPE_CHECKING, Any
 
 from winml.modelkit.onnx.domains import ONNXDomain

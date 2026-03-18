@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """VitisAIMonitor - AMD NPU proof-of-execution monitor via xrt-smi.
 
 Captures xrt-smi snapshots at start/end of monitoring for command

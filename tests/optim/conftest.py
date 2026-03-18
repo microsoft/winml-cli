@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared pytest fixtures and utilities for optimization tests.
 
 This module provides common fixtures and helper functions for testing ONNX Runtime

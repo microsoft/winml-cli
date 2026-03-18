@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Custom node checker protocol and registry for RuntimeCheckerQuery."""
 
 from __future__ import annotations

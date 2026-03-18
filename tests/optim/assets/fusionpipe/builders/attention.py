@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Attention pattern builders for FusionPipe testing.
 
 Creates ONNX graphs that match ORT's attention fusion patterns.

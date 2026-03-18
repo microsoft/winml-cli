@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Utility functions for loading and configuring image processors.
 
 Provides tools for loading HuggingFace preprocessor configurations

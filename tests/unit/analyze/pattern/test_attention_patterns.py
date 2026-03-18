@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Attention pattern family cross-matching and rewriting tests.
 
 Verifies that ExpandedAttention and TransposeAttention patterns do not

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Miscellaneous fusion capabilities.
 
 This module defines miscellaneous fusion optimizations that don't fit into

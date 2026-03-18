@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Multi-input/output capture for nn.Module submodules.
 
 Uses PyTorch forward hooks with with_kwargs=True to capture ALL input

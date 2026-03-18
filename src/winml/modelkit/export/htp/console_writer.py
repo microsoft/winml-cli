@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 # ruff: noqa: RUF001, SIM108
 # RUF001: info emoji used intentionally in user-facing output
 # SIM108: explicit if-else is clearer for params formatting

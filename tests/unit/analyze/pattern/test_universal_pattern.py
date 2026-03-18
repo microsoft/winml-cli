@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Universal tests auto-parametrized across all registered patterns.
 
 Each test runs for every pattern registered in the PatternInputGenerator registry.

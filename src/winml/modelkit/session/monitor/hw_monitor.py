@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """HWMonitor - System-wide hardware monitor via Windows PDH counters.
 
 Monitors CPU utilization, system RAM, and NPU/GPU utilization and memory

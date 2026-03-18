@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Mask pattern builders for SurgeryPipe tests.
 
 Builders for attention mask patterns with extreme float constants

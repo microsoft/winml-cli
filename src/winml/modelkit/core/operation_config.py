@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Centralized Operation Configuration for PyTorch to ONNX Mapping.
 
 This module provides the OperationConfig class which serves as a single source

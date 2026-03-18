@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """GELU pattern family cross-matching tests.
 
 Verifies that each of the 4 Erf-based GELU variants matches only its own

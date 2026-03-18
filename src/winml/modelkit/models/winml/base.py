@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Base Model Class for WinML Inference.
 
 Provides WinMLPreTrainedModel - minimal base class for HF pipeline compatibility.

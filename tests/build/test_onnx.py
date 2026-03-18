@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for build_onnx_model() — mock-based, no network, no actual ONNX models.
 
 Tests the ONNX build pipeline (optimize -> quantize -> compile) independently

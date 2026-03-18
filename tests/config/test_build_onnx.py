@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for ONNX-specific config generation in modelkit.config.build module.
 
 Split from test_build.py to reduce per-file test duration in CI.

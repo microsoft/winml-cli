@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for modelkit.export.pytorch and HTPExporter with WinMLExportConfig.
 
 Tests pure PyTorch export (no HuggingFace dependency) and verifies

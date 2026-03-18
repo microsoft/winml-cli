@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Intelligent Strategy Selection for ModelExport.
 
 This module provides automatic strategy selection based on model characteristics

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Optimization pipes for ONNX models.
 
 Note: Shape inference (symbolic and standard) are now mandatory stages

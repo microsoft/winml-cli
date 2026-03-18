@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """RuntimeChecker - Check pattern support against runtime rules.
 
 Implements FR-005 (Runtime support checking), FR-006 (Pattern matching),

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """HTP (Hierarchical Trace-and-Project) Strategy with IO/ABC Architecture.
 
 This strategy uses execution tracing with PyTorch hooks to capture module context

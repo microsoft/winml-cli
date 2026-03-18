@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """CLI integration tests for wmk command.
 
 Tests the CLI interface using Click's CliRunner to ensure commands work

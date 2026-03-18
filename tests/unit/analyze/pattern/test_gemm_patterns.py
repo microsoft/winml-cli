@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Gemm pattern family cross-matching tests.
 
 Verifies that MatMulAdd and ReshapeGemmReshape patterns do not cross-match.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """LayerNorm Pattern Builders for ORT Graph Optimization Testing.
 
 This module provides corrected builders for LayerNorm fusion patterns that match

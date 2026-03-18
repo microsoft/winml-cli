@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Quantizer module for ONNX models.
 
 Provides QDQ (Quantize-Dequantize) quantization for ONNX models.

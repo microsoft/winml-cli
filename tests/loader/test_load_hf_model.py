@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for load_hf_model function with model_class and user_script.
 
 Test specifications from docs/design/loader/hf.md sections 9.3 and 9.4.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Label utilities for dataset-specific label mappings.
 
 Handles label alignment for datasets like ImageNet that need synset ID to class index mapping.

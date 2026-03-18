@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 #!/usr/bin/env python3
 """Universal Hierarchy-Preserving ONNX Exporter.
 

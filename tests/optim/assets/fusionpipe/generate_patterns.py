@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Generate ORT Fusion Optimization Test Patterns.
 
 Creates ONNX models for testing ORTFusionPipe control options:

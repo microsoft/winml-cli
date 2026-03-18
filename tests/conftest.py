@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared pytest fixtures for all tests.
 
 This conftest.py provides common fixtures used across multiple test modules.

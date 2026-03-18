@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Windows PDH (Performance Data Helper) ctypes wrapper for GPU/NPU monitoring.
 
 Provides zero-dependency, in-process access to Windows performance counters
