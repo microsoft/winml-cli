@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Unified Pattern Configuration Schema",
+  "description": "JSON Schema for unified HTP and skeleton pattern configuration files",
+  "type": "object",
+  "required": ["ihv_type", "version", "HTPPatternRules", "SkeletonPatternRules"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "ihv_type": {
+      "type": "string",
+      "enum": ["QNN", "Intel", "AMD", "default"],
+      "description": "Target IHV execution provider"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of this configuration"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of this configuration"
+    },
+    "HTPPatternRules": {
+      "type": "array",
+      "description": "HTP pattern metadata for semantic labeling",
+      "items": {
+        "$ref": "#/definitions/HTPPatternRule"
+      }
+    },
+    "SkeletonPatternRules": {
+      "type": "array",
+      "description": "Skeleton pattern registry for topology matching",
+      "items": {
+        "$ref": "#/definitions/SkeletonPatternRule"
+      }
+    }
+  },
+  "definitions": {
+    "HTPPatternRule": {
+      "type": "object",
+      "required": ["pattern_id", "pattern_type", "pattern_name"],
+      "properties": {
+        "pattern_id": {
+          "type": "string",
+          "pattern": "^(OP|SUBGRAPH)/",
+          "description": "Pattern identifier (e.g., SUBGRAPH/GeluPattern)"
+        },
+        "pattern_type": {
+          "type": "string",
+          "enum": ["operator", "subgraph"],
+          "description": "Type of pattern"
+        },
+        "pattern_name": {
+          "type": "string",
+          "description": "Human-readable pattern name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Pattern description"
+        },
+        "semantic_label": {
+          "type": "string",
+          "description": "PyTorch semantic label for hierarchy tag matching"
+        },
+        "node_topology": {
+          "type": "object",
+          "description": "Node topology mapping (optional)"
+        },
+        "edge_topology": {
+          "type": "array",
+          "description": "Edge topology list (optional)",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "SkeletonPatternRule": {
+      "type": "object",
+      "required": ["pattern_id", "pattern_class", "module", "enabled"],
+      "properties": {
+        "pattern_id": {
+          "type": "string",
+          "pattern": "^(OP|SUBGRAPH)/",
+          "description": "Pattern identifier (e.g., SUBGRAPH/Gelu1)"
+        },
+        "pattern_class": {
+          "type": "string",
+          "description": "Python class name for the pattern"
+        },
+        "module": {
+          "type": "string",
+          "description": "Fully-qualified module path"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this pattern is active"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable pattern description"
+        },
+        "flag_name": {
+          "type": "string",
+          "description": "Optional CLI flag name override (source part only, e.g. 'gelu'). If omitted, auto-generated from class names with Pattern suffix stripped."
+        },
+        "alternatives": {
+          "type": "array",
+          "description": "List of alternative pattern recommendations",
+          "items": {
+            "$ref": "#/definitions/AlternativeConfig"
+          }
+        }
+      }
+    },
+    "AlternativeConfig": {
+      "type": "object",
+      "required": ["pattern_to_id", "priority"],
+      "properties": {
+        "pattern_to_id": {
+          "type": "string",
+          "description": "Target pattern identifier (e.g., OP/com.microsoft/Gelu or SUBGRAPH/GeluPattern)"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Priority for recommendation (1=highest)"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Explanation for why this alternative is recommended"
+        },
+        "pattern_class": {
+          "type": "string",
+          "description": "Optional: Python class name for rewrite target (e.g., SingleGeluPattern)"
+        },
+        "module": {
+          "type": "string",
+          "description": "Optional: Fully-qualified module path for pattern_class"
+        },
+        "flag_name": {
+          "type": "string",
+          "description": "Optional: CLI flag name override for the target slug (e.g. 'layernorm'). Overrides the auto-generated target part of the --enable-{source}-{target} flag."
+        }
+      }
+    }
+  }
+}

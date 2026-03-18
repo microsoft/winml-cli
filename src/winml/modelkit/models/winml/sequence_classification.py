@@ -1,0 +1,89 @@
+"""WinML Model for Sequence Classification.
+
+Thin wrapper for sequence/text classification inference.
+Pipeline execution (export/optimize/compile) is done by WinMLAutoModel factory.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from transformers.modeling_outputs import SequenceClassifierOutput
+
+from .base import WinMLPreTrainedModel
+
+
+if TYPE_CHECKING:
+    import numpy as np
+    import torch
+
+logger = logging.getLogger(__name__)
+
+
+class WinMLModelForSequenceClassification(WinMLPreTrainedModel):
+    """WinML model for sequence classification.
+
+    Supports:
+    - text-classification
+    - sequence-classification
+    - next-sentence-prediction
+
+    Thin wrapper - only handles inference I/O.
+    Pipeline execution is done by WinMLAutoModel factory.
+    """
+
+    def forward(
+        self,
+        input_ids: torch.Tensor | np.ndarray,
+        attention_mask: torch.Tensor | np.ndarray | None = None,
+        token_type_ids: torch.Tensor | np.ndarray | None = None,
+        **kwargs: Any,
+    ) -> SequenceClassifierOutput:
+        """Run sequence classification inference.
+
+        Args:
+            input_ids: Token IDs (B, seq_len)
+            attention_mask: Attention mask (B, seq_len)
+            token_type_ids: Segment IDs for BERT-like models (B, seq_len)
+            **kwargs: Additional arguments (ignored, for HF pipeline compatibility)
+
+        Returns:
+            SequenceClassifierOutput with logits
+        """
+        # Build inputs dict - only include non-None values
+        inputs: dict[str, Any] = {"input_ids": input_ids}
+        if attention_mask is not None:
+            inputs["attention_mask"] = attention_mask
+        if token_type_ids is not None:
+            inputs["token_type_ids"] = token_type_ids
+
+        # Use base class helpers for validation, formatting, and inference
+        formatted = self._format_inputs(**inputs)
+        outputs = self._run_inference(formatted)
+
+        # Get logits (by name or first output)
+        logits = outputs.get("logits", next(iter(outputs.values())))
+
+        return SequenceClassifierOutput(logits=logits)
+
+    @property
+    def num_labels(self) -> int:
+        """Number of classification labels."""
+        if self.config is not None:
+            return getattr(self.config, "num_labels", 2)
+        return 2
+
+    @property
+    def id2label(self) -> dict[int, str]:
+        """Mapping from label ID to label name."""
+        if self.config is not None:
+            return getattr(self.config, "id2label", {})
+        return {}
+
+    @property
+    def label2id(self) -> dict[str, int]:
+        """Mapping from label name to label ID."""
+        if self.config is not None:
+            return getattr(self.config, "label2id", {})
+        return {}

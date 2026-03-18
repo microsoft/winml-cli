@@ -1,0 +1,186 @@
+"""Shared pytest fixtures for all tests.
+
+This conftest.py provides common fixtures used across multiple test modules.
+Fixtures are organized by scope for optimal performance.
+"""
+
+from __future__ import annotations
+
+import sys
+import tempfile
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+import onnx
+import onnxruntime as ort
+import pytest
+from onnx import TensorProto
+
+
+# =============================================================================
+# ORT GRAPH OPTIMIZATION TEST FIXTURES (Module-scoped)
+# =============================================================================
+
+ORT_MODEL_PATH = (
+    Path(__file__).parent.parent
+    / "temp"
+    / "ort_test_patterns"
+    / "ort_graph_optim_all_patterns.onnx"
+)
+
+
+@pytest.fixture(scope="module")
+def ort_original_model() -> onnx.ModelProto:
+    """Load original unoptimized ORT test model (shared across module)."""
+    if not ORT_MODEL_PATH.exists():
+        pytest.skip(f"ORT test model not found at {ORT_MODEL_PATH}")
+    return onnx.load(str(ORT_MODEL_PATH))
+
+
+@pytest.fixture(scope="module")
+def ort_optimized_model(ort_original_model: onnx.ModelProto) -> onnx.ModelProto:
+    """Optimize model with ORT level 2 (shared across module)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir) / "input.onnx"
+        output_path = Path(tmpdir) / "output.onnx"
+
+        onnx.save(ort_original_model, str(input_path))
+
+        sess_opts = ort.SessionOptions()
+        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+        sess_opts.optimized_model_filepath = str(output_path)
+
+        _ = ort.InferenceSession(
+            str(input_path), sess_opts, providers=["CPUExecutionProvider"]
+        )
+
+        return onnx.load(str(output_path))
+
+
+@pytest.fixture(scope="module")
+def ort_model_inputs(ort_original_model: onnx.ModelProto) -> dict[str, np.ndarray]:
+    """Generate random inputs for ORT model inference."""
+    rng = np.random.RandomState(42)
+    inputs = {}
+
+    for inp in ort_original_model.graph.input:
+        name = inp.name
+        if any(init.name == name for init in ort_original_model.graph.initializer):
+            continue
+
+        shape = [
+            dim.dim_value if dim.dim_value > 0 else 1
+            for dim in inp.type.tensor_type.shape.dim
+        ]
+
+        dtype = inp.type.tensor_type.elem_type
+        if dtype == TensorProto.FLOAT:
+            inputs[name] = rng.randn(*shape).astype(np.float32)
+        elif dtype == TensorProto.INT64:
+            inputs[name] = rng.randint(0, 10, size=shape).astype(np.int64)
+        else:
+            inputs[name] = rng.randn(*shape).astype(np.float32)
+
+    return inputs
+
+
+@pytest.fixture(scope="module")
+def ort_original_outputs(
+    ort_original_model: onnx.ModelProto, ort_model_inputs: dict
+) -> dict[str, np.ndarray]:
+    """Run inference on original ORT model."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = Path(tmpdir) / "model.onnx"
+        onnx.save(ort_original_model, str(model_path))
+
+        sess_opts = ort.SessionOptions()
+        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+
+        session = ort.InferenceSession(
+            str(model_path), sess_opts, providers=["CPUExecutionProvider"]
+        )
+
+        outputs = session.run(None, ort_model_inputs)
+        output_names = [o.name for o in session.get_outputs()]
+
+        return dict(zip(output_names, outputs, strict=True))
+
+
+@pytest.fixture(scope="module")
+def ort_optimized_outputs(
+    ort_optimized_model: onnx.ModelProto, ort_model_inputs: dict
+) -> dict[str, np.ndarray]:
+    """Run inference on optimized ORT model."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = Path(tmpdir) / "model.onnx"
+        onnx.save(ort_optimized_model, str(model_path))
+
+        sess_opts = ort.SessionOptions()
+        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+
+        session = ort.InferenceSession(
+            str(model_path), sess_opts, providers=["CPUExecutionProvider"]
+        )
+
+        outputs = session.run(None, ort_model_inputs)
+        output_names = [o.name for o in session.get_outputs()]
+
+        return dict(zip(output_names, outputs, strict=True))
+
+
+# =============================================================================
+# ORT HELPER FUNCTIONS (available as module-level utilities)
+# =============================================================================
+
+
+def get_op_counts(model: onnx.ModelProto) -> dict[str, int]:
+    """Get operation type counts from model."""
+    return dict(Counter(node.op_type for node in model.graph.node))
+
+
+def get_nodes_by_prefix(model: onnx.ModelProto, prefix: str) -> list[onnx.NodeProto]:
+    """Get all nodes matching a prefix."""
+    return [node for node in model.graph.node if node.name.startswith(prefix)]
+
+
+def get_op_counts_by_prefix(model: onnx.ModelProto, prefix: str) -> dict[str, int]:
+    """Get op type counts for nodes matching a prefix."""
+    ops = [node.op_type for node in model.graph.node if node.name.startswith(prefix)]
+    return dict(Counter(ops))
+
+
+def verify_instance_fusion(
+    original: onnx.ModelProto,
+    optimized: onnx.ModelProto,
+    prefix: str,
+    expected_before: int,
+    expected_after: int,
+) -> None:
+    """Verify a specific instance was correctly fused."""
+    before_count = len(get_nodes_by_prefix(original, prefix))
+    after_count = len(get_nodes_by_prefix(optimized, prefix))
+
+    assert before_count == expected_before, (
+        f"Instance {prefix}: Expected {expected_before} nodes before, got {before_count}"
+    )
+    assert after_count <= expected_after, (
+        f"Instance {prefix}: Expected at most {expected_after} nodes after, got {after_count}"
+    )
+
+
+def verify_numeric_output(
+    original_out: np.ndarray,
+    optimized_out: np.ndarray,
+    output_name: str,
+    rtol: float = 1e-4,
+    atol: float = 1e-5,
+) -> None:
+    """Verify outputs match within tolerance."""
+    assert original_out.shape == optimized_out.shape, (
+        f"Output {output_name}: Shape mismatch {original_out.shape} vs {optimized_out.shape}"
+    )
+    assert np.allclose(original_out, optimized_out, rtol=rtol, atol=atol), (
+        f"Output {output_name}: Values differ beyond tolerance "
+        f"(max_diff={np.max(np.abs(original_out - optimized_out)):.2e})"
+    )

@@ -1,0 +1,70 @@
+"""WinML Models Package.
+
+Provides WinMLAutoModel factory and task-specific model classes.
+
+Architecture:
+- WinMLAutoModel: Factory class that orchestrates model building pipeline
+- WinMLPreTrainedModel: Base class for all inference models (HF compatible)
+- WinMLModelFor*: Task-specific inference wrappers
+- HF_MODEL_SPECIALIZATIONS: HuggingFace model class overrides (CLIP, etc.)
+
+Usage:
+    from winml.modelkit.models import WinMLAutoModel
+    model = WinMLAutoModel.from_pretrained("microsoft/resnet-50")
+
+    # Or import specific classes
+    from winml.modelkit.models import WinMLModelForImageClassification
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from .hf import MODEL_BUILD_CONFIGS
+
+# HuggingFace model class mappings (aggregated from hf/ subpackage)
+# Importing triggers ONNX config registration with Optimum's TasksManager
+from .hf import MODEL_CLASS_MAPPING as HF_MODEL_CLASS_MAPPING
+
+# Re-export from winml/ subpackage (WinML inference class mappings)
+# These have no circular dependencies with loader/
+# TODO: Review if task-specific classes (WinMLModelForImageClassification) should be
+# exported directly or only accessed via WinMLAutoModel factory
+from .winml import (
+    TASK_TO_WINML_CLASS,
+    WINML_MODEL_CLASS_MAPPING,
+    WinMLModelForImageClassification,
+    WinMLPreTrainedModel,
+    get_supported_tasks,
+    get_winml_class,
+    register_specialization,
+)
+
+
+if TYPE_CHECKING:
+    from .auto import WinMLAutoModel
+
+
+# Lazy loading for modules that cause circular imports
+# WinMLAutoModel imports from loader/, which imports from models/
+def __getattr__(name: str):
+    """Lazy load modules that would cause circular imports."""
+    if name == "WinMLAutoModel":
+        from .auto import WinMLAutoModel
+
+        return WinMLAutoModel
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "HF_MODEL_CLASS_MAPPING",
+    "MODEL_BUILD_CONFIGS",
+    "TASK_TO_WINML_CLASS",
+    "WINML_MODEL_CLASS_MAPPING",
+    "WinMLAutoModel",
+    "WinMLModelForImageClassification",
+    "WinMLPreTrainedModel",
+    "get_supported_tasks",
+    "get_winml_class",
+    "register_specialization",
+]

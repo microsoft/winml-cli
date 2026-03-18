@@ -1,0 +1,161 @@
+{
+  "$schema": "./pattern-config.schema.json",
+  "ihv_type": "default",
+  "description": "Default unified pattern configuration for all IHVs",
+  "version": "1.0.0",
+  "HTPPatternRules": [
+    {
+      "pattern_id": "SUBGRAPH/GeluPattern",
+      "pattern_type": "subgraph",
+      "pattern_name": "Gelu_Erf_Based",
+      "description": "GELU activation function implemented using Erf (Gaussian Error Function). This pattern consists of Div, Erf, Add, and Mul operations that together compute the GELU activation: x * 0.5 * (1 + erf(x / sqrt(2)))",
+      "semantic_label": "GELUActivation"
+    }
+  ],
+  "SkeletonPatternRules": [
+    {
+      "pattern_id": "SUBGRAPH/GeluPattern",
+      "pattern_class": "Gelu1Pattern",
+      "module": "winml.modelkit.pattern.gelu_patterns",
+      "enabled": true,
+      "flag_name": "gelu1",
+      "description": "GELU activation using Erf approximation - Variant 1",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_class": "SingleGeluPattern",
+          "module": "winml.modelkit.pattern.gelu_patterns",
+          "priority": 1,
+          "flag_name": "singlegelu",
+          "reason": "Use single Gelu node (com.microsoft.Gelu operator)"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/GeluPattern",
+      "pattern_class": "Gelu2Pattern",
+      "module": "winml.modelkit.pattern.gelu_patterns",
+      "enabled": true,
+      "flag_name": "gelu2",
+      "description": "GELU activation using Erf approximation - Variant 2",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_class": "SingleGeluPattern",
+          "module": "winml.modelkit.pattern.gelu_patterns",
+          "priority": 1,
+          "flag_name": "singlegelu",
+          "reason": "Use single Gelu node (com.microsoft.Gelu operator)"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/GeluPattern",
+      "pattern_class": "Gelu3Pattern",
+      "module": "winml.modelkit.pattern.gelu_patterns",
+      "enabled": true,
+      "flag_name": "gelu3",
+      "description": "GELU activation using Erf approximation - Variant 3",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_class": "SingleGeluPattern",
+          "module": "winml.modelkit.pattern.gelu_patterns",
+          "priority": 1,
+          "flag_name": "singlegelu",
+          "reason": "Use single Gelu node (com.microsoft.Gelu operator)"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/GeluPattern",
+      "pattern_class": "Gelu4Pattern",
+      "module": "winml.modelkit.pattern.gelu_patterns",
+      "enabled": true,
+      "flag_name": "gelu4",
+      "description": "GELU activation using Mul instead of Div - Variant 4",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_class": "SingleGeluPattern",
+          "module": "winml.modelkit.pattern.gelu_patterns",
+          "priority": 1,
+          "flag_name": "singlegelu",
+          "reason": "Use single Gelu node (com.microsoft.Gelu operator)"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/GemmPattern",
+      "pattern_class": "MatMulAddPattern",
+      "module": "winml.modelkit.pattern.gemm_patterns",
+      "enabled": true,
+      "flag_name": "matmuladd",
+      "description": "MatMul followed by Add (bias)",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/GemmPattern",
+          "pattern_class": "ReshapeGemmReshapePattern",
+          "module": "winml.modelkit.pattern.gemm_patterns",
+          "priority": 1,
+          "flag_name": "reshapegemm",
+          "reason": "Use Gemm operator outperforms MatMul+Add"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/LayerNormalizationPattern",
+      "pattern_class": "LayerNormalizationPowPattern",
+      "module": "winml.modelkit.pattern.layernorm_patterns",
+      "enabled": true,
+      "flag_name": "layernormpow",
+      "description": "LayerNorm using Pow for variance",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/TransposedSingleLayerNormalizationPattern",
+          "pattern_class": "TransposedSingleLayerNormalizationPattern",
+          "module": "winml.modelkit.pattern.layernorm_patterns",
+          "priority": 1,
+          "flag_name": "singlelayernorm",
+          "reason": "Use single LayerNormalization node"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/LayerNormalizationPattern",
+      "pattern_class": "LayerNormalizationMulPattern",
+      "module": "winml.modelkit.pattern.layernorm_patterns",
+      "enabled": true,
+      "flag_name": "layernormmul",
+      "description": "LayerNorm using Mul for variance",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/TransposedSingleLayerNormalizationPattern",
+          "pattern_class": "TransposedSingleLayerNormalizationPattern",
+          "module": "winml.modelkit.pattern.layernorm_patterns",
+          "priority": 1,
+          "flag_name": "singlelayernorm",
+          "reason": "Use single LayerNormalization node"
+        }
+      ]
+    },
+    {
+      "pattern_id": "SUBGRAPH/ReshapeTransposeReshapePattern",
+      "pattern_class": "ReshapeTransposeReshapePattern",
+      "module": "winml.modelkit.pattern.transpose_patterns",
+      "enabled": true,
+      "flag_name": "reshape",
+      "description": "Reshape-Transpose-Reshape for dimension permutation",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/ReshapeTransposeReshapePattern",
+          "pattern_class": "MergedReshapeTransposeReshapePattern",
+          "module": "winml.modelkit.pattern.transpose_patterns",
+          "priority": 1,
+          "flag_name": "mergedreshape",
+          "reason": "Merged axes reduce Transpose dimensionality for better hardware compatibility"
+        }
+      ]
+    }
+  ]
+}

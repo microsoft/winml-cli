@@ -1,0 +1,942 @@
+{
+  "version": "1.0",
+  "doc_version": "80-63442-10",
+  "summary": {
+    "total_onnx_ops": 105,
+    "direct_mappings": 96,
+    "conditional_mappings": 9,
+    "ambiguous_mappings": 0
+  },
+  "mappings": {
+    "ArgMax": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Argmax"
+      ],
+      "qnn_op": "Argmax"
+    },
+    "ArgMin": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Argmin"
+      ],
+      "qnn_op": "Argmin"
+    },
+    "BatchNormalization": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Batchnorm"
+      ],
+      "qnn_op": "Batchnorm"
+    },
+    "Cast": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Cast"
+      ],
+      "qnn_op": "Cast"
+    },
+    "Concat": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Concat"
+      ],
+      "qnn_op": "Concat"
+    },
+    "ConstantOfShape": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ConstantOfShape"
+      ],
+      "qnn_op": "ConstantOfShape"
+    },
+    "Conv": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "Conv2d",
+        "Conv3d",
+        "DepthWiseConv2d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "Conv2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "NCHW format: [batch, channels, height, width]"
+          }
+        },
+        {
+          "qnn_op": "Conv3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "NCDHW format: [batch, channels, depth, height, width]"
+          }
+        }
+      ]
+    },
+    "QLinearConv": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "Conv2d",
+        "Conv3d",
+        "DepthWiseConv2d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "Conv2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "NCHW format"
+          }
+        },
+        {
+          "qnn_op": "Conv3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "NCDHW format"
+          }
+        }
+      ]
+    },
+    "CumSum": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "CumulativeSum"
+      ],
+      "qnn_op": "CumulativeSum"
+    },
+    "DepthToSpace": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "DepthToSpace"
+      ],
+      "qnn_op": "DepthToSpace"
+    },
+    "DequantizeLinear": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Dequantize"
+      ],
+      "qnn_op": "Dequantize"
+    },
+    "Abs": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseAbs"
+      ],
+      "qnn_op": "ElementWiseAbs"
+    },
+    "Add": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseAdd"
+      ],
+      "qnn_op": "ElementWiseAdd"
+    },
+    "Sum": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseAdd"
+      ],
+      "qnn_op": "ElementWiseAdd"
+    },
+    "And": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseAnd"
+      ],
+      "qnn_op": "ElementWiseAnd"
+    },
+    "Asin": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseAsin"
+      ],
+      "qnn_op": "ElementWiseAsin"
+    },
+    "Atan": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseAtan"
+      ],
+      "qnn_op": "ElementWiseAtan"
+    },
+    "Ceil": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseCeil"
+      ],
+      "qnn_op": "ElementWiseCeil"
+    },
+    "Cos": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseCos"
+      ],
+      "qnn_op": "ElementWiseCos"
+    },
+    "Div": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseDivide"
+      ],
+      "qnn_op": "ElementWiseDivide"
+    },
+    "Reciprocal": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseDivide"
+      ],
+      "qnn_op": "ElementWiseDivide"
+    },
+    "Equal": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseEqual"
+      ],
+      "qnn_op": "ElementWiseEqual"
+    },
+    "Exp": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseExp"
+      ],
+      "qnn_op": "ElementWiseExp"
+    },
+    "Floor": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseFloor"
+      ],
+      "qnn_op": "ElementWiseFloor"
+    },
+    "Mod": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "ElementWiseFmod",
+        "ElementWiseMod"
+      ],
+      "rules": [
+        {
+          "qnn_op": "ElementWiseFmod",
+          "checker": "check_attribute",
+          "condition": {
+            "attribute_name": "fmod",
+            "expected_value": 1,
+            "description": "C fmod semantics (floating-point remainder)"
+          }
+        },
+        {
+          "qnn_op": "ElementWiseMod",
+          "checker": "check_attribute",
+          "condition": {
+            "attribute_name": "fmod",
+            "expected_value": 0,
+            "description": "Python mod semantics (sign follows divisor)"
+          }
+        }
+      ]
+    },
+    "Greater": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseGreater"
+      ],
+      "qnn_op": "ElementWiseGreater"
+    },
+    "GreaterOrEqual": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseGreaterEqual"
+      ],
+      "qnn_op": "ElementWiseGreaterEqual"
+    },
+    "Less": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseLess"
+      ],
+      "qnn_op": "ElementWiseLess"
+    },
+    "LessOrEqual": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseLessEqual"
+      ],
+      "qnn_op": "ElementWiseLessEqual"
+    },
+    "Log": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseLog"
+      ],
+      "qnn_op": "ElementWiseLog"
+    },
+    "Max": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseMaximum"
+      ],
+      "qnn_op": "ElementWiseMaximum"
+    },
+    "Min": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseMinimum"
+      ],
+      "qnn_op": "ElementWiseMinimum"
+    },
+    "Mul": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseMultiply"
+      ],
+      "qnn_op": "ElementWiseMultiply"
+    },
+    "Neg": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseNeg"
+      ],
+      "qnn_op": "ElementWiseNeg"
+    },
+    "Not": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseNot"
+      ],
+      "qnn_op": "ElementWiseNot"
+    },
+    "IsNaN": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "IsNan"
+      ],
+      "qnn_op": "IsNan"
+    },
+    "Or": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseOr"
+      ],
+      "qnn_op": "ElementWiseOr"
+    },
+    "Pow": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWisePower"
+      ],
+      "qnn_op": "ElementWisePower"
+    },
+    "Round": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseRound"
+      ],
+      "qnn_op": "ElementWiseRound"
+    },
+    "Where": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseSelect"
+      ],
+      "qnn_op": "ElementWiseSelect"
+    },
+    "Sign": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseSign"
+      ],
+      "qnn_op": "ElementWiseSign"
+    },
+    "Sin": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseSin"
+      ],
+      "qnn_op": "ElementWiseSin"
+    },
+    "Softplus": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseSoftplus"
+      ],
+      "qnn_op": "ElementWiseSoftplus"
+    },
+    "Sqrt": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseSquareRoot"
+      ],
+      "qnn_op": "ElementWiseSquareRoot"
+    },
+    "Sub": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseSubtract"
+      ],
+      "qnn_op": "ElementWiseSubtract"
+    },
+    "Xor": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ElementWiseXor"
+      ],
+      "qnn_op": "ElementWiseXor"
+    },
+    "Elu": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Elu"
+      ],
+      "qnn_op": "Elu"
+    },
+    "Gather": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Gather"
+      ],
+      "qnn_op": "Gather"
+    },
+    "GatherElements": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "GatherElements"
+      ],
+      "qnn_op": "GatherElements"
+    },
+    "GatherND": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "GatherNd"
+      ],
+      "qnn_op": "GatherNd"
+    },
+    "GridSample": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "GridSample"
+      ],
+      "qnn_op": "GridSample"
+    },
+    "GroupNormalization": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "GroupNorm"
+      ],
+      "qnn_op": "GroupNorm"
+    },
+    "GRU": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Gru"
+      ],
+      "qnn_op": "Gru"
+    },
+    "InstanceNormalization": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "InstanceNorm"
+      ],
+      "qnn_op": "InstanceNorm"
+    },
+    "IsInf": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "IsInf"
+      ],
+      "qnn_op": "IsInf"
+    },
+    "LpNormalization": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "L2Norm"
+      ],
+      "qnn_op": "L2Norm"
+    },
+    "LpPool": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "L2Pool2d"
+      ],
+      "qnn_op": "L2Pool2d"
+    },
+    "LayerNormalization": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "LayerNorm"
+      ],
+      "qnn_op": "LayerNorm"
+    },
+    "LogSoftmax": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "LogSoftmax"
+      ],
+      "qnn_op": "LogSoftmax"
+    },
+    "LRN": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Lrn"
+      ],
+      "qnn_op": "Lrn"
+    },
+    "LSTM": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Lstm"
+      ],
+      "qnn_op": "Lstm"
+    },
+    "MatMul": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "MatMul"
+      ],
+      "qnn_op": "MatMul"
+    },
+    "QLinearMatMul": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "MatMul"
+      ],
+      "qnn_op": "MatMul"
+    },
+    "NonMaxSuppression": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "NonMaxSuppression"
+      ],
+      "qnn_op": "NonMaxSuppression"
+    },
+    "NonZero": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "NonZero"
+      ],
+      "qnn_op": "NonZero"
+    },
+    "OneHot": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "OneHot"
+      ],
+      "qnn_op": "OneHot"
+    },
+    "Pad": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Pad"
+      ],
+      "qnn_op": "Pad"
+    },
+    "AveragePool": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "PoolAvg2d",
+        "PoolAvg3d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "PoolAvg2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "2D average pooling"
+          }
+        },
+        {
+          "qnn_op": "PoolAvg3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "3D average pooling"
+          }
+        }
+      ]
+    },
+    "GlobalAveragePool": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "PoolAvg2d",
+        "PoolAvg3d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "PoolAvg2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "2D global average pooling"
+          }
+        },
+        {
+          "qnn_op": "PoolAvg3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "3D global average pooling"
+          }
+        }
+      ]
+    },
+    "MaxPool": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "PoolMax2d",
+        "PoolMax3d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "MaxPool2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "2D max pooling"
+          }
+        },
+        {
+          "qnn_op": "MaxPool3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "3D max pooling"
+          }
+        }
+      ]
+    },
+    "GlobalMaxPool": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "PoolMax2d",
+        "PoolMax3d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "PoolMax2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "2D global max pooling"
+          }
+        },
+        {
+          "qnn_op": "PoolMax3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "3D global max pooling"
+          }
+        }
+      ]
+    },
+    "PRelu": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Prelu"
+      ],
+      "qnn_op": "Prelu"
+    },
+    "LeakyRelu": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Prelu"
+      ],
+      "qnn_op": "Prelu"
+    },
+    "QuantizeLinear": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Quantize"
+      ],
+      "qnn_op": "Quantize"
+    },
+    "RandomUniformLike": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "RandomUniformLike"
+      ],
+      "qnn_op": "RandomUniformLike"
+    },
+    "ReduceMax": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReduceMax"
+      ],
+      "qnn_op": "ReduceMax"
+    },
+    "ReduceMean": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReduceMean"
+      ],
+      "qnn_op": "ReduceMean"
+    },
+    "ReduceMin": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReduceMin"
+      ],
+      "qnn_op": "ReduceMin"
+    },
+    "ReduceProd": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReduceProd"
+      ],
+      "qnn_op": "ReduceProd"
+    },
+    "ReduceSum": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReduceSum"
+      ],
+      "qnn_op": "ReduceSum"
+    },
+    "ReduceSumSquare": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReduceSumSquare"
+      ],
+      "qnn_op": "ReduceSumSquare"
+    },
+    "Relu": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Relu"
+      ],
+      "qnn_op": "Relu"
+    },
+    "Clip": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ReluMinMax"
+      ],
+      "qnn_op": "ReluMinMax"
+    },
+    "Reshape": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Reshape"
+      ],
+      "qnn_op": "Reshape"
+    },
+    "Flatten": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Reshape"
+      ],
+      "qnn_op": "Reshape"
+    },
+    "Squeeze": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Reshape"
+      ],
+      "qnn_op": "Reshape"
+    },
+    "Unsqueeze": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Reshape"
+      ],
+      "qnn_op": "Reshape"
+    },
+    "Resize": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "Resize",
+        "ResizeBilinear",
+        "ResizeNearestNeighbor"
+      ],
+      "rules": [
+        {
+          "qnn_op": "ResizeNearestNeighbor",
+          "checker": "check_attribute",
+          "condition": {
+            "attribute_name": "mode",
+            "expected_value": "nearest",
+            "description": "Nearest neighbor interpolation"
+          }
+        },
+        {
+          "qnn_op": "ResizeBilinear",
+          "checker": "check_attribute",
+          "condition": {
+            "attribute_name": "mode",
+            "expected_value": "linear",
+            "description": "Bilinear interpolation (linear mode in 2D)"
+          }
+        },
+        {
+          "qnn_op": "Resize",
+          "checker": "check_attribute",
+          "condition": {
+            "attribute_name": "mode",
+            "expected_value": [
+              "cubic",
+              ""
+            ],
+            "description": "Cubic or other interpolation modes - use generic Resize"
+          }
+        }
+      ]
+    },
+    "RoiAlign": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "RoiAlign"
+      ],
+      "qnn_op": "RoiAlign"
+    },
+    "MaxRoiPool": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "RoiPooling"
+      ],
+      "qnn_op": "RoiPooling"
+    },
+    "ScatterElements": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ScatterElements"
+      ],
+      "qnn_op": "ScatterElements"
+    },
+    "Scatter": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ScatterElements"
+      ],
+      "qnn_op": "ScatterElements"
+    },
+    "ScatterND": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "ScatterNd"
+      ],
+      "qnn_op": "ScatterNd"
+    },
+    "Shape": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Shape"
+      ],
+      "qnn_op": "Shape"
+    },
+    "Sigmoid": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Sigmoid"
+      ],
+      "qnn_op": "Sigmoid"
+    },
+    "Softmax": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Softmax"
+      ],
+      "qnn_op": "Softmax"
+    },
+    "SpaceToDepth": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "SpaceToDepth"
+      ],
+      "qnn_op": "SpaceToDepth"
+    },
+    "Split": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Split"
+      ],
+      "qnn_op": "Split"
+    },
+    "STFT": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Stft"
+      ],
+      "qnn_op": "Stft"
+    },
+    "Slice": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "StridedSlice"
+      ],
+      "qnn_op": "StridedSlice"
+    },
+    "Tanh": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Tanh"
+      ],
+      "qnn_op": "Tanh"
+    },
+    "Tile": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Tile"
+      ],
+      "qnn_op": "Tile"
+    },
+    "TopK": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "TopK"
+      ],
+      "qnn_op": "TopK"
+    },
+    "Transpose": {
+      "mapping_type": "direct",
+      "qnn_operators": [
+        "Transpose"
+      ],
+      "qnn_op": "Transpose"
+    },
+    "ConvTranspose": {
+      "mapping_type": "conditional",
+      "qnn_operators": [
+        "TransposeConv2d",
+        "TransposeConv3d"
+      ],
+      "rules": [
+        {
+          "qnn_op": "TransposeConv2d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 4,
+            "description": "2D transposed convolution"
+          }
+        },
+        {
+          "qnn_op": "TransposeConv3d",
+          "checker": "check_input_rank",
+          "condition": {
+            "input_index": 0,
+            "rank": 5,
+            "description": "3D transposed convolution"
+          }
+        }
+      ]
+    }
+  }
+}
