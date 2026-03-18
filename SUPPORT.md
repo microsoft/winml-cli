@@ -6,8 +6,6 @@ This project uses [GitHub Issues](https://github.com/microsoft/ModelKit/issues) 
 issues before filing new issues to avoid duplicates. For new issues, file your bug or
 feature request as a new Issue.
 
-For help and questions about using this project, please use [GitHub Discussions](https://github.com/microsoft/ModelKit/discussions).
-
 ## Microsoft Support Policy
 
 Support for this project is limited to the resources listed above.

@@ -51,7 +51,6 @@ We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.
 
 For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/ModelKit/issues).
 
-For help and questions about using this project, please use [GitHub Discussions](https://github.com/microsoft/ModelKit/discussions).
 
 ## Code of Conduct
 
