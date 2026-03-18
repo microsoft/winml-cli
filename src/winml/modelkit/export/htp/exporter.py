@@ -1,0 +1,587 @@
+# S110: try-except-pass for optional model info extraction
+
+"""HTP (Hierarchy-preserving Tags Protocol) Exporter.
+
+This exporter preserves the hierarchical structure of HuggingFace models
+when converting to ONNX format by tracing module execution and tagging
+ONNX nodes with their source module information.
+
+Key Features:
+- Direct module context capture during execution
+- Precise hierarchy tag generation
+- Comprehensive metadata export
+- Optional detailed reporting
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import sys
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar
+
+import onnx
+import torch
+import torch.nn as nn
+from rich.console import Console
+
+from ...core.onnx_node_tagger import create_node_tagger_from_hierarchy
+from ...core.onnx_utils import infer_output_names
+from .base_writer import ExportStep
+from .hierarchy import TracingHierarchyBuilder
+from .monitor import HTPExportMonitor
+
+
+if TYPE_CHECKING:
+    from ..config import WinMLExportConfig
+
+
+logger = logging.getLogger(__name__)
+
+
+class HTPConfig:
+    """Configuration constants for HTP Exporter."""
+
+    # Strategy and file naming
+    STRATEGY_NAME = "htp"
+    ONNX_EXTENSION = ".onnx"
+    REPORT_SUFFIX = "_htp_export_report.txt"
+    METADATA_SUFFIX = "_htp_metadata.json"
+
+    # Console and tree formatting
+    CONSOLE_WIDTH = 80
+    SEPARATOR_LENGTH = 80
+    MODULE_TREE_MAX_LINES = 100
+    NODE_TREE_MAX_LINES = 30
+    TOP_NODES_COUNT = 20
+
+    # Export defaults
+    DEFAULT_TASK = "feature-extraction"
+
+    # Default ONNX export configuration
+    # QNN-SAFE DEFAULTS: Static batch/shape by default to prevent BiasGelu operator creation
+    DEFAULT_EXPORT_CONFIG: ClassVar[dict[str, Any]] = {
+        "opset_version": 17,
+        "do_constant_folding": True,
+        "verbose": False,  # ONNX internal verbose
+        # PyTorch dynamo export disabled by default. Use --dynamo flag to enable
+        # for rich node metadata (namespace, class_hierarchy, etc.)
+        # dynamic_axes: Not set (defaults to None = static dimensions)
+        # This prevents dynamic batch which causes MatMulAddFusion failure
+    }
+
+    # Default torch.nn modules to include when torch_module=True
+    DEFAULT_TORCH_MODULES: ClassVar[list[str]] = [
+        "LayerNorm",
+        "Embedding",
+    ]
+
+    # Default export statistics structure
+    # empty_tags: CARDINAL RULE: Must be 0, default to max int to catch violations
+    DEFAULT_EXPORT_STATS: ClassVar[dict[str, Any]] = {
+        "export_time": 0.0,
+        "hierarchy_modules": 0,
+        "onnx_nodes": 0,
+        "tagged_nodes": 0,
+        "empty_tags": sys.maxsize,
+        "coverage_percentage": 0.0,
+        "strategy": STRATEGY_NAME,
+    }
+
+
+class HTPExporter:
+    """HTP Exporter with proper verbose console output.
+
+    This implementation properly separates:
+    - verbose: Controls console output (8-step format)
+    - enable_reporting: Controls report file generation
+    """
+
+    def __init__(
+        self,
+        verbose: bool = False,
+        enable_reporting: bool = False,
+        embed_hierarchy_attributes: bool = True,
+        torch_module: bool | list[str] = False,
+    ) -> None:
+        """Initialize HTP exporter.
+
+        Args:
+            verbose: Enable verbose console output (8-step format)
+            enable_reporting: Enable report file generation
+            embed_hierarchy_attributes: Whether to embed hierarchy_tag attributes in ONNX
+                                       (disabled by --clean-onnx or --no-hierarchy-attrs)
+            torch_module: Include torch.nn modules in hierarchy for proper operation
+                         attribution (e.g., ResNet).
+                         Can be:
+                         - False: Don't include any torch.nn modules (default)
+                         - True: Include default modules (LayerNorm, Embedding)
+                         - List[str]: Include specific torch.nn module types
+        """
+        self.verbose = verbose
+        self.enable_reporting = enable_reporting
+        self.embed_hierarchy_attributes = embed_hierarchy_attributes
+        self.torch_module = torch_module
+        self.strategy = HTPConfig.STRATEGY_NAME
+
+        # Core components
+        self._hierarchy_builder = None
+        self._node_tagger = None
+        self._hierarchy_data = {}
+        self._tagged_nodes = {}
+        self._tagging_stats = {}
+
+        # Export statistics
+        self._export_stats = HTPConfig.DEFAULT_EXPORT_STATS.copy()
+
+        # Export monitor will be initialized in export()
+        self._monitor = None
+
+        # Rich console for tree rendering
+        self.console = Console(width=HTPConfig.CONSOLE_WIDTH)
+
+
+    def export(
+        self,
+        model: nn.Module | None = None,
+        output_path: str = "",
+        *,
+        export_config: WinMLExportConfig,
+        model_name_or_path: str | None = None,
+        task: str | None = None,
+        enable_operation_fallback: bool = False,
+        metadata_filename: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Export model to ONNX with hierarchy-preserving tags.
+
+        Args:
+            model: PyTorch model to export. If None, auto-loads from model_name_or_path.
+            output_path: Path for the output ONNX file.
+            export_config: Export configuration with I/O specs (input_tensors required).
+            model_name_or_path: HF model ID for auto-loading and preprocessor lookup.
+            task: Task for auto-generating inputs when input_tensors not provided.
+            enable_operation_fallback: Enable fallback node tagging.
+            metadata_filename: Custom metadata filename.
+
+        Returns:
+            Export statistics dict.
+        """
+        start_time = time.time()
+
+        # Initialize export monitor
+        self._monitor = HTPExportMonitor(
+            output_path=output_path,
+            model_name=model_name_or_path or "unknown",
+            verbose=self.verbose,
+            enable_report=self.enable_reporting,
+            embed_hierarchy=self.embed_hierarchy_attributes,
+        )
+
+        # Use monitor as context manager
+        with self._monitor as monitor:
+            # Auto-load model if needed
+            if model is None:
+                if model_name_or_path is None:
+                    raise ValueError(
+                        "Either 'model' or 'model_name_or_path' must be provided."
+                    )
+                from ...loader import load_hf_model
+
+                model, _, _ = load_hf_model(model_name_or_path)
+
+            # Step 1: Model Preparation
+            model.eval()
+
+            monitor.update(
+                ExportStep.MODEL_PREP,
+                model_class=type(model).__name__,
+                total_modules=len(list(model.modules())),
+                total_parameters=sum(p.numel() for p in model.parameters()),
+            )
+
+            # Step 2: Input Generation from export_config
+            inputs = export_config.generate_dummy_inputs()
+
+            # Monitor input generation data
+            model_config = getattr(model, "config", None)
+            input_gen_data: dict[str, Any] = {
+                "method": "from_config",
+                "model_type": getattr(model_config, "model_type", "pytorch"),
+                "task": task or HTPConfig.DEFAULT_TASK,
+                "inputs": {
+                    name: {"shape": list(t.shape), "dtype": str(t.dtype)}
+                    for name, t in inputs.items()
+                },
+            }
+            monitor.update(ExportStep.INPUT_GEN, **input_gen_data)
+
+            # Step 3: Hierarchy Building
+            self._trace_model_hierarchy(model, inputs)
+
+            execution_steps = (
+                self._hierarchy_builder.get_execution_summary().get("execution_steps", 0)
+                if self._hierarchy_builder
+                else 0
+            )
+            monitor.update(
+                ExportStep.HIERARCHY,
+                hierarchy=self._hierarchy_data,
+                execution_steps=execution_steps,
+            )
+
+            # Step 4: ONNX Export
+            self._convert_model_to_onnx(model, output_path, inputs, export_config, task=task)
+
+            # Verify ONNX export
+            self._verify_onnx_export(output_path)
+
+            # Update monitor with ONNX export info
+            onnx_size_mb = (
+                round(Path(output_path).stat().st_size / (1024 * 1024), 2)
+                if Path(output_path).exists()
+                else 0
+            )
+            traced_outputs = (
+                self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
+            )
+            output_names = (
+                infer_output_names(traced_outputs) if traced_outputs is not None else []
+            )
+            monitor.update(
+                ExportStep.ONNX_EXPORT,
+                opset_version=export_config.opset_version,
+                do_constant_folding=export_config.do_constant_folding,
+                onnx_size_mb=onnx_size_mb,
+                output_names=output_names,
+            )
+
+            # Step 5: Node Tagger Creation
+            from ...onnx import load_onnx
+
+            onnx_model = load_onnx(output_path, validate=False)
+
+            self._initialize_node_tagger(enable_operation_fallback)
+
+            # Tagger creation is part of node tagging process
+            # No separate step needed
+
+            # Step 6: Node Tagging
+            self._apply_hierarchy_tags(onnx_model)
+
+            # Update monitor with tagging results
+            total_nodes = len(onnx_model.graph.node)
+            tagged_nodes_count = len(self._tagged_nodes)
+            coverage = (tagged_nodes_count / total_nodes * 100.0) if total_nodes > 0 else 0.0
+
+            monitor.update(
+                ExportStep.NODE_TAGGING,
+                total_nodes=total_nodes,
+                tagged_nodes=self._tagged_nodes,
+                tagging_stats=self._tagging_stats,
+                coverage=coverage,
+            )
+
+            # Step 7: Tag Injection + Graph Metadata
+            self._embed_graph_metadata(onnx_model, export_config)
+            self._embed_tags_in_onnx(output_path, onnx_model, **kwargs)
+
+            # Update monitor
+            monitor.update(ExportStep.TAG_INJECTION)
+
+            # Calculate final statistics before metadata generation
+            export_time = time.time() - start_time
+            self._export_stats["export_time"] = export_time
+            self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
+            self._export_stats["onnx_nodes"] = len(onnx_model.graph.node)
+            self._export_stats["tagged_nodes"] = len(self._tagged_nodes)
+
+            # Calculate empty tags (should be 0 with our implementation)
+            empty_tag_count = sum(
+                1 for tag in self._tagged_nodes.values() if not tag or not tag.strip()
+            )
+            self._export_stats["empty_tags"] = empty_tag_count
+
+            # Calculate coverage percentage
+            total_nodes = len(onnx_model.graph.node)
+            tagged_nodes = len(self._tagged_nodes)
+            coverage = (tagged_nodes / total_nodes * 100.0) if total_nodes > 0 else 0.0
+            self._export_stats["coverage_percentage"] = coverage
+
+            # Update monitor with actual export time
+            monitor.data.export_time = export_time
+            # Also update the start_time to ensure elapsed_time is correct
+            monitor.data.start_time = start_time
+
+            # Step 8: Metadata Generation
+            # Metadata generation is handled by MetadataWriter in monitor
+            # No need to call _generate_metadata_file here
+
+        # The monitor's context manager will handle finalization
+        return self._export_stats.copy()
+
+    # Internal implementation methods
+    def _trace_model_hierarchy(self, model: nn.Module, inputs: dict) -> None:
+        """Build hierarchy internally."""
+        # Determine if we need torch.nn exceptions for this model
+        exceptions = None
+        if self.torch_module is True:
+            # Use default torch.nn modules from config
+            exceptions = HTPConfig.DEFAULT_TORCH_MODULES
+        elif isinstance(self.torch_module, list):
+            # Use user-provided list of torch.nn modules
+            exceptions = self.torch_module
+        # If False, exceptions remains None (no torch.nn modules included)
+
+        self._hierarchy_builder = TracingHierarchyBuilder(exceptions=exceptions)
+
+        # Pass inputs to tracer
+        input_args = inputs
+
+        self._hierarchy_builder.trace_model_execution(model, input_args)
+
+        summary = self._hierarchy_builder.get_execution_summary()
+        self._hierarchy_data = summary["module_hierarchy"]
+        self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
+
+    def _verify_onnx_export(self, output_path: str) -> None:
+        """Verify ONNX export succeeded and check for common issues.
+
+        Post-export validation:
+        1. Load ONNX model
+        2. Run ONNX checker
+        3. Verify static batch (warn if dynamic detected)
+
+        Args:
+            output_path: Path to exported ONNX file
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            # Load and verify ONNX model
+            from ...onnx import load_onnx
+
+            model = load_onnx(output_path)
+            logger.info("✅ ONNX verification passed")
+
+            # Check for dynamic batch dimension (should be static)
+            graph_inputs = model.graph.input
+            has_dynamic_batch = False
+            for input_tensor in graph_inputs:
+                if input_tensor.type.tensor_type.shape.dim:
+                    batch_dim = input_tensor.type.tensor_type.shape.dim[0]
+                    if batch_dim.dim_param:  # Has symbolic name (dynamic)
+                        has_dynamic_batch = True
+                        logger.warning(
+                            "⚠️  Dynamic batch detected in ONNX for '%s'.\n"
+                            "   This may cause QNN compatibility issues.\n"
+                            "   Recommendation: Remove dynamic_axes from export_config.",
+                            input_tensor.name,
+                        )
+
+            if not has_dynamic_batch:
+                logger.info("✅ Static batch confirmed (QNN-compatible)")
+
+        except Exception as e:
+            logger.warning("⚠️  ONNX verification failed: %s", e)
+            logger.warning("   Export completed but validation encountered issues.")
+            # Don't raise - export succeeded, just warn about validation
+
+    def _convert_model_to_onnx(
+        self,
+        model: nn.Module,
+        output_path: str,
+        inputs: dict,
+        export_config: WinMLExportConfig,
+        task: str | None = None,
+    ) -> None:
+        """Export to ONNX using WinMLExportConfig."""
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Input names from config, fallback to inputs dict keys
+        input_names = export_config.get_input_names() or list(inputs.keys())
+
+        # Output names: infer from traced hierarchy, validate against config
+        traced_outputs = (
+            self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
+        )
+        inferred_names = (
+            infer_output_names(traced_outputs) if traced_outputs is not None else []
+        )
+        output_names = export_config.get_output_names()
+
+        if output_names and inferred_names and len(output_names) != len(inferred_names):
+            logger.warning(
+                "Output names count mismatch: config has %d %s, "
+                "model trace inferred %d %s. "
+                "Keeping config names (from Optimum OnnxConfig).",
+                len(output_names),
+                output_names,
+                len(inferred_names),
+                inferred_names,
+            )
+            # Trust config output names — they come from Optimum's OnnxConfig
+            # which knows the actual ONNX graph outputs. infer_output_names
+            # may return extra fields from the model's dataclass output.
+        elif not output_names and inferred_names:
+            output_names = inferred_names
+
+        # Build kwargs for torch.onnx.export
+        onnx_kwargs: dict[str, Any] = {
+            "opset_version": export_config.opset_version,
+            "do_constant_folding": export_config.do_constant_folding,
+            "export_params": export_config.export_params,
+        }
+        # Always explicitly set dynamo — PyTorch 2.10+ defaults to True
+        onnx_kwargs["dynamo"] = bool(export_config.dynamo)
+        if input_names:
+            onnx_kwargs["input_names"] = input_names
+        if output_names:
+            onnx_kwargs["output_names"] = output_names
+        if export_config.dynamic_axes:
+            onnx_kwargs["dynamic_axes"] = export_config.dynamic_axes
+
+        export_inputs = tuple(inputs.values())
+        with self._get_optimum_patcher(model, task):
+            torch.onnx.export(model, tuple(), output_path, kwargs=inputs, **onnx_kwargs)
+
+    @staticmethod
+    def _get_optimum_patcher(model: nn.Module, task: str | None) -> Any:
+        """Get Optimum's model patcher for TorchScript tracing compatibility.
+
+        Optimum patches models to fix tracing issues introduced in
+        Transformers 4.53+ (vmap masking, DynamicCache, packed sequences).
+        Falls back to no-op context if unavailable.
+        """
+        try:
+            import optimum.exporters.onnx.model_configs  # noqa: F401
+            from optimum.exporters.tasks import TasksManager
+        except ImportError:
+            logger.debug("Optimum not available; skipping model patcher.")
+            return contextlib.nullcontext()
+
+        model_config = getattr(model, "config", None)
+        model_type = getattr(model_config, "model_type", None) if model_config else None
+        if not model_type:
+            logger.debug("Model has no config.model_type; skipping Optimum patcher.")
+            return contextlib.nullcontext()
+
+        try:
+            cfg_cls = TasksManager.get_exporter_config_constructor(
+                "onnx",
+                model_type=model_type,
+                task=task,
+                library_name="transformers",
+            )
+            return cfg_cls(model_config).patch_model_for_export(model)
+        except KeyError:
+            logger.debug(
+                "Model type '%s' (task='%s') not in Optimum registry; "
+                "exporting without Optimum patcher.",
+                model_type, task,
+            )
+            return contextlib.nullcontext()
+        except Exception:
+            logger.warning(
+                "Optimum model patcher failed for model_type='%s', task='%s'. "
+                "Export may produce incorrect results for models requiring "
+                "Transformers 4.53+ tracing patches.",
+                model_type, task,
+                exc_info=True,
+            )
+            return contextlib.nullcontext()
+
+    def _initialize_node_tagger(self, enable_operation_fallback: bool) -> None:
+        """Create node tagger internally."""
+        self._node_tagger = create_node_tagger_from_hierarchy(
+            self._hierarchy_data, enable_operation_fallback=enable_operation_fallback
+        )
+
+    def _apply_hierarchy_tags(self, onnx_model: onnx.ModelProto) -> None:
+        """Tag nodes internally."""
+        # Store ONNX model for later use in displaying operations
+        self._onnx_model = onnx_model
+        self._tagged_nodes = self._node_tagger.tag_all_nodes(onnx_model)
+
+        # Get statistics
+        stats = self._node_tagger.get_tagging_statistics(onnx_model)
+        self._tagging_stats = stats
+
+        # Update export stats
+        self._export_stats["onnx_nodes"] = len(onnx_model.graph.node)
+        self._export_stats["tagged_nodes"] = len(self._tagged_nodes)
+
+        # Calculate empty tags (should be 0 with our implementation)
+        empty_tag_count = sum(
+            1 for tag in self._tagged_nodes.values() if not tag or not tag.strip()
+        )
+        self._export_stats["empty_tags"] = empty_tag_count
+
+        # Calculate coverage percentage
+        total_nodes = len(onnx_model.graph.node)
+        tagged_nodes = len(self._tagged_nodes)
+        coverage = (tagged_nodes / total_nodes * 100.0) if total_nodes > 0 else 0.0
+        self._export_stats["coverage_percentage"] = coverage
+
+    def _embed_graph_metadata(
+        self, onnx_model: onnx.ModelProto, export_config: WinMLExportConfig
+    ) -> None:
+        """Embed winml.io.inputs/outputs in ONNX model-level metadata_props.
+
+        Writes InputTensorSpec/OutputTensorSpec as JSON arrays following the
+        WinML Graph Metadata Spec (section 5.4). Includes value_range when
+        available for calibration data generation.
+        """
+        import json
+
+        if export_config.input_tensors:
+            io_inputs = [spec.to_dict() for spec in export_config.input_tensors]
+            onnx_model.metadata_props.add(
+                key="winml.io.inputs",
+                value=json.dumps(io_inputs),
+            )
+            logger.debug(
+                "Embedded winml.io.inputs for %d tensors", len(io_inputs)
+            )
+
+        if export_config.output_tensors:
+            io_outputs = [spec.to_dict() for spec in export_config.output_tensors]
+            onnx_model.metadata_props.add(
+                key="winml.io.outputs",
+                value=json.dumps(io_outputs),
+            )
+
+    def _embed_tags_in_onnx(
+        self, output_path: str, onnx_model: onnx.ModelProto, **kwargs: Any,
+    ) -> None:
+        """Inject hierarchy tags into ONNX node metadata_props.
+
+        Tags are stored in node.metadata_props (not node.attribute) to align with
+        PyTorch 2.9+ dynamo export which adds rich metadata like namespace,
+        class_hierarchy, fx_node, etc. to the same location.
+
+        Metadata keys (winml namespace):
+        - winml.hierarchy.tag: Full hierarchy path (e.g., "/Model/Encoder/Layer.0")
+        - winml.hierarchy.depth: Depth in hierarchy (e.g., "3" for 3 path segments)
+        """
+        if self.embed_hierarchy_attributes:
+            # Add hierarchy tags as node metadata_props (not attributes)
+            for node in onnx_model.graph.node:
+                node_name = node.name or f"{node.op_type}_{id(node)}"
+                if node_name in self._tagged_nodes:
+                    tag = self._tagged_nodes[node_name]
+                    # Calculate depth from tag path segments
+                    # e.g., "/Model/Encoder/Layer" -> depth = 3
+                    depth = len([p for p in tag.split("/") if p])
+                    # Use metadata_props with winml namespace
+                    node.metadata_props.add(key="winml.hierarchy.tag", value=tag)
+                    node.metadata_props.add(key="winml.hierarchy.depth", value=str(depth))
+
+        # Always save — graph metadata (winml.io.*) and/or hierarchy tags may have been added
+        from ...onnx import save_onnx
+
+        save_onnx(onnx_model, output_path)

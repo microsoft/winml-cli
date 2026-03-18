@@ -1,0 +1,29 @@
+{
+  "$schema": "./pattern-config.schema.json",
+  "ihv_type": "QNN",
+  "description": "QNN-specific pattern customizations (extends default.json)",
+  "version": "1.0.0",
+
+  "HTPPatternRules": [],
+
+  "SkeletonPatternRules": [
+    {
+      "pattern_id": "SUBGRAPH/TransposeAttentionPattern",
+      "pattern_class": "TransposeAttentionPattern",
+      "module": "winml.modelkit.pattern.attention_patterns",
+      "enabled": true,
+      "flag_name": "attention",
+      "description": "Attention pattern with transpose operations",
+      "alternatives": [
+        {
+          "pattern_to_id": "SUBGRAPH/TransposeAttentionPattern",
+          "pattern_class": "ExpandedAttentionPattern",
+          "module": "winml.modelkit.pattern.attention_patterns",
+          "priority": 1,
+          "flag_name": "expandedattention",
+          "reason": "Expanded attention pattern for broader hardware compatibility"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[
+    {
+        "pattern_id": "SUBGRAPH/GELU_Erf",
+        "pattern_type": "subgraph",
+        "pattern_name": "Gelu_Erf_Based",
+        "description": "GELU activation function implemented using Erf (Gaussian Error Function). This pattern consists of Div, Erf, Add, and Mul operations that together compute the GELU activation: x * 0.5 * (1 + erf(x / sqrt(2)))",
+        "semantic_label": "GELUActivation",
+        "node_topology": {
+            "div_node": "Div",
+            "erf_node": "Erf",
+            "add_node": "Add",
+            "mul_node1": "Mul",
+            "mul_node2": "Mul"
+        },
+        "edge_topology": [
+            ["div_node", "erf_node"],
+            ["erf_node", "add_node"],
+            ["add_node", "mul_node1"],
+            ["mul_node1", "mul_node2"]
+        ]
+    }
+]

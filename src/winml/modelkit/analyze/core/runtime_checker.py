@@ -1,0 +1,347 @@
+"""RuntimeChecker - Check pattern support against runtime rules.
+
+Implements FR-005 (Runtime support checking), FR-006 (Pattern matching),
+FR-016-020 (Support classification).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+import tqdm
+
+from winml.modelkit.pattern.config import UnifiedPatternConfig
+from winml.modelkit.pattern.match import PatternMatchResult
+
+from ..models.runtime_checks import (
+    AlternativeType,
+    PatternAlternative,
+    PatternRuntime,
+    RuntimeTestResult,
+)
+from .runtime_checker_query import RuntimeCheckerQuery
+
+
+if TYPE_CHECKING:
+    import onnx
+
+    from ..models.onnx_model import ONNXModel
+
+logger = logging.getLogger(__name__)
+
+# Runtime check result status constants
+RESULT_SUCCESS = "success"
+RESULT_FAIL = "fail"
+RESULT_NO_DATA = "no_data"
+
+
+class RuntimeChecker:
+    """Check operator and subgraph pattern support against runtime rules.
+
+    High-level interface for checking operator-level and subgraph-level
+    support for a target Execution Provider (EP).
+
+    Responsibilities:
+    - Query runtime support via RuntimeCheckerQuery
+    - Convert ONNX nodes to pattern matches
+    - Classify support level (white/gray/black)
+    - Aggregate runtime check results
+
+    FR-005: Runtime support checking
+    FR-006: Pattern matching against rule database
+    FR-016-020: Support classification logic
+
+    Attributes:
+        model: ONNX model to analyze (optional)
+        patterns: List of PatternMatch for subgraph detection (optional)
+        ep: Target execution provider (e.g., "QNNExecutionProvider")
+        device: Device string (e.g., "CPU" | "GPU" | "NPU")
+    """
+
+    def __init__(
+        self,
+        ep: str,
+        device: str,
+        model: ONNXModel | None = None,
+        patterns: list[PatternMatchResult] | None = None,
+        pattern_config: UnifiedPatternConfig | None = None,
+        dynamic_axis_strict_mode: bool = False,
+    ) -> None:
+        """Initialize runtime checker.
+
+        Args:
+            ep: Target execution provider name
+            device: Device string (e.g., "CPU" | "GPU" | "NPU")
+            model: ONNX model to analyze (optional)
+            patterns: List of PatternMatchResult for subgraph detection (optional)
+            pattern_config: Pattern configuration for reading alternatives.
+                           If None, a default UnifiedPatternConfig is created.
+            dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
+                for matching against first_axis test data. If True, preserves exact
+                dynamic axis indices.
+
+        Raises:
+            ValueError: If neither model nor patterns is provided
+        """
+        if model is None and patterns is None:
+            raise ValueError("At least one of 'model' or 'patterns' must be provided")
+
+        if not ep or not ep.strip():
+            raise ValueError("ep parameter cannot be empty")
+
+        if not device or not device.strip():
+            raise ValueError("device parameter cannot be empty")
+
+        self._model = model
+        self._patterns = patterns
+
+        self._ep = ep
+        self._device = device
+
+        # Pattern configuration for reading alternatives from JSON
+        self._pattern_config = pattern_config or UnifiedPatternConfig()
+        self._dynamic_axis_strict_mode = dynamic_axis_strict_mode
+
+        # Lazy-initialized RuntimeCheckerQuery (cached for reuse)
+        self._query: RuntimeCheckerQuery | None = None
+
+        logger.info(
+            "Initialized RuntimeChecker for EP=%s, driver=%s",
+            ep,
+            device,
+        )
+
+    def _get_query(self) -> RuntimeCheckerQuery:
+        """Get or create cached RuntimeCheckerQuery.
+
+        Returns:
+            RuntimeCheckerQuery instance (cached or newly created)
+
+        Raises:
+            ValueError: If model is not available
+        """
+        if self._model is None:
+            raise ValueError(
+                "Cannot create RuntimeCheckerQuery without ONNX model. "
+                "RuntimeChecker was initialized without model."
+            )
+
+        if self._query is None:
+            model_proto = self._model.get_model()
+            self._query = RuntimeCheckerQuery(
+                model_proto=model_proto,
+                ep_name=self._ep,
+                device_type=self._device,
+                dynamic_axis_strict_mode=self._dynamic_axis_strict_mode,
+            )
+
+        return self._query
+
+    def op_support(
+        self,
+        run_unknown_op: bool = True,
+        save_node_types: set[str] | None = None,
+    ) -> list[PatternRuntime]:
+        """Check operator-level runtime support.
+
+        Returns operator-level runtime check results for each operator.
+
+        Returns:
+            List[PatternRuntime]: Runtime results for each operator pattern
+
+        Raises:
+            ValueError: If initialized without ONNXModel
+        """
+        if self._model is None:
+            raise ValueError(
+                "op_support() requires ONNXModel. "
+                "RuntimeChecker was initialized with list[PatternMatchResult]."
+            )
+
+        logger.info("Checking operator-level runtime support")
+
+        results: list[PatternRuntime] = []
+
+        # Get all nodes from model
+        model_proto = self._model.get_model()
+        # Get cached RuntimeCheckerQuery
+        query = self._get_query()
+        for node in tqdm.tqdm(model_proto.graph.node):
+            # Run runtime check for node
+            results.append(
+                query.run_for_node(
+                    node,
+                    run_unknown_op=run_unknown_op,
+                    save_node_types=save_node_types,
+                )
+            )
+
+        logger.info("Checked %d operators", len(results))
+
+        return results
+
+    def subgraph_support(
+        self,
+        patterns: list[PatternMatchResult] | None = None,
+    ) -> list[PatternRuntime]:
+        """Check subgraph-level runtime support.
+
+        Given detected patterns, check runtime support.
+        Each pattern returns result + optional replacement Information.
+
+        Args:
+            patterns: List of PatternMatchResult objects to check.
+                      If None, uses patterns from initialization.
+
+        Returns:
+            List[PatternRuntime]: Runtime results for each pattern with alternatives
+
+        Raises:
+            ValueError: If patterns is None and RuntimeChecker was not initialized with patterns
+        """
+        # Determine which patterns to use
+        if patterns is None:
+            if self._patterns is None:
+                raise ValueError(
+                    "patterns parameter is required when RuntimeChecker "
+                    "is not initialized with patterns"
+                )
+            patterns = self._patterns
+
+        logger.info("Checking subgraph-level runtime support for %d patterns", len(patterns))
+
+        results: list[PatternRuntime] = []
+        for pattern in patterns:
+            pattern_runtime = self.query_pattern_support(pattern)
+            results.append(pattern_runtime)
+
+        return results
+
+    def query_pattern_support(
+        self,
+        pattern: PatternMatchResult,
+    ) -> PatternRuntime:
+        """Evaluate a single pattern's runtime support + replacements.
+
+        Args:
+            pattern: PatternMatchResult object to check
+
+        Returns:
+            PatternRuntime: Runtime result with pattern_id, result, and alternatives
+
+        Process:
+            1. Check original pattern support via RuntimeCheckerQuery.run_for_subgraph
+            2. Check possible replacement patterns (alternatives)
+            3. For each alternative, evaluate its support status
+            4. Return PatternRuntime with results and alternatives
+        """
+        if self._model is None:
+            raise ValueError(
+                f"Cannot lookup pattern support for '{pattern.pattern.pattern_id}' "
+                f"without ONNX model. RuntimeChecker was initialized without model."
+            )
+
+        pattern_id = pattern.pattern.pattern_id
+
+        # Get cached RuntimeCheckerQuery and check pattern support
+        query = self._get_query()
+        pattern_runtime = query.run_for_subgraph(pattern)
+        result = pattern_runtime.result
+
+        logger.debug(
+            "Pattern %s: %s (compile=%s, run=%s)",
+            pattern_id,
+            result.classification.value,
+            result.compile,
+            result.run,
+        )
+
+        # Build alternatives from pattern config (JSON)
+        # TODO: Replace mock RuntimeTestResult with actual runtime checks
+        alternatives: list[PatternAlternative] = []
+        config_alternatives = self._pattern_config.get_alternatives(pattern.pattern)
+        for config_alt in config_alternatives:
+            alternative = PatternAlternative(
+                pattern_id=config_alt.pattern_to_id,
+                result=RuntimeTestResult(
+                    compile=True,
+                    run=True,
+                    reason=config_alt.reason or f"Alternative for {pattern_id}",
+                ),
+                alternative_type=AlternativeType.EQUIVALENT,
+            )
+            alternatives.append(alternative)
+            logger.debug(
+                "Added alternative %s for pattern %s",
+                config_alt.pattern_to_id,
+                pattern_id,
+            )
+
+        return PatternRuntime(
+            pattern_id=pattern_id,
+            result=result,
+            alternatives=alternatives,
+            pattern_match=pattern,
+        )
+
+    def summary(
+        self,
+        patterns: list[PatternMatchResult] | None = None,
+        run_unknown_op: bool = True,
+        save_node_types: set[str] | None = None,
+    ) -> dict[str, list[PatternRuntime]]:
+        """Combine operator-level & pattern-level runtime results.
+
+        Args:
+            patterns: List of PatternMatchResult objects to check.
+                      If None, uses patterns from initialization.
+
+        Returns:
+            Dict containing both op_support and subgraph_support results:
+                - op_runtime_check_result: Operator-level runtime check
+                  results (only if model provided)
+                - subgraph_runtime_check_result: Subgraph pattern check
+                  results
+        """
+        logger.info("Generating runtime support summary")
+
+        summary_dict: dict[str, list[PatternRuntime]] = {}
+
+        # Get operator-level support (only if model is available)
+        if self._model is not None:
+            op_results = self.op_support(
+                run_unknown_op=run_unknown_op,
+                save_node_types=save_node_types,
+            )
+            summary_dict["op_runtime_check_result"] = op_results
+
+        # Get subgraph-level support
+        pattern_results = self.subgraph_support(patterns)
+        summary_dict["subgraph_runtime_check_result"] = pattern_results
+
+        return summary_dict
+
+    def _make_op_key(self, node: onnx.NodeProto) -> str:
+        """Generate operator key from node.
+
+        Internal method to create unique key for operator.
+
+        Args:
+            node: ONNX node
+
+        Returns:
+            Operator key string (e.g., "OP/ai.onnx/Conv")
+
+        Note:
+            This is an internal method.
+        """
+        # Detect namespace
+        namespace = "ai.onnx"  # Default namespace
+        if node.domain:
+            if node.domain == "com.microsoft":
+                namespace = "com.microsoft"
+            elif node.domain != "":
+                namespace = node.domain
+
+        return f"OP/{namespace}/{node.op_type}"
