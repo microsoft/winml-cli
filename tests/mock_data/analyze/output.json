@@ -1,0 +1,130 @@
+{
+  "analyzer_version": "0.1.0",
+  "analysis_timestamp": "2025-12-03T14:30:00.123456",
+  "metadata": {
+    "model_path": "/path/to/resnet50.onnx",
+    "opset_version": 13,
+    "producer_name": "pytorch",
+    "producer_version": "2.0.0",
+    "total_operators": 176,
+    "operator_counts": {
+      "Conv": 53,
+      "Relu": 53,
+      "MaxPool": 1,
+      "Add": 16,
+      "BatchNormalization": 53
+    },
+    "unique_operator_types": 5,
+    "detected_pattern_count": 15
+  },
+  "results": [
+    {
+      "ihv_type": "QC",
+      "ep_version": "1.18.0",
+      "driver_version": "2.10.0",
+      "runtime_support": true,
+      "classification": {
+        "white": [
+          "Conv",
+          "Relu",
+          "MaxPool",
+          "Add",
+          "BatchNormalization"
+        ],
+        "gray": [],
+        "black": []
+      },
+      "information": [],
+      "pattern_support": {
+        "OP/ai.onnx/Conv": {
+          "rule_id": "550e8400-e29b-41d4-a716-446655440001",
+          "pattern_id": "OP/ai.onnx/Conv",
+          "ihv_type": "QC",
+          "ep_version": "1.18.0",
+          "driver_version": "2.10.0",
+          "namespace": "ai.onnx",
+          "op_version": 13,
+          "test_result": {
+            "compile": true,
+            "run": true
+          }
+        }
+      }
+    },
+    {
+      "ihv_type": "Intel",
+      "ep_version": "1.18.0",
+      "driver_version": "2023.1",
+      "runtime_support": false,
+      "classification": {
+        "white": [
+          "Conv",
+          "Relu",
+          "MaxPool",
+          "Add"
+        ],
+        "gray": [
+          "BatchNormalization"
+        ],
+        "black": []
+      },
+      "information": [
+        {
+          "Information_id": "650e8400-e29b-41d4-a716-446655440010",
+          "actions": [
+            {
+              "pattern_from_id": "OP/ai.onnx/BatchNormalization",
+              "pattern_to_id": "SUBGRAPH/FusedBatchNorm",
+              "type": "optional",
+              "action": "Enable BatchNorm fusion in model optimization",
+              "status": "white",
+              "details": "BatchNormalization can be optimized by fusing with Conv operator for better performance"
+            }
+          ],
+          "explanation": "BatchNormalization operator compiles but has runtime performance issues. Consider enabling fusion optimization.",
+          "pattern_id": "OP/ai.onnx/BatchNormalization"
+        }
+      ],
+      "pattern_support": {
+        "OP/ai.onnx/BatchNormalization": {
+          "rule_id": "650e8400-e29b-41d4-a716-446655440002",
+          "pattern_id": "OP/ai.onnx/BatchNormalization",
+          "alternatives": [
+            {
+              "SUBGRAPH/FusedBatchNorm": "equivalent"
+            }
+          ],
+          "ihv_type": "Intel",
+          "ep_version": "1.18.0",
+          "driver_version": "2023.1",
+          "namespace": "ai.onnx",
+          "op_version": 13,
+          "test_result": {
+            "compile": true,
+            "run": false,
+            "reason": "Performance degradation detected during runtime validation"
+          }
+        }
+      }
+    },
+    {
+      "ihv_type": "AMD",
+      "ep_version": "1.18.0",
+      "driver_version": "6.0.0",
+      "runtime_support": true,
+      "classification": {
+        "white": [
+          "Conv",
+          "Relu",
+          "MaxPool",
+          "Add",
+          "BatchNormalization"
+        ],
+        "gray": [],
+        "black": []
+      },
+      "information": [],
+      "pattern_support": {}
+    }
+  ]
+}

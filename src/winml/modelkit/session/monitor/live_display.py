@@ -1,0 +1,203 @@
+"""HWLiveDisplay — self-contained live hardware monitor with terminal chart.
+
+Wraps HWMonitor + plotext chart + Rich Live in a single context manager.
+No iteration counter or latency tracking — just hardware utilization.
+
+Usage::
+
+    from winml.modelkit.session.monitor.live_display import HWLiveDisplay
+
+    with HWLiveDisplay(title="resnet-50 eval"):
+        # ... any long-running work ...
+        results = evaluator.compute(...)
+
+    # Terminal shows live NPU/CPU chart during the block,
+    # final snapshot persists in scrollback after exit.
+"""
+
+from __future__ import annotations
+
+import threading
+from typing import Any
+
+from .hw_monitor import HWMonitor
+
+
+# Chart settings
+_CHART_WINDOW_SECONDS = 10.0
+_REFRESH_FPS = 5
+_DEFAULT_CHART_WIDTH = 72
+_DEFAULT_CHART_HEIGHT = 12
+
+
+class HWLiveDisplay:
+    """Self-updating live hardware utilization chart.
+
+    Combines HWMonitor (background PDH polling) with a Rich Live display
+    that auto-refreshes the chart in a separate thread. The caller just
+    enters the context and does their work — no manual update() calls.
+    """
+
+    def __init__(
+        self,
+        title: str = "HW Monitor",
+        poll_interval_ms: int = 200,
+        chart_width: int = _DEFAULT_CHART_WIDTH,
+        chart_height: int = _DEFAULT_CHART_HEIGHT,
+    ) -> None:
+        self._title = title
+        self._poll_interval_s = poll_interval_ms / 1000.0
+        self._chart_width = chart_width
+        self._chart_height = chart_height
+        self._hw = HWMonitor(poll_interval_ms=poll_interval_ms)
+        self._live: Any = None
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> HWLiveDisplay:
+        """Start HW monitoring and live display."""
+        from rich.console import Console
+        from rich.live import Live
+
+        self._hw.__enter__()
+        self._live = Live(
+            refresh_per_second=_REFRESH_FPS,
+            console=Console(stderr=True),
+            transient=False,
+        )
+        self._live.__enter__()
+
+        # Background thread drives display updates
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._update_loop, daemon=True, name="hw-live-display",
+        )
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        """Stop display thread, then stop HW monitor."""
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=2.0)
+        if self._live:
+            self._live.__exit__(*exc)
+        self._hw.__exit__(*exc)
+
+    def _update_loop(self) -> None:
+        """Background loop: read HWMonitor samples → render chart → update Live."""
+        interval = 1.0 / _REFRESH_FPS
+        while not self._stop_event.is_set():
+            try:
+                self._render_once()
+            except Exception:
+                pass  # Don't let display errors kill the thread
+            self._stop_event.wait(interval)
+
+    def _render_once(self) -> None:
+        """Single render cycle."""
+        if self._live is None:
+            return
+
+        from rich.panel import Panel
+
+        npu_samples = self._hw.utilization_samples
+        cpu_samples = self._hw.cpu_samples
+
+        chart = self._render_chart(npu_samples, cpu_samples)
+        status = self._render_status(npu_samples, cpu_samples)
+
+        from rich.console import Group
+        from rich.text import Text
+
+        panel = Panel(
+            Group(chart, Text.from_markup(status)),
+            title=f"[bold]{self._title}[/bold]",
+            border_style="blue",
+        )
+        self._live.update(panel)
+
+    def _render_chart(
+        self, npu_samples: list[float], cpu_samples: list[float],
+    ) -> Any:
+        """Render NPU/CPU utilization chart via plotext."""
+        try:
+            import plotext as plt
+        except ImportError:
+            from rich.text import Text
+
+            current = npu_samples[-1] if npu_samples else 0.0
+            bar_len = min(50, max(0, int(current / 2)))
+            bar = "#" * bar_len + "." * (50 - bar_len)
+            return Text(f"  NPU: [{bar}] {current:.1f}%")
+
+        plt.clf()
+        plt.theme("clear")
+
+        window_samples = int(_CHART_WINDOW_SECONDS / self._poll_interval_s)
+
+        # NPU (green)
+        npu_window = npu_samples[-window_samples:] if npu_samples else [0]
+        start_idx = max(0, len(npu_samples) - len(npu_window))
+        npu_times = [
+            (start_idx + i) * self._poll_interval_s for i in range(len(npu_window))
+        ]
+        plt.plot(npu_times, npu_window, marker="braille", color="green")
+
+        # CPU (cyan)
+        has_cpu = bool(cpu_samples)
+        if has_cpu:
+            cpu_window = cpu_samples[-window_samples:]
+            cpu_start = max(0, len(cpu_samples) - len(cpu_window))
+            cpu_times = [
+                (cpu_start + i) * self._poll_interval_s for i in range(len(cpu_window))
+            ]
+            plt.plot(cpu_times, cpu_window, marker="braille", color="cyan")
+
+        plt.ylabel("Usage %")
+        plt.ylim(0, 100)
+        plt.yticks([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
+
+        elapsed = len(npu_samples) * self._poll_interval_s
+        x_min = max(0.0, elapsed - _CHART_WINDOW_SECONDS)
+        x_max = max(elapsed, _CHART_WINDOW_SECONDS)
+        plt.xlim(x_min, x_max)
+        plt.xlabel("Time (s)")
+        plt.plotsize(self._chart_width, self._chart_height)
+
+        from rich.console import Group
+        from rich.text import Text
+
+        legend = (
+            "  Utilization ([green]\u2588\u2588[/green] NPU %  "
+            "[cyan]\u2588\u2588[/cyan] CPU %)"
+            if has_cpu
+            else "  Utilization ([green]\u2588\u2588[/green] NPU %)"
+        )
+
+        ansi_output = plt.build()
+        chart_lines = [Text.from_ansi(line) for line in ansi_output.splitlines()]
+        return Group(Text.from_markup(legend), *chart_lines)
+
+    def _render_status(
+        self, npu_samples: list[float], cpu_samples: list[float],
+    ) -> str:
+        """Render hardware status line below the chart."""
+        npu_mean = sum(npu_samples) / len(npu_samples) if npu_samples else 0.0
+        npu_now = npu_samples[-1] if npu_samples else 0.0
+        cpu_now = cpu_samples[-1] if cpu_samples else 0.0
+        ram_mb = self._hw.ram_used_mb
+        mem_local = self._hw.peak_memory_local_mb
+        mem_shared = self._hw.peak_memory_shared_mb
+
+        npu_cell = f"NPU: {npu_mean:.1f}% avg ({npu_now:.1f}% now)"
+        cpu_cell = f"CPU: {cpu_now:.1f}%"
+        ram_cell = f"RAM: {ram_mb:.0f} MB"
+        mem_cell = f"Device Mem: {mem_local:.0f}/{mem_shared:.0f} MB"
+
+        return f"  {npu_cell:<32}| {cpu_cell:<12}| {ram_cell:<16}| {mem_cell}"
+
+    @property
+    def hw(self) -> HWMonitor:
+        """Access the underlying HWMonitor for metrics after exit."""
+        return self._hw

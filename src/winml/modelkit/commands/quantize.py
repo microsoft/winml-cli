@@ -1,0 +1,223 @@
+"""Quantize command for wmk CLI.
+
+This module provides the quantize command that inserts QDQ (Quantize-Dequantize)
+nodes into ONNX models for quantization-aware inference.
+
+Usage:
+    wmk quantize --model MODEL [OPTIONS]
+
+Examples:
+    wmk quantize -m model.onnx
+    wmk quantize -m model.onnx --precision int8
+    wmk quantize -m model.onnx -o model_qdq.onnx --samples 100
+    wmk quantize -m model.onnx --weight-type int8 --activation-type uint8
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import click
+from rich.console import Console
+
+from ..utils.logging import configure_logging
+
+
+logger = logging.getLogger(__name__)
+console = Console()
+
+
+@click.command()
+@click.option(
+    "--model",
+    "-m",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Input ONNX model file",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output path (default: {input}_qdq.onnx)",
+)
+@click.option(
+    "--precision",
+    "-p",
+    type=str,
+    default=None,
+    help="Quantization precision: int8, int16, or w{x}a{y} (e.g., w8a16). "
+    "Overridden by explicit --weight-type/--activation-type.",
+)
+@click.option(
+    "--samples",
+    type=int,
+    default=10,
+    help="Number of calibration samples (default: 10)",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["minmax", "entropy", "percentile"]),
+    default="minmax",
+    help="Calibration method (default: minmax)",
+)
+@click.option(
+    "--weight-type",
+    type=click.Choice(["uint8", "int8", "uint16", "int16"]),
+    default=None,
+    help="Weight quantization type. Overrides --precision.",
+)
+@click.option(
+    "--activation-type",
+    type=click.Choice(["uint8", "int8", "uint16", "int16"]),
+    default=None,
+    help="Activation quantization type. Overrides --precision.",
+)
+@click.option(
+    "--per-channel",
+    is_flag=True,
+    default=False,
+    help="Use per-channel quantization",
+)
+@click.option(
+    "--symmetric",
+    is_flag=True,
+    default=False,
+    help="Use symmetric quantization",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Enable verbose output",
+)
+@click.pass_context
+def quantize(
+    ctx: click.Context,
+    model: Path,
+    output: Path | None,
+    precision: str | None,
+    samples: int,
+    method: str,
+    weight_type: str | None,
+    activation_type: str | None,
+    per_channel: bool,
+    symmetric: bool,
+    verbose: bool,
+) -> None:
+    r"""Quantize ONNX model by inserting QDQ nodes.
+
+    This command applies static quantization to an ONNX model using calibration
+    data to determine quantization parameters. The output model contains
+    QuantizeLinear and DequantizeLinear nodes for quantization-aware inference.
+
+    \b
+    Examples:
+        # Basic quantization with defaults (10 samples, uint8)
+        wmk quantize -m model.onnx
+
+        # Use precision shorthand (same as --weight-type uint8 --activation-type uint8)
+        wmk quantize -m model.onnx --precision int8
+
+        # Int16 quantization
+        wmk quantize -m model.onnx --precision int16
+
+        # Custom output path and more samples
+        wmk quantize -m model.onnx -o quantized.onnx --samples 100
+
+        # Explicit types with entropy calibration
+        wmk quantize -m model.onnx --weight-type int8 --method entropy
+    """
+    # Inherit debug mode from parent
+    if ctx.obj and ctx.obj.get("debug"):
+        verbose = True
+
+    configure_logging(verbose=verbose)
+
+    # Import quantizer (late import to speed up CLI)
+    from ..quant import WinMLQuantizationConfig, quantize_onnx
+
+    # Resolve weight/activation types from --precision or explicit flags
+    resolved_weight, resolved_activation = _resolve_quant_types(
+        precision, weight_type, activation_type
+    )
+
+    # Determine output path
+    if output is None:
+        output = model.parent / f"{model.stem}_qdq.onnx"
+
+    # Show info
+    console.print(f"[bold blue]Input:[/bold blue] {model}")
+    console.print(f"[bold blue]Output:[/bold blue] {output}")
+    if precision:
+        console.print(f"[bold blue]Precision:[/bold blue] {precision}")
+    console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
+    console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
+    console.print(f"[bold blue]Samples:[/bold blue] {samples}")
+    console.print(f"[bold blue]Method:[/bold blue] {method}")
+
+    # Create config (output_path is passed separately to API)
+    config = WinMLQuantizationConfig(
+        samples=samples,
+        calibration_method=method,
+        weight_type=resolved_weight,
+        activation_type=resolved_activation,
+        per_channel=per_channel,
+        symmetric=symmetric,
+    )
+
+    try:
+        console.print("\n[bold]Running quantization...[/bold]")
+        result = quantize_onnx(model, output_path=output, config=config)
+
+        if result.success:
+            console.print("\n[bold green]Success![/bold green] Model quantized")
+            console.print(f"[dim]Output: {result.output_path}[/dim]")
+            console.print(
+                f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]"
+            )
+            console.print(
+                f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]"
+            )
+        else:
+            console.print("\n[bold red]Quantization failed:[/bold red]")
+            for error in result.errors:
+                console.print(f"  {error}")
+            raise click.ClickException("Quantization failed")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        console.print(f"\n[bold red]Quantization failed:[/bold red] {e}")
+        logger.exception("Quantization failed")
+        raise click.ClickException(f"Quantization failed: {e}") from e
+
+
+def _resolve_quant_types(
+    precision: str | None,
+    weight_type: str | None,
+    activation_type: str | None,
+) -> tuple[str, str]:
+    """Resolve weight and activation types from precision and explicit flags.
+
+    Priority: explicit flags > --precision > defaults.
+    Aligned with config/precision.py _WEIGHT_TYPE/_ACTIVATION_TYPE mapping.
+
+    Returns:
+        Tuple of (weight_type, activation_type).
+    """
+    from ..config.precision import is_quantized_precision, resolve_quant_types
+
+    if precision and is_quantized_precision(precision):
+        default_w, default_a = resolve_quant_types(precision)
+    else:
+        default_w, default_a = "uint8", "uint8"
+
+    # Explicit flags override precision defaults
+    resolved_w = weight_type if weight_type else default_w
+    resolved_a = activation_type if activation_type else default_a
+
+    return resolved_w, resolved_a

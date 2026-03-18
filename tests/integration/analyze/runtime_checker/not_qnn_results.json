@@ -1,0 +1,1041 @@
+{
+  "check_results": [
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            1
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (264 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (621 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (448 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (351 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (34 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (24 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (878 us)\nStarting stage: Completion\nCompleted stage: Completion (7 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": ""
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (384 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (999 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (450 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (575 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (45 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (27 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3628 us)\nStarting stage: Completion\nCompleted stage: Completion (13 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([False])]\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            6
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (312 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (926 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (449 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (500 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (51 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (31 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3500 us)\nStarting stage: Completion\nCompleted stage: Completion (14 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": ""
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (496 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1071 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (474 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (480 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (45 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (23 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (873 us)\nStarting stage: Completion\nCompleted stage: Completion (10 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([ True, False, False, False, False,  True])]\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            4,
+            5
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (338 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (524 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (354 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (336 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (33 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (23 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (828 us)\nStarting stage: Completion\nCompleted stage: Completion (7 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": ""
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (312 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (1126 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (482 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (515 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (53 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (31 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3391 us)\nStarting stage: Completion\nCompleted stage: Completion (9 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[ True, False, False, False, False],\n       [False,  True,  True, False,  True],\n       [ True, False,  True, False, False],\n       [False, False,  True, False,  True]])]\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            3,
+            2,
+            5
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (378 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (745 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (350 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (410 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (38 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (28 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (3359 us)\nStarting stage: Completion\nCompleted stage: Completion (31 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": ""
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (266 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (922 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (328 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (351 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (46 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (21 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=2048\nread_total_bytes=2048\n\nCompleted stage: Finalizing Graph Sequence (2439 us)\nStarting stage: Completion\nCompleted stage: Completion (9 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[False, False, False,  True, False],\n        [False, False,  True,  True, False]],\n\n       [[ True,  True,  True,  True,  True],\n        [False,  True, False, False, False]],\n\n       [[ True,  True, False, False,  True],\n        [False,  True, False, False,  True]]])]\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            2,
+            4,
+            5,
+            6
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (272 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (665 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (327 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (399 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (36 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (21 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=4096\nread_total_bytes=4096\n\nCompleted stage: Finalizing Graph Sequence (896 us)\nStarting stage: Completion\nCompleted stage: Completion (8 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": ""
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Starting stage: Graph Preparation Initializing\nCompleted stage: Graph Preparation Initializing (218 us)\nStarting stage: Graph Optimizations\nCompleted stage: Graph Optimizations (641 us)\nStarting stage: Post Graph Optimization\nCompleted stage: Post Graph Optimization (345 us)\nStarting stage: Graph Sequencing for Target\nCompleted stage: Graph Sequencing for Target (377 us)\nStarting stage: VTCM Allocation\nCompleted stage: VTCM Allocation (38 us)\nStarting stage: Parallelization Optimization\nCompleted stage: Parallelization Optimization (21 us)\nStarting stage: Finalizing Graph Sequence\n\n====== DDR bandwidth summary ======\nspill_bytes=0\nfill_bytes=0\nwrite_total_bytes=4096\nread_total_bytes=4096\n\nCompleted stage: Finalizing Graph Sequence (797 us)\nStarting stage: Completion\nCompleted stage: Completion (8 us)\nAdding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[[False,  True,  True, False,  True, False],\n         [False, False,  True, False,  True,  True],\n         [False, False, False,  True, False,  True],\n         [False,  True,  True, False, False,  True],\n         [False, False,  True, False,  True, False]],\n\n        [[ True,  True, False,  True,  True,  True],\n         [ True,  True,  True,  True, False,  True],\n         [False, False, False,  True, False, False],\n         [ True, False,  True, False,  True, False],\n         [False, False,  True,  True,  True,  True]],\n\n        [[ True, False,  True, False, False,  True],\n         [False,  True, False, False, False,  True],\n         [ True,  True, False,  True,  True,  True],\n         [False, False,  True,  True, False, False],\n         [ True,  True,  True,  True,  True,  True]],\n\n        [[ True, False, False, False,  True,  True],\n         [False,  True, False,  True, False,  True],\n         [False,  True,  True, False, False, False],\n         [ True, False, False,  True, False, False],\n         [ True,  True,  True,  True, False,  True]]],\n\n\n       [[[False, False,  True, False, False, False],\n         [ True, False,  True, False, False, False],\n         [ True, False, False,  True,  True, False],\n         [False, False, False, False,  True,  True],\n         [ True,  True, False,  True, False, False]],\n\n        [[ True,  True, False,  True, False, False],\n         [ True,  True,  True,  True, False,  True],\n         [ True,  True,  True, False, False,  True],\n         [False, False, False,  True,  True, False],\n         [ True,  True, False, False,  True, False]],\n\n        [[False, False,  True, False,  True,  True],\n         [ True, False, False, False, False, False],\n         [False,  True,  True, False, False,  True],\n         [False,  True,  True,  True, False,  True],\n         [ True, False, False, False, False, False]],\n\n        [[ True, False, False,  True,  True,  True],\n         [False,  True,  True, False, False, False],\n         [ True, False,  True,  True, False, False],\n         [False,  True,  True, False, False,  True],\n         [ True,  True, False,  True,  True,  True]]]])]\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            2,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": false,
+            "reason": "[ONNXRuntimeError] : 1 : FAIL : graph_partitioner.cc:816 onnxruntime::CreateEpContextModel Unable to compile any nodes. Check that the session EPs support compilation and can execute at least one subgraph in the model."
+          },
+          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": "\u001b[0;93m2025-12-08 16:49:54.0737702 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[[[False, False,  True,  True, False],\n          [False,  True, False, False, False],\n          [ True, False, False, False, False],\n          [False, False,  True, False,  True]],\n\n         [[False, False,  True, False, False],\n          [ True, False,  True, False,  True],\n          [ True, False, False,  True,  True],\n          [False, False,  True,  True,  True]],\n\n         [[False,  True, False,  True, False],\n          [ True,  True,  True,  True,  True],\n          [ True, False,  True, False, False],\n          [ True, False, False, False,  True]]],\n\n\n        [[[False,  True, False, False,  True],\n          [False, False,  True,  True,  True],\n          [ True, False, False,  True, False],\n          [False,  True, False, False,  True]],\n\n         [[ True, False, False,  True,  True],\n          [False,  True,  True, False,  True],\n          [False, False,  True, False,  True],\n          [False, False,  True,  True,  True]],\n\n         [[False, False,  True,  True,  True],\n          [ True, False,  True,  True,  True],\n          [False,  True, False, False,  True],\n          [False,  True, False,  True,  True]]]],\n\n\n\n       [[[[False,  True,  True,  True, False],\n          [ True,  True,  True, False, False],\n          [False,  True, False,  True,  True],\n          [ True, False, False, False,  True]],\n\n         [[False,  True,  True, False,  True],\n          [ True,  True,  True, False,  True],\n          [False,  True, False,  True,  True],\n          [ True,  True,  True, False,  True]],\n\n         [[ True,  True,  True,  True, False],\n          [ True, False, False,  True,  True],\n          [ True,  True, False,  True,  True],\n          [False,  True, False,  True, False]]],\n\n\n        [[[ True,  True, False,  True,  True],\n          [ True,  True,  True,  True, False],\n          [ True, False, False,  True, False],\n          [False, False, False,  True,  True]],\n\n         [[False, False, False, False, False],\n          [False,  True,  True, False,  True],\n          [ True,  True,  True, False, False],\n          [ True,  True,  True, False, False]],\n\n         [[False,  True,  True, False, False],\n          [ True, False,  True,  True,  True],\n          [ True,  True,  True, False, False],\n          [ True,  True, False, False, False]]]]])]\n",
+          "stderr": "\u001b[0;93m2025-12-08 16:49:54.4804230 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+        }
+      }
+    },
+    {
+      "type_vars": {
+        "T_Not": "BOOL"
+      },
+      "input_constraints": {
+        "X": {
+          "type": "shape",
+          "shape": [
+            6,
+            6,
+            2,
+            2,
+            2,
+            2
+          ]
+        }
+      },
+      "attrs": {},
+      "input_is_constant": {
+        "X": false
+      },
+      "check_result": {
+        "compile": {
+          "result": {
+            "success": false,
+            "reason": "[ONNXRuntimeError] : 1 : FAIL : graph_partitioner.cc:816 onnxruntime::CreateEpContextModel Unable to compile any nodes. Check that the session EPs support compilation and can execute at least one subgraph in the model."
+          },
+          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\n",
+          "stderr": "\u001b[0;93m2025-12-08 16:49:54.9575328 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+        },
+        "run": {
+          "result": {
+            "success": true,
+            "reason": null
+          },
+          "stdout": "Adding QNNExecutionProvider for OrtHardwareDeviceType.NPU\nRun outputs: [array([[[[[[ True, False],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True, False],\n           [False, False]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [False, False]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [ True,  True]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[False, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[ True,  True],\n           [ True, False]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[ True, False],\n           [ True, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True, False],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True,  True]]],\n\n\n         [[[False, False],\n           [False,  True]],\n\n          [[False, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[False, False],\n           [ True,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [ True,  True]],\n\n          [[ True,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[False,  True],\n           [False,  True]]],\n\n\n         [[[False, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[ True, False],\n           [ True, False]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True, False]]]]],\n\n\n\n\n       [[[[[ True, False],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[ True, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [ True,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[ True, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[False,  True],\n           [ True,  True]]],\n\n\n         [[[False, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]]],\n\n\n\n        [[[[False,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True, False]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[False,  True],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True,  True]]]]],\n\n\n\n\n       [[[[[False,  True],\n           [False, False]],\n\n          [[ True, False],\n           [ True,  True]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False, False]]]],\n\n\n\n        [[[[False,  True],\n           [False, False]],\n\n          [[False, False],\n           [False, False]]],\n\n\n         [[[ True,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True,  True]]]],\n\n\n\n        [[[[ True, False],\n           [False, False]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [ True,  True]],\n\n          [[ True, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False, False],\n           [ True, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False, False]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[False, False],\n           [ True, False]]],\n\n\n         [[[False,  True],\n           [ True, False]],\n\n          [[False, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False, False],\n           [False, False]],\n\n          [[ True, False],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]]]],\n\n\n\n\n       [[[[[ True, False],\n           [False,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [False, False]]]],\n\n\n\n        [[[[ True,  True],\n           [False, False]],\n\n          [[ True,  True],\n           [False, False]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [False,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True,  True]],\n\n          [[False,  True],\n           [False, False]]],\n\n\n         [[[ True, False],\n           [False,  True]],\n\n          [[False, False],\n           [ True, False]]]],\n\n\n\n        [[[[ True,  True],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [False,  True]],\n\n          [[ True,  True],\n           [ True, False]]]],\n\n\n\n        [[[[False, False],\n           [ True,  True]],\n\n          [[False, False],\n           [False,  True]]],\n\n\n         [[[ True,  True],\n           [ True, False]],\n\n          [[ True, False],\n           [ True,  True]]]],\n\n\n\n        [[[[False,  True],\n           [ True, False]],\n\n          [[ True,  True],\n           [False,  True]]],\n\n\n         [[[False,  True],\n           [False, False]],\n\n          [[False,  True],\n           [False,  True]]]]]])]\n",
+          "stderr": "\u001b[0;93m2025-12-08 16:49:55.3357474 [W:onnxruntime:, qnn_model_wrapper.cc:263 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `n0` of type `ElementWiseNot` with error code 3110\n\u001b[m\n"
+        }
+      }
+    }
+  ],
+  "sys_info": {
+    "cpuList": [
+      {
+        "name": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU",
+        "manufacturer": "Qualcomm Technologies Inc",
+        "coreCount": 12,
+        "threadCount": 12,
+        "architecture": "ARM64"
+      }
+    ],
+    "gpuList": [
+      {
+        "name": "Qualcomm(R) Adreno(TM) X1-85 GPU",
+        "manufacturer": "Qualcomm Incorporated",
+        "driverVersion": "31.0.114.0",
+        "vramMib": 0,
+        "vendorId": 1297040209,
+        "deviceId": 909329200
+      }
+    ],
+    "npuList": [
+      {
+        "name": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Hexagon(TM) NPU",
+        "manufacturer": "Qualcomm Technologies, Inc.",
+        "driverVersion": "30.0.143.0",
+        "vendorId": 1297040209,
+        "deviceId": 1093682224
+      }
+    ],
+    "ramList": [
+      {
+        "capacityMib": 32768,
+        "speedMt": 8448,
+        "manufacturer": "HYNIX"
+      }
+    ],
+    "os": {
+      "caption": "Microsoft Windows 11 Enterprise",
+      "version": "10.0.26200",
+      "architecture": "ARM 64-bit Processor",
+      "sku": 4
+    },
+    "pythonRuntime": {
+      "version": "3.12.10",
+      "implementation": "CPython",
+      "architecture": "ARM64",
+      "compiler": "MSC v.1943 64 bit (AMD64)",
+      "buildNumber": "May 30 2025 05:39:07"
+    },
+    "pipPackages": [
+      {
+        "name": "winml-modelkit",
+        "version": "0.1.0"
+      },
+      {
+        "name": "aiohappyeyeballs",
+        "version": "2.6.1"
+      },
+      {
+        "name": "aiohttp",
+        "version": "3.13.2"
+      },
+      {
+        "name": "aiosignal",
+        "version": "1.4.0"
+      },
+      {
+        "name": "annotated-types",
+        "version": "0.7.0"
+      },
+      {
+        "name": "anyio",
+        "version": "4.12.0"
+      },
+      {
+        "name": "argon2-cffi",
+        "version": "25.1.0"
+      },
+      {
+        "name": "argon2-cffi-bindings",
+        "version": "25.1.0"
+      },
+      {
+        "name": "arrow",
+        "version": "1.4.0"
+      },
+      {
+        "name": "asttokens",
+        "version": "3.0.1"
+      },
+      {
+        "name": "async-lru",
+        "version": "2.0.5"
+      },
+      {
+        "name": "attrs",
+        "version": "25.4.0"
+      },
+      {
+        "name": "babel",
+        "version": "2.17.0"
+      },
+      {
+        "name": "beautifulsoup4",
+        "version": "4.14.3"
+      },
+      {
+        "name": "bleach",
+        "version": "6.3.0"
+      },
+      {
+        "name": "certifi",
+        "version": "2025.11.12"
+      },
+      {
+        "name": "cffi",
+        "version": "2.0.0"
+      },
+      {
+        "name": "charset-normalizer",
+        "version": "3.4.4"
+      },
+      {
+        "name": "click",
+        "version": "8.3.1"
+      },
+      {
+        "name": "colorama",
+        "version": "0.4.6"
+      },
+      {
+        "name": "coloredlogs",
+        "version": "15.0.1"
+      },
+      {
+        "name": "comm",
+        "version": "0.2.3"
+      },
+      {
+        "name": "contourpy",
+        "version": "1.3.3"
+      },
+      {
+        "name": "coverage",
+        "version": "7.12.0"
+      },
+      {
+        "name": "cycler",
+        "version": "0.12.1"
+      },
+      {
+        "name": "datasets",
+        "version": "4.4.1"
+      },
+      {
+        "name": "debugpy",
+        "version": "1.8.17"
+      },
+      {
+        "name": "decorator",
+        "version": "5.2.1"
+      },
+      {
+        "name": "defusedxml",
+        "version": "0.7.1"
+      },
+      {
+        "name": "dill",
+        "version": "0.4.0"
+      },
+      {
+        "name": "evaluate",
+        "version": "0.4.6"
+      },
+      {
+        "name": "executing",
+        "version": "2.2.1"
+      },
+      {
+        "name": "fastjsonschema",
+        "version": "2.21.2"
+      },
+      {
+        "name": "filelock",
+        "version": "3.20.0"
+      },
+      {
+        "name": "flatbuffers",
+        "version": "25.9.23"
+      },
+      {
+        "name": "fonttools",
+        "version": "4.61.0"
+      },
+      {
+        "name": "fqdn",
+        "version": "1.5.1"
+      },
+      {
+        "name": "frozenlist",
+        "version": "1.8.0"
+      },
+      {
+        "name": "fsspec",
+        "version": "2025.10.0"
+      },
+      {
+        "name": "h11",
+        "version": "0.16.0"
+      },
+      {
+        "name": "httpcore",
+        "version": "1.0.9"
+      },
+      {
+        "name": "httpx",
+        "version": "0.28.1"
+      },
+      {
+        "name": "huggingface-hub",
+        "version": "0.36.0"
+      },
+      {
+        "name": "humanfriendly",
+        "version": "10.0"
+      },
+      {
+        "name": "idna",
+        "version": "3.11"
+      },
+      {
+        "name": "iniconfig",
+        "version": "2.3.0"
+      },
+      {
+        "name": "ipykernel",
+        "version": "7.1.0"
+      },
+      {
+        "name": "ipython",
+        "version": "9.7.0"
+      },
+      {
+        "name": "ipython_pygments_lexers",
+        "version": "1.1.1"
+      },
+      {
+        "name": "ipywidgets",
+        "version": "8.1.8"
+      },
+      {
+        "name": "isoduration",
+        "version": "20.11.0"
+      },
+      {
+        "name": "jedi",
+        "version": "0.19.2"
+      },
+      {
+        "name": "Jinja2",
+        "version": "3.1.6"
+      },
+      {
+        "name": "joblib",
+        "version": "1.5.2"
+      },
+      {
+        "name": "json5",
+        "version": "0.12.1"
+      },
+      {
+        "name": "jsonpointer",
+        "version": "3.0.0"
+      },
+      {
+        "name": "jsonschema",
+        "version": "4.25.1"
+      },
+      {
+        "name": "jsonschema-specifications",
+        "version": "2025.9.1"
+      },
+      {
+        "name": "jupyter",
+        "version": "1.1.1"
+      },
+      {
+        "name": "jupyterlab",
+        "version": "4.5.0"
+      },
+      {
+        "name": "jupyterlab_pygments",
+        "version": "0.3.0"
+      },
+      {
+        "name": "jupyterlab_server",
+        "version": "2.28.0"
+      },
+      {
+        "name": "jupyterlab_widgets",
+        "version": "3.0.16"
+      },
+      {
+        "name": "jupyter_client",
+        "version": "8.6.3"
+      },
+      {
+        "name": "jupyter-console",
+        "version": "6.6.3"
+      },
+      {
+        "name": "jupyter_core",
+        "version": "5.9.1"
+      },
+      {
+        "name": "jupyter-events",
+        "version": "0.12.0"
+      },
+      {
+        "name": "jupyter-lsp",
+        "version": "2.3.0"
+      },
+      {
+        "name": "jupyter_server",
+        "version": "2.17.0"
+      },
+      {
+        "name": "jupyter_server_terminals",
+        "version": "0.5.3"
+      },
+      {
+        "name": "kiwisolver",
+        "version": "1.4.9"
+      },
+      {
+        "name": "lark",
+        "version": "1.3.1"
+      },
+      {
+        "name": "librt",
+        "version": "0.6.3"
+      },
+      {
+        "name": "markdown-it-py",
+        "version": "4.0.0"
+      },
+      {
+        "name": "MarkupSafe",
+        "version": "3.0.3"
+      },
+      {
+        "name": "matplotlib",
+        "version": "3.10.7"
+      },
+      {
+        "name": "matplotlib-inline",
+        "version": "0.2.1"
+      },
+      {
+        "name": "mdurl",
+        "version": "0.1.2"
+      },
+      {
+        "name": "mistune",
+        "version": "3.1.4"
+      },
+      {
+        "name": "ml_dtypes",
+        "version": "0.5.4"
+      },
+      {
+        "name": "mpmath",
+        "version": "1.3.0"
+      },
+      {
+        "name": "multidict",
+        "version": "6.7.0"
+      },
+      {
+        "name": "multiprocess",
+        "version": "0.70.18"
+      },
+      {
+        "name": "mypy",
+        "version": "1.19.0"
+      },
+      {
+        "name": "mypy_extensions",
+        "version": "1.1.0"
+      },
+      {
+        "name": "nbclient",
+        "version": "0.10.2"
+      },
+      {
+        "name": "nbconvert",
+        "version": "7.16.6"
+      },
+      {
+        "name": "nbformat",
+        "version": "5.10.4"
+      },
+      {
+        "name": "nest-asyncio",
+        "version": "1.6.0"
+      },
+      {
+        "name": "networkx",
+        "version": "3.6"
+      },
+      {
+        "name": "notebook",
+        "version": "7.5.0"
+      },
+      {
+        "name": "notebook_shim",
+        "version": "0.2.4"
+      },
+      {
+        "name": "numpy",
+        "version": "2.2.6"
+      },
+      {
+        "name": "onnx",
+        "version": "1.20.0"
+      },
+      {
+        "name": "onnxruntime",
+        "version": "1.23.2"
+      },
+      {
+        "name": "onnxscript",
+        "version": "0.5.6"
+      },
+      {
+        "name": "onnx-ir",
+        "version": "0.1.12"
+      },
+      {
+        "name": "optimum",
+        "version": "2.0.0"
+      },
+      {
+        "name": "packaging",
+        "version": "25.0"
+      },
+      {
+        "name": "pandas",
+        "version": "2.3.3"
+      },
+      {
+        "name": "pandocfilters",
+        "version": "1.5.1"
+      },
+      {
+        "name": "parso",
+        "version": "0.8.5"
+      },
+      {
+        "name": "pathspec",
+        "version": "0.12.1"
+      },
+      {
+        "name": "pillow",
+        "version": "12.0.0"
+      },
+      {
+        "name": "platformdirs",
+        "version": "4.5.0"
+      },
+      {
+        "name": "pluggy",
+        "version": "1.6.0"
+      },
+      {
+        "name": "prometheus_client",
+        "version": "0.23.1"
+      },
+      {
+        "name": "prompt_toolkit",
+        "version": "3.0.52"
+      },
+      {
+        "name": "propcache",
+        "version": "0.4.1"
+      },
+      {
+        "name": "protobuf",
+        "version": "6.33.1"
+      },
+      {
+        "name": "psutil",
+        "version": "7.1.3"
+      },
+      {
+        "name": "pure_eval",
+        "version": "0.2.3"
+      },
+      {
+        "name": "pyarrow",
+        "version": "22.0.0"
+      },
+      {
+        "name": "pycparser",
+        "version": "2.23"
+      },
+      {
+        "name": "pydantic",
+        "version": "2.12.5"
+      },
+      {
+        "name": "pydantic_core",
+        "version": "2.41.5"
+      },
+      {
+        "name": "Pygments",
+        "version": "2.19.2"
+      },
+      {
+        "name": "pyparsing",
+        "version": "3.2.5"
+      },
+      {
+        "name": "pyreadline3",
+        "version": "3.5.4"
+      },
+      {
+        "name": "pytest",
+        "version": "9.0.1"
+      },
+      {
+        "name": "pytest-cov",
+        "version": "7.0.0"
+      },
+      {
+        "name": "python-dateutil",
+        "version": "2.9.0.post0"
+      },
+      {
+        "name": "python-json-logger",
+        "version": "4.0.0"
+      },
+      {
+        "name": "pytz",
+        "version": "2025.2"
+      },
+      {
+        "name": "pywinpty",
+        "version": "3.0.2"
+      },
+      {
+        "name": "PyYAML",
+        "version": "6.0.3"
+      },
+      {
+        "name": "pyzmq",
+        "version": "27.1.0"
+      },
+      {
+        "name": "referencing",
+        "version": "0.37.0"
+      },
+      {
+        "name": "regex",
+        "version": "2025.11.3"
+      },
+      {
+        "name": "requests",
+        "version": "2.32.5"
+      },
+      {
+        "name": "rfc3339-validator",
+        "version": "0.1.4"
+      },
+      {
+        "name": "rfc3986-validator",
+        "version": "0.1.1"
+      },
+      {
+        "name": "rfc3987-syntax",
+        "version": "1.1.0"
+      },
+      {
+        "name": "rich",
+        "version": "14.2.0"
+      },
+      {
+        "name": "rpds-py",
+        "version": "0.30.0"
+      },
+      {
+        "name": "ruff",
+        "version": "0.14.7"
+      },
+      {
+        "name": "safetensors",
+        "version": "0.7.0"
+      },
+      {
+        "name": "scikit-learn",
+        "version": "1.7.2"
+      },
+      {
+        "name": "scipy",
+        "version": "1.15.3"
+      },
+      {
+        "name": "seaborn",
+        "version": "0.13.2"
+      },
+      {
+        "name": "Send2Trash",
+        "version": "1.8.3"
+      },
+      {
+        "name": "setuptools",
+        "version": "80.9.0"
+      },
+      {
+        "name": "six",
+        "version": "1.17.0"
+      },
+      {
+        "name": "SnakeMD",
+        "version": "2.4.0"
+      },
+      {
+        "name": "soupsieve",
+        "version": "2.8"
+      },
+      {
+        "name": "stack-data",
+        "version": "0.6.3"
+      },
+      {
+        "name": "sympy",
+        "version": "1.14.0"
+      },
+      {
+        "name": "terminado",
+        "version": "0.18.1"
+      },
+      {
+        "name": "threadpoolctl",
+        "version": "3.6.0"
+      },
+      {
+        "name": "timm",
+        "version": "1.0.22"
+      },
+      {
+        "name": "tinycss2",
+        "version": "1.4.0"
+      },
+      {
+        "name": "tokenizers",
+        "version": "0.22.1"
+      },
+      {
+        "name": "torch",
+        "version": "2.9.1"
+      },
+      {
+        "name": "torchinfo",
+        "version": "1.8.0"
+      },
+      {
+        "name": "torchvision",
+        "version": "0.24.1"
+      },
+      {
+        "name": "tornado",
+        "version": "6.5.2"
+      },
+      {
+        "name": "tqdm",
+        "version": "4.67.1"
+      },
+      {
+        "name": "traitlets",
+        "version": "5.14.3"
+      },
+      {
+        "name": "transformers",
+        "version": "4.57.3"
+      },
+      {
+        "name": "types-colorama",
+        "version": "0.4.15.20250801"
+      },
+      {
+        "name": "typing_extensions",
+        "version": "4.15.0"
+      },
+      {
+        "name": "typing-inspection",
+        "version": "0.4.2"
+      },
+      {
+        "name": "tzdata",
+        "version": "2025.2"
+      },
+      {
+        "name": "uri-template",
+        "version": "1.3.0"
+      },
+      {
+        "name": "urllib3",
+        "version": "2.5.0"
+      },
+      {
+        "name": "wasdk-Microsoft.Windows.AI.MachineLearning",
+        "version": "1.8.251106002"
+      },
+      {
+        "name": "wasdk-Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap",
+        "version": "1.8.251106002"
+      },
+      {
+        "name": "wcwidth",
+        "version": "0.2.14"
+      },
+      {
+        "name": "webcolors",
+        "version": "25.10.0"
+      },
+      {
+        "name": "webencodings",
+        "version": "0.5.1"
+      },
+      {
+        "name": "websocket-client",
+        "version": "1.9.0"
+      },
+      {
+        "name": "widgetsnbextension",
+        "version": "4.0.15"
+      },
+      {
+        "name": "winml-modelkit",
+        "version": "0.1.0"
+      },
+      {
+        "name": "winrt-runtime",
+        "version": "3.2.1"
+      },
+      {
+        "name": "winrt-Windows.Foundation",
+        "version": "3.2.1"
+      },
+      {
+        "name": "winrt-Windows.Foundation.Collections",
+        "version": "3.2.1"
+      },
+      {
+        "name": "xxhash",
+        "version": "3.6.0"
+      },
+      {
+        "name": "yarl",
+        "version": "1.22.0"
+      }
+    ],
+    "epPackages": [
+      {
+        "name": "MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_1.8.21.0_arm64__8wekyb3d8bbwe",
+        "version": "1.8.21.0",
+        "publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+        "architecture": 12,
+        "signatureKind": "Developer",
+        "installLocation": "C:\\Program Files\\WindowsApps\\MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_1.8.21.0_arm64__8wekyb3d8bbwe",
+        "epHash": "c62cee3f6a7ca26b76390f5158cf450373ac6caca058db519bf89867bf4c713c495b33deb11018342742eefe2f559f52239c2fd62ff039537e221e4589dbcbcf",
+        "status": 0
+      }
+    ],
+    "windowsAppRuntimeVersion": "1.8.251106002"
+  }
+}

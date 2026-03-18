@@ -1,0 +1,25 @@
+[
+    {
+        "Information_id": "550e8400-e29b-41d4-a716-446655440000",
+        "actions": [
+            {
+                "action_id": "8f14e45f-ea9b-4f2f-9c31-0a1f7e5b2d3c",
+                "pattern_from_id": "SUBGRAPH/GELU_Erf",
+                "pattern_to_id": "OP/ai.onnx/Gelu",
+                "action_items": [
+                    {
+                        "type": "OrtTransformersOptimization",
+                        "optimization_options": {
+                            "enable_gelu": true
+                        }
+                    }
+                ],
+                "enabled": true,
+                "details": "The Erf-based GELU pattern is not efficiently supported on this hardware. Replace it with the native Gelu operator which provides better performance and full hardware acceleration support."
+            }
+        ],
+        "enabled": true,
+        "explanation": "The current Erf-based GELU implementation consists of multiple operations (Div, Erf, Add, Mul) which results in suboptimal performance. Using the native Gelu operator will improve inference speed by approximately 30% on this hardware.",
+        "pattern_id": "SUBGRAPH/GELU_Erf"
+    }
+]

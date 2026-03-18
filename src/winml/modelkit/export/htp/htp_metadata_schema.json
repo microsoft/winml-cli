@@ -1,0 +1,530 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$defs": {
+    "ISOTimestamp": {
+      "type": "string",
+      "description": "ISO 8601 formatted timestamp (YYYY-MM-DDTHH:MM:SSZ)",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$",
+      "examples": ["2025-07-22T12:00:00Z", "2025-07-22T12:00:00.123Z"],
+      "title": "ISO Timestamp"
+    },
+    "ExportContext": {
+      "description": "Export context information",
+      "properties": {
+        "timestamp": {
+          "$ref": "#/$defs/ISOTimestamp"
+        },
+        "strategy": {
+          "default": "htp",
+          "description": "Export strategy (must be 'htp')",
+          "pattern": "^htp$",
+          "title": "Strategy",
+          "type": "string"
+        },
+        "version": {
+          "default": "1.0",
+          "description": "Version X.Y format",
+          "pattern": "^\\d+\\.\\d+$",
+          "title": "Version",
+          "type": "string"
+        },
+        "embed_hierarchy_attributes": {
+          "default": true,
+          "description": "Whether hierarchy tags are embedded in ONNX",
+          "title": "Embed Hierarchy Attributes",
+          "type": "boolean"
+        },
+        "export_time_seconds": {
+          "description": "Total export time in seconds",
+          "title": "Export Time Seconds",
+          "type": "number",
+          "minimum": 0
+        },
+        "exporter": {
+          "description": "Exporter class name",
+          "title": "Exporter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "strategy"
+      ],
+      "title": "ExportContext",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "description": "Model information",
+      "properties": {
+        "name_or_path": {
+          "description": "Model name or HuggingFace path",
+          "title": "Name Or Path",
+          "type": "string"
+        },
+        "class_name": {
+          "description": "Model class name (e.g., BertModel)",
+          "title": "Class Name",
+          "type": "string"
+        },
+        "total_modules": {
+          "description": "Total number of modules",
+          "minimum": 0,
+          "title": "Total Modules",
+          "type": "integer"
+        },
+        "total_parameters": {
+          "description": "Total parameter count",
+          "minimum": 0,
+          "title": "Total Parameters",
+          "type": "integer"
+        },
+        "framework": {
+          "description": "Framework used (e.g., transformers)",
+          "title": "Framework",
+          "type": "string",
+          "default": "transformers"
+        }
+      },
+      "required": [
+        "name_or_path",
+        "class_name",
+        "total_modules",
+        "total_parameters"
+      ],
+      "title": "ModelInfo",
+      "type": "object"
+    },
+    "HierarchicalModule": {
+      "description": "Hierarchical module information with optional children",
+      "properties": {
+        "class_name": {
+          "description": "Module class name (e.g., BertLayer)",
+          "title": "Class Name",
+          "type": "string"
+        },
+        "traced_tag": {
+          "description": "Hierarchical tag assigned to this module (e.g., /BertModel/BertEncoder/BertLayer.0)",
+          "title": "Traced Tag",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Full module path from root (e.g., encoder.layer.0)",
+          "title": "Scope",
+          "type": "string"
+        },
+        "execution_order": {
+          "description": "Order of execution during tracing",
+          "title": "Execution Order",
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "description": "Source of the module (optional)",
+          "title": "Source",
+          "type": "string"
+        },
+        "children": {
+          "description": "Child modules using class name (with index for repeated modules) as keys",
+          "title": "Children",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/HierarchicalModule"
+          }
+        }
+      },
+      "required": [
+        "class_name",
+        "traced_tag",
+        "scope"
+      ],
+      "title": "HierarchicalModule",
+      "type": "object"
+    },
+    "TracingInfo": {
+      "description": "Tracing execution information",
+      "properties": {
+        "builder": {
+          "description": "Hierarchy builder used",
+          "type": "string",
+          "default": "TracingHierarchyBuilder"
+        },
+        "modules_traced": {
+          "description": "Number of modules traced during execution",
+          "type": "integer",
+          "minimum": 0
+        },
+        "execution_steps": {
+          "description": "Number of execution steps",
+          "type": "integer",
+          "minimum": 0
+        },
+        "model_type": {
+          "description": "Model type (e.g., bert, gpt2)",
+          "type": "string"
+        },
+        "task": {
+          "description": "Task type (e.g., feature-extraction)",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Input tensor information",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "shape": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "dtype": {
+                "type": "string"
+              }
+            },
+            "required": ["shape", "dtype"]
+          }
+        },
+        "outputs": {
+          "description": "Output tensor names",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "builder",
+        "modules_traced",
+        "execution_steps"
+      ],
+      "title": "TracingInfo",
+      "type": "object"
+    },
+    "OnnxModelOutput": {
+      "description": "ONNX model output information",
+      "properties": {
+        "path": {
+          "description": "File path (filename only)",
+          "title": "Path",
+          "type": "string"
+        },
+        "size_mb": {
+          "description": "File size in MB",
+          "title": "Size MB",
+          "type": "number",
+          "minimum": 0
+        },
+        "opset_version": {
+          "description": "ONNX opset version",
+          "title": "Opset Version",
+          "type": "integer",
+          "minimum": 1
+        },
+        "output_names": {
+          "description": "Output tensor names",
+          "title": "Output Names",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "size_mb",
+        "opset_version"
+      ],
+      "title": "OnnxModelOutput",
+      "type": "object"
+    },
+    "FileInfo": {
+      "description": "Simple file information",
+      "properties": {
+        "path": {
+          "description": "File path (filename only)",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "FileInfo",
+      "type": "object"
+    },
+    "NodeTaggingStep": {
+      "description": "Node tagging step information",
+      "properties": {
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the step completed successfully"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/ISOTimestamp"
+        },
+        "total_nodes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tagged_nodes_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coverage_percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "statistics": {
+          "type": "object",
+          "properties": {
+            "root_nodes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "scoped_nodes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unique_scopes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "direct_matches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "parent_matches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "operation_matches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "root_fallbacks": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "percentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "total_onnx_nodes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tagged_nodes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "ExportSteps": {
+      "description": "All export process steps",
+      "properties": {
+        "model_preparation": {
+          "type": "object",
+          "properties": {
+            "completed": {
+              "type": "boolean",
+              "description": "Whether the step completed successfully"
+            },
+            "timestamp": {
+              "$ref": "#/$defs/ISOTimestamp"
+            },
+            "model_class": {"type": "string"},
+            "total_modules": {"type": "integer", "minimum": 0},
+            "total_parameters": {"type": "integer", "minimum": 0}
+          }
+        },
+        "input_generation": {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "$ref": "#/$defs/ISOTimestamp"
+            },
+            "method": {"type": "string"},
+            "model_type": {"type": "string"},
+            "task": {"type": "string"},
+            "inputs": {"type": "object"}
+          }
+        },
+        "hierarchy_building": {
+          "type": "object",
+          "properties": {
+            "completed": {
+              "type": "boolean",
+              "description": "Whether the step completed successfully"
+            },
+            "timestamp": {
+              "$ref": "#/$defs/ISOTimestamp"
+            },
+            "modules_traced": {"type": "integer", "minimum": 0},
+            "execution_steps": {"type": "integer", "minimum": 0}
+          }
+        },
+        "onnx_export": {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "$ref": "#/$defs/ISOTimestamp"
+            },
+            "opset_version": {"type": "integer", "minimum": 1},
+            "do_constant_folding": {"type": "boolean"},
+            "onnx_size_mb": {"type": "number", "minimum": 0},
+            "output_names": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        },
+        "node_tagging": {
+          "$ref": "#/$defs/NodeTaggingStep"
+        },
+        "tag_injection": {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "$ref": "#/$defs/ISOTimestamp"
+            },
+            "tags_injected": {"type": "boolean"},
+            "tags_stripped": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  },
+  "description": "Complete HTP metadata schema with hierarchical module structure",
+  "properties": {
+    "export_context": {
+      "$ref": "#/$defs/ExportContext"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelInfo"
+    },
+    "tracing": {
+      "$ref": "#/$defs/TracingInfo"
+    },
+    "modules": {
+      "description": "Root module with hierarchical structure",
+      "$ref": "#/$defs/HierarchicalModule"
+    },
+    "nodes": {
+      "description": "ONNX node to module tag mappings",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "description": "Output file information",
+      "type": "object",
+      "properties": {
+        "onnx_model": {
+          "$ref": "#/$defs/OnnxModelOutput"
+        },
+        "metadata": {
+          "$ref": "#/$defs/FileInfo"
+        },
+        "report": {
+          "$ref": "#/$defs/FileInfo"
+        }
+      },
+      "required": [
+        "onnx_model",
+        "metadata"
+      ]
+    },
+    "report": {
+      "description": "Export report information",
+      "type": "object",
+      "properties": {
+        "steps": {
+          "description": "All export process steps",
+          "$ref": "#/$defs/ExportSteps"
+        }
+      }
+    },
+    "statistics": {
+      "description": "Export statistics",
+      "type": "object",
+      "properties": {
+        "export_time": {
+          "description": "Total export time in seconds",
+          "type": "number",
+          "minimum": 0
+        },
+        "hierarchy_modules": {
+          "description": "Total number of modules in model",
+          "type": "integer",
+          "minimum": 0
+        },
+        "traced_modules": {
+          "description": "Number of modules traced during execution",
+          "type": "integer",
+          "minimum": 0
+        },
+        "onnx_nodes": {
+          "description": "Total ONNX nodes",
+          "type": "integer",
+          "minimum": 0
+        },
+        "tagged_nodes": {
+          "description": "Number of tagged nodes",
+          "type": "integer",
+          "minimum": 0
+        },
+        "empty_tags": {
+          "description": "Number of empty tags (always 0)",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 0
+        },
+        "coverage_percentage": {
+          "description": "Tag coverage percentage",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "module_types": {
+          "description": "List of unique module types",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "export_time",
+        "hierarchy_modules",
+        "traced_modules",
+        "onnx_nodes",
+        "tagged_nodes",
+        "empty_tags",
+        "coverage_percentage"
+      ]
+    }
+  },
+  "required": [
+    "export_context",
+    "model",
+    "tracing",
+    "modules",
+    "nodes",
+    "outputs",
+    "report",
+    "statistics"
+  ],
+  "title": "HTPMetadata",
+  "type": "object"
+}

@@ -1,0 +1,500 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [ "setuptools>=61", "wheel" ]
+
+[project]
+name = "winml-modelkit"
+version = "0.0.1.dev1"
+description = "Accelerate Model Deployment on WinML"
+readme = "README.md"
+keywords = [ "onnx", "winml" ]
+license = { text = "MIT" }
+authors = [ { name = "WinML Team" } ]
+requires-python = ">=3.10,<3.11"
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+  "click>=8.1.8",
+  "colorama>=0.4.6",
+  "datasets>=4.1.1",
+  "diffusers>=0.36",
+  "evaluate>=0.4.6",
+  "jsonschema>=4.23",
+  "ml-dtypes>=0.5.3",
+  "numpy>=2.2,<2.3",
+  "onnx==1.18",
+  "onnx-ir>=0.1",
+  "onnxruntime-windowsml>=1.23.2,<1.24.0",
+  "onnxscript>=0.2",
+  "optimum>=2",
+  "optimum-onnx>=0.1",
+  "plotext>=5.3.2",
+  "pydantic>=2",
+  "requests>=2.32.5",
+  "rich>=14",
+  "scikit-learn>=1.7",
+  "scipy>=1.15,<1.16",
+  "snakemd>=2",
+  "timm>=1.0.22",
+  "tokenizers>=0.22",
+  "torch>=2.9",
+  "torchinfo>=1.8",
+  "torchvision>=0.24",
+  "transformers>=4.57",
+  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
+  "winrt-runtime>=3.2.1",
+  "winrt-windows-foundation>=3.2.1",
+  "winrt-windows-foundation-collections>=3.2.1",
+]
+
+optional-dependencies.dev = [
+  "ipykernel>=6.30.1",
+  "ipywidgets>=8.1.7",
+  "jupyter>=1.1.1",
+  "markdown-it-py>=3",
+  "matplotlib>=3.10",
+  "mypy>=1.18",
+  "nbconvert>=7.16",
+  "pytest>=8.4",
+  "pytest-cov>=7",
+  "pytest-timeout>=2.3",
+  "ruff>=0.14",
+  "seaborn>=0.13",
+  "timm>=1.0.20",
+  "tqdm>=4.67",
+  "types-colorama>=0.4.15.20250801",
+]
+optional-dependencies.openvino = [ "openvino>=2023" ]
+optional-dependencies.qnn = [
+  "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
+]
+urls."Bug Tracker" = "https://github.com/gim-home/ModelKit/issues"
+urls.Documentation = "https://github.com/gim-home/ModelKit/blob/main/README.md"
+urls.Homepage = "https://github.com/gim-home/ModelKit"
+urls.Repository = "https://github.com/gim-home/ModelKit.git"
+# =============================================================================
+# SETUPTOOLS - Package Configuration (Flat Layout with Namespace Prefix)
+# =============================================================================
+# Explicit package list is required when using namespace prefix mapping.
+# Reason: `packages.find` discovers physical directory names (modelkit, modelkit.core),
+# but package-dir expects namespace names (winml.modelkit). These don't auto-connect.
+# For flat layout (modelkit/) with namespace imports (winml.modelkit), explicit listing
+# ensures the namespace prefix is correctly applied to all subpackages.
+scripts.wmk = "winml.modelkit.cli:main"
+
+[dependency-groups]
+dev = [
+  "jupyter>=1.1.1",
+  "pytest-cov>=7",
+  "pytest-timeout>=2.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = [ "src" ]
+include = [ "winml", "winml.*" ]
+
+[tool.setuptools.package-data]
+"winml.modelkit" = [ "py.typed" ]
+"winml.modelkit.analyze" = [
+  "rules/**/*.json",
+  "rules/**/*.zip",
+  "runtime_checker/need_rerun_errors.json",
+]
+"winml.modelkit.export" = [
+  "htp/htp_metadata_schema.json",
+]
+"winml.modelkit.pattern" = [
+  "rules/**/*.json",
+]
+
+# =============================================================================
+# RUFF - Linting & Formatting (replaces black, isort, flake8, pylint)
+# =============================================================================
+
+[tool.ruff]
+target-version = "py310"
+
+line-length = 100 # Extended for modern screens
+# Indent with spaces (consistent with PEP 8)
+format.indent-style = "space"
+# =============================================================================
+# MYPY - Type Checking
+# =============================================================================
+# Use double quotes for strings (consistent with black)
+format.quote-style = "double"
+# Unix line endings
+format.line-ending = "auto"
+# Respect magic trailing commas
+format.skip-magic-trailing-comma = false
+lint.select = [
+  "ANN", # flake8-annotations (type hint presence)
+  # === Code Quality ===
+  "B",  # flake8-bugbear (common bugs and design problems)
+  "C4", # flake8-comprehensions (better comprehensions)
+  # === Documentation ===
+  "D", # pydocstyle (docstrings - Google style)
+
+  # === Core Python (Always Enable) ===
+  "E", # pycodestyle errors (PEP 8)
+  "F", # Pyflakes (logic errors, undefined names)
+  # === Type Annotations ===
+  "FA", # flake8-future-annotations (enforce `from __future__ import annotations`)
+  # === Logging & Debugging ===
+  "G",   # flake8-logging-format (logging best practices)
+  "I",   # isort (import sorting)
+  "ICN", # flake8-import-conventions (import aliases)
+
+  # === Naming & Imports ===
+  "N", # pep8-naming (naming conventions)
+  # === Performance ===
+  "PERF", # perflint (performance anti-patterns)
+
+  "PIE", # flake8-pie (misc lints)
+
+  # === Pytest ===
+  "PT", # flake8-pytest-style (pytest best practices)
+
+  # === Path & File Handling ===
+  "PTH", # flake8-use-pathlib (pathlib over os.path)
+
+  "RET", # flake8-return (return statement consistency)
+  "RSE", # flake8-raise (raise statement lints)
+
+  # === Ruff-specific ===
+  "RUF", # Ruff-specific rules
+  # === Security ===
+  "S", # flake8-bandit (security vulnerabilities)
+
+  "SIM", # flake8-simplify (simplification suggestions)
+  "T10", # flake8-debugger (no debugger statements)
+  "T20", # flake8-print (no print statements in production)
+
+  "TCH", # flake8-type-checking (TYPE_CHECKING imports)
+
+  "TID", # flake8-tidy-imports (import hygiene)
+  # === Exception Handling ===
+  "TRY", # tryceratops (exception handling best practices)
+  "UP",  # pyupgrade (Python 3.10+ syntax)
+
+  "W", # pycodestyle warnings (PEP 8)
+]
+lint.ignore = [
+  # === Annotations (gradual typing) ===
+  "ANN001", # missing type for self/args in nested functions - too strict
+  "ANN002", # missing type for *args
+  "ANN003", # missing type for **kwargs
+  "ANN201", # missing return type public function - covered selectively
+  "ANN202", # missing return type private function - covered selectively
+  "ANN204", # missing return type __init__ - already covered
+
+  # === Type Annotations (selective) ===
+  "ANN401", # dynamically typed expressions (Any) - common in ML
+
+  # === Bugbear (style preference) ===
+  "B008", # do not perform function calls in argument defaults
+
+  # === Docstrings (selective) ===
+  "D100", # missing docstring in public module
+  "D104", # missing docstring in public package
+  "D105", # missing docstring in magic method
+  "D107", # missing docstring in __init__ (covered by class docstring)
+
+  # === Docstrings (gradual) ===
+  "D417", # missing arg description - gradual improvement
+  # === Logging ===
+  "G003", # logging uses + concatenation - acceptable in ML logging
+  "G004", # logging uses f-string - acceptable, modern Python style
+
+  # === Naming (ML convention) ===
+  "N812", # torch.nn.functional as F is ML convention
+
+  # === Security (context-dependent) ===
+  "S101", # assert used - acceptable for data validation and tests
+  "S110", # try-except-pass - acceptable for optional operations
+  "S112", # try-except-continue - acceptable for iteration over optional loaders
+  "S311", # pseudo-random generators - acceptable for non-cryptographic use (test data)
+
+  # === Simplify (sometimes less clear) ===
+  "SIM105", # use contextlib.suppress (explicit try/except often clearer)
+
+  # === Print (CLI needs it) ===
+  "T201", # print found - will be per-file ignored for CLI
+
+  # === Tidy Imports ===
+  "TID252", # relative imports are fine for intra-package imports
+
+  # === Exceptions (too strict) ===
+  "TRY003", # avoid specifying long messages outside exception class
+  "TRY300", # return in try block - preferred pattern for try-return-except-fallback
+  "TRY301", # abstract raise to inner function - too restrictive for CLI error handling
+  "TRY400", # use logging.exception instead of logging.error
+
+]
+# rule_loader.py: Allow try-except in loops for robust error handling
+lint.per-file-ignores."**/rule_loader.py" = [ "PERF203" ]
+# Notebooks: More relaxed
+lint.per-file-ignores."*.ipynb" = [ "ANN", "D", "E402", "T20" ]
+# Type stubs
+lint.per-file-ignores."*.pyi" = [ "ANN", "D" ]
+# === Security (Bandit) ===
+# __init__.py: Allow re-exports and import organization
+lint.per-file-ignores."__init__.py" = [ "D104", "E402", "F401", "F403" ]
+# Examples & Scripts: Relax for educational clarity
+lint.per-file-ignores."examples/**" = [ "ANN", "D100", "D103", "S101", "T20" ]
+# CLI: Allow print statements
+lint.per-file-ignores."src/winml/modelkit/cli.py" = [ "T20", "T201" ]
+lint.per-file-ignores."src/winml/modelkit/commands/**" = [ "T20", "T201" ]
+lint.per-file-ignores."test_*.py" = [ "ANN", "D", "PLR2004", "PT", "S101", "T20" ]
+# Tests: Relax documentation, typing, security (assert), print
+lint.per-file-ignores."tests/**" = [ "ANN", "D", "PLR2004", "PT", "S101", "T20" ]
+# Test assets: Allow loop append pattern for ONNX node construction readability
+lint.per-file-ignores."tests/**/generate_patterns.py" = [ "PERF401" ]
+# === Import Conventions ===
+lint.flake8-bandit.check-typed-exception = true
+lint.flake8-bandit.hardcoded-tmp-directory = [ "/tmp", "/var/tmp", "C:\\Temp" ]
+# === Import Sorting ===
+lint.flake8-import-conventions.aliases.numpy = "np"
+lint.flake8-import-conventions.aliases.pandas = "pd"
+lint.flake8-import-conventions.aliases.torch = "torch"
+# === Pytest Style ===
+lint.flake8-pytest-style.fixture-parentheses = false
+lint.flake8-pytest-style.mark-parentheses = false
+# === Per-File Ignores ===
+# === Type Checking Imports ===
+lint.flake8-type-checking.runtime-evaluated-base-classes = [
+  "pydantic.BaseModel",
+  "torch.nn.Module",
+  "torch.optim.Optimizer",
+]
+lint.flake8-type-checking.runtime-evaluated-decorators = [
+  "dataclasses.dataclass",
+  "pydantic.field_validator",
+]
+lint.isort.force-single-line = false
+lint.isort.known-first-party = [ "winml" ]
+lint.isort.lines-after-imports = 2
+lint.isort.section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  "first-party",
+  "local-folder",
+]
+# === Docstring Convention ===
+lint.pydocstyle.convention = "google"
+
+[tool.pytest.ini_options]
+# === Test Discovery ===
+testpaths = [ "tests" ]
+pythonpath = [ "src" ]
+python_files = [ "test_*.py" ]
+python_classes = [ "Test*" ]
+python_functions = [ "test_*" ]
+norecursedirs = [
+  ".git",
+  ".tox",
+  "dist",
+  "build",
+  ".venv",
+  "*.egg-info",
+  "__pycache__",
+  ".pytest_cache",
+]
+
+# === Command Line Options ===
+addopts = [
+  # Strict validation (catch issues early)
+  "--strict-markers",        # Error on unknown markers
+  "--strict-config",         # Error on config parse errors
+  "--import-mode=importlib", # Modern import mode (recommended)
+  # Output formatting
+  "--verbose",
+  "-rsfEX",      # Show short test summary info
+  "--tb=short",  # Shorter traceback format
+  "--color=yes", # Color output
+  # Coverage reporting
+  "--cov-report=term-missing",
+  "--cov-report=html",
+  "--cov-report=xml",          # For CI/CD integration
+]
+
+# === Required Plugins ===
+required_plugins = [ "pytest-cov>=7.0", "pytest-timeout>=2.3" ]
+
+# === Timeout (pytest-timeout) ===
+timeout = 300
+timeout_method = "thread"
+
+# === Test Markers ===
+markers = [
+  # Test Categories
+  "unit: Unit tests (fast, isolated)",
+  "smoke: Core functionality tests that must always pass",
+  "sanity: Sanity check tests for basic functionality",
+  "regression: Full regression test suite",
+  "security: Security and vulnerability tests",
+  "integration: Integration tests (may require external services)",
+  "e2e: Full end-to-end tests with real models and hardware (deselect with '-m \"not e2e\"')",
+
+  # Test Attributes
+  "slow: Tests that take > 30 seconds",
+  "flaky: Tests known to be intermittently failing",
+  "network: Tests requiring network access",
+  "requires_network: Tests requiring network access (alias for network)",
+  "memory_intensive: Tests requiring >2GB memory",
+
+  # Hardware Markers
+  "npu: Tests requiring NPU hardware",
+  "gpu: Tests requiring GPU hardware",
+
+  # Environment Markers (Backend)
+  "qnn: marks tests for QNN backend",
+  "openvino: marks tests for OpenVINO backend",
+  "cuda: marks tests requiring CUDA runtime",
+  "directml: marks tests for DirectML backend",
+  "tensorrt: marks tests for TensorRT backend",
+  "vitisai: marks tests for AMD Vitis AI backend",
+  "training: marks tests requiring training-specific ORT features",
+]
+
+# === Warning Filters ===
+filterwarnings = [
+  "ignore::DeprecationWarning",
+  "ignore::PendingDeprecationWarning",
+  "ignore:.*meta parameter.*:UserWarning:torch.nn.modules.module",
+  "ignore::torch.jit.TracerWarning",
+  "ignore:.*CUDA.*:UserWarning:diffusers.*",
+]
+
+# =============================================================================
+# COVERAGE - Code Coverage Configuration
+# =============================================================================
+# NOTE: Use --cov (no argument) or --cov=modelkit/session (path notation)
+# AVOID: --cov=modelkit.session (dotted module) - crashes due to coverage.py
+# import tracing + onnx nanobind double-registration conflict
+
+[tool.coverage.run]
+source = [ "src/winml/modelkit" ]
+branch = true
+omit = [
+  "*/tests/*",
+  "*/__pycache__/*",
+  "*/conftest.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]
+
+[tool.mypy]
+python_version = "3.10"
+
+# === Strict Mode ===
+strict = true
+
+# === Practical exceptions for ML development ===
+# ML libraries (torch, transformers) lack complete type stubs
+disallow_untyped_calls = false # Allow calls to untyped third-party libraries
+disallow_any_generics = false  # Allow Any in generics (common in ML code)
+
+# === Warnings ===
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+
+# === Output ===
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+
+exclude_gitignore = true
+
+# === Caching ===
+# Disable cache to avoid TypeGuardedType serialization bug (mypy >= 1.18)
+cache_dir = "nul"
+
+# === Per-Module Overrides ===
+
+# External dependencies and internal WIP modules - ignore missing imports
+[[tool.mypy.overrides]]
+module = [
+  # Third-party ML libraries (no stubs)
+  "torch.*",
+  "torchvision.*",
+  "onnx.*",
+  "onnxruntime.*",
+  "transformers.*",
+  "datasets.*",
+  "optimum.*",
+  "timm.*",
+  "onnxscript.*",
+  "snakemd",
+  "openvino",
+  "openvino.*",
+  # Namespace package
+  "winml",
+  "winml.*",
+]
+ignore_missing_imports = true
+
+# Relaxed modules: tests and WIP code
+# TODO: Gradually fix types in modelkit.* and tighten rules
+
+[[tool.mypy.overrides]]
+module = [
+  # Tests
+  "tests",
+  "tests.*",
+  "winml.modelkit.configs",
+  "winml.modelkit.loader",
+  "winml.modelkit.export",
+  "winml.modelkit.export.*",
+  "winml.modelkit.optimization",
+  "winml.modelkit.optimization.*",
+  "winml.modelkit.models",
+  "winml.modelkit.models.*",
+  "winml.modelkit.utils",
+  "winml.modelkit.utils.*",
+  "winml.modelkit.commands.export",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+warn_return_any = false
+warn_unreachable = false
+disable_error_code = [
+  "var-annotated",
+  "attr-defined",
+  "union-attr",
+  "assignment",
+  "arg-type",
+  "return-value",
+  "misc",
+  "import-not-found",
+  "import-untyped",
+  "override",
+  "operator",
+  "dict-item",
+  "name-defined",
+  "has-type",
+]
+
+# =============================================================================
+# PYTEST - Testing Configuration
+# =============================================================================
