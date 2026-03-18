@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Gemm pattern builders for ORT Graph Optimization tests.
 
 Contains builders for Gemm-based fusion patterns:

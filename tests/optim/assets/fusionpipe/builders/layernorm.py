@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """LayerNorm pattern builders for FusionPipe testing.
 
 Creates ONNX graphs that match ORT's LayerNorm fusion patterns:

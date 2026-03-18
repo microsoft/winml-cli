@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WinMLAutoModel - Factory class for automatic model selection.
 
 Implements the from_pretrained() pattern with two-level task mapping.

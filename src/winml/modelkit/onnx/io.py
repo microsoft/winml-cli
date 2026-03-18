@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX I/O utilities — tensor specs and ONNX model I/O extraction.
 
 Canonical home for InputTensorSpec / OutputTensorSpec dataclasses and

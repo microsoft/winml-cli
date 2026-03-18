@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Roberta-family HuggingFace Model Configuration.
 
 Roberta/XLM-R/CamemBERT set max_position_embeddings = usable_length + pad_token_id + 1

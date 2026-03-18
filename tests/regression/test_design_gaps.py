@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Regression tests documenting current CLI behavior and known design gaps.
 
 These tests document the CURRENT behavior of the CLI. They should PASS

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """LayerNormalization pattern family cross-matching tests.
 
 Verifies that Pow and Mul variants do not cross-match, and that multi-node

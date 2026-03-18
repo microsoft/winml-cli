@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Surgery capabilities for precise model modifications.
 
 These capabilities perform targeted graph transformations that are not part of

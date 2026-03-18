@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Universal ONNX metadata capture and restore.
 
 Graph transformations (ORT quantize, shape inference) create new ModelProto

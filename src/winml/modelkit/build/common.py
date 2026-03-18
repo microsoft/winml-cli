@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared build pipeline utilities.
 
 Provides the optimize-analyze loop reused by both build_hf_model() and

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WinMLLoaderConfig - Configuration and resolution for HuggingFace model loading.
 
 This module provides:

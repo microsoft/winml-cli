@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 # S110: try-except-pass for optional jsonschema validation
 
 """Metadata writer for HTP export monitoring.

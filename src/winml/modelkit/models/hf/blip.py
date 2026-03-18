@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """BLIP HuggingFace Model Configuration.
 
 BLIP (Bootstrapping Language-Image Pre-training) configuration for image captioning.

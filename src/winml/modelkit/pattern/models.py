@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pattern entities - PatternType, Pattern, SubgraphPattern, OperatorPattern.
 
 These pure Pydantic data models are shared between modelkit.pattern and

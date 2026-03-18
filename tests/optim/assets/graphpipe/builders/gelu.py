@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """GELU pattern builders for ONNX optimization testing.
 
 This module provides builder functions for various GELU activation patterns

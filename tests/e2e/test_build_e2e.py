@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """E2E tests for the build CLI command.
 
 These are heavy tests that exercise the full build pipeline. To keep

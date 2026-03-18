@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """EP tracer registry with substring-based pattern matching.
 
 Tracers register themselves against an EP *pattern* (e.g. ``"QNN"``) and

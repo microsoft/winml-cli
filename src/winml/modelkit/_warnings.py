@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Early warning filter configuration for ModelKit.
 
 This module configures warning filters ON IMPORT. It MUST have no dependencies

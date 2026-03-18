@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Doc Constraint Checker - Query documentation-based rules for operator constraint checking.
 
 This module provides functionality to load and query operator constraints

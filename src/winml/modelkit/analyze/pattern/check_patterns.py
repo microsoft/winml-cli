@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Test ONNX patterns on execution providers.
 
 This script tests ONNX patterns (subgraph patterns like Gelu, MatMulAdd)

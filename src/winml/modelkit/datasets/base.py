@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Base class for task-specific calibration datasets.
 
 General-purpose base class with readonly properties and explicit configuration.

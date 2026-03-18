@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Export test fixtures - minimal HF configs for I/O spec testing.
 
 Provides module-scoped HF config fixtures for fast parametrized testing

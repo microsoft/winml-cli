@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ORT Mapping Verification Tests.
 
 This module verifies the correctness of ORT optimizer name mappings in the

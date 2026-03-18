@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for config CLI command -- mock-based, no network, no actual config generation.
 
 Tests the CLI wrapper around generate_hf_build_config() / generate_onnx_build_config() APIs.

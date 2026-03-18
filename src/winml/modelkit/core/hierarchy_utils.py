@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared hierarchy building utilities for HTP export.
 
 This module provides shared logic for building module hierarchy trees

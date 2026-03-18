@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Utility functions for ONNX Static Analyzer."""
 
 from .ep_utils import infer_ihv_from_ep_name

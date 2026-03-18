@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Model-aware cache operations for ModelKit.
 
 Adds model_id to slug mapping, model directory resolution, and

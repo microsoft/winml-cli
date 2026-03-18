@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Optimum integration utilities for loading ONNX models with HuggingFace configurations.
 
 This module provides seamless integration with HuggingFace Optimum for inference

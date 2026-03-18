@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Image dataset for general-purpose ML pipelines.
 
 Uses model's own preprocessor for proper image handling - no hardcoded sizes.

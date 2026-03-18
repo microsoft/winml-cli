@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WML ModelKit - Accelerate Model Deployment on WinML.
 
 ModelKit provides tools for converting PyTorch models to optimized ONNX format

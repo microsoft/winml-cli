@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pattern matching system for ONNX models.
 
 This module provides a flexible framework for matching and validating subgraph patterns

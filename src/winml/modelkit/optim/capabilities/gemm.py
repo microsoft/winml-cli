@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """GEMM (General Matrix Multiplication) capabilities.
 
 This module defines GEMM fusion optimizations. These optimizations detect

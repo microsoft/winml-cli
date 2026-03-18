@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for WinMLExportConfig validation paths and roundtrip serialization.
 
 Tests all validation logic in WinMLExportConfig.__post_init__(), plus

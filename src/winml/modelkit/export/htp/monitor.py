@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 # ruff: noqa: PERF203
 # PERF203: try-except in loop is acceptable for writer error isolation
 

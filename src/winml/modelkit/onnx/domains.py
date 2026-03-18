@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX domain identifiers shared across ModelKit modules.
 
 This module provides the ONNXDomain enum, extracted from the analyze

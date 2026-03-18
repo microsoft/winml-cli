@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared fixtures for E2E tests.
 
 These fixtures generate real ONNX files on-the-fly and provide

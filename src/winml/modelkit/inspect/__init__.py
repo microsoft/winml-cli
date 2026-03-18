@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Inspect module for analyzing HuggingFace models.
 
 Provides the inspect_model() function to analyze model compatibility

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Surgery Pipe Tests.
 
 Tests for SurgeryPipe which performs pre-optimization model surgery.

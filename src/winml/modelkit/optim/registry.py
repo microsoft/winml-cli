@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Capability definitions for ONNX Runtime graph optimization.
 
 This module provides capability definitions for managing optimization settings.

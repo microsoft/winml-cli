@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Validator for detecting missing shape information in models.
 
 Detects intermediate tensors with unknown shapes (dynamic or unresolvable)

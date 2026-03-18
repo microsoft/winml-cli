@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Object detection dataset for DETR-like models in calibration pipelines.
 
 Extends ImageDataset with ONNX-aware configuration overrides

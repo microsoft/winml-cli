@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared pattern matching infrastructure for ModelKit.
 
 This package provides pattern matching, input generation, and graph rewriting

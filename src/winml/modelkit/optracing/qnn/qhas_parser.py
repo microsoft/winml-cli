@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Parse QNN Hardware Acceleration Summary (QHAS) JSON artifacts.
 
 QHAS files are produced by QNN EP profiling and contain per-operator

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Node-level metadata system for ONNX models.
 
 This module provides a comprehensive metadata system for tracking ONNX node origins,

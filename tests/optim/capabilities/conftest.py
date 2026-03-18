@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Capability-specific pytest fixtures for differential testing.
 
 This module provides specialized fixtures for testing individual optimization

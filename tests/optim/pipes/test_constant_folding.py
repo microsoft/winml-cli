@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for ConstantFolding optimization effect.
 
 ConstantFolding is a "basic" ORT optimizer that runs at Level 2 by default.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 # types currently not supported in onnxscript.onnx_types
 # BFLOAT16,
 # COMPLEX64,

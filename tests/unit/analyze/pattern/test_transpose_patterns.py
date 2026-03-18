@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Transpose pattern family cross-matching and merge-logic tests.
 
 Verifies cross-matching between ReshapeTransposeReshape and

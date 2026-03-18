@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """HuggingFace Hub utilities for model detection and configuration loading.
 
 This module provides intelligent detection of HuggingFace Hub models vs local models,

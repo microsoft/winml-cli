@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for normalize_task and get_task_abbrev utility functions."""
 
 from winml.modelkit.loader.task import get_task_abbrev, normalize_task

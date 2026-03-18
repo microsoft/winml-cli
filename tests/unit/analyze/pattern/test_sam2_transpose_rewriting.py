@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Unit tests for ReshapeTransposeReshape pattern matching and rewriting on SAM2 encoder.
 
 These tests verify the pattern matching and rewriting functionality using the

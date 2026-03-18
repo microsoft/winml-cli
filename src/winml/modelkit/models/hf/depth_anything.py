@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Depth Anything HuggingFace Model Configuration.
 
 Depth Anything V2 uses a DINOv2 backbone with a DPT-style decoder head

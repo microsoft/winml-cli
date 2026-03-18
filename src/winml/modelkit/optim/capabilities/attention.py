@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Attention mechanism fusion capabilities.
 
 This module defines attention mechanism fusion optimizations. These optimizations

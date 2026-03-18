@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Validator for detecting dynamic inputs in models (NPU only).
 
 When model has dynamic inputs, warns that dynamic input parsing is not currently supported.

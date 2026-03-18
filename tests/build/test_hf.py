@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for build API — mock-based, no network, no actual builds.
 
 Tests build_hf_model() and BuildResult independently of CLI and WinMLAutoModel.

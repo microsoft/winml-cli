@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Config generation command for ModelKit CLI.
 
 Generates WinMLBuildConfig for a HuggingFace model or a pre-exported ONNX file

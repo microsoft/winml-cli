@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """HWLiveDisplay — self-contained live hardware monitor with terminal chart.
 
 Wraps HWMonitor + plotext chart + Rich Live in a single context manager.

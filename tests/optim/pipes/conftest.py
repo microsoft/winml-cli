@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pipe-specific fixtures for pipe implementation tests.
 
 This conftest provides fixtures specific to Pipe class testing.

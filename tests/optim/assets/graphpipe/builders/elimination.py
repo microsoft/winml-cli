@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Elimination pattern builders for ORT Graph Optimization tests.
 
 This module contains builders for patterns that test ORT's elimination optimizations:

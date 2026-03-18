@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tracing-based HF hierarchy builder using forward hooks.
 
 This version builds module hierarchy lazily during tracing to avoid

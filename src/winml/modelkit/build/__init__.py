@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Build module — core pipeline API for building ONNX models.
 
 This module owns the build pipeline (export -> optimize -> quantize -> compile).

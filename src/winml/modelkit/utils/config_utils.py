@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Configuration utilities for WinML pipeline configs.
 
 Provides recursive merge functionality for dataclasses and dict-like configs.

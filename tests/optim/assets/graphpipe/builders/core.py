@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Core pattern builders for ONNX graph optimization testing.
 
 This module provides fundamental pattern builders that are used across
