@@ -43,7 +43,7 @@ New code *must* be accompanied by unit tests. Code coverage should aim at mainta
 This project welcomes contributions and suggestions. Most contributions require you to
 agree to a Contributor License Agreement (CLA) declaring that you have the right to,
 and actually do, grant us the rights to use your contribution. For details, visit
-https://cla.microsoft.com.
+https://cla.opensource.microsoft.com.
 
 When you submit a pull request, a CLA-bot will automatically determine whether you need
 to provide a CLA and decorate the PR appropriately (e.g., label, comment). Simply follow the
