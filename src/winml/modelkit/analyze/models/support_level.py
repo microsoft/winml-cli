@@ -10,7 +10,7 @@ from enum import Enum
 class SupportLevel(str, Enum):
     """Support level classification."""
 
-    WHITE = "white"
-    GRAY = "gray"
-    BLACK = "black"
+    SUPPORTED = "supported"
+    PARTIAL = "partial"
+    UNSUPPORTED = "unsupported"
     UNKNOWN = "unknown"

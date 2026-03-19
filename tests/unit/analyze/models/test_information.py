@@ -30,14 +30,14 @@ class TestActionValidation:
             pattern_from_id="SUBGRAPH/GELU_Erf",
             pattern_to_id="SUBGRAPH/GELU_Tanh",
             level=ActionLevel.REQUIRED,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="Use Tanh-based GELU for better hardware support",
         )
 
         assert action.pattern_from_id == "SUBGRAPH/GELU_Erf"
         assert action.pattern_to_id == "SUBGRAPH/GELU_Tanh"
         assert action.level == ActionLevel.REQUIRED
-        assert action.status == SupportLevel.WHITE
+        assert action.status == SupportLevel.SUPPORTED
 
     def test_action_level_enum_values(self):
         """Test that ActionLevel enum values are accepted."""
@@ -46,14 +46,14 @@ class TestActionValidation:
                 pattern_from_id="OP/ai.onnx/Conv",
                 pattern_to_id="OP/com.microsoft/FusedConv",
                 level=level,
-                status=SupportLevel.WHITE,
+                status=SupportLevel.SUPPORTED,
                 details="Test details",
             )
             assert action.level == level
 
     def test_support_level_enum_values(self):
         """Test that SupportLevel enum values are accepted for status."""
-        for status in [SupportLevel.WHITE, SupportLevel.GRAY, SupportLevel.BLACK]:
+        for status in [SupportLevel.SUPPORTED, SupportLevel.PARTIAL, SupportLevel.UNSUPPORTED]:
             action = Action(
                 pattern_from_id="OP/ai.onnx/Conv",
                 pattern_to_id="OP/com.microsoft/FusedConv",
@@ -109,7 +109,7 @@ class TestInformationValidation:
             pattern_from_id="SUBGRAPH/GELU_Erf",
             pattern_to_id="SUBGRAPH/GELU_Tanh",
             level=ActionLevel.REQUIRED,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="Tanh-based GELU has better hardware support",
         )
 
@@ -163,7 +163,7 @@ class TestInformationValidation:
             pattern_from_id="OP/ai.onnx/Conv",
             pattern_to_id="OP/com.microsoft/FusedConv",
             level=ActionLevel.REQUIRED,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details=("FusedConv combines convolution and activation for better performance"),
         )
 
@@ -181,24 +181,24 @@ class TestInformationValidation:
 class TestInformationIntegrationScenarios:
     """Test Information integration scenarios."""
 
-    def test_required_action_whitelist(self):
-        """Test required action that improves to whitelist."""
+    def test_required_action_supportedlist(self):
+        """Test required action that improves to supportedlist."""
         action = Action(
             pattern_from_id="SUBGRAPH/GELU_Erf",
             pattern_to_id="OP/ai.onnx/Gelu",
             level=ActionLevel.REQUIRED,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="Native Gelu operator is fully supported",
         )
 
         info = Information(
             actions=[action],
-            explanation="Erf-based GELU pattern is blacklisted on this hardware",
+            explanation="Erf-based GELU pattern is unsupported on this hardware",
             pattern_id="SUBGRAPH/GELU_Erf",
         )
 
         assert info.actions[0].level == ActionLevel.REQUIRED
-        assert info.actions[0].status == SupportLevel.WHITE
+        assert info.actions[0].status == SupportLevel.SUPPORTED
 
     def test_optional_action_performance_hint(self):
         """Test optional action for performance optimization."""
@@ -206,7 +206,7 @@ class TestInformationIntegrationScenarios:
             pattern_from_id="OP/ai.onnx/Conv",
             pattern_to_id="OP/com.microsoft/FusedConv",
             level=ActionLevel.OPTIONAL,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="FusedConv can improve inference speed by 20%",
         )
 
@@ -217,15 +217,15 @@ class TestInformationIntegrationScenarios:
         )
 
         assert info.actions[0].level == ActionLevel.OPTIONAL
-        assert info.actions[0].status == SupportLevel.WHITE
+        assert info.actions[0].status == SupportLevel.SUPPORTED
 
-    def test_warning_action_graylist(self):
+    def test_warning_action_partiallist(self):
         """Test warning action for potential issues."""
         action = Action(
             pattern_from_id="OP/ai.onnx/DynamicQuantizeLinear",
             pattern_to_id="OP/ai.onnx/QuantizeLinear",
             level=ActionLevel.WARNING,
-            status=SupportLevel.GRAY,
+            status=SupportLevel.PARTIAL,
             details="Dynamic quantization may have accuracy issues on this hardware",
         )
 
@@ -236,7 +236,7 @@ class TestInformationIntegrationScenarios:
         )
 
         assert info.actions[0].level == ActionLevel.WARNING
-        assert info.actions[0].status == SupportLevel.GRAY
+        assert info.actions[0].status == SupportLevel.PARTIAL
 
     def test_multiple_pattern_transformation(self):
         """Test action involving complex pattern transformation."""
@@ -244,7 +244,7 @@ class TestInformationIntegrationScenarios:
             pattern_from_id="SUBGRAPH/LayerNormalization",
             pattern_to_id="OP/ai.onnx/LayerNormalization",
             level=ActionLevel.REQUIRED,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="Native LayerNormalization operator provides better performance",
         )
 
@@ -284,7 +284,7 @@ class TestInformationIntegrationScenarios:
             pattern_from_id="SUBGRAPH/GELU_Erf",
             pattern_to_id="OP/ai.onnx/Gelu",
             level=ActionLevel.REQUIRED,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="Native Gelu operator is fully supported",
         )
 
@@ -292,7 +292,7 @@ class TestInformationIntegrationScenarios:
             pattern_from_id="SUBGRAPH/GELU_Erf",
             pattern_to_id="SUBGRAPH/GELU_Tanh",
             level=ActionLevel.OPTIONAL,
-            status=SupportLevel.WHITE,
+            status=SupportLevel.SUPPORTED,
             details="Tanh approximation also works well",
         )
 

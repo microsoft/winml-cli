@@ -231,10 +231,10 @@ class StaticAnalyzerConsoleWriter:
         self.console.print(f"\n   {self._bold('Support Classification:')}")
 
         classification_info = [
-            (SupportLevel.WHITE, "✅", "Fully Supported", "green"),
-            (SupportLevel.GRAY, "⚠️ ", "Partial Support", "yellow"),
+            (SupportLevel.SUPPORTED, "✅", "Fully Supported", "green"),
+            (SupportLevel.PARTIAL, "⚠️ ", "Partial Support", "yellow"),
             (SupportLevel.UNKNOWN, "❓", "Unknown Support", "blue"),
-            (SupportLevel.BLACK, "⛔", "Not Supported", "red"),
+            (SupportLevel.UNSUPPORTED, "⛔", "Not Supported", "red"),
         ]
 
         for level, icon, label, color in classification_info:
@@ -251,14 +251,14 @@ class StaticAnalyzerConsoleWriter:
 
                 self.console.print(f"   {icon} {label:20s}: {count_str} operator types ({pct_str})")
 
-                # Show operators - expand WHITE level, show samples for others
+                # Show operators - expand SUPPORTED level, show samples for others
                 if count > 0:
-                    if level == SupportLevel.WHITE:
+                    if level == SupportLevel.SUPPORTED:
                         # Expand all fully supported operators
                         for op in operators:
                             self.console.print(f"      • {self._bright_green(op)}")
                     else:
-                        # Show all operators for non-white levels
+                        # Show all operators for non-supported levels
                         for op in operators:
                             self.console.print(f"      • {self._dim(op)}")
 
@@ -469,15 +469,15 @@ class StaticAnalyzerConsoleWriter:
         supported_platforms = sum(1 for r in analysis.results if r.runtime_support)
         total_platforms = len(analysis.results)
 
-        # Check if unsupported platforms only have unknown nodes (no black/gray)
+        # Check if unsupported platforms only have unknown nodes (no unsupported/partial)
         unsupported_results = [r for r in analysis.results if not r.runtime_support]
         has_only_unknown = False
         if unsupported_results:
-            # Check if there are NO black or gray issues (only unknown/white)
+            # Check if there are NO unsupported or partial issues (only unknown/supported)
             # Use .get() to handle missing keys and check for non-empty lists
             has_only_unknown = all(
-                not r.classification.get(SupportLevel.BLACK, [])
-                and not r.classification.get(SupportLevel.GRAY, [])
+                not r.classification.get(SupportLevel.UNSUPPORTED, [])
+                and not r.classification.get(SupportLevel.PARTIAL, [])
                 for r in unsupported_results
             )
 
@@ -511,7 +511,7 @@ class StaticAnalyzerConsoleWriter:
                 issue_counts = {
                     level: len(ops)
                     for level, ops in ep_result.classification.items()
-                    if level != SupportLevel.WHITE
+                    if level != SupportLevel.SUPPORTED
                 }
 
                 if any(issue_counts.values()):

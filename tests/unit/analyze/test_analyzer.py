@@ -71,9 +71,9 @@ class TestAnalysisResult:
             has_errors=False,
             has_warnings=False,
             classification={
-                SupportLevel.WHITE: ["Conv", "Relu"],
-                SupportLevel.GRAY: [],
-                SupportLevel.BLACK: [],
+                SupportLevel.SUPPORTED: ["Conv", "Relu"],
+                SupportLevel.PARTIAL: [],
+                SupportLevel.UNSUPPORTED: [],
                 SupportLevel.UNKNOWN: [],
             },
             information=[],
@@ -104,7 +104,7 @@ class TestAnalysisResult:
     def test_is_fully_supported_false_with_black_ops(self, mock_output: AnalysisOutput) -> None:
         """Test is_fully_supported returns False when BLACK ops exist."""
         mock_output.results[0].runtime_support = False
-        mock_output.results[0].classification[SupportLevel.BLACK] = ["Upsample"]
+        mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
 
         result = AnalysisResult(output=mock_output)
         assert result.is_fully_supported() is False
@@ -140,7 +140,7 @@ class TestAnalysisResult:
 
     def test_has_errors_true_with_black(self, mock_output: AnalysisOutput) -> None:
         """Test has_errors returns True when BLACK patterns exist."""
-        mock_output.results[0].classification[SupportLevel.BLACK] = ["Upsample"]
+        mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
         mock_output.results[0].has_errors = True
 
         result = AnalysisResult(output=mock_output)
@@ -178,7 +178,7 @@ class TestAnalysisResult:
 
     def test_has_warnings_true_with_gray(self, mock_output: AnalysisOutput) -> None:
         """Test has_warnings returns True when GRAY patterns exist."""
-        mock_output.results[0].classification[SupportLevel.GRAY] = ["Resize"]
+        mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize"]
         mock_output.results[0].has_warnings = True
 
         result = AnalysisResult(output=mock_output)
@@ -224,7 +224,7 @@ class TestAnalysisResult:
 
     def test_get_lint_result_with_errors(self, mock_output: AnalysisOutput) -> None:
         """Test get_lint_result with BLACK patterns (errors)."""
-        mock_output.results[0].classification[SupportLevel.BLACK] = ["Upsample", "NonZero"]
+        mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample", "NonZero"]
         mock_output.results[0].has_errors = True
 
         result = AnalysisResult(output=mock_output)
@@ -241,7 +241,7 @@ class TestAnalysisResult:
 
     def test_get_lint_result_with_warnings(self, mock_output: AnalysisOutput) -> None:
         """Test get_lint_result with GRAY patterns (warnings)."""
-        mock_output.results[0].classification[SupportLevel.GRAY] = ["Resize", "Shape"]
+        mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize", "Shape"]
         mock_output.results[0].has_warnings = True
 
         result = AnalysisResult(output=mock_output)
@@ -284,8 +284,8 @@ class TestAnalysisResult:
 
     def test_get_lint_result_comprehensive(self, mock_output: AnalysisOutput) -> None:
         """Test get_lint_result with errors, warnings, and info."""
-        mock_output.results[0].classification[SupportLevel.BLACK] = ["Upsample"]
-        mock_output.results[0].classification[SupportLevel.GRAY] = ["Resize", "Shape"]
+        mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
+        mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize", "Shape"]
         mock_output.results[0].has_errors = True
         mock_output.results[0].has_warnings = True
         info1 = Information(
@@ -344,9 +344,9 @@ class TestAnalysisResult:
             has_errors=True,
             has_warnings=False,
             classification={
-                SupportLevel.WHITE: [],
-                SupportLevel.GRAY: [],
-                SupportLevel.BLACK: ["InstanceNorm"],
+                SupportLevel.SUPPORTED: [],
+                SupportLevel.PARTIAL: [],
+                SupportLevel.UNSUPPORTED: ["InstanceNorm"],
                 SupportLevel.UNKNOWN: [],
             },
             information=[],
@@ -386,8 +386,8 @@ class TestAnalysisResult:
         self, mock_output: AnalysisOutput
     ) -> None:
         """Test get_unsupported_operators returns BLACK and GRAY ops."""
-        mock_output.results[0].classification[SupportLevel.BLACK] = ["Upsample"]
-        mock_output.results[0].classification[SupportLevel.GRAY] = ["Resize"]
+        mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
+        mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize"]
 
         result = AnalysisResult(output=mock_output)
         unsupported = result.get_unsupported_operators()
@@ -405,9 +405,9 @@ class TestAnalysisResult:
             has_errors=True,
             has_warnings=False,
             classification={
-                SupportLevel.WHITE: [],
-                SupportLevel.GRAY: [],
-                SupportLevel.BLACK: ["Gelu"],
+                SupportLevel.SUPPORTED: [],
+                SupportLevel.PARTIAL: [],
+                SupportLevel.UNSUPPORTED: ["Gelu"],
                 SupportLevel.UNKNOWN: [],
             },
             information=[],
@@ -572,9 +572,9 @@ class TestAnalysisResult:
             has_errors=False,
             has_warnings=False,
             classification={
-                SupportLevel.WHITE: [],
-                SupportLevel.GRAY: [],
-                SupportLevel.BLACK: [],
+                SupportLevel.SUPPORTED: [],
+                SupportLevel.PARTIAL: [],
+                SupportLevel.UNSUPPORTED: [],
                 SupportLevel.UNKNOWN: [],
             },
             information=[
@@ -929,7 +929,7 @@ class TestONNXStaticAnalyzer:
         # Mock PatternRuntime with proper structure
         mock_pattern_runtime = MagicMock()
         mock_pattern_runtime.pattern_id = "OP/Conv"
-        mock_pattern_runtime.result.classification = SupportLevel.WHITE
+        mock_pattern_runtime.result.classification = SupportLevel.SUPPORTED
 
         mock_checker.summary.return_value = {
             "op_runtime_check_result": [mock_pattern_runtime],  # Non-empty

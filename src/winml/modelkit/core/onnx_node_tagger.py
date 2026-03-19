@@ -6,13 +6,13 @@
 
 This module implements the corrected tagging strategy:
 1. NO HARDCODED LOGIC - all model/operation info extracted dynamically
-2. Operation types only added if whitelisted
+2. Operation types only added if on the supportedlist
 3. Operation-based fallback is optional
 4. Root fallback always uses clean root module tag
 
 CARDINAL RULES:
 - MUST-001: NO HARDCODED LOGIC - works with any model
-- MUST-002: TORCH.NN FILTERING - only whitelist operations
+- MUST-002: TORCH.NN FILTERING - only supportedlist operations
 - MUST-003: UNIVERSAL DESIGN - architecture-agnostic
 """
 
@@ -32,9 +32,9 @@ class ONNXNodeTagger:
     NO HARDCODED LOGIC - extracts all model information dynamically.
     """
 
-    # Whitelisted operation types that can be added to tags
+    # Supportedlist operation types that can be added to tags
     # These are fundamental ONNX operations that provide semantic value
-    WHITELISTED_OPERATIONS: ClassVar[set[str]] = {
+    SUPPORTEDLIST_OPERATIONS: ClassVar[set[str]] = {
         "MatMul",
         "Gemm",  # Matrix operations
         "LayerNormalization",  # Normalization
