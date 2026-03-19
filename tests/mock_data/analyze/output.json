@@ -24,15 +24,15 @@
       "driver_version": "2.10.0",
       "runtime_support": true,
       "classification": {
-        "white": [
+        "supported": [
           "Conv",
           "Relu",
           "MaxPool",
           "Add",
           "BatchNormalization"
         ],
-        "gray": [],
-        "black": []
+        "partial": [],
+        "unsupported": []
       },
       "information": [],
       "pattern_support": {
@@ -57,16 +57,16 @@
       "driver_version": "2023.1",
       "runtime_support": false,
       "classification": {
-        "white": [
+        "supported": [
           "Conv",
           "Relu",
           "MaxPool",
           "Add"
         ],
-        "gray": [
+        "partial": [
           "BatchNormalization"
         ],
-        "black": []
+        "unsupported": []
       },
       "information": [
         {
@@ -77,7 +77,7 @@
               "pattern_to_id": "SUBGRAPH/FusedBatchNorm",
               "type": "optional",
               "action": "Enable BatchNorm fusion in model optimization",
-              "status": "white",
+              "status": "supported",
               "details": "BatchNormalization can be optimized by fusing with Conv operator for better performance"
             }
           ],
@@ -113,15 +113,15 @@
       "driver_version": "6.0.0",
       "runtime_support": true,
       "classification": {
-        "white": [
+        "supported": [
           "Conv",
           "Relu",
           "MaxPool",
           "Add",
           "BatchNormalization"
         ],
-        "gray": [],
-        "black": []
+        "partial": [],
+        "unsupported": []
       },
       "information": [],
       "pattern_support": {}

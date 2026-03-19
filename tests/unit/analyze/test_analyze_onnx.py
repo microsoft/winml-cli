@@ -76,9 +76,9 @@ def _make_mock_output(
         has_errors=has_errors,
         has_warnings=has_warnings,
         classification={
-            SupportLevel.WHITE: ["Conv", "Relu"],
-            SupportLevel.GRAY: gray_patterns or [],
-            SupportLevel.BLACK: black_patterns or [],
+            SupportLevel.SUPPORTED: ["Conv", "Relu"],
+            SupportLevel.PARTIAL: gray_patterns or [],
+            SupportLevel.UNSUPPORTED: black_patterns or [],
             SupportLevel.UNKNOWN: [],
         },
         information=information or [],

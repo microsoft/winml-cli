@@ -28,37 +28,37 @@ from winml.modelkit.analyze.models.support_level import SupportLevel
 class TestRuntimeTestResultValidation:
     """Test RuntimeTestResult nested model validation."""
 
-    def test_classification_whitelist_compile_true_run_true(self):
-        """Test that compile=True and run=True gives whitelist classification."""
+    def test_classification_supportedlist_compile_true_run_true(self):
+        """Test that compile=True and run=True gives supportedlist classification."""
         result = RuntimeTestResult(
             compile=True,
             run=True,
         )
-        assert result.classification == SupportLevel.WHITE
+        assert result.classification == SupportLevel.SUPPORTED
 
-    def test_classification_graylist_compile_true_run_false(self):
-        """Test that compile=False and run=True gives graylist classification."""
+    def test_classification_partiallist_compile_true_run_false(self):
+        """Test that compile=False and run=True gives partiallist classification."""
         result = RuntimeTestResult(
             compile=False,
             run=True,
         )
-        assert result.classification == SupportLevel.GRAY
+        assert result.classification == SupportLevel.PARTIAL
 
-    def test_classification_blacklist_compile_false(self):
-        """Test that compile=False and run=False gives blacklist classification."""
+    def test_classification_unsupportedlist_compile_false(self):
+        """Test that compile=False and run=False gives unsupportedlist classification."""
         # compile=False, run=False
         result1 = RuntimeTestResult(
             compile=False,
             run=False,
         )
-        assert result1.classification == SupportLevel.BLACK
+        assert result1.classification == SupportLevel.UNSUPPORTED
 
         # compile=False, run=True gives GRAY (fallback to CPU scenario)
         result2 = RuntimeTestResult(
             compile=False,
             run=True,
         )
-        assert result2.classification == SupportLevel.GRAY
+        assert result2.classification == SupportLevel.PARTIAL
 
     def test_reason_optional(self):
         """Test that reason field is optional."""
@@ -353,7 +353,7 @@ class TestRuntimeCheckRuleValidation:
 
         assert rule.pattern_id == "OP/ai.onnx/Conv"
         assert rule.ihv_type == IHVType.QC
-        assert rule.test_result.classification == SupportLevel.WHITE
+        assert rule.test_result.classification == SupportLevel.SUPPORTED
         assert rule.namespace == "ai.onnx"
         assert rule.op_version == 13
 
@@ -361,8 +361,8 @@ class TestRuntimeCheckRuleValidation:
 class TestRuntimeCheckRuleIntegration:
     """Test RuntimeCheckRule integration scenarios."""
 
-    def test_whitelist_rule(self):
-        """Test creating a whitelist rule."""
+    def test_supportedlist_rule(self):
+        """Test creating a supportedlist rule."""
         rule = RuntimeCheckRule(
             pattern_id="OP/ai.onnx/Relu",
             ihv_type=IHVType.QC,
@@ -371,10 +371,10 @@ class TestRuntimeCheckRuleIntegration:
             test_result=RuntimeTestResult(compile=True, run=True),
         )
 
-        assert rule.test_result.classification == SupportLevel.WHITE
+        assert rule.test_result.classification == SupportLevel.SUPPORTED
 
-    def test_graylist_rule(self):
-        """Test creating a graylist rule (compiles but doesn't run)."""
+    def test_partiallist_rule(self):
+        """Test creating a partiallist rule (compiles but doesn't run)."""
         rule = RuntimeCheckRule(
             pattern_id="OP/ai.onnx/CustomOp",
             ihv_type=IHVType.INTEL,
@@ -385,10 +385,10 @@ class TestRuntimeCheckRuleIntegration:
             ),
         )
 
-        assert rule.test_result.classification == SupportLevel.GRAY
+        assert rule.test_result.classification == SupportLevel.PARTIAL
 
-    def test_blacklist_rule(self):
-        """Test creating a blacklist rule (doesn't compile)."""
+    def test_unsupportedlist_rule(self):
+        """Test creating an unsupportedlist rule (doesn't compile)."""
         rule = RuntimeCheckRule(
             pattern_id="OP/ai.onnx/UnsupportedOp",
             ihv_type=IHVType.AMD,
@@ -399,4 +399,4 @@ class TestRuntimeCheckRuleIntegration:
             ),
         )
 
-        assert rule.test_result.classification == SupportLevel.BLACK
+        assert rule.test_result.classification == SupportLevel.UNSUPPORTED

@@ -387,7 +387,7 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
                 combinations.append(
                     {
                         "X": InputShapeConstraint(shape),
-                        "Scale": scale,  # Note: capital S
+                        "Scale": scale,  # Note: uppercase S
                         "B": bias,
                         "axis": axis,
                     }

@@ -974,7 +974,7 @@ class RuntimeCheckerQuery:
             pattern_match: Pattern match result for the node.
             node_tags: Collected tags for the node.
             fallback_reason: The original reason rules were not found.
-            save_node_types: Set of node types to save (e.g., {"gray", "black"}).
+            save_node_types: Set of node types to save (e.g., {"partial", "unsupported"}).
             conditions: Conditions for the local check.
 
         Returns:
@@ -1064,11 +1064,11 @@ class RuntimeCheckerQuery:
 
         if not compile_success:
             _save_types = save_node_types or set()
-            is_black = "black" in _save_types and not run_success
-            is_gray = "gray" in _save_types and run_success
-            if is_black or is_gray:
+            is_unsupported = "unsupported" in _save_types and not run_success
+            is_partial = "partial" in _save_types and run_success
+            if is_unsupported or is_partial:
                 self._save_failed_node(
-                    node, model, conditions, name_suffix="black" if is_black else "gray"
+                    node, model, conditions, name_suffix="unsupported" if is_unsupported else "partial"
                 )
 
         result = RuntimeTestResult(
@@ -1284,7 +1284,7 @@ class RuntimeCheckerQuery:
             node: ONNX node to check.
             for_debug: If True, include detailed debug information in results.
             run_unknown_op: If True, attempt local EP check for unknown ops.
-            save_node_types: Set of node types to save (e.g., {"gray", "black"}).
+            save_node_types: Set of node types to save (e.g., {"partial", "unsupported"}).
 
         Returns:
             PatternRuntime with check results.
@@ -1638,16 +1638,16 @@ class RuntimeCheckerQuery:
 
         if not compile_result:
             _save_types = save_node_types or set()
-            is_black = "black" in _save_types and not run_result
-            is_gray = "gray" in _save_types and run_result
-            if is_black or is_gray:
+            is_unsupported = "unsupported" in _save_types and not run_result
+            is_partial = "partial" in _save_types and run_result
+            if is_unsupported or is_partial:
                 node_model = self._build_single_node_model(node, op_domain, opset_version)
                 # TODO: Need to use match_keys to filter conditions
                 self._save_failed_node(
                     node,
                     node_model,
                     make_hashable(conditions),
-                    name_suffix="black" if is_black else "gray",
+                    name_suffix="unsupported" if is_unsupported else "partial",
                 )
 
         return PatternRuntime(
