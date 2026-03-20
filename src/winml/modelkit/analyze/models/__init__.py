@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pydantic data models for ONNX Static Analyzer."""
 
 from winml.modelkit.pattern.match import InputInfo, PatternMatchResult

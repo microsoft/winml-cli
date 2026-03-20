@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNXStaticAnalyzer - Main API for ONNX model runtime support analysis.
 
 Public API:
@@ -234,10 +238,10 @@ class AnalysisResult:
                 continue
 
             # Collect BLACK patterns (errors)
-            error_patterns.extend(ep_support.classification.get(SupportLevel.BLACK, []))
+            error_patterns.extend(ep_support.classification.get(SupportLevel.UNSUPPORTED, []))
 
             # Collect GRAY patterns (warnings)
-            warning_patterns.extend(ep_support.classification.get(SupportLevel.GRAY, []))
+            warning_patterns.extend(ep_support.classification.get(SupportLevel.PARTIAL, []))
 
             # Collect information items
             information_list.extend(ep_support.information)
@@ -272,7 +276,7 @@ class AnalysisResult:
                 If None, returns unsupported operators for all EPs in results.
 
         Returns:
-            list[str]: List of BLACK or GRAY classified operator names
+            list[str]: List of UNSUPPORTED or PARTIAL classified operator names
 
         Example:
             >>> result = analyzer.analyze(
@@ -294,13 +298,13 @@ class AnalysisResult:
                 continue
 
             # Collect from classification
-            unsupported.extend(ep_support.classification.get(SupportLevel.GRAY, []))
-            unsupported.extend(ep_support.classification.get(SupportLevel.BLACK, []))
+            unsupported.extend(ep_support.classification.get(SupportLevel.PARTIAL, []))
+            unsupported.extend(ep_support.classification.get(SupportLevel.UNSUPPORTED, []))
 
         return unsupported
 
     def get_optimization_opportunities(self, ep: str | None = None) -> list[Action]:
-        """Get actions for patterns that could be optimized (BLACK or GRAY status).
+        """Get actions for patterns that could be optimized (UNSUPPORTED or PARTIAL status).
 
         Args:
             ep: Optional execution provider to filter by (e.g., "QNNExecutionProvider").
@@ -512,7 +516,7 @@ class ONNXStaticAnalyzer:
             run_unknown_op: Whether to run unknown operators on the local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
-                (e.g., {"gray", "black"}). Default: None (save nothing)
+                (e.g., {"partial", "unsupported"}). Default: None (save nothing)
 
         Returns:
             AnalysisResult: Analysis result wrapper containing:
@@ -619,7 +623,7 @@ class ONNXStaticAnalyzer:
             run_unknown_op: Whether to run unknown operators on local machine
                 if possible. Default: True
             save_node_types: Set of node types to save for further analysis
-                (e.g., {"gray", "black"}). Default: None (save nothing)
+                (e.g., {"partial", "unsupported"}). Default: None (save nothing)
 
         Returns:
             AnalysisResult: Analysis result wrapper with output

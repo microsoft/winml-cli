@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Fix QDQ node dtype info after ORT quantization.
 
 ORT's quantize() inserts scale and zero_point tensors as initializers but

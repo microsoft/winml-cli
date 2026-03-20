@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Task detection and utilities using Optimum's TasksManager.
 
 Uses TasksManager.infer_task_from_model() as PRIMARY approach per design spec.

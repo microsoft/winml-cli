@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 # ruff: noqa: RUF001
 # RUF001: info emoji used intentionally in user-facing log messages
 """Export Configuration Generator for HTP Exporter.

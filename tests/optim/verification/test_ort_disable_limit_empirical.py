@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Empirical test to verify ORT's disable_specified_optimizers limit.
 
 This test verifies whether ONNX Runtime has a limit on the number of

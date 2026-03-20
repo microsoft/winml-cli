@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """
 Unit tests for RuleLoader with IHV filtering and graceful degradation.
 
@@ -113,7 +117,7 @@ class TestRuleLoaderBasicLoading:
                             "pattern_to_id": "OP/ai.onnx/Gelu",
                             "type": "required",
                             "action": "Use native Gelu operator",
-                            "status": "white",
+                            "status": "supported",
                             "details": "Native Gelu is fully supported",
                         }
                     ],

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Generate ORT Graph Optimization Test Patterns (v2 - Modular).
 
 Creates a single ONNX model with pattern types using a universal template.

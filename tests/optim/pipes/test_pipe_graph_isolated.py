@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for ORTGraphPipe with isolated minimal patterns per capability.
 
 This test file supplements test_pipe_graph.py by testing each capability in ISOLATION

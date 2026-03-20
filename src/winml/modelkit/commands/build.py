@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Build command for ModelKit CLI.
 
 Thin CLI wrapper around build_hf_model() and build_onnx_model() APIs.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for registry CLI flag generation methods and validation.
 
 Tests the cli_flag() and cli_flags() methods of capability classes

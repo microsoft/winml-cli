@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Resolution logic for inspect command.
 
 Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.

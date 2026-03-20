@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 #!/usr/bin/env python3
 """Universal Hierarchy-Preserving ONNX Exporter.
 
@@ -5,7 +9,7 @@ This is a clean, new implementation that follows all CARDINAL RULES and requirem
 
 CARDINAL RULES:
 - MUST-001: NO HARDCODED LOGIC - Universal PyTorch principles only
-- MUST-002: TORCH.NN FILTERING - Filter most torch.nn except whitelist
+- MUST-002: TORCH.NN FILTERING - Filter most torch.nn except supportedlist
 - MUST-003: UNIVERSAL DESIGN - Must work with ANY PyTorch model
 
 REQUIREMENTS:
@@ -40,7 +44,7 @@ class UniversalHierarchyExporter:
 
     Follows all CARDINAL RULES:
     - NO HARDCODED LOGIC: Works with any PyTorch model
-    - TORCH.NN FILTERING: Filters torch.nn modules except whitelist
+    - TORCH.NN FILTERING: Filters torch.nn modules except supportedlist
     - UNIVERSAL DESIGN: Architecture-agnostic approach
     """
 

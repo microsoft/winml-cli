@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Input generators for normalization ONNX operators.
 
 Normalization operators share common patterns:
@@ -383,7 +387,7 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
                 combinations.append(
                     {
                         "X": InputShapeConstraint(shape),
-                        "Scale": scale,  # Note: capital S
+                        "Scale": scale,  # Note: uppercase S
                         "B": bias,
                         "axis": axis,
                     }

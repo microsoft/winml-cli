@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Support level classification enum."""
 
 from enum import Enum
@@ -6,7 +10,7 @@ from enum import Enum
 class SupportLevel(str, Enum):
     """Support level classification."""
 
-    WHITE = "white"
-    GRAY = "gray"
-    BLACK = "black"
+    SUPPORTED = "supported"
+    PARTIAL = "partial"
+    UNSUPPORTED = "unsupported"
     UNKNOWN = "unknown"

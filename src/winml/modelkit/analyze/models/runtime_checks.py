@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Rule entities - RuntimeRule and PatternMatch."""
 
 from __future__ import annotations
@@ -57,17 +61,17 @@ class RuntimeTestResult(BaseModel):
 
         Returns:
             SupportLevel.UNKNOWN if no_data=True
-            SupportLevel.WHITE if compile=True and run=True
-            SupportLevel.GRAY if compile=False and run=True
-            SupportLevel.BLACK if compile=False and run=False
+            SupportLevel.SUPPORTED if compile=True and run=True
+            SupportLevel.PARTIAL if compile=False and run=True
+            SupportLevel.UNSUPPORTED if compile=False and run=False
         """
         if self.no_data:
             return SupportLevel.UNKNOWN
         if self.compile and self.run:
-            return SupportLevel.WHITE
+            return SupportLevel.SUPPORTED
         if not self.compile and self.run:
-            return SupportLevel.GRAY
-        return SupportLevel.BLACK
+            return SupportLevel.PARTIAL
+        return SupportLevel.UNSUPPORTED
 
 
 class PatternAlternative(BaseModel):

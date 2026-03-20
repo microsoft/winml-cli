@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Parse QNN basic-mode profiling CSV files.
 
 The CSV emitted by QNN EP in basic profiling mode has seven columns::

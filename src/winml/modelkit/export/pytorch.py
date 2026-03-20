@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX Export for PyTorch nn.Module models.
 
 Exports any nn.Module to ONNX using WinMLExportConfig for I/O specification.

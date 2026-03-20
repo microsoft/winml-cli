@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """BERT HuggingFace Model Configuration.
 
 BERT benefits from GELU, LayerNorm, and GEMM fusion for optimal performance.

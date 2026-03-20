@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Validator for constant folding optimization opportunities.
 
 Detects nodes where all inputs are constants (initializers or Constant ops)

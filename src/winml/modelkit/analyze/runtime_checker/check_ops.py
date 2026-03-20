@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Test ONNX operators on QNN execution provider.
 
 This script tests ONNX operators on the QNN execution provider,

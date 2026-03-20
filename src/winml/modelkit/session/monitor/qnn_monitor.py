@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """QNNMonitor - Placeholder for future Qualcomm QNN-specific NPU monitoring.
 
 For real-time NPU utilization monitoring with QNN EP, use HWMonitor

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pattern Configuration - Config-driven pattern management.
 
 This module provides a unified configuration system for both HTP (Hierarchy Tag Propagation)

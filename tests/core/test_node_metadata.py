@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Comprehensive tests for modelkit.core.node_metadata module.
 
 This module tests the node-level metadata system for ONNX models.

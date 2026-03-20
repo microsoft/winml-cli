@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Fusion optimization pipe using ONNX Runtime transformer optimizer.
 
 This pipe applies transformer-specific fusion optimizations using ORT's

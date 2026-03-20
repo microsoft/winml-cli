@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX Static Analyzer for NPU Runtime Support Validation.
 
 This package provides static analysis capabilities for ONNX models to determine

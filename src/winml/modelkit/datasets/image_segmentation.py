@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Image segmentation dataset for general-purpose ML pipelines.
 
 Uses model's own image processor for proper image + mask handling - supports semantic,

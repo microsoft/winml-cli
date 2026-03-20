@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Wrapper for qnn-profile-viewer.exe post-processing tool.
 
 The QNN profile viewer converts raw profiling logs into human-readable

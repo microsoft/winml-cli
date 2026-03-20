@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Activation pattern builders for ORT Graph Optimization tests.
 
 This module contains builder functions for activation-related ONNX patterns

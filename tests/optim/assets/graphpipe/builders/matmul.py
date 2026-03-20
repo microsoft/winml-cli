@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """MatMul pattern builders for ORT Graph Optimization tests.
 
 Contains builders for MatMul-based fusion patterns:

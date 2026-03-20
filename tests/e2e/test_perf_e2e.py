@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """E2E tests for the perf CLI command.
 
 Tests ONNX direct benchmark using a generated ONNX model fixture.

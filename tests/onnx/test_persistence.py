@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for modelkit.onnx.persistence module.
 
 Covers load_onnx, save_onnx, and cleanup_onnx with inline and external-data

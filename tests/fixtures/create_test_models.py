@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Generate minimal ONNX test fixtures for static analyzer testing.
 
 This script creates minimal valid ONNX models used in unit and integration tests.

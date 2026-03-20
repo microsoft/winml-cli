@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """SAM2 HuggingFace Model Patches and Export Configs.
 
 Provides QNN-compatible patches and ONNX export configs for SAM2

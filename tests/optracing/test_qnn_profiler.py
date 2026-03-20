@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Test QNN profiler and viewer with mocked ORT (no QNN hardware needed)."""
 from __future__ import annotations
 

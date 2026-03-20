@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for ORTGraphPipe process and integration.
 
 Tests the graph optimization pipe's processing logic using 3-criteria verification.

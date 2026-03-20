@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WinMLOptimizationConfig - Graph Optimization Configuration.
 
 Dict-like config for capability-based optimization system.

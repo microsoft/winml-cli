@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNX Export I/O Specification - Fully Leverages Optimum.
 
 This module provides config-only utilities for ONNX export I/O specification

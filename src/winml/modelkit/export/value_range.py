@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Value Range Interceptor for Optimum's Dummy Input Generation.
 
 Captures exact (min, max) value ranges per input by monkey-patching

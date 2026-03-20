@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Analyze command for wmk CLI.
 
 This module provides the analyze command that analyzes ONNX models
@@ -63,9 +67,9 @@ logger = logging.getLogger(__name__)
 @click.option(  # type: ignore[misc]
     "--save-node",
     multiple=True,
-    type=click.Choice(["gray", "black"], case_sensitive=False),
+    type=click.Choice(["partial", "unsupported"], case_sensitive=False),
     help="Save specific node types for further analysis. Can be specified multiple times "
-    "(e.g., --save-node gray --save-node black).",
+    "(e.g., --save-node partial --save-node unsupported).",
 )
 def analyze(
     model: Path,

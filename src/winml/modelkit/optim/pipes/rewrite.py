@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Pattern-based subgraph rewriting pipe.
 
 Uses PatternMatcher + PatternRewriter to replace matched subgraphs with

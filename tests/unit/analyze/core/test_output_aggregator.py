@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Unit tests for OutputAggregator."""
 
 from datetime import datetime
@@ -87,7 +91,7 @@ def sample_information() -> dict[str, list[Information]]:
         pattern_to_id="OP/ai.onnx/LeakyRelu",
         level=ActionLevel.REQUIRED,
         action="Replace Relu with LeakyRelu",
-        status=SupportLevel.WHITE,
+        status=SupportLevel.SUPPORTED,
         details="Relu is not supported, use LeakyRelu instead",
     )
 
@@ -262,7 +266,7 @@ class TestOutputAggregatorBuildEPSupport:
         assert isinstance(ihv_support, EPSupport)
         assert ihv_support.ihv_type == IHVType.QC
         assert ihv_support.runtime_support is True
-        assert len(ihv_support.classification[SupportLevel.WHITE]) == 1
+        assert len(ihv_support.classification[SupportLevel.SUPPORTED]) == 1
 
     def test_build_ep_support_classifies_white(self) -> None:
         """Test WHITE classification for fully supported patterns."""
@@ -281,9 +285,9 @@ class TestOutputAggregatorBuildEPSupport:
             ep_type="QNNExecutionProvider",
         )
 
-        assert "OP/ai.onnx/Conv" in ihv_support.classification[SupportLevel.WHITE]
-        assert len(ihv_support.classification[SupportLevel.GRAY]) == 0
-        assert len(ihv_support.classification[SupportLevel.BLACK]) == 0
+        assert "OP/ai.onnx/Conv" in ihv_support.classification[SupportLevel.SUPPORTED]
+        assert len(ihv_support.classification[SupportLevel.PARTIAL]) == 0
+        assert len(ihv_support.classification[SupportLevel.UNSUPPORTED]) == 0
         assert ihv_support.runtime_support is True
 
     def test_build_ep_support_classifies_gray(self) -> None:
@@ -321,7 +325,7 @@ class TestOutputAggregatorBuildEPSupport:
             ep_type="QNNExecutionProvider",
         )
 
-        assert "OP/ai.onnx/Custom" in ihv_support.classification[SupportLevel.BLACK]
+        assert "OP/ai.onnx/Custom" in ihv_support.classification[SupportLevel.UNSUPPORTED]
         assert ihv_support.runtime_support is False
 
     def test_build_ep_support_deduplicates_patterns(self) -> None:
@@ -347,7 +351,7 @@ class TestOutputAggregatorBuildEPSupport:
         )
 
         # Should only appear once in classification
-        assert ihv_support.classification[SupportLevel.WHITE].count("OP/ai.onnx/Conv") == 1
+        assert ihv_support.classification[SupportLevel.SUPPORTED].count("OP/ai.onnx/Conv") == 1
 
     def test_build_ep_support_runtime_support_false_with_black(self) -> None:
         """Test runtime_support is False when BLACK patterns present."""
@@ -497,8 +501,8 @@ class TestOutputAggregatorIntegration:
 
         ihv_support = output.results[0]
         assert ihv_support.ihv_type == IHVType.QC
-        assert len(ihv_support.classification[SupportLevel.WHITE]) == 1
-        assert len(ihv_support.classification[SupportLevel.BLACK]) == 1
+        assert len(ihv_support.classification[SupportLevel.SUPPORTED]) == 1
+        assert len(ihv_support.classification[SupportLevel.UNSUPPORTED]) == 1
         assert len(ihv_support.information) == 1
 
     def test_full_workflow_multiple_ihv(self, sample_metadata: ModelStats) -> None:

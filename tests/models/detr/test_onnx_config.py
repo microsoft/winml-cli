@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for DETR model configuration.
 
 Tests for DETR_CONFIG (WinMLBuildConfig) which provides conv fusion flags

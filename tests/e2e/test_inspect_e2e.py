@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """E2E tests for the inspect CLI command.
 
 These tests exercise the full inspect pipeline with REAL models

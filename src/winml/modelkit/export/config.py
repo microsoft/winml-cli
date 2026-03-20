@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """WinMLExportConfig - ONNX Export Configuration.
 
 Configuration class for ONNX export with static batch defaults for QNN compatibility.

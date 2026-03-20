@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for RuleLoader suffix-based filtering.
 
 Tests the new feature where Information rules are loaded
@@ -123,7 +127,7 @@ class TestRuleLoaderSuffixFiltering:
                         "pattern_to_id": "OP/ai.onnx/Relu",
                         "level": "required",
                         "action": "Replace",
-                        "status": "white",
+                        "status": "supported",
                         "details": "Replace with Relu",
                         "enabled": True,
                     },
@@ -132,7 +136,7 @@ class TestRuleLoaderSuffixFiltering:
                         "pattern_to_id": "OP/ai.onnx/Mul",
                         "level": "optional",
                         "action": "Consider",
-                        "status": "gray",
+                        "status": "partial",
                         "details": "Consider replacement",
                         "enabled": False,  # This should be filtered
                     },
@@ -181,7 +185,7 @@ class TestRuleLoaderBackwardCompatibility:
                         "pattern_to_id": "OP/ai.onnx/QLinearConv",
                         "level": "required",
                         "action": "Replace with quantized version",
-                        "status": "black",
+                        "status": "unsupported",
                         "details": "Conv requires quantization",
                     }
                 ],

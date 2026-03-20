@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Attention pattern builders for TransformerPipe testing.
 
 These builders create ONNX models with unfused attention patterns that match

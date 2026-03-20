@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """
 Unit tests for AnalysisOutput Pydantic validation.
 
@@ -120,9 +124,9 @@ class TestEPSupportValidation:
             ep_type="QNNExecutionProvider",
             runtime_support=True,
             classification={
-                SupportLevel.WHITE: ["Conv_0"],
-                SupportLevel.GRAY: [],
-                SupportLevel.BLACK: [],
+                SupportLevel.SUPPORTED: ["Conv_0"],
+                SupportLevel.PARTIAL: [],
+                SupportLevel.UNSUPPORTED: [],
             },
             has_errors=False,
                     has_warnings=False,
@@ -130,7 +134,7 @@ class TestEPSupportValidation:
 
         assert support.ihv_type == IHVType.QC
         assert support.runtime_support is True
-        assert len(support.classification[SupportLevel.WHITE]) == 1
+        assert len(support.classification[SupportLevel.SUPPORTED]) == 1
 
     def test_optional_version_fields(self):
         """Test that ep_version and driver_version are optional."""
@@ -139,9 +143,9 @@ class TestEPSupportValidation:
             ep_type="OpenVINOExecutionProvider",
             runtime_support=True,
             classification={
-                SupportLevel.WHITE: [],
-                SupportLevel.GRAY: [],
-                SupportLevel.BLACK: [],
+                SupportLevel.SUPPORTED: [],
+                SupportLevel.PARTIAL: [],
+                SupportLevel.UNSUPPORTED: [],
             },
             has_errors=False,
                     has_warnings=False,
@@ -171,9 +175,9 @@ class TestAnalysisOutputValidation:
                     ep_type="QNNExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -204,9 +208,9 @@ class TestAnalysisOutputValidation:
                     ep_type="QNNExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -216,9 +220,9 @@ class TestAnalysisOutputValidation:
                     ep_type="OpenVINOExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -245,9 +249,9 @@ class TestAnalysisOutputValidation:
                         ep_type="QNNExecutionProvider",
                         runtime_support=True,
                         classification={
-                            SupportLevel.WHITE: [],
-                            SupportLevel.GRAY: [],
-                            SupportLevel.BLACK: [],
+                            SupportLevel.SUPPORTED: [],
+                            SupportLevel.PARTIAL: [],
+                            SupportLevel.UNSUPPORTED: [],
                         },
                         has_errors=False,
                     has_warnings=False,
@@ -257,9 +261,9 @@ class TestAnalysisOutputValidation:
                         ep_type="QNNExecutionProvider",
                         runtime_support=True,
                         classification={
-                            SupportLevel.WHITE: [],
-                            SupportLevel.GRAY: [],
-                            SupportLevel.BLACK: [],
+                            SupportLevel.SUPPORTED: [],
+                            SupportLevel.PARTIAL: [],
+                            SupportLevel.UNSUPPORTED: [],
                         },
                         has_errors=False,
                     has_warnings=False,
@@ -286,9 +290,9 @@ class TestAnalysisOutputValidation:
                     ep_type="QNNExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -298,9 +302,9 @@ class TestAnalysisOutputValidation:
                     ep_type="OpenVINOExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -310,9 +314,9 @@ class TestAnalysisOutputValidation:
                     ep_type="ACEExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -339,9 +343,9 @@ class TestAnalysisOutputValidation:
                     ep_type="QNNExecutionProvider",
                     runtime_support=True,
                     classification={
-                        SupportLevel.WHITE: [],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     has_errors=False,
                     has_warnings=False,
@@ -401,9 +405,9 @@ class TestAnalysisOutputValidation:
                     has_errors=False,
                     has_warnings=False,
                     classification={
-                        SupportLevel.WHITE: ["Conv_0"],
-                        SupportLevel.GRAY: [],
-                        SupportLevel.BLACK: [],
+                        SupportLevel.SUPPORTED: ["Conv_0"],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
                     },
                     information=[
                         Information(

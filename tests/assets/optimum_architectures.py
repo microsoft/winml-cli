@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Optimum-ONNX supported architectures - generated reference.
 
 Regenerate: uv run python tests/assets/generate_optimum_architectures.py

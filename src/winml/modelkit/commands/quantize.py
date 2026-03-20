@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Quantize command for wmk CLI.
 
 This module provides the quantize command that inserts QDQ (Quantize-Dequantize)

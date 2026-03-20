@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Random Dataset for Universal ONNX Model Testing.
 
 Generates synthetic data from ONNX model I/O specs for quick QDQ workflow

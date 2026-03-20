@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """JSON-based rewrite group discovery and validation for RewritePipe.
 
 Rewrite capabilities are derived from SkeletonPatternRules in

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ONNXLoader - Load and validate ONNX model files.
 
 Implements FR-001 (Load ONNX model), FR-037 (File validation), FR-038 (Error handling).

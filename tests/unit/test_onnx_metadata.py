@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for universal ONNX metadata capture/restore.
 
 Uses realistic ONNX model fixtures with hierarchy tags, winml.* attributes,

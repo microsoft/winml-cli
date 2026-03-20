@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Parametrized tests across ALL Optimum architectures for export/io.py.
 
 Validates that ``_get_onnx_config`` returns a valid OnnxConfig (with .inputs

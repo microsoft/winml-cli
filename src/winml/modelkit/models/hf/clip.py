@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """CLIP HuggingFace Model Configuration.
 
 Provides WinML build config and ONNX export configs for CLIP models.

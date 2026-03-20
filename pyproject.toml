@@ -77,10 +77,10 @@ optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
 ]
-urls."Bug Tracker" = "https://github.com/gim-home/ModelKit/issues"
-urls.Documentation = "https://github.com/gim-home/ModelKit/blob/main/README.md"
-urls.Homepage = "https://github.com/gim-home/ModelKit"
-urls.Repository = "https://github.com/gim-home/ModelKit.git"
+urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
+urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
+urls.Homepage = "https://github.com/microsoft/ModelKit"
+urls.Repository = "https://github.com/microsoft/ModelKit.git"
 # =============================================================================
 # SETUPTOOLS - Package Configuration (Flat Layout with Namespace Prefix)
 # =============================================================================
@@ -94,6 +94,7 @@ scripts.wmk = "winml.modelkit.cli:main"
 [dependency-groups]
 dev = [
   "jupyter>=1.1.1",
+  "pre-commit>=4.5.1",
   "pytest-cov>=7",
   "pytest-timeout>=2.4.0",
 ]

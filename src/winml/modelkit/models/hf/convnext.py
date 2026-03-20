@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """ConvNeXT ONNX export patch: LayerNorm fusion via PATCHING_SPECS.
 
 Patches ConvNextLayerNorm.forward during export so that ONNX runtimes can

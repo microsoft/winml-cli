@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for compile_qairt_bin.py subprocess script.
 
 These tests verify the ONNX input extraction and error handling logic

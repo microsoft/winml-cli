@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Unit tests for InformationEngine."""
 
 import onnx
@@ -496,11 +500,11 @@ class TestInformationEngineProcessPatternWithAlternatives:
         assert info is not None
         assert info.actions is not None
         assert len(info.actions) == 1
-        # BLACK → GRAY is still REQUIRED (improvement from not working to partial support)
+        # UNSUPPORTED → PARTIAL is still REQUIRED (improvement from not working to partial support)
         assert info.actions[0].level == ActionLevel.REQUIRED
         assert (
             "partial support" in info.actions[0].details.lower()
-            or "gray" in info.actions[0].details.lower()
+            or "partial" in info.actions[0].details.lower()
         )
 
     def test_gray_to_white_alternative_optional_action(
@@ -522,7 +526,7 @@ class TestInformationEngineProcessPatternWithAlternatives:
         assert len(info.actions) == 1
         # GRAY → WHITE is REQUIRED (improvement from partial to full support)
         assert info.actions[0].level == ActionLevel.REQUIRED
-        assert info.actions[0].status == SupportLevel.WHITE
+        assert info.actions[0].status == SupportLevel.SUPPORTED
 
     def test_white_with_no_alternatives_returns_none(
         self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
@@ -566,7 +570,7 @@ class TestInformationEngineExtractActions:
         assert action.pattern_from_id == "SUBGRAPH/old_pattern"
         assert action.pattern_to_id == "OP/ai.onnx/Conv"
         assert action.level == ActionLevel.REQUIRED
-        assert action.status == SupportLevel.WHITE
+        assert action.status == SupportLevel.SUPPORTED
         assert "equivalent" in action.details.lower()
 
     def test_extract_actions_gray_to_white(
@@ -587,7 +591,7 @@ class TestInformationEngineExtractActions:
         action = actions[0]
         # GRAY → WHITE is REQUIRED (improvement)
         assert action.level == ActionLevel.REQUIRED
-        assert action.status == SupportLevel.WHITE
+        assert action.status == SupportLevel.SUPPORTED
 
     def test_extract_actions_no_improvement_alternatives(
         self, simple_model: ONNXModel, test_device: str

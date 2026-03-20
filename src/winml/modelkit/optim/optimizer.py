@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Main Optimizer class for ONNX model optimization.
 
 This module provides the core Optimizer class that orchestrates optimization pipes.

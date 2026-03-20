@@ -1,9 +1,13 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Attention pattern builders for FusionPipe testing.
 
 Creates ONNX graphs that match ORT's attention fusion patterns.
-Based on: D:/BYOM/ort/onnxruntime/test/python/transformers/bert_model_generator.py
+Based on: https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/test/python/transformers/bert_model_generator.py
 
-Reference: D:/BYOM/ort/onnxruntime/python/tools/transformers/fusion_attention.py
+Reference: https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/transformers/fusion_attention.py
 """
 
 from __future__ import annotations

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """OutputAggregator - Assemble final JSON output from analysis results.
 
 Implements FR-026-031 (Output assembly and structure).
@@ -161,9 +165,9 @@ class OutputAggregator:
 
         # Classify patterns by support level
         classification: dict[SupportLevel, list[str]] = {
-            SupportLevel.WHITE: [],
-            SupportLevel.GRAY: [],
-            SupportLevel.BLACK: [],
+            SupportLevel.SUPPORTED: [],
+            SupportLevel.PARTIAL: [],
+            SupportLevel.UNSUPPORTED: [],
             SupportLevel.UNKNOWN: [],
         }
 
@@ -176,34 +180,34 @@ class OutputAggregator:
                 classification[support_level].append(pattern_runtime.pattern_id)
 
         # Determine overall runtime support
-        # Support is False if any patterns are BLACK, True otherwise
-        has_black_or_gray = (
-            len(classification[SupportLevel.BLACK])
+        # Support is False if any patterns are UNSUPPORTED, True otherwise
+        has_unsupported_or_partial = (
+            len(classification[SupportLevel.UNSUPPORTED])
             + len(classification[SupportLevel.UNKNOWN])
-            + len(classification[SupportLevel.GRAY])
+            + len(classification[SupportLevel.PARTIAL])
             > 0
         )
-        runtime_support = not has_black_or_gray
+        runtime_support = not has_unsupported_or_partial
 
-        # Check if BLACK patterns exist (blocking errors)
-        has_black = len(classification[SupportLevel.BLACK]) > 0
+        # Check if UNSUPPORTED patterns exist (blocking errors)
+        has_unsupported = len(classification[SupportLevel.UNSUPPORTED]) > 0
 
-        # Check if GRAY patterns exist (warnings/optimizations)
-        has_gray = len(classification[SupportLevel.GRAY]) > 0
+        # Check if PARTIAL patterns exist (warnings/optimizations)
+        has_partial = len(classification[SupportLevel.PARTIAL]) > 0
 
         if not check_results:
             # No check results available
             logger.warning("No check results for EP %s", ep_type)
             runtime_support = False
-            has_black = False
-            has_gray = False
+            has_unsupported = False
+            has_partial = False
 
         logger.debug(
-            "EP %s classification: WHITE=%d, GRAY=%d, BLACK=%d, UNKNOWN=%d",
+            "EP %s classification: SUPPORTED=%d, PARTIAL=%d, UNSUPPORTED=%d, UNKNOWN=%d",
             ep_type,
-            len(classification[SupportLevel.WHITE]),
-            len(classification[SupportLevel.GRAY]),
-            len(classification[SupportLevel.BLACK]),
+            len(classification[SupportLevel.SUPPORTED]),
+            len(classification[SupportLevel.PARTIAL]),
+            len(classification[SupportLevel.UNSUPPORTED]),
             len(classification[SupportLevel.UNKNOWN]),
         )
 
@@ -215,8 +219,8 @@ class OutputAggregator:
             ep_version=ep_version,
             driver_version=driver_version,
             runtime_support=runtime_support,
-            has_errors=has_black,
-            has_warnings=has_gray,
+            has_errors=has_unsupported,
+            has_warnings=has_partial,
             classification=classification,
             information=information_list,
         )

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """InformationEngine - Generate actionable information from runtime check results.
 
 Implements FR-021-028 (Information generation), processes runtime results to create
@@ -264,15 +268,15 @@ class InformationEngine:
             classification = runtime_result.result.classification
             reason = runtime_result.result.reason
 
-            # Skip WHITE patterns (no action needed) and patterns with alternatives
-            if classification == SupportLevel.WHITE or runtime_result.alternatives:
+            # Skip SUPPORTED patterns (no action needed) and patterns with alternatives
+            if classification == SupportLevel.SUPPORTED or runtime_result.alternatives:
                 continue
 
             # For failed/unknown operators, query doc checker for detailed constraint info
             doc_check_reason = None
             if self._doc_checker and classification in [
-                SupportLevel.BLACK,
-                SupportLevel.GRAY,
+                SupportLevel.UNSUPPORTED,
+                SupportLevel.PARTIAL,
                 SupportLevel.UNKNOWN,
             ]:
                 doc_check_reason = self._query_doc_constraints(runtime_result, pattern_id)
@@ -294,7 +298,7 @@ class InformationEngine:
             count = len(runtime_results)
             actions: list[Action] = []
 
-            if classification == SupportLevel.GRAY:
+            if classification == SupportLevel.PARTIAL:
                 # Partial support - optional optimization
                 if count == 1:
                     if reason:
@@ -323,7 +327,7 @@ class InformationEngine:
                 #     pattern_from_id=pattern_id,
                 #     pattern_to_id="",
                 #     level=ActionLevel.OPTIONAL,
-                #     status=SupportLevel.GRAY,
+                #     status=SupportLevel.PARTIAL,
                 #     details=(
                 #         f"Pattern '{pattern_id}' has partial support. "
                 #         f"Consider optimizing the input for better runtime performance. "
@@ -332,10 +336,10 @@ class InformationEngine:
                 # )
                 # actions.append(action)
                 logger.debug(
-                    "Operator %s: GRAY (partial support) - %d instances", pattern_id, count
+                    "Operator %s: PARTIAL (partial support) - %d instances", pattern_id, count
                 )
 
-            elif classification == SupportLevel.BLACK:
+            elif classification == SupportLevel.UNSUPPORTED:
                 # Not supported - required action
                 if count == 1:
                     if reason:
@@ -533,29 +537,29 @@ class InformationEngine:
             tuple: (ActionLevel, SupportLevel or None)
 
         Logic:
-            - BLACK → WHITE/GRAY: REQUIRED
-            - BLACK → UNKNOWN: WARNING
-            - GRAY → WHITE: REQUIRED
-            - UNKNOWN → WHITE/GRAY: OPTIONAL
+            - UNSUPPORTED → SUPPORTED/PARTIAL: REQUIRED
+            - UNSUPPORTED → UNKNOWN: WARNING
+            - PARTIAL → SUPPORTED: REQUIRED
+            - UNKNOWN → SUPPORTED/PARTIAL: OPTIONAL
             - Otherwise: No action recommended
         """
-        if current_classification == SupportLevel.BLACK:
-            if alternative_classification == SupportLevel.WHITE:
-                return ActionLevel.REQUIRED, SupportLevel.WHITE
-            if alternative_classification == SupportLevel.GRAY:
-                return ActionLevel.REQUIRED, SupportLevel.GRAY
+        if current_classification == SupportLevel.UNSUPPORTED:
+            if alternative_classification == SupportLevel.SUPPORTED:
+                return ActionLevel.REQUIRED, SupportLevel.SUPPORTED
+            if alternative_classification == SupportLevel.PARTIAL:
+                return ActionLevel.REQUIRED, SupportLevel.PARTIAL
             if alternative_classification == SupportLevel.UNKNOWN:
                 return ActionLevel.WARNING, None
 
         if (
-            current_classification == SupportLevel.GRAY
-            and alternative_classification == SupportLevel.WHITE
+            current_classification == SupportLevel.PARTIAL
+            and alternative_classification == SupportLevel.SUPPORTED
         ):
-            return ActionLevel.REQUIRED, SupportLevel.WHITE
+            return ActionLevel.REQUIRED, SupportLevel.SUPPORTED
 
         if current_classification == SupportLevel.UNKNOWN and alternative_classification in (
-            SupportLevel.WHITE,
-            SupportLevel.GRAY,
+            SupportLevel.SUPPORTED,
+            SupportLevel.PARTIAL,
         ):
             return ActionLevel.OPTIONAL, alternative_classification
 
@@ -592,7 +596,7 @@ class InformationEngine:
 
         # Generate details based on level and status
         if level == ActionLevel.REQUIRED:
-            if status == SupportLevel.WHITE:
+            if status == SupportLevel.SUPPORTED:
                 details = (
                     f"Pattern '{pattern_from_id}' is not supported. "
                     f"Replace '{pattern_from_id}' with '{pattern_to_id}'"
@@ -602,7 +606,7 @@ class InformationEngine:
                         f" ({alt_type} alternative). "
                         f"Alternative '{pattern_to_id}' ({alt_type}) is fully supported."
                     )
-            elif status == SupportLevel.GRAY:
+            elif status == SupportLevel.PARTIAL:
                 details = (
                     f"Pattern '{pattern_from_id}' is not supported. "
                     f"Replace '{pattern_from_id}' with '{pattern_to_id}'"
@@ -620,7 +624,7 @@ class InformationEngine:
 
         elif level == ActionLevel.OPTIONAL:
             status_text = (
-                "fully supported" if status == SupportLevel.WHITE else "partially supported"
+                "fully supported" if status == SupportLevel.SUPPORTED else "partially supported"
             )
             current_status = "unknown support status" if status else "partial support"
             details = (
@@ -632,7 +636,7 @@ class InformationEngine:
                     f" ({alt_type} alternative, {status_text}). "
                     f"Alternative '{pattern_to_id}' ({alt_type}) is {status_text}"
                 )
-                if status == SupportLevel.WHITE:
+                if status == SupportLevel.SUPPORTED:
                     details += " and may improve performance."
                 details += "."
 
@@ -778,31 +782,31 @@ class InformationEngine:
             # (all instances of the same pattern should have same alternatives)
             representative = runtime_results[0]
 
-            # WHITE patterns with no alternatives don't need information
-            if classification == SupportLevel.WHITE and not representative.alternatives:
+            # SUPPORTED patterns with no alternatives don't need information
+            if classification == SupportLevel.SUPPORTED and not representative.alternatives:
                 continue
 
             # Generate explanation with count
             if count == 1:
-                if classification == SupportLevel.WHITE:
+                if classification == SupportLevel.SUPPORTED:
                     explanation = f"Pattern '{pattern_id}' is fully supported"
-                elif classification == SupportLevel.GRAY:
+                elif classification == SupportLevel.PARTIAL:
                     explanation = (
                         f"Pattern '{pattern_id}' has partial support (compiles but not optimized)"
                     )
-                elif classification == SupportLevel.BLACK:
+                elif classification == SupportLevel.UNSUPPORTED:
                     explanation = f"Pattern '{pattern_id}' is not supported"
                 else:  # UNKNOWN
                     explanation = f"Pattern '{pattern_id}' has unknown support status"
             else:
-                if classification == SupportLevel.WHITE:
+                if classification == SupportLevel.SUPPORTED:
                     explanation = f"{count} instances of pattern '{pattern_id}' are fully supported"
-                elif classification == SupportLevel.GRAY:
+                elif classification == SupportLevel.PARTIAL:
                     explanation = (
                         f"{count} instances of pattern '{pattern_id}' have partial support "
                         f"(compile but not optimized)"
                     )
-                elif classification == SupportLevel.BLACK:
+                elif classification == SupportLevel.UNSUPPORTED:
                     explanation = f"{count} instances of pattern '{pattern_id}' are not supported"
                 else:  # UNKNOWN
                     explanation = (
@@ -973,16 +977,16 @@ class InformationEngine:
         pattern_id = pattern_runtime.pattern_id
         classification = pattern_runtime.result.classification
 
-        # WHITE patterns with no alternatives don't need information
-        if classification == SupportLevel.WHITE and not pattern_runtime.alternatives:
+        # SUPPORTED patterns with no alternatives don't need information
+        if classification == SupportLevel.SUPPORTED and not pattern_runtime.alternatives:
             return None
 
         # Generate explanation based on classification
-        if classification == SupportLevel.WHITE:
+        if classification == SupportLevel.SUPPORTED:
             explanation = f"Pattern '{pattern_id}' is fully supported"
-        elif classification == SupportLevel.GRAY:
+        elif classification == SupportLevel.PARTIAL:
             explanation = f"Pattern '{pattern_id}' has partial support (compiles but not optimized)"
-        elif classification == SupportLevel.BLACK:
+        elif classification == SupportLevel.UNSUPPORTED:
             explanation = f"Pattern '{pattern_id}' is not supported"
         else:  # UNKNOWN
             explanation = f"Pattern '{pattern_id}' has unknown support status"
@@ -1057,8 +1061,8 @@ class InformationEngine:
             )
             actions.append(action)
 
-        # If no alternatives found but pattern is BLACK, add warning
-        if classification == SupportLevel.BLACK and not actions:
+        # If no alternatives found but pattern is UNSUPPORTED, add warning
+        if classification == SupportLevel.UNSUPPORTED and not actions:
             reason = pattern_runtime.result.reason
             action = self._create_action(
                 pattern_from_id=pattern_id,

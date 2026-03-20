@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """LayerNorm pattern builders for FusionPipe testing.
 
 Creates ONNX graphs that match ORT's LayerNorm fusion patterns:
@@ -5,7 +9,7 @@ Creates ONNX graphs that match ORT's LayerNorm fusion patterns:
 - FusionSkipLayerNormalization (Add + LayerNorm)
 - FusionSimplifiedLayerNormalization (RMS Normalization)
 
-Reference: D:/BYOM/ort/onnxruntime/python/tools/transformers/fusion_layernorm.py
+Reference: https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/transformers/fusion_layernorm.py
 """
 
 from __future__ import annotations

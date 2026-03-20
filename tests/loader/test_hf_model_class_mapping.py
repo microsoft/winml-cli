@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for HuggingFace Model Class Two-Level Mapping.
 
 This module tests the mapping system that resolves the correct HuggingFace

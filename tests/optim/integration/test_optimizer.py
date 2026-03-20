@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Integration tests for the Optimizer class and optimization pipeline.
 
 Tests the main optimization pipeline following Cardinal Rules:

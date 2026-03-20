@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Shared test infrastructure for pattern tests.
 
 Provides constants, helpers, and fixtures used across all pattern test files.

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """PatternExtractor - Extract operator and subgraph patterns from ONNX models.
 
 Implements FR-003 (Extract patterns), FR-011 (Pattern detection), FR-004 (Subgraph patterns).

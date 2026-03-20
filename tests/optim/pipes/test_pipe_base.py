@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Tests for PipeConfig and BasePipe abstract classes.
 
 Tests the base pipe architecture following Cardinal Rules:

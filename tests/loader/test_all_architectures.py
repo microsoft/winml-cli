@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Parametrized tests across ALL 166 Optimum architectures for loader/task.py.
 
 Validates that TasksManager has a registration (OnnxConfig constructor) for
