@@ -46,6 +46,7 @@ from optimum.utils.input_generators import (
     DummyVisionInputGenerator,
 )
 from transformers import Sam2Model
+from transformers.models.sam2.modeling_sam2 import do_pool
 
 from ...export import register_onnx_overwrite
 
@@ -102,9 +103,7 @@ class SAM2MaskGeneration(torch.nn.Module):
     """
 
     @classmethod
-    def from_pretrained(
-        cls, model_name_or_path: str, **kwargs
-    ) -> SAM2MaskGeneration:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> SAM2MaskGeneration:
         """Load from a HuggingFace Sam2Model checkpoint."""
         sam2_model = Sam2Model.from_pretrained(model_name_or_path, **kwargs)
         return cls(sam2_model)
@@ -136,9 +135,7 @@ class SAM2MaskGeneration(torch.nn.Module):
         y_embed = y_embed / size[0]
         x_embed = x_embed / size[1]
 
-        positional_embedding = self.shared_image_embedding(
-            torch.stack([x_embed, y_embed], dim=-1)
-        )
+        positional_embedding = self.shared_image_embedding(torch.stack([x_embed, y_embed], dim=-1))
         positional_embedding = positional_embedding.permute(2, 0, 1).unsqueeze(0)
         return positional_embedding.repeat(batch_size, 1, 1, 1)
 
@@ -187,7 +184,7 @@ class SAM2MaskGeneration(torch.nn.Module):
 
         # Squeeze point_batch_size dimension
         low_res_masks = low_res_masks.squeeze(1)  # [B, 3, 256, 256]
-        iou_scores = iou_pred.squeeze(1)           # [B, 3]
+        iou_scores = iou_pred.squeeze(1)  # [B, 3]
 
         # 6. Upsample to full resolution
         masks = torch.nn.functional.interpolate(
@@ -223,7 +220,6 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("sam2-video", "image-feature-extraction"): Sam2VisionEncoder,
     ("sam2-video", "mask-generation"): SAM2MaskGeneration,
 }
-
 
 
 # Note: No model-specific build config needed. The analyzer autoconf loop
@@ -285,17 +281,6 @@ def _window_unpartition(
     return hidden_state
 
 
-def _do_pool(
-    x: torch.Tensor, query_stride: tuple[int, int] | None = None
-) -> torch.Tensor:
-    """Pool spatial dimensions (copied from HF for self-contained patch)."""
-    if query_stride is None:
-        return x
-    x = x.permute(0, 3, 1, 2)
-    x = F.max_pool2d(x, kernel_size=query_stride, stride=query_stride, ceil_mode=False)
-    return x.permute(0, 2, 3, 1)
-
-
 def _patched_sam2_multiscale_block_forward(
     self, hidden_states: torch.Tensor, **kwargs
 ) -> torch.Tensor:
@@ -315,7 +300,7 @@ def _patched_sam2_multiscale_block_forward(
     hidden_states = self.layer_norm1(hidden_states)
 
     if self.dim != self.dim_out:
-        residual = _do_pool(self.proj(hidden_states), self.query_stride)
+        residual = do_pool(self.proj(hidden_states), self.query_stride)
 
     window_size = self.window_size
     H, W = None, None  # noqa: N806 (standard tensor dimension naming)
@@ -405,9 +390,7 @@ def _patched_sam2_prompt_encoder_forward(
         batch_size = input_boxes.shape[0]
 
     # Get sparse embeddings (with patched _embed_points)
-    sparse_embeddings, _ = self._original_forward(
-        input_points, input_labels, input_boxes, None
-    )
+    sparse_embeddings, _ = self._original_forward(input_points, input_labels, input_boxes, None)
 
     # Arithmetic mask blending
     mask_dense = self.mask_embed(input_masks)
