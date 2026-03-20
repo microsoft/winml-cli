@@ -11,7 +11,14 @@ We're always looking for your help to improve the product (bug fixes, new featur
 
 ## Getting started
 
-See the [README](./README.md#getting-started) for prerequisites and installation instructions.
+See the [README](./README.md#getting-started) for prerequisites and installation instructions. Then set up your development environment:
+
+```bash
+uv sync
+uv run pre-commit install
+```
+
+This installs all dependencies and enables [pre-commit hooks](https://pre-commit.com/) that automatically check license headers, formatting (Ruff), trailing whitespace, and YAML syntax on every commit.
 
 ## Coding conventions and standards
 
@@ -37,6 +44,19 @@ uv run pytest tests/
 ### Testing
 
 New code *must* be accompanied by unit tests. Code coverage should aim at maintaining over 80% coverage.
+
+### License header
+
+All Python source files **must** include the MIT license header at the top of the file:
+
+```python
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+```
+
+The pre-commit hook configured in [Getting started](#getting-started) will automatically insert this header on new `.py` files.
 
 ## Licensing guidelines
 
