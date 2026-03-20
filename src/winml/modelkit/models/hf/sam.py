@@ -46,7 +46,6 @@ from optimum.utils.input_generators import (
     DummyVisionInputGenerator,
 )
 from transformers import Sam2Model
-from transformers.models.sam2.modeling_sam2 import do_pool
 
 from ...export import register_onnx_overwrite
 
@@ -300,6 +299,21 @@ def _patched_sam2_multiscale_block_forward(
     hidden_states = self.layer_norm1(hidden_states)
 
     if self.dim != self.dim_out:
+        # Import do_pool from transformers internals; fall back to local
+        # implementation if the private API moves in a future release.
+        try:
+            from transformers.models.sam2.modeling_sam2 import do_pool
+        except ImportError:
+
+            def do_pool(
+                x: torch.Tensor, query_stride: tuple[int, int] | None = None
+            ) -> torch.Tensor:
+                if query_stride is None:
+                    return x
+                x = x.permute(0, 3, 1, 2)
+                x = F.max_pool2d(x, kernel_size=query_stride, stride=query_stride, ceil_mode=False)
+                return x.permute(0, 2, 3, 1)
+
         residual = do_pool(self.proj(hidden_states), self.query_stride)
 
     window_size = self.window_size
