@@ -1071,8 +1071,8 @@ class TestIterQDQCombinations:
             ),  # shape 3 * attrs 4 * 2 * kernel shape 2 * opt B 2 * 16 * B/Y non qdq 4
             (
                 "ConvTranspose",
-                3072,
-            ),  # shape 3 * auto_pad 4 * group_opts 2 * output 4 * optional b 2 * 16
+                3328,
+            ),  # base: shape 3 * auto_pad 4 * group_opts 2 * output 4 * optional b 2 * 16 + even-kernel: 2 * output 4 * optional b 2 * 16
             (
                 "CumSum",
                 2816,
