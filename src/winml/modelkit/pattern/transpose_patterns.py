@@ -30,7 +30,7 @@ from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 
 # Schema for ReshapeTransposeReshape pattern
 _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
-    name="ReshapeTransposeReshapeOverlyHighDimPattern",
+    name="ReshapeTransposeReshapePattern",
     doc=(
         "Reshape followed by Transpose followed by Reshape pattern.\n"
         "This pattern is common in attention mechanisms where tensors are reshaped "
