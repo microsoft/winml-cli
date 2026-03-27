@@ -9,6 +9,7 @@ This module provides patterns for matching Reshape-Transpose-Reshape sequences
 commonly found in attention mechanisms and tensor manipulation operations.
 """
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -111,6 +112,13 @@ _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
             required=True,
         ),
     },
+)
+
+_RESHAPE_TRANSPOSE_RESHAPE_OVERLY_HIGH_DIM_SCHEMA = replace(
+    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeOverlyHighDim"
+)
+_RESHAPE_TRANSPOSE_RESHAPE_LOW_DIM_SCHEMA = replace(
+    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeLowDim"
 )
 
 
@@ -318,7 +326,7 @@ class ReshapeTransposeReshapeOverlyHighDimPattern(Pattern):
         Returns:
             PatternSchema defining the pattern's input/output types and attributes.
         """
-        return _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA
+        return _RESHAPE_TRANSPOSE_RESHAPE_OVERLY_HIGH_DIM_SCHEMA
 
 
 class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
@@ -608,6 +616,10 @@ class ReshapeTransposeReshapeLowDimPattern(ReshapeTransposeReshapeOverlyHighDimP
         }
 
         return internal_constants, internal_attributes
+
+    def get_schema(self) -> PatternSchema:
+        """Return the schema definition for ReshapeTransposeReshapeLowDim pattern."""
+        return _RESHAPE_TRANSPOSE_RESHAPE_LOW_DIM_SCHEMA
 
 
 @register_pattern_input_generator

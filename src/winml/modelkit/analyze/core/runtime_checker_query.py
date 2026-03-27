@@ -21,7 +21,11 @@ from onnx import numpy_helper, shape_inference
 from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.onnx.dtypes import SupportedONNXType, remove_optional_from_type_annotation
 from winml.modelkit.onnx.shape import infer_onnx_shapes
-from winml.modelkit.pattern.base import get_registered_pattern_input_generators
+from winml.modelkit.pattern.base import (
+    get_pattern_input_generator,
+    get_registered_pattern_input_generators,
+)
+from winml.modelkit.pattern.match import PatternMatchResult
 from winml.modelkit.pattern.op_input_gen import (
     get_runtime_checker_op,
 )
@@ -58,6 +62,21 @@ if TYPE_CHECKING:
 # Centralized key for attaching debug details to error/info payloads
 EG_RULE_DEBUG_DETAILS_KEY = "__debug_details"
 EG_RULE_ERROR_KEY = "__error"
+
+
+class _PseudoNode:
+    """Lightweight stand-in for onnx.NodeProto used only for logging in _check_negative_rules."""
+
+    __slots__ = ("name", "op_type")
+
+    def __init__(self, op_type: str) -> None:
+        self.op_type = op_type
+        self.name = op_type
+
+
+def _make_pseudo_node(pattern_name: str) -> _PseudoNode:
+    """Create a pseudo-node for pattern-level negative rule checks."""
+    return _PseudoNode(pattern_name)
 
 
 def query_table_exact_match(df: pd.DataFrame, query: dict[str, Any]) -> pd.DataFrame:
@@ -335,6 +354,38 @@ class QDQTypeInfo:
 
     def __str__(self) -> str:
         return self.__repr__()
+
+
+def _normalize_type_var_annotation(type_value: str) -> str:
+    """Normalize a type-var value to the runtime table annotation format."""
+    try:
+        return SupportedONNXType.from_onnx_type(type_value).annotation
+    except ValueError:
+        return SupportedONNXType.normalize_annotation(type_value)
+
+
+def _get_pattern_type_var_conditions(
+    pattern_match: PatternMatchResult,
+    gen: Any,
+) -> dict[str, str]:
+    """Build normalized type-var conditions for a pattern generator."""
+    conditions: dict[str, str] = {}
+    type_var_suffix = f"_{gen.op_name}"
+
+    for type_var_name, dtypes_to_test in gen.type_var_dtypes_to_test.items():
+        base_type_var_name = (
+            type_var_name[: -len(type_var_suffix)]
+            if type_var_name.endswith(type_var_suffix)
+            else type_var_name
+        )
+        matched_type = pattern_match.type_param_to_type.get(base_type_var_name)
+
+        if matched_type is not None:
+            conditions[type_var_name] = _normalize_type_var_annotation(matched_type)
+        elif dtypes_to_test:
+            conditions[type_var_name] = dtypes_to_test[0].annotation
+
+    return conditions
 
 
 def _get_qdq_query_conditions_for_node(
@@ -695,6 +746,83 @@ def get_query_conditions_for_node(
     conditions = {k: make_hashable(v) for k, v in conditions.items()}
 
     return conditions, runtime_checker_op.get_infinite_property_names(), is_qdq
+
+
+def get_query_conditions_for_pattern(
+    pattern_match: PatternMatchResult,
+    pattern_name: str,
+    opset_versions: dict[ONNXDomain, int],
+    dynamic_axis_strict_mode: bool = False,
+) -> tuple[dict[str, Any], list[str]]:
+    """Extract query conditions for runtime checking of a subgraph pattern.
+
+    Builds the same conditions format as get_query_conditions_for_node but
+    from PatternMatchResult fields (type variables, input infos, attributes).
+
+    Args:
+        pattern_match: PatternMatchResult containing match details.
+        pattern_name: Pattern variant name (e.g., "ReshapeTransposeReshapeLowDim").
+        opset_versions: Dict mapping ONNXDomain to opset version.
+        dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,).
+
+    Returns:
+        Tuple of (conditions, infinite_properties):
+        - conditions: Dict of property conditions for runtime check query.
+        - infinite_properties: List of property names with infinite value ranges.
+    """
+    conditions: dict[str, Any] = {}
+    gen = None
+    infinite_properties: list[str] = []
+
+    def _compute_dynamic_axes(shape: tuple | None, is_constant: bool) -> tuple[int, ...]:
+        if is_constant or shape is None:
+            return ()
+        dyn = tuple(
+            i
+            for i, s in enumerate(shape)
+            if s is None or isinstance(s, str) or (isinstance(s, int) and s < 0)
+        )
+        if not dynamic_axis_strict_mode and len(dyn) > 0:
+            dyn = (0,)
+        return dyn
+
+    # Type variables (e.g., T_ReshapeTransposeReshapePattern -> "FLOAT")
+    conditions.update(pattern_match.type_param_to_type)
+
+    try:
+        gen_class = get_pattern_input_generator(pattern_name)
+        gen = gen_class(dict(opset_versions))
+        conditions.update(_get_pattern_type_var_conditions(pattern_match, gen))
+    except KeyError as e:
+        logger.debug("Could not load pattern input generator for '%s': %s", pattern_name, e)
+
+    # Input properties from input_infos
+    for input_name, info in pattern_match.input_infos.items():
+        dyn_axes = _compute_dynamic_axes(info.shape, info.is_constant)
+        conditions[f"{input_name}_is_constant"] = info.is_constant
+        conditions[f"{input_name}_is_fixed_shape"] = len(dyn_axes) == 0
+        conditions[f"{input_name}_dynamic_axes"] = dyn_axes
+        conditions[f"{input_name}_shape"] = info.shape
+        conditions[f"{input_name}_value"] = (
+            make_hashable(info.value) if info.value is not None else None
+        )
+        conditions[f"{input_name}_is_none"] = False
+
+    # Attributes (with attr_ prefix)
+    for attr_name, attr_value in pattern_match.attributes.items():
+        conditions[f"attr_{attr_name}"] = attr_value
+        conditions[f"attr_{attr_name}_is_none"] = attr_value is None
+
+    # Derive additional properties via pattern input generator
+    if gen is not None:
+        try:
+            conditions = gen.derive_properties(conditions)
+            infinite_properties = gen.get_infinite_property_names()
+        except Exception as e:
+            logger.debug("Could not derive properties for pattern '%s': %s", pattern_name, e)
+
+    conditions = {k: make_hashable(v) for k, v in conditions.items()}
+    return conditions, infinite_properties
 
 
 class RuntimeCheckerQuery:
@@ -1829,12 +1957,15 @@ class RuntimeCheckerQuery:
         """Run runtime check for subgraph pattern.
 
         Strategy:
-        1. First check if database has pattern-level rules for this pattern
-        2. If found, use the pattern-level result directly
-        3. If not found, fallback to checking each operator in the pattern individually
+        1. Extract conditions from pattern match (type vars, inputs, attributes)
+        2. Look up pattern in pattern_neg_rules by variant name
+        3. Apply _check_negative_rules for compile/run phases
+        4. Do table matching from df_tables
+        5. Fallback to checking individual operators if no pattern rules found
 
         Args:
             pattern_match: PatternMatchResult containing pattern information
+            run_unknown_op: If True, attempt local EP check for unknown patterns.
 
         Returns:
             PatternRuntime with check results
@@ -1846,60 +1977,211 @@ class RuntimeCheckerQuery:
         else:
             pattern_name = pattern_id
 
-        # Step 1: Check if pattern exists in database pattern rules
-        # Pattern rules structure:
-        # {"Gelu1": {"op_name": "GeluPattern", ...}, ...}
-        for patterns in self.pattern_neg_rules.values():
-            for pattern_key, pattern_info in patterns.items():
-                # Match by op_name field (e.g., "GeluPattern")
-                if isinstance(pattern_info, dict) and pattern_info.get("op_name") == pattern_name:
-                    # Found the pattern in database - use pattern-level result
-                    logger.info(
-                        f"Found pattern-level rules for "
-                        f"'{pattern_name}' ({pattern_key})"
-                        f" in database"
-                    )
+        # Step 1: Look up pattern in pattern_neg_rules by direct key match
+        found_domain: ONNXDomain | None = None
+        pattern_rules: dict[str, Any] | None = None
+        for domain, patterns in self.pattern_neg_rules.items():
+            if pattern_name in patterns:
+                found_domain = domain
+                pattern_rules = patterns[pattern_name]
+                break
 
-                    if pattern_info.get("negative_rules"):
-                        neg_keys = list(pattern_info.get("negative_rules", {}).keys())
+        # Step 2: If no pattern rules found, fallback to individual node checking
+        if pattern_rules is None:
+            logger.info(
+                "No pattern-level rules found for '%s', checking individual operators",
+                pattern_name,
+            )
+            return self._run_for_subgraph_per_node(pattern_match, pattern_name, run_unknown_op)
+
+        logger.info("Found pattern-level rules for '%s' in database", pattern_name)
+
+        # Step 3: Extract conditions from PatternMatchResult
+        try:
+            conditions, infinite_properties = get_query_conditions_for_pattern(
+                pattern_match,
+                pattern_name,
+                self.opset_versions,
+                dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
+            )
+        except Exception as e:
+            logger.error("Failed to extract conditions for pattern '%s': %s", pattern_name, e)
+            return PatternRuntime(
+                pattern_id=pattern_id,
+                result=RuntimeTestResult(
+                    compile=False,
+                    run=False,
+                    no_data=True,
+                    reason="pattern_conditions_extraction_failed",
+                    debug_details={
+                        "pattern_name": pattern_name,
+                        "error_message": str(e),
+                    },
+                ),
+                alternatives=self.alternatives,
+                pattern_match=pattern_match,
+            )
+
+        # Step 4: Resolve table metadata
+        assert found_domain is not None
+        target_df_tables = self.df_tables
+        table_zip_path = ""
+        table_file = ""
+        if found_domain in target_df_tables:
+            table_zip_path = _normalize_table_zip_path(
+                getattr(target_df_tables[found_domain], "_zip_path", "")
+            )
+            table_file = str(getattr(target_df_tables[found_domain], "_file_name", ""))
+
+        # Step 5: Apply negative rules (same as run_for_node Phase 4)
+        reason = ""
+        try:
+            compile_result, compile_reason = self._check_negative_rules(
+                pattern_rules, conditions, _make_pseudo_node(pattern_name), "compile"
+            )
+            run_result, run_reason = self._check_negative_rules(
+                pattern_rules, conditions, _make_pseudo_node(pattern_name), "run"
+            )
+            reason = compile_reason + run_reason
+
+            if compile_result or run_result:
+                # Step 6: Table matching
+                if (
+                    target_df_tables
+                    and found_domain in target_df_tables
+                    and pattern_name in target_df_tables[found_domain]
+                ):
+                    domain_tables = target_df_tables[found_domain]
+                    table_zip_path = _normalize_table_zip_path(
+                        getattr(domain_tables, "_zip_path", "")
+                    )
+                    table_file = str(getattr(domain_tables, "_file_name", ""))
+                    table_df = domain_tables[pattern_name]
+                    match_keys = [
+                        item
+                        for item in table_df.columns.to_list()
+                        if item not in infinite_properties
+                    ]
+                    match_keys.remove("compile_run_success")
+                    filter_v: dict[str, Any] = {}
+                    for k in match_keys:
+                        if k in conditions:
+                            filter_v[k] = conditions[k]
+                        else:
+                            raise OPOptionalInputSupportError(
+                                f"Match key '{k}' not found in "
+                                f"conditions for pattern {pattern_name}. "
+                                f"Available: {_format_list_preview(conditions.keys())}"
+                            )
+
+                    ret = query_table_exact_match(table_df, filter_v)
+                    if not ret.empty:
+                        compile_result = ret.iloc[0]["compile_run_success"][0]
+                        run_result = ret.iloc[0]["compile_run_success"][1]
+                    else:
+                        logger.info(
+                            "Negative rules passed but properties not found for %s: %s",
+                            pattern_name,
+                            filter_v,
+                        )
+
+                        if run_unknown_op:
+                            # Fallback to per-node check
+                            return self._run_for_subgraph_per_node(
+                                pattern_match, pattern_name, run_unknown_op
+                            )
+
                         return PatternRuntime(
                             pattern_id=pattern_id,
                             result=RuntimeTestResult(
                                 compile=False,
-                                run=True,
-                                no_data=False,
-                                reason=(
-                                    f"Pattern '{pattern_name}'"
-                                    f" ({pattern_key}) has "
-                                    f"constraints: {neg_keys}"
-                                ),
+                                run=False,
+                                no_data=True,
+                                reason="properties_not_found",
+                                filter=str(filter_v),
+                                debug_details={
+                                    "table_zip_path": table_zip_path,
+                                    "table_file": table_file,
+                                },
                             ),
                             alternatives=self.alternatives,
                             pattern_match=pattern_match,
                         )
-                    # Pattern exists but no negative rules
+                else:
+                    # No table data — fallback to per-node check if allowed
+                    if run_unknown_op:
+                        return self._run_for_subgraph_per_node(
+                            pattern_match, pattern_name, run_unknown_op
+                        )
+
                     return PatternRuntime(
                         pattern_id=pattern_id,
                         result=RuntimeTestResult(
-                            compile=True,
-                            run=True,
-                            no_data=False,
-                            reason=(
-                                f"Pattern '{pattern_name}'"
-                                f" ({pattern_key}) is "
-                                f"supported (no negative rules)"
-                            ),
+                            compile=False,
+                            run=False,
+                            no_data=True,
+                            reason="no_table_data",
+                            debug_details={
+                                "pattern_name": pattern_name,
+                                "domain": str(found_domain),
+                                "table_zip_path": table_zip_path,
+                                "table_file": table_file,
+                            },
                         ),
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
+        except OPOptionalInputSupportError as e:
+            logger.error("OPOptionalInputSupportError for pattern '%s': %s", pattern_name, e)
+            return PatternRuntime(
+                pattern_id=pattern_id,
+                result=RuntimeTestResult(
+                    compile=False,
+                    run=False,
+                    no_data=True,
+                    reason="optional_input_properties_not_found",
+                    debug_details={
+                        "pattern_name": pattern_name,
+                        "error_message": str(e),
+                        "table_zip_path": table_zip_path,
+                        "table_file": table_file,
+                    },
+                ),
+                alternatives=self.alternatives,
+                pattern_match=pattern_match,
+            )
 
-        # Step 2: Pattern not found in database - fallback to checking individual operators
-        logger.info(
-            f"No pattern-level rules found for '{pattern_name}', checking individual operators"
+        return PatternRuntime(
+            pattern_id=pattern_id,
+            result=RuntimeTestResult(
+                compile=compile_result,
+                run=run_result,
+                reason=reason.strip().rstrip(","),
+                no_data=False,
+                debug_details=None,
+            ),
+            alternatives=self.alternatives,
+            pattern_match=pattern_match,
         )
 
-        # Get nodes from the pattern
+    def _run_for_subgraph_per_node(
+        self,
+        pattern_match: PatternMatchResult,
+        pattern_name: str,
+        run_unknown_op: bool,
+    ) -> PatternRuntime:
+        """Fallback: check each operator in the pattern individually.
+
+        Args:
+            pattern_match: PatternMatchResult containing pattern information.
+            pattern_name: Pattern variant name.
+            run_unknown_op: If True, attempt local EP check for unknown ops.
+
+        Returns:
+            PatternRuntime with aggregated results from individual node checks.
+        """
+        pattern_id = pattern_match.pattern.pattern_id
+
         if (
             not hasattr(pattern_match, "skeleton_match_result")
             or pattern_match.skeleton_match_result is None
@@ -1928,7 +2210,7 @@ class RuntimeCheckerQuery:
         matched_nodes = pattern_match.skeleton_match_result.matched_nodes
 
         if not matched_nodes:
-            logger.warning(f"Pattern '{pattern_id}' has no matched nodes")
+            logger.warning("Pattern '%s' has no matched nodes", pattern_id)
             return PatternRuntime(
                 pattern_id=pattern_id,
                 result=RuntimeTestResult(
@@ -1962,7 +2244,6 @@ class RuntimeCheckerQuery:
         no_data_nodes = [r.pattern_id for r in node_results if r.result.no_data]
 
         if all_compile and all_run and not any_no_data:
-            # All nodes supported - pattern is supported
             return PatternRuntime(
                 pattern_id=pattern_id,
                 result=RuntimeTestResult(
@@ -1981,7 +2262,6 @@ class RuntimeCheckerQuery:
             )
 
         if any_no_data:
-            # Some nodes have no data - pattern status unknown
             return PatternRuntime(
                 pattern_id=pattern_id,
                 result=RuntimeTestResult(
@@ -1999,8 +2279,7 @@ class RuntimeCheckerQuery:
                 pattern_match=pattern_match,
             )
 
-        # Some nodes failed - pattern not supported
-        failure_summary = "; ".join(failed_nodes[:3])  # Show first 3 failures
+        failure_summary = "; ".join(failed_nodes[:3])
         if len(failed_nodes) > 3:
             failure_summary += f" (and {len(failed_nodes) - 3} more)"
 
