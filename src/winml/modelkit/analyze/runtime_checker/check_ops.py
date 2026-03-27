@@ -31,6 +31,7 @@ from winml.modelkit.pattern.op_input_gen import (
     OpInputGenerator,
     get_registered_operators,
     get_runtime_checker_op,
+    normalize_constraint_dict,
 )
 from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
 
@@ -42,27 +43,6 @@ from .ep_checker import EPChecker
 
 
 winml.register_execution_providers(ort=True)
-
-
-def _normalize_constraint_dict(c: dict) -> dict:
-    """Expand same_value/same_value_shape back to the canonical value list form.
-
-    This keeps signatures stable regardless of which to_dict() representation
-    was used (compact same_value form vs full value list).
-    """
-    if "same_value" in c and "same_value_shape" in c:
-        normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
-        normalized["value"] = np.full(c["same_value_shape"], c["same_value"]).tolist()
-        return normalized
-    return c
-
-
-def _normalize_input_constraints(constraints: dict) -> dict:
-    """Normalize all constraint dicts within input_constraints for stable hashing."""
-    return {
-        k: _normalize_constraint_dict(v) if isinstance(v, dict) else v
-        for k, v in constraints.items()
-    }
 
 
 def _compute_case_signature(case: dict, *, namespace: str) -> str:
@@ -116,7 +96,10 @@ def _compute_case_signature(case: dict, *, namespace: str) -> str:
 
     # Input constraints (shapes/values)
     if "input_constraints" in case:
-        constraints = _normalize_input_constraints(case["input_constraints"])
+        constraints = {
+            k: normalize_constraint_dict(v) if isinstance(v, dict) else v
+            for k, v in case["input_constraints"].items()
+        }
         sig_parts.append(f"inputs:{_safe_dump(constraints)}")
 
     # Input is constant flags
