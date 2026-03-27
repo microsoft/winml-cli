@@ -119,10 +119,12 @@ class TransposeInputGenerator(OpInputGenerator):
         return item
 
     def get_infinite_property_names(self) -> list[str]:
+        """Return names of properties with infinite value ranges."""
         input_param_name = self.op_input_names[0]
         return [f"{input_param_name}_shape", "attr_perm"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for Transpose operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
         }

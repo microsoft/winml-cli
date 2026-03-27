@@ -2,29 +2,43 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
+import base64
+import hashlib
 import itertools
 import json
 import time
+import zlib
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnx
 from colorama import Fore, Style
 from onnx.defs import OpSchema
 
-from typing import TYPE_CHECKING
-
 import winml.modelkit.onnx.dtypes as dtypes
 from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.utils import get_op_input_properties
+
 from .qdq_gen import QDQGenerator
+
 
 if TYPE_CHECKING:
     from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
     from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
+
+
+def model_bytes_to_b64(model_bytes: bytes) -> str:
+    """Compress and base64-encode ONNX model bytes for JSON storage."""
+    return base64.b64encode(zlib.compress(model_bytes)).decode("utf-8")
+
+
+def model_from_b64(model_b64: str) -> bytes:
+    """Decode and decompress base64 payload back to raw ONNX model bytes."""
+    return zlib.decompress(base64.b64decode(model_b64))
 
 
 # Registry for operator input generators
@@ -182,8 +196,16 @@ class InputShapeConstraint(InputConstraint):
         """Generate a tensor with the specified shape and type."""
         # random values may cause runtime errors when running an op
         np_dtype = dtypes.SupportedONNXType.from_annotation(type_annotation).np_type
-        # TODO: pass rng for reproducibility
-        rng = np.random.default_rng()
+        seed_material = json.dumps(
+            {
+                "shape": list(self.shape),
+                "min_max": self.min_max,
+                "type": str(np_dtype),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+        seed_int = int(hashlib.sha256(seed_material).hexdigest(), 16) % (2**32)
+        rng = np.random.default_rng(seed_int)
 
         if np_dtype == np.bool_:
             return rng.choice([True, False], size=self.shape)
@@ -231,27 +253,38 @@ class VariadicInputConstraint(InputConstraint):
 
 
 class QDQParameterConfig:
+    """Configuration for QDQ parameter support on operator inputs."""
+
     def __init__(
         self,
         support_weight: bool = False,
         support_activation: bool = False,
+        support_non_qdq: bool = False,
         weight_type: dtypes.SupportedONNXType | None = None,
         activation_type: dtypes.SupportedONNXType | None = None,
     ):
-        """weight_type is not None means support_weight = True
-        activation_type is not None means support_activation = True
+        """Initialize QDQParameterConfig.
+
+        weight_type is not None means support_weight = True.
+        activation_type is not None means support_activation = True.
         """
         self._support_weight = support_weight
         self._support_activation = support_activation
         self.weight_type = weight_type
         self.activation_type = activation_type
+        self.support_non_qdq = support_non_qdq
+        assert self.support_activation or self.support_weight or self.support_non_qdq, (
+            "At least one of support_weight, support_activation, or support_non_qdq must be True"
+        )
 
     @property
     def support_weight(self) -> bool:
+        """Return whether weight quantization is supported."""
         return self._support_weight or self.weight_type is not None
 
     @property
     def support_activation(self) -> bool:
+        """Return whether activation quantization is supported."""
         return self._support_activation or self.activation_type is not None
 
 
@@ -288,10 +321,15 @@ class OpInputGenerator(ABC):
                 - "none": No dynamic axes (default, preserves existing behavior).
                 - "first_axis_dynamic": Test with first axis (axis 0) as dynamic
                   for all non-constant, non-scalar inputs.
-                - "first_axis_combinations": Iterate over {fixed_shape|first_axis_is_dynamic} for each non-constant and non-scalar input. Not yet implemented.
-                - "all_axes_combinations": Iterate over all axis subsets for each non-constant and non-scalar input. Not yet implemented.
-            runner: Optional ResilientRunner for EP runtime checking. Injected by analyze.
-            ep_checker: Optional EPChecker for EP validation. Injected by analyze.
+                - "first_axis_combinations": Iterate over
+                  {fixed_shape|first_axis_is_dynamic} for each
+                  non-constant and non-scalar input.
+                  Not yet implemented.
+                - "all_axes_combinations": Iterate over all axis
+                  subsets for each non-constant and non-scalar
+                  input. Not yet implemented.
+            runner: Optional ResilientRunner for EP runtime checking. Injected by static_analyzer.
+            ep_checker: Optional EPChecker for EP validation. Injected by static_analyzer.
         """
         assert dynamic_axis_mode in (
             "none",
@@ -316,14 +354,14 @@ class OpInputGenerator(ABC):
             )
 
         self.onnx_types_to_check = (
-            set(dtypes.SupportedONNXType.from_annotation(t).onnx_type for t in onnx_types_to_check)
+            {dtypes.SupportedONNXType.from_annotation(t).onnx_type for t in onnx_types_to_check}
             if onnx_types_to_check is not None
-            else set(x.onnx_type for x in dtypes.SupportedONNXType)
+            else {x.onnx_type for x in dtypes.SupportedONNXType}
         )
 
-        output_only_type_vars = set(x.type_str for x in self.schema.outputs) - set(
+        output_only_type_vars = {x.type_str for x in self.schema.outputs} - {
             x.type_str for x in self.schema.inputs
-        )
+        }
 
         self.type_var_dtypes_to_test = {
             # legacy compatibility: adding _op_name suffix
@@ -409,7 +447,8 @@ class OpInputGenerator(ABC):
             [(name, value) for value in values] for name, values in finite_attribute_sets.items()
         ]
         for attr_comb in itertools.product(*options):
-            yield dict(attr_comb)
+            # Omit attributes with None value to simulate them being not provided
+            yield {k: v for k, v in attr_comb if v is not None}
 
     def _optional_input_combination_iter(self, input_comb: dict[str, InputConstraint]) -> Any:
         """Iterate over combinations of optional inputs being provided or None.
@@ -457,7 +496,9 @@ class OpInputGenerator(ABC):
             yield modified_input_comb
 
     def _optional_attr_combination_iter(self, input_comb: dict[str, InputConstraint]) -> Any:
-        """Iterate over combinations of optional attributes (without defaults) being provided or omitted.
+        """Iterate over combinations of optional attributes being provided or omitted.
+
+        Only covers attributes without defaults.
 
         For each optional attribute without a default value that is present in input_comb,
         generates combinations where that attribute is either provided (original value) or omitted.
@@ -534,6 +575,9 @@ class OpInputGenerator(ABC):
         if key in self.op_input_names:
             return True
         if self.op_variadic_input_name is not None:
+            # Treat the base variadic name (e.g., "inputs") as an input before expansion
+            if key == self.op_variadic_input_name:
+                return True
             variadic_prefix = f"{self.op_variadic_input_name}__"
             if key.startswith(variadic_prefix):
                 return True
@@ -567,6 +611,84 @@ class OpInputGenerator(ABC):
                 is_constant_map.update(none_inputs)
                 yield is_constant_map
 
+    def _iter_should_qdq_combinations(
+        self, kwargs: dict[str, Any], qdq_config: dict[str, QDQParameterConfig]
+    ) -> Any:
+        """Iterate over different QDQ configurations for inputs and outputs.
+
+        Yields all valid combinations of which inputs/outputs should be quantized with QDQ.
+        Only applicable if qdq_generator is provided.
+
+        Args:
+            kwargs: Operator inputs and attributes
+        Yields:
+            Flat dict mapping input/output schema names to whether to apply QDQ (bool)
+
+        For inputs,
+        - If support_weight is True or support_activation is True, yield a true
+          (iter_qdq_combinations will handle the actual type checks with is_constant_map).
+        - If support_non_qdq is True, yield a false
+
+        For outputs,
+        - If not configed in qdq_config or support_activation is True, yield a true
+        - If support_non_qdq is True, yield a false
+        """
+        # Expand variadic config entries the same way iter_qdq_combinations does,
+        # so input name lookups are consistent.
+        expanded_config = dict(qdq_config)
+        if (
+            self.op_variadic_input_name is not None
+            and self.op_variadic_input_name in expanded_config
+        ):
+            variadic_config = expanded_config.pop(self.op_variadic_input_name)
+            variadic_prefix = f"{self.op_variadic_input_name}__"
+            for k in kwargs:
+                if k.startswith(variadic_prefix):
+                    expanded_config[k] = variadic_config
+
+        schema_input_names: set[str] = set(self.op_input_names)
+        if self.op_variadic_input_name is not None:
+            variadic_prefix = f"{self.op_variadic_input_name}__"
+            schema_input_names.update(k for k in kwargs if k.startswith(variadic_prefix))
+
+        # For each input in the config, collect the possible should_qdq values.
+        input_names: list[str] = []
+        input_option_lists: list[list[bool]] = []
+        for input_name, config in expanded_config.items():
+            if input_name not in schema_input_names:
+                continue  # output name present in qdq_config; handled below
+            options: list[bool] = []
+            if config.support_activation or config.support_weight:
+                options.append(True)
+            if config.support_non_qdq:
+                options.append(False)
+            input_names.append(input_name)
+            input_option_lists.append(options)
+
+        # For each schema output, collect the possible should_qdq values.
+        output_names: list[str] = []
+        output_option_lists: list[list[bool]] = []
+        for output in self.schema.outputs:
+            output_name = output.name
+            output_config = qdq_config.get(output_name)
+            options = []
+            if output_config is None or output_config.support_activation:
+                options.append(True)
+            if output_config is not None and output_config.support_non_qdq:
+                options.append(False)
+            output_names.append(output_name)
+            output_option_lists.append(options)
+
+        all_names = input_names + output_names
+        all_option_lists = input_option_lists + output_option_lists
+
+        if not all_names:
+            yield {}
+            return
+
+        for combo in itertools.product(*all_option_lists):
+            yield dict(zip(all_names, combo, strict=False))
+
     def _create_model(
         self,
         kwargs: dict[str, Any],
@@ -592,6 +714,19 @@ class OpInputGenerator(ABC):
         # Separate inputs and attributes by name (use _is_input_key to handle variadic inputs)
         input_kwargs = {k: v for k, v in kwargs.items() if self._is_input_key(k)}
         attr_kwargs = {k: v for k, v in kwargs.items() if k in self.op_attribute_names}
+
+        # ONNX helper cannot infer attribute element type from empty iterables.
+        # For optional attrs without defaults (e.g., Squeeze axes in older opsets),
+        # treat empty values as omitted attributes.
+        for attr_name in self.optional_attrs_without_defaults:
+            if attr_name not in attr_kwargs:
+                continue
+            attr_value = attr_kwargs[attr_name]
+            is_empty_array = isinstance(attr_value, np.ndarray) and attr_value.size == 0
+            is_empty_sequence = isinstance(attr_value, (list, tuple)) and len(attr_value) == 0
+            if is_empty_array or is_empty_sequence:
+                attr_kwargs.pop(attr_name)
+
         assert all(v is not None for v in attr_kwargs.values()), "Attributes cannot be None"
 
         # Build graph components
@@ -615,7 +750,7 @@ class OpInputGenerator(ABC):
         # For optional inputs that are None, use empty string "" as placeholder.
         # This is required by ONNX spec for operators with multiple optional inputs.
         for input_name in input_names_to_process:
-            input_value = input_kwargs[input_name] if input_name in input_kwargs else None
+            input_value = input_kwargs.get(input_name)
             if input_value is None:
                 # Optional input not provided - use empty string placeholder
                 node_inputs.append("")
@@ -756,6 +891,7 @@ class OpInputGenerator(ABC):
                 qdq_types is not None
                 and schema_output_name is not None
                 and schema_output_name in qdq_types
+                and qdq_types[schema_output_name] is not None
             ):
                 # For QDQ: operator outputs to intermediate, then Q to final output
                 quant_type = qdq_types[schema_output_name]
@@ -813,10 +949,7 @@ class OpInputGenerator(ABC):
         )
 
         # Build node list: DQ nodes for inputs -> main op -> Q nodes for outputs
-        if qdq_types is not None:
-            all_nodes = [*input_dq_nodes, node, *output_q_nodes]
-        else:
-            all_nodes = [node]
+        all_nodes = [*input_dq_nodes, node, *output_q_nodes] if qdq_types is not None else [node]
 
         # Create the graph
         graph = onnx.helper.make_graph(
@@ -831,7 +964,9 @@ class OpInputGenerator(ABC):
         is_ai_onnx_domain = (
             self.schema.domain == "" or self.schema.domain == ONNXDomain.AI_ONNX.value
         )
-        # ONNX Runtime only *guarantees* support for models stamped with opset version 7 or above for opset domain 'ai.onnx'.
+        # ONNX Runtime only *guarantees* support for models
+        # stamped with opset version 7 or above for opset
+        # domain 'ai.onnx'.
         schema_version = (
             max(self.schema.since_version, 7) if is_ai_onnx_domain else self.schema.since_version
         )
@@ -871,7 +1006,8 @@ class OpInputGenerator(ABC):
             onnx.checker.check_model(model)
         except Exception as e:
             print(f"{Fore.YELLOW}Warning: Model validation failed: {e}. {Style.RESET_ALL}")
-            # Continue anyway - as some runnable models may fail this check, e.g. Unsqueeze and Split
+            # Continue anyway - some runnable models may fail
+            # this check, e.g. Unsqueeze and Split
 
         return model
 
@@ -915,16 +1051,8 @@ class OpInputGenerator(ABC):
     def iter_const_and_dynamic_models(self, kwargs: dict[str, Any], tags: dict[str, Any]) -> Any:
         """Iterate over ONNX models with different constant and dynamic axis configurations.
 
-        For each constant combination, generates models with each dynamic axis
-        variant. Dynamic axes are only applied to non-constant graph inputs.
-
-        Args:
-            kwargs: Operator inputs and attributes
-            tags: Tags containing type_vars and other metadata
-
-        Yields:
-            Tuple of (onnx_model, final_tags) where final_tags includes
-            input_is_constant and dynamic_axes
+        Yields a tuple (onnx_model, final_tags).
+        Dynamic axes are only applied to non-constant graph inputs.
         """
         qdq_config = self.get_qdq_config()
         qdq_tested_types: set[tuple[tuple[str, str | None], ...]] = set()
@@ -936,7 +1064,10 @@ class OpInputGenerator(ABC):
                 final_tags["dynamic_axes"] = dynamic_axes
 
                 if self.qdq_generator is None:
-                    # qdq_generator will set input_is_constant when parameters are not supported for quantization, so only set it here when not using qdq_generator
+                    # qdq_generator will set input_is_constant
+                    # when parameters are not supported for
+                    # quantization, so only set it here when not
+                    # using qdq_generator
                     final_tags["input_is_constant"] = is_constant_map
                     output_dtypes = self.infer_output_types(kwargs, final_tags)
                     model = self._create_model(
@@ -948,19 +1079,28 @@ class OpInputGenerator(ABC):
 
                     yield model, final_tags
                 else:
-                    # We iterate after constant combination but not iterate weight and activation types directly
-                    # because input could support both
-                    for model, qdq_final_tags in self.iter_qdq_combinations(
-                        kwargs, final_tags, is_constant_map, qdq_config, qdq_tested_types
-                    ):
-                        yield model, qdq_final_tags
+                    for should_qdq_map in self._iter_should_qdq_combinations(kwargs, qdq_config):
+                        # We iterate after constant combination
+                        # but not iterate weight and activation
+                        # types directly
+                        # because input could support both
+                        for model, qdq_final_tags in self.iter_qdq_combinations(
+                            kwargs,
+                            final_tags,
+                            is_constant_map,
+                            should_qdq_map,
+                            qdq_config,
+                            qdq_tested_types,
+                        ):
+                            yield model, qdq_final_tags
 
     def iter_qdq_combinations(
         self,
         kwargs: dict[str, Any],
         tags: dict[str, Any],
         is_constant_map: dict[str, bool],
-        qdq_config: dict[str, QDQParameterConfig] | None,
+        should_qdq_map: dict[str, bool],
+        qdq_config: dict[str, QDQParameterConfig],
         qdq_tested_types: set[tuple[tuple[str, str | None], ...]],
     ) -> Any:
         """Iterate over different QDQ combinations.
@@ -993,6 +1133,9 @@ class OpInputGenerator(ABC):
                 if k.startswith(variadic_prefix):
                     qdq_config[k] = variadic_config
 
+        # should_qdq_map is a flat dict: {schema_name: bool} for both inputs and outputs.
+        # Absent keys mean "use qdq_config default" (same as before).
+
         # Check if is_constant_map is compatible with QDQ config
         # For each input, check if it's constant (weight) or non-constant (activation)
         # and verify the config supports that mode
@@ -1004,6 +1147,10 @@ class OpInputGenerator(ABC):
                 # Input not in QDQ config - skip this combination
                 # All inputs must be explicitly defined in qdq_config
                 return
+
+            # should_qdq_map says False → treat as pass-through, skip all QDQ checks.
+            if should_qdq_map.get(input_name) is False:
+                continue
 
             config = qdq_config[input_name]
             # If neither weight nor activation quantization is supported, treat as
@@ -1019,10 +1166,8 @@ class OpInputGenerator(ABC):
                 return
 
             # Determine if we need to iterate over weight/activation types
-            if is_constant and config.support_weight:
-                # Only need weight iteration if no override type specified
-                if config.weight_type is None:
-                    needs_weight_iteration = True
+            if is_constant and config.support_weight and config.weight_type is None:
+                needs_weight_iteration = True
 
         # Step 3: Validate input types against qdq_generator.SUPPORT_DQ_OUTPUT_TYPES
         # DQ nodes output the type that the operator expects as input; the original input
@@ -1044,6 +1189,8 @@ class OpInputGenerator(ABC):
             config = qdq_config[input_name]
             if not config.support_activation and not config.support_weight:
                 continue  # This input is not quantized, skip type check
+            if should_qdq_map.get(input_name) is False:
+                continue  # should_qdq_map says no DQ for this input, skip type check
             type_template = self.type_annotations[ta_key]
             annotation = self._apply_type_var_combination(type_template, tags[self.type_vars_key])
             try:
@@ -1056,7 +1203,19 @@ class OpInputGenerator(ABC):
         # Validate output types against qdq_generator.SUPPORTED_Q_INPUT_TYPES
         # Q nodes take the operator output as their float input; the original output types
         # must therefore be in SUPPORTED_Q_INPUT_TYPES (e.g. float32).
-        for output_annotation in self.infer_output_types(kwargs, tags):
+        # Skip validation for outputs explicitly configured as no-Q (empty QDQParameterConfig).
+        for idx, output_annotation in enumerate(self.infer_output_types(kwargs, tags)):
+            schema_output_name = (
+                self.schema.outputs[idx].name if idx < len(self.schema.outputs) else None
+            )
+            if schema_output_name is not None and should_qdq_map.get(schema_output_name) is False:
+                continue  # should_qdq_map says no Q for this output, skip type validation
+            if schema_output_name is not None and schema_output_name in qdq_config:
+                output_config = qdq_config[schema_output_name]
+                if not output_config.support_weight and not output_config.support_activation:
+                    # No Q node for this output
+                    # (support_non_qdq only), skip validation
+                    continue
             try:
                 onnx_type = dtypes.SupportedONNXType.from_annotation(output_annotation).onnx_type
             except ValueError:
@@ -1085,9 +1244,15 @@ class OpInputGenerator(ABC):
                         qdq_types[input_name] = None
                         continue
 
+                    # should_qdq_map says False → treat as pass-through regardless of config.
+                    if should_qdq_map.get(input_name) is False:
+                        qdq_types[input_name] = None  # No DQ per should_qdq_map
+                        new_constant_map[input_name] = is_constant
+                        continue
+
                     config = qdq_config[input_name]
                     if not config.support_activation and not config.support_weight:
-                        qdq_types[input_name] = None  # Pass-through input, no QDQ nodes
+                        qdq_types[input_name] = None  # Pass-through input (support_non_qdq only)
                         new_constant_map[input_name] = (
                             is_constant  # Pass-through input, keep original constant setting
                         )
@@ -1123,7 +1288,24 @@ class OpInputGenerator(ABC):
                 if output_type is not None:
                     for idx in range(len(output_dtypes)):
                         if idx < len(self.schema.outputs):
-                            qdq_types[self.schema.outputs[idx].name] = output_type
+                            output_name = self.schema.outputs[idx].name
+                            if should_qdq_map.get(output_name) is False:
+                                qdq_types[output_name] = None  # No Q per should_qdq_map
+                            else:
+                                output_config = qdq_config.get(output_name)
+                                if (
+                                    output_config is not None
+                                    and not output_config.support_weight
+                                    and not output_config.support_activation
+                                ):
+                                    qdq_types[output_name] = None  # support_non_qdq only
+                                else:
+                                    qdq_types[output_name] = output_type
+
+                # Skip combinations where no QDQ node is applied at all — those are
+                # plain (non-quantized) models already covered by the base iter() loop.
+                if all(v is None for v in qdq_types.values()):
+                    continue
 
                 # Deduplicate based on actual qdq_types AND pass-through constant map.
                 # Two combinations are distinct if either their quantization types differ
@@ -1168,7 +1350,12 @@ class OpInputGenerator(ABC):
                 }
                 if new_constant_map:
                     final_tags["input_is_constant"] = new_constant_map
-                print("Yielding QDQ model with types:", final_tags[self.qdq_types_key], new_constant_map)
+                print(
+                    "Yielding QDQ model with types:",
+                    final_tags[self.qdq_types_key],
+                    should_qdq_map,
+                    new_constant_map,
+                )
                 yield model, final_tags
 
     def validate_inputs(self) -> None:
@@ -1231,8 +1418,9 @@ class OpInputGenerator(ABC):
         n_cases: if not None, only run the first n_cases test cases.
                  If n_cases is greater than total cases, run all cases.
         skip_cases: number of test cases to skip before starting to run tests.
-        skip_signature_fn: if not None, a function that takes a result dict and
-                           returns True if the case should be skipped (for delta or rerun mode).
+        skip_signature_fn: if not None, a function that takes
+            a result dict and returns True if the case should
+            be skipped (for delta or rerun mode).
         yield_skipped: if True, also yield skipped cases with a "_skipped" marker.
                        This allows the caller to reuse existing results in order.
 
@@ -1241,7 +1429,10 @@ class OpInputGenerator(ABC):
         """
         if self.qdq_generator is not None and self.get_qdq_config() is None:
             print(
-                f"{Fore.YELLOW}Warning: QDQ generator is set but no QDQ config is defined. Skipping QDQ generation.{Style.RESET_ALL}"
+                f"{Fore.YELLOW}Warning: QDQ generator is "
+                f"set but no QDQ config is defined. "
+                f"Skipping QDQ generation."
+                f"{Style.RESET_ALL}"
             )
             return
 
@@ -1250,8 +1441,7 @@ class OpInputGenerator(ABC):
 
         # TODO: parallel and/or distributed execution of `check_compile`/`check_run`
         cases_skipped = 0
-        case_index = 0  # Track case index for logging purposes
-        from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner  # noqa: PLC0415
+        from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
 
         with ResilientRunner(capture_output=capture_output, timeout_sec=60) as runner:
             for case_idx, (kwargs, tags) in enumerate(self.iter()):
@@ -1288,12 +1478,27 @@ class OpInputGenerator(ABC):
                         continue
 
                     model_bytes = onnx_model.SerializeToString()
+                    if dry_run:
+                        # For dry_run, stash the model bytes in base64 for JSON output/replay.
+                        final_tags["model_bytes_b64"] = model_bytes_to_b64(model_bytes)
+
                     qdq_types = final_tags.get(self.qdq_types_key, None)
                     ep_checker_inputs = self.create_input_dict(kwargs, qdq_types=qdq_types)
+
+                    def _dry_run_result() -> dict[str, Any]:
+                        return {
+                            "result": {
+                                "success": True,
+                                "reason": "not_run",
+                            },
+                            "stdout": "not run",
+                            "stderr": "not run",
+                        }
+
                     compile_result = (
                         runner.run(ep_checker.check_compile, model_bytes, ep_checker_inputs)
                         if not dry_run
-                        else {"result": {"success": True}}
+                        else _dry_run_result()
                     )
                     _check_qnn_ep_setup_failure(compile_result)
 
@@ -1303,18 +1508,24 @@ class OpInputGenerator(ABC):
                     else:
                         print(f"{Fore.RED}Compilation test failed.{Style.RESET_ALL}")
                     if (
-                        compile_result["result"]["success"] == False and save_failed_model
+                        not compile_result["result"]["success"] and save_failed_model
                     ) or save_model:
                         if save_dir is None:
-                            save_dir = Path(model_output_dir) if model_output_dir is not None else Path.cwd()
+                            save_dir = (
+                                Path(model_output_dir)
+                                if model_output_dir is not None
+                                else Path.cwd()
+                            )
                             save_dir.mkdir(parents=True, exist_ok=True)
                         import re
 
                         # replace 'value': [1.0, 1.0, 1.0, 1.0] to 'value': [..]
                         pattern = r"('value':\s*\[)[^\]]*,[^\]]*(\])"
                         replacement = r"\1..\2"
-                        file_name_tags = str(final_tags)
-                        for key in final_tags.keys():
+                        file_name_tags = str(
+                            {k: v for k, v in final_tags.items() if k != "model_bytes_b64"}
+                        )
+                        for key in final_tags:
                             file_name_tags = file_name_tags.replace(f"'{key}': ", "")
                         file_name_tags = (
                             file_name_tags.replace(", 'min_max': None", "")
@@ -1365,7 +1576,7 @@ class OpInputGenerator(ABC):
                     run_result = (
                         runner.run(ep_checker.check_run, model_bytes, ep_checker_inputs)
                         if not dry_run
-                        else {"result": {"success": True}}
+                        else _dry_run_result()
                     )
                     _check_qnn_ep_setup_failure(run_result)
 
@@ -1377,10 +1588,8 @@ class OpInputGenerator(ABC):
                         "compile": compile_result,
                         "run": run_result,
                     }
-                    final_tags["case_index"] = case_index
                     print(final_tags["check_result"])
                     yield final_tags
-                    case_index += 1
 
     @abstractmethod
     def get_finite_attribute_sets(self) -> dict[str, list[Any]]:
@@ -1426,7 +1635,8 @@ class OpInputGenerator(ABC):
         """
         input_combinations = self.get_input_and_infinite_attribute_combinations()
         for input_comb in input_combinations:
-            # Generate combinations where optional attrs (without defaults) are either provided or omitted
+            # Generate combinations where optional attrs
+            # (without defaults) are either provided or omitted
             for optional_attr_comb in self._optional_attr_combination_iter(input_comb):
                 # Generate combinations where optional inputs are either provided or None
                 for optional_input_comb in self._optional_input_combination_iter(
@@ -1443,6 +1653,7 @@ class OpInputGenerator(ABC):
                             input_constraints = {
                                 k: v.to_dict() if isinstance(v, InputConstraint) else v
                                 for k, v in optional_input_comb.items()
+                                if self._is_input_key(k)
                             }
                             applied_input_comb = {
                                 k: (
@@ -1453,7 +1664,8 @@ class OpInputGenerator(ABC):
                                 for k, v in optional_input_comb.items()
                             }
                             kwargs = {**attr_comb, **applied_input_comb}
-                            # Expand variadic inputs to key-value pairs, and normalize kv order in kwargs
+                            # Expand variadic inputs to key-value
+                            # pairs, and normalize kv order
                             # to inputs, variadic inputs, attributes
                             if self.op_variadic_input_name is not None:
                                 variadic_input = kwargs.pop(self.op_variadic_input_name)
@@ -1519,8 +1731,7 @@ class OpInputGenerator(ABC):
         input_dict = self.create_input_dict(input_dict, qdq_types=qdq_types)
 
         # Run inference
-        outputs = sess.run(None, input_dict)
-        return outputs
+        return sess.run(None, input_dict)
 
     def create_input_dict(
         self, kwargs: dict[str, Any], qdq_types: dict[str, Any] | None = None
@@ -1557,7 +1768,7 @@ class OpInputGenerator(ABC):
                 if input_name.startswith(variadic_prefix):
                     qdq_key = self.op_variadic_input_name
 
-            if qdq_key in qdq_types and qdq_types[qdq_key]:
+            if qdq_types.get(qdq_key):
                 # Get the quantization type for this input
                 quant_type_annotation = qdq_types[qdq_key]
                 if isinstance(quant_type_annotation, str):
@@ -1598,19 +1809,30 @@ class OpInputGenerator(ABC):
     def get_qdq_config(self) -> dict[str, QDQParameterConfig] | None:
         """Get QDQ configuration for the op.
 
-        If returns None, QDQ generation is not supported for this op.
-        If returns a dict, the keys are input names in schema, and the values indicate the input could be quantized as weight or activation.
+        If returns None, QDQ generation is not supported.
+        If returns a dict, the keys are input names in schema,
+        and the values indicate the input could be quantized as
+        weight or activation.
         - as weight: the input is from initializer
         - as activation: the input is not from initializer
-        - if the config has weight_type or activation_type, it indicates the input could be quantized as that type. Overwrite the default list
-        If input names are not in the dict
-        - if the input name is optional, then when the value is actually provided, we will not generate the model because we don't know what it is supported
-        - if the input name is required, then we will not generate the model because we don't know what it is supported
+        - if the config has weight_type or activation_type, it
+          indicates the input could be quantized as that type.
+          Overwrites the default list.
+        If input names are not in the dict:
+        - if the input name is optional, then when the value is
+          actually provided, we will not generate the model
+          because we don't know what is supported
+        - if the input name is required, then we will not
+          generate the model because we don't know what is
+          supported
         """
         return None
 
     def infer_output_types(
-        self, kwargs: dict[str, Any], tags: dict[str, Any], required_outputs_only: bool = True
+        self,
+        kwargs: dict[str, Any],
+        tags: dict[str, Any],
+        required_outputs_only: bool = True,
     ) -> list[str]:
         """Infer ALL output types from operator kwargs and type variable assignments.
 
@@ -1627,7 +1849,8 @@ class OpInputGenerator(ABC):
         """
         output_dtypes = []
         for output in self.schema.outputs:
-            if output.option == OpSchema.FormalParameterOption.Optional and required_outputs_only:
+            is_optional = output.option == OpSchema.FormalParameterOption.Optional
+            if is_optional and required_outputs_only:
                 # Optional output - skip if only required outputs are needed
                 continue
             type_var_key = output.type_str
@@ -1641,8 +1864,10 @@ class OpInputGenerator(ABC):
                 annotation = self.type_vars_with_unique_dtypes[type_var_key_with_op_name].annotation
             else:
                 annotation = dtypes.SupportedONNXType.from_onnx_type(type_var_key).annotation
-            # TODO: decide what to do with optional outputs in a general way - currently we add them to outputs
-            # NOTE: variadic output not handled in this general method, as the number of such outputs is unknown
+            # TODO: decide what to do with optional outputs
+            # in a general way - currently we add them to outputs
+            # NOTE: variadic output not handled in this general
+            # method, as the number of such outputs is unknown
             output_dtypes.append(annotation)
 
         return output_dtypes

@@ -33,7 +33,9 @@ def ep_option(required=True, optional_message=None):
 
     Args:
         required: Whether the EP option is required (default: True)
-        optional_message: Message to append to help text when optional (e.g., "If not specified, analyzes all supported EPs.")
+        optional_message: Message to append to help text when
+            optional (e.g., "If not specified, analyzes all
+            supported EPs.")
 
     Returns:
         Decorator function
@@ -49,7 +51,7 @@ def ep_option(required=True, optional_message=None):
     return click.option(
         "--ep",
         required=required,
-        default=None if not required else None,
+        default=None,
         type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
         help=help_text,
     )
@@ -60,7 +62,9 @@ def device_option(required=True, optional_message=None, default="NPU"):
 
     Args:
         required: Whether the device option is required (default: True)
-        optional_message: Message to append to help text when optional (e.g., "If not specified, uses NPU as default.")
+        optional_message: Message to append to help text when
+            optional (e.g., "If not specified, uses NPU as
+            default.")
         default: Default value when optional (default: "NPU")
 
     Returns:
@@ -105,4 +109,4 @@ def verbosity_options(f):
         default=False,
         help="Enable verbose logging to stderr",
     )(f)
-    return f
+    return f  # noqa: RET504

@@ -75,12 +75,14 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         WinMLModelForImageSegmentation,
         WinMLModelForSemanticSegmentation,
     )
+    from .object_detection import WinMLModelForObjectDetection
     from .sequence_classification import WinMLModelForSequenceClassification
 
     # Map class names to modules
     class_map: dict[str, type] = {
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
+        "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
         "WinMLModelForSequenceClassification": WinMLModelForSequenceClassification,
         "WinMLModelForGenericTask": WinMLModelForGenericTask,
@@ -171,6 +173,7 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .object_detection import WinMLModelForObjectDetection
 from .sequence_classification import WinMLModelForSequenceClassification
 
 
@@ -180,6 +183,7 @@ __all__ = [
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
+    "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",
     "WinMLPreTrainedModel",

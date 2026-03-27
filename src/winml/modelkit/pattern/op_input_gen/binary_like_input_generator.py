@@ -53,6 +53,7 @@ class BitShiftInputGenerator(BinaryInputGenerator):
         return {"direction": ["LEFT", "RIGHT"]}
 
     def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
@@ -301,6 +302,7 @@ class WhereInputGenerator(BinaryInputGenerator):
         return item
 
     def get_infinite_property_names(self) -> list[str]:
+        """Return names of properties with infinite value ranges."""
         condition_name = self.op_input_names[0]
         x_name = self.op_input_names[1]
         y_name = self.op_input_names[2]
@@ -311,9 +313,13 @@ class WhereInputGenerator(BinaryInputGenerator):
         ]
 
     def get_qdq_config(self):
-        # TODO it is weird..
+        """Return QDQ configuration for Where operator inputs."""
         return {
-            self.op_input_names[0]: QDQParameterConfig(),
-            self.op_input_names[1]: QDQParameterConfig(),
-            self.op_input_names[2]: QDQParameterConfig(support_activation=True),
+            self.op_input_names[0]: QDQParameterConfig(support_non_qdq=True),
+            self.op_input_names[1]: QDQParameterConfig(
+                support_activation=True, support_non_qdq=True
+            ),
+            self.op_input_names[2]: QDQParameterConfig(
+                support_activation=True, support_non_qdq=True
+            ),
         }

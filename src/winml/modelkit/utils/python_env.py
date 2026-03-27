@@ -36,6 +36,7 @@ def ensure_uv() -> Path:
         "More info: https://docs.astral.sh/uv/getting-started/installation/"
     )
 
+
 def ensure_venv(
     root_path: str | Path,
     venv_name: str,
@@ -63,7 +64,7 @@ def ensure_venv(
     # Check if valid environment exists
     if venv_python.exists():
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603
                 [str(venv_python), "--version"],
                 capture_output=True,
                 text=True,
@@ -88,26 +89,26 @@ def ensure_venv(
     uv = ensure_uv()
     logger.info(f"Creating virtual environment at {venv_path}...")
     try:
-        subprocess.run(
+        subprocess.run(  # noqa: S603
             [str(uv), "venv", str(venv_path), "--python", python_version, "--clear"],
             check=True,
             capture_output=True,
             timeout=60,
         )
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to create virtual environment: {e.stderr.decode()}")
+        raise RuntimeError(f"Failed to create virtual environment: {e.stderr.decode()}") from e
 
     # Install requirements if provided
     if requirements:
         logger.info(f"Installing {len(requirements)} packages...")
         try:
-            subprocess.run(
+            subprocess.run(  # noqa: S603
                 [str(uv), "pip", "install", "--python", str(venv_python), *requirements],
                 check=True,
                 capture_output=True,
                 timeout=300,
             )
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to install requirements: {e.stderr.decode()}")
+            raise RuntimeError(f"Failed to install requirements: {e.stderr.decode()}") from e
 
     return venv_python

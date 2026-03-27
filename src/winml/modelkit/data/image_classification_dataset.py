@@ -6,11 +6,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from datasets import load_dataset
 from torchvision import transforms
 
-from .data_config import DataConfig
 from .registry import DataRegistry
+
+
+if TYPE_CHECKING:
+    from .data_config import DataConfig
 
 
 @DataRegistry.register_dataset()
@@ -36,7 +41,8 @@ class ImageClassificationDataset:
 
         self.dataset = load_dataset(dataset_name, split=split, streaming=stream)
 
-        # TODO: Image preprocessing is temporarily hardcoded; will integrate with Hugging Face data processor
+        # TODO: Image preprocessing is temporarily hardcoded;
+        # will integrate with Hugging Face data processor
         self.preprocess = transforms.Compose(
             [
                 transforms.Resize(256),

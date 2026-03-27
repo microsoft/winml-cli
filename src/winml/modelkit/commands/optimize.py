@@ -93,9 +93,7 @@ def load_config(path: Path) -> dict[str, Any]:
             return _load_yaml(path)
         if suffix == ".json":
             return _load_json(path)
-        raise click.ClickException(
-            f"Unsupported config format: {suffix}. Use .yaml/.yml or .json"
-        )
+        raise click.ClickException(f"Unsupported config format: {suffix}. Use .yaml/.yml or .json")
     except FileNotFoundError as e:
         raise click.ClickException(f"Config file not found: {path}") from e
 
@@ -390,7 +388,7 @@ def optimize(
 
     # Configure logging
     if verbose:
-        logging.getLogger("modelkit").setLevel(logging.DEBUG)
+        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     # Import optimizer
     from ..optim.optimizer import Optimizer

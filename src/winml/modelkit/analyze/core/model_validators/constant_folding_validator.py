@@ -77,19 +77,21 @@ class ConstantFoldingValidator(ModelValidator):
             if runtime_result.pattern_match is None:
                 continue
 
-            for matched_node in runtime_result.pattern_match.matched_node_names:
-                constant_nodes.append(
-                    {
-                        "name": matched_node.node_name,
-                        "op_type": matched_node.op_type,
-                    }
-                )
+            constant_nodes.extend(
+                {
+                    "name": matched_node.node_name,
+                    "op_type": matched_node.op_type,
+                }
+                for matched_node in runtime_result.pattern_match.matched_node_names
+            )
 
         # Log node names for debugging
         if constant_nodes:
             node_names = [node["name"] for node in constant_nodes]
             logger.debug(
-                f"{self.validator_name}: Collected {len(constant_nodes)} constant-only node(s) from runtime results: {node_names}"
+                f"{self.validator_name}: Collected "
+                f"{len(constant_nodes)} constant-only node(s) "
+                f"from runtime results: {node_names}"
             )
 
         return constant_nodes
@@ -114,22 +116,14 @@ class ConstantFoldingValidator(ModelValidator):
         action = Action(
             pattern_from_id="",
             pattern_to_id="",
-            level=ActionLevel.OPTIONAL,
+            level=ActionLevel.REQUIRED,
             status=None,  # Not a support status issue
             details=json.dumps(
                 [
                     {
-                        "title": "onnx-optimizer",
-                        "command": "python -m onnxoptimizer model.onnx optimized.onnx --constant-folding",
-                    },
-                    {
-                        "title": "onnx-simplifier",
-                        "command": "python -m onnxsim model.onnx simplified.onnx",
-                    },
-                    {
-                        "title": "ort-optimization",
-                        "code_example": "session_options = onnxruntime.SessionOptions()\nsession_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL",
-                    },
+                        "title": "Normalize model",
+                        "command": "wmk optimize --model model.onnx",
+                    }
                 ],
                 indent=2,
             ),
@@ -138,7 +132,8 @@ class ConstantFoldingValidator(ModelValidator):
         explanation = (
             f"Model contains {len(constant_nodes)} node(s) with all-constant inputs. "
             f"{examples_text}"
-            f"Models without constant folding may result to false alarms or in-accurate results in Static Analyzer. "
+            f"Models without constant folding may result to false alarms or "
+            f"in-accurate results in Static Analyzer. "
             f"Applying constant folding can pre-compute these operations at optimization "
             f"time rather than runtime, potentially reducing model size by ~{size_reduction}% "
             f"and improving inference speed."

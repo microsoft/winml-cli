@@ -42,6 +42,8 @@ class UnaryInputGenerator(OpInputGenerator):
     - Ordered from smallest to largest dimensions
     """
 
+    support_0d_input = True  # Support scalar inputs
+
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Returns finite attribute sets for unary operators.
 
@@ -91,19 +93,29 @@ class UnaryInputGenerator(OpInputGenerator):
             {input_param_name: InputShapeConstraint((6, 6, 2, 2, 2, 2))},
         ]
 
+        if self.support_0d_input:
+            result.insert(0, {input_param_name: InputShapeConstraint(())})
+
         return result
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive additional properties from input shapes."""
         input_param_name = self.op_input_names[0]
         item = properties.copy()
-        item[f"{input_param_name}_dim"] = len(item[f"{input_param_name}_shape"])
+        shape = item[f"{input_param_name}_shape"]
+        item[f"{input_param_name}_dim"] = len(shape)
+        item[f"{input_param_name}_is_single_element"] = (
+            all(d == 1 for d in shape) or len(shape) == 0
+        )
         return item
 
     def get_infinite_property_names(self) -> list[str]:
+        """Return names of properties with infinite value ranges."""
         input_param_name = self.op_input_names[0]
         return [f"{input_param_name}_shape"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for unary operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),
         }
@@ -231,6 +243,15 @@ class IsNaNInputGenerator(UnaryInputGenerator):
     """
 
     op_name = "IsNaN"
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for IsNaN operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),
+            "Y": QDQParameterConfig(
+                support_non_qdq=True,  # Output can be non-quantized (boolean)
+            ),
+        }
 
 
 @register_runtime_checker_op

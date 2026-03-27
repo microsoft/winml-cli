@@ -136,9 +136,7 @@ class TestResolveLoaderConfig:
                 return_value=("feature-extraction", mock_class),
             ) as mock_resolve,
         ):
-            loader_config, _, _ = resolve_loader_config(
-                "some-model", model_type="bert"
-            )
+            loader_config, _, _ = resolve_loader_config("some-model", model_type="bert")
 
         assert loader_config.task == "feature-extraction"
         # Verify the auto-detected task was passed to resolve_task_and_model_class
@@ -218,9 +216,7 @@ class TestResolveLoaderConfig:
                 return_value=("text-classification", mock_class),
             ) as mock_resolve,
         ):
-            resolve_loader_config(
-                "bert-base-uncased", task="text-classification"
-            )
+            resolve_loader_config("bert-base-uncased", task="text-classification")
 
         mock_resolve.assert_called_once()
         assert mock_resolve.call_args.kwargs["task"] == "text-classification"
@@ -301,9 +297,7 @@ class TestSubConfigConsolidation:
         parent.model_type = "clip"
         parent.text_config = sub_config
 
-        mock_cls = _make_mock_class(
-            "CLIPTextModelWithProjection", base_config_key="text_config"
-        )
+        mock_cls = _make_mock_class("CLIPTextModelWithProjection", base_config_key="text_config")
 
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
@@ -467,9 +461,7 @@ class TestResolveLoaderConfigInputOutput:
         parent.model_type = "clip"
         parent.text_config = sub
 
-        mock_cls = _make_mock_class(
-            "CLIPTextModelWithProjection", base_config_key="text_config"
-        )
+        mock_cls = _make_mock_class("CLIPTextModelWithProjection", base_config_key="text_config")
 
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
@@ -505,9 +497,7 @@ class TestResolveLoaderConfigInputOutput:
                 return_value=("image-classification", mock_cls),
             ),
         ):
-            loader_config, hf_config, resolved_class = resolve_loader_config(
-                "microsoft/resnet-50"
-            )
+            loader_config, hf_config, resolved_class = resolve_loader_config("microsoft/resnet-50")
 
         assert loader_config.task == "image-classification"
         assert loader_config.model_class == "ResNetForImageClassification"
@@ -545,9 +535,7 @@ class TestResolveLoaderConfigInputOutput:
         sub.model_type = "clip_text_model"
         parent.text_config = sub
 
-        mock_cls = _make_mock_class(
-            "CLIPTextModelWithProjection", base_config_key="text_config"
-        )
+        mock_cls = _make_mock_class("CLIPTextModelWithProjection", base_config_key="text_config")
 
         with (
             patch("transformers.AutoConfig.from_pretrained", return_value=parent),
@@ -613,9 +601,7 @@ class TestResolveLoaderConfigInputOutput:
                 return_value=("fill-mask", mock_cls),
             ) as mock_resolve,
         ):
-            loader_config, _, _ = resolve_loader_config(
-                model_type="bert", task="fill-mask"
-            )
+            loader_config, _, _ = resolve_loader_config(model_type="bert", task="fill-mask")
 
         assert loader_config.task == "fill-mask"
         # get_supported_tasks should NOT be called (task was provided)
@@ -644,9 +630,7 @@ class TestResolveLoaderConfigInputOutput:
                 return_value=("fill-mask", mock_resolved_cls),
             ) as mock_resolve,
         ):
-            loader_config, hf_config, _ = resolve_loader_config(
-                model_class="BertForMaskedLM"
-            )
+            loader_config, _hf_config, _ = resolve_loader_config(model_class="BertForMaskedLM")
 
         # create_hf_config_from_model_class called with the imported class
         mock_create.assert_called_once()

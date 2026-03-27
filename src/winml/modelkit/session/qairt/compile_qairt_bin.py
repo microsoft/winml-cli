@@ -54,12 +54,12 @@ def extract_input_specs(model_path: Path) -> list[dict]:
     model = load_onnx(model_path, validate=False)
 
     dtype_map = {
-        onnx.TensorProto.FLOAT:   np.float32,
+        onnx.TensorProto.FLOAT: np.float32,
         onnx.TensorProto.FLOAT16: np.float16,
-        onnx.TensorProto.INT8:    np.int8,
-        onnx.TensorProto.INT32:   np.int32,
-        onnx.TensorProto.INT64:   np.int64,
-        onnx.TensorProto.UINT8:   np.uint8,
+        onnx.TensorProto.INT8: np.int8,
+        onnx.TensorProto.INT32: np.int32,
+        onnx.TensorProto.INT64: np.int64,
+        onnx.TensorProto.UINT8: np.uint8,
     }
 
     specs = []
@@ -69,18 +69,20 @@ def extract_input_specs(model_path: Path) -> list[dict]:
         if inp.name in initializer_names:
             continue
 
-        shape = []
-        for dim in inp.type.tensor_type.shape.dim:
-            shape.append(dim.dim_value if dim.dim_value > 0 else 1)
+        shape = [
+            dim.dim_value if dim.dim_value > 0 else 1 for dim in inp.type.tensor_type.shape.dim
+        ]
 
         elem_type = inp.type.tensor_type.elem_type
         dtype_np = dtype_map.get(elem_type, np.float32)
 
-        specs.append({
-            "name": inp.name,
-            "shape": tuple(shape),
-            "dtype": np.dtype(dtype_np),
-        })
+        specs.append(
+            {
+                "name": inp.name,
+                "shape": tuple(shape),
+                "dtype": np.dtype(dtype_np),
+            }
+        )
 
     return specs
 
@@ -113,12 +115,21 @@ def compile_model(
     input_specs = extract_input_specs(model_path)
     layout_map = json.loads(layout) if layout else {}
     input_configs = [
-        InputTensorConfig(name=spec["name"], shape=spec["shape"], layout=layout_map.get(spec["name"]), datatype=spec["dtype"])
+        InputTensorConfig(
+            name=spec["name"],
+            shape=spec["shape"],
+            layout=layout_map.get(spec["name"]),
+            datatype=spec["dtype"],
+        )
         for spec in input_specs
     ]
 
     # Convert ONNX to DLC (Model object)
-    model = qairt.convert(str(model_path), input_tensor_config=input_configs, preserve_io_datatype="all")
+    model = qairt.convert(
+        str(model_path),
+        input_tensor_config=input_configs,
+        preserve_io_datatype="all",
+    )
 
     # Configure HTP compilation
     try:
@@ -151,7 +162,12 @@ def main() -> int:
     parser.add_argument("--qairt-root", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--layout", type=str, default=None, help='e.g. \'{"input1": "NCHW", "input2": "NFC"}\'')
+    parser.add_argument(
+        "--layout",
+        type=str,
+        default=None,
+        help='e.g. \'{"input1": "NCHW", "input2": "NFC"}\'',
+    )
     parser.add_argument("--optimization-level", type=int, default=3, choices=[1, 2, 3])
     parser.add_argument("--hvx-threads", type=int, default=4)
     parser.add_argument("--vtcm-size", type=int, default=8)

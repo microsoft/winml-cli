@@ -31,6 +31,7 @@ import onnx
 import pytest
 
 from winml.modelkit.optim.pipes.graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
+
 from ..conftest import verify_capability_effect
 
 # Import BUILDER_REGISTRY and model utilities from isolated tests
@@ -304,7 +305,6 @@ GRAPH_PROCESS_TEST_CASES: list[GraphProcessTestCase | pytest.param] = [
     make_test_case("Pad_Fusion", min_node_reduction=1),
     make_test_case("NotWhereFusion", min_node_reduction=1),
 ]
-
 
 
 # =============================================================================

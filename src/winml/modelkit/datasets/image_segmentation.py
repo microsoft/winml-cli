@@ -15,7 +15,6 @@ import logging
 from random import Random
 from typing import Any
 
-import torch
 from datasets import load_dataset
 from datasets.features import Image
 from transformers import AutoImageProcessor
@@ -115,7 +114,9 @@ class ImageSegmentationDataset(BaseTaskDataset):
             dataset = dataset.shuffle(seed=seed)
 
         # 5. Load image processor and apply batch processing
-        processor = AutoImageProcessor.from_pretrained(self._model_name, use_fast=True)
+        # Use use_fast=False because the fast (torchvision) processor doesn't support
+        # lanczos interpolation which some segformer models use.
+        processor = AutoImageProcessor.from_pretrained(self._model_name, use_fast=False)
 
         # 6. Apply image + mask processing
         def preprocess_single_sample(example):
@@ -129,27 +130,17 @@ class ImageSegmentationDataset(BaseTaskDataset):
                 images=image,
                 segmentation_maps=mask,
                 do_reduce_labels=self._do_reduce_labels,
-                return_tensors="pt"
+                return_tensors="pt",
             )
 
-            # Squeeze batch dimension for tensors, keep lists as-is
-            processed = {}
-            for key, value in inputs.items():
-                if isinstance(value, torch.Tensor):
-                    processed[key] = value.squeeze(0)
-                else:
-                    # Keep lists and other types unchanged (e.g., mask_labels, class_labels)
-                    processed[key] = value
-            return processed
+            return dict(inputs)
 
         # Remove image and mask columns but keep other metadata
         columns_to_remove = [self._image_col, self._mask_col]
 
-        self._dataset = (
-            dataset
-            .map(preprocess_single_sample, remove_columns=columns_to_remove)
-            .with_format("torch", output_all_columns=True)
-        )
+        self._dataset = dataset.map(
+            preprocess_single_sample, remove_columns=columns_to_remove
+        ).with_format("torch", output_all_columns=True)
 
         logger.info(f"Dataset initialized with {len(self._dataset)} samples")
         logger.info(f"Image column: {self._image_col}")
@@ -177,14 +168,19 @@ class ImageSegmentationDataset(BaseTaskDataset):
         for col_name, feature in features.items():
             if isinstance(feature, Image):
                 # Check for mask/annotation patterns
-                if any(keyword in col_name.lower() for keyword in [
-                    'annotation', 'mask', 'label', 'segmentation', 'target', 'gt'
-                ]):
+                if any(
+                    keyword in col_name.lower()
+                    for keyword in ["annotation", "mask", "label", "segmentation", "target", "gt"]
+                ):
                     mask_candidates.append(col_name)
                 # Check for image patterns
-                elif any(keyword in col_name.lower() for keyword in [
-                    'image', 'img', 'photo', 'picture'
-                ]) or col_name.lower() == 'image':
+                elif (
+                    any(
+                        keyword in col_name.lower()
+                        for keyword in ["image", "img", "photo", "picture"]
+                    )
+                    or col_name.lower() == "image"
+                ):
                     image_candidates.append(col_name)
                 else:
                     # Fallback: if no clear pattern, add to both for later decision
@@ -201,16 +197,15 @@ class ImageSegmentationDataset(BaseTaskDataset):
         if image_candidates:
             # Prefer 'image' if available, otherwise use first candidate
             self._image_col = next(
-                (col for col in image_candidates if col.lower() == 'image'),
-                image_candidates[0]
+                (col for col in image_candidates if col.lower() == "image"), image_candidates[0]
             )
 
         if mask_candidates:
             # Prefer common mask names, otherwise use first candidate
-            preferred_mask_names = ['label', 'annotation', 'mask', 'segmentation']
+            preferred_mask_names = ["label", "annotation", "mask", "segmentation"]
             self._mask_col = next(
                 (col for col in mask_candidates if col.lower() in preferred_mask_names),
-                mask_candidates[0]
+                mask_candidates[0],
             )
 
         # Handle case where image was classified as mask (if only 2 Image columns)
@@ -241,10 +236,7 @@ class ImageSegmentationDataset(BaseTaskDataset):
             )
 
         # Log successful detection
-        logger.info(
-            f"Detected columns - image: '{self._image_col}', "
-            f"mask: '{self._mask_col}'"
-        )
+        logger.info(f"Detected columns - image: '{self._image_col}', mask: '{self._mask_col}'")
 
     @property
     def label_col(self) -> str:

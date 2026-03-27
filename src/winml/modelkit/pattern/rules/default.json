@@ -140,19 +140,19 @@
       ]
     },
     {
-      "pattern_id": "SUBGRAPH/ReshapeTransposeReshapePattern",
-      "pattern_class": "ReshapeTransposeReshapePattern",
+      "pattern_id": "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+      "pattern_class": "ReshapeTransposeReshapeOverlyHighDimPattern",
       "module": "winml.modelkit.pattern.transpose_patterns",
       "enabled": true,
-      "flag_name": "reshape",
+      "flag_name": "highdimRTR",
       "description": "Reshape-Transpose-Reshape for dimension permutation",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/ReshapeTransposeReshapePattern",
-          "pattern_class": "MergedReshapeTransposeReshapePattern",
+          "pattern_to_id": "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+          "pattern_class": "ReshapeTransposeReshapeLowDimPattern",
           "module": "winml.modelkit.pattern.transpose_patterns",
           "priority": 1,
-          "flag_name": "mergedreshape",
+          "flag_name": "lowdimRTR",
           "reason": "Merged axes reduce Transpose dimensionality for better hardware compatibility"
         }
       ]

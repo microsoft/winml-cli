@@ -3,6 +3,26 @@
 ## Overview
 The runtime checker tests ONNX operators on various execution providers (EPs) to validate their support across different input combinations, data types, and attributes.
 
+## check_ops CLI Mode Rules
+When using `modelkit.static_analyzer.runtime_checker.check_ops`, the following mode flags are mutually exclusive (only one can be set at a time):
+
+- `--rerun_failed`
+- `--delta_only`
+- `--case_index`
+
+Examples:
+
+```powershell
+# rerun only failed cases
+python -m modelkit.static_analyzer.runtime_checker.check_ops --ops Resize --rerun_failed
+
+# run only new (delta) cases
+python -m modelkit.static_analyzer.runtime_checker.check_ops --ops Resize --delta_only
+
+# run only one case by hashed case index
+python -m modelkit.static_analyzer.runtime_checker.check_ops --ops Resize --case_index <hash>
+```
+
 ## Example Usage
 The following command will run `Reshape` op on certain input cases on QNN EP, to test if it's
 runnable under different conditions. Compile test will check if it runs on NPU, and run test will

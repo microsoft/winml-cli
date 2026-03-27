@@ -11,10 +11,8 @@ into Information objects.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
-from ...models.onnx_model import ONNXModel
-from .base import ModelValidator
 from .constant_folding_validator import ConstantFoldingValidator
 from .dynamic_input_validator import DynamicInputValidator
 from .pattern_matching_validator import PatternMatchingValidator
@@ -24,7 +22,9 @@ from .shape_inference_validator import ShapeInferenceValidator
 
 if TYPE_CHECKING:
     from ...models.information import Information
+    from ...models.onnx_model import ONNXModel
     from ...models.runtime_checks import PatternRuntime
+    from .base import ModelValidator
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class ModelValidatorManager:
     """
 
     # Registry of available validators with device constraints
-    VALIDATORS = {
+    VALIDATORS: ClassVar[dict] = {
         "constant_folding": {
             "class": ConstantFoldingValidator,
             "enabled_devices": None,  # None means enabled for all devices
@@ -113,8 +113,8 @@ class ModelValidatorManager:
                         validator_class(self.model, op_runtime_results=self.op_runtime_results)
                     )
                     logger.debug(f"Initialized validator: {name}")
-                except Exception as e:
-                    logger.error(f"Failed to initialize validator {name}: {e}", exc_info=True)
+                except Exception:
+                    logger.exception(f"Failed to initialize validator {name}")
             else:
                 logger.warning(f"Unknown validator: {name}")
 
@@ -142,11 +142,10 @@ class ModelValidatorManager:
                 if info:
                     logger.info(f"{validator.validator_name} found issue: {info.pattern_id}")
                     information_list.append(info)
-            except Exception as e:
-                logger.error(
+            except Exception as e:  # noqa: PERF203
+                logger.exception(
                     f"Validator {validator.validator_name} failed with exception: "
-                    f"{type(e).__name__}: {e}",
-                    exc_info=True,
+                    f"{type(e).__name__}",
                 )
 
         logger.info(

@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from onnx import NodeProto
-
 from winml.modelkit.pattern.models import OperatorPattern, PatternType
 
 # Re-export shared utilities from winml.modelkit.pattern.utils
@@ -31,6 +29,8 @@ from winml.modelkit.pattern.utils import (  # noqa: F401
 
 
 if TYPE_CHECKING:
+    from onnx import NodeProto
+
     from winml.modelkit.pattern.match import PatternMatchResult
 
 

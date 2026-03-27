@@ -152,8 +152,7 @@ def quantize_onnx(
         )
 
         # Step 2: Capture metadata before ORT quantization (it rebuilds the graph)
-        from ..onnx import capture_metadata, restore_metadata
-        from ..onnx import load_onnx, save_onnx
+        from ..onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
         from .qdq_fix import fix_qdq_dtype_info
 
         pre_quant_model = load_onnx(model_path, load_weights=False, validate=False)

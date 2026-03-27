@@ -11,22 +11,24 @@ without requiring the actual QAIRT SDK.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-from unittest.mock import patch
+from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx
-import pytest
 from onnx import TensorProto, helper
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def create_onnx_with_dynamic_batch(output_path: Path) -> Path:
     """Create ONNX model with dynamic batch dimension (dim_value=0)."""
     # Input with dynamic batch (represented as dim_param or dim_value=0)
-    X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [None, 4])
+    X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [None, 4])  # noqa: N806
 
     # Output
-    Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [None, 4])
+    Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [None, 4])  # noqa: N806
 
     # Identity node
     node = helper.make_node("Identity", ["X"], ["Y"])
@@ -88,8 +90,8 @@ class TestMain:
 
         # Create a minimal model for the test
         model_path = tmp_path / "model.onnx"
-        X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])
-        Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])
+        X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])  # noqa: N806
+        Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])  # noqa: N806
         node = helper.make_node("Identity", ["X"], ["Y"])
         graph = helper.make_graph([node], "test", [X], [Y])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
@@ -110,9 +112,12 @@ class TestMain:
         # Simulate command line args
         test_args = [
             "compile_qairt_bin.py",
-            "--qairt-root", str(sdk_root),
-            "--model", str(model_path),
-            "--output-dir", str(tmp_path / "output"),
+            "--qairt-root",
+            str(sdk_root),
+            "--model",
+            str(model_path),
+            "--output-dir",
+            str(tmp_path / "output"),
         ]
         monkeypatch.setattr(sys, "argv", test_args)
 

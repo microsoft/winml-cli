@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 
 from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
@@ -16,9 +15,12 @@ from winml.modelkit.pattern.base import (
     make_single_op_pattern,
     register_pattern_input_generator,
 )
+from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
 
 
-# TODO: Add and Mul are commutative, support matching either input order; currently assuming all const inputs are the second input, and shortcut input is the first one of Mul.
+# TODO: Add and Mul are commutative, support matching either
+# input order; currently assuming all const inputs are the second
+# input, and shortcut input is the first one of Mul.
 
 # Schema for GELU pattern
 _GELU_SCHEMA, SingleGeluPattern = make_single_op_pattern(
@@ -123,6 +125,8 @@ class Gelu1Pattern(Pattern):
 
 @register_pattern_input_generator
 class Gelu1PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+    """Input generator for GELU activation pattern variant 1."""
+
     pattern = Gelu1Pattern()
     registration_name = "Gelu1"
 
@@ -221,6 +225,8 @@ class Gelu2Pattern(Pattern):
 
 @register_pattern_input_generator
 class Gelu2PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+    """Input generator for GELU activation pattern variant 2."""
+
     pattern = Gelu2Pattern()
     registration_name = "Gelu2"
 
@@ -326,6 +332,8 @@ class Gelu3Pattern(Pattern):
 
 @register_pattern_input_generator
 class Gelu3PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+    """Input generator for GELU activation pattern variant 3."""
+
     pattern = Gelu3Pattern()
     registration_name = "Gelu3"
 
@@ -432,5 +440,7 @@ class Gelu4Pattern(Pattern):
 
 @register_pattern_input_generator
 class Gelu4PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("Gelu")):
+    """Input generator for GELU activation pattern variant 4."""
+
     pattern = Gelu4Pattern()
     registration_name = "Gelu4"

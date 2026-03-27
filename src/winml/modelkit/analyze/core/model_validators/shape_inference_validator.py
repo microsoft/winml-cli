@@ -58,7 +58,8 @@ class ShapeInferenceValidator(ModelValidator):
             return None
 
         logger.warning(
-            f"{self.validator_name}: Found {len(affected_ops)} operator(s) with missing shape information"
+            f"{self.validator_name}: Found {len(affected_ops)}"
+            f" operator(s) with missing shape information"
         )
 
         # Create Information with recommendations
@@ -92,7 +93,9 @@ class ShapeInferenceValidator(ModelValidator):
         if affected_ops:
             node_names = [op["op_name"] for op in affected_ops]
             logger.debug(
-                f"{self.validator_name}: Collected {len(affected_ops)} operator(s) with missing shape inference: {node_names}"
+                f"{self.validator_name}: Collected "
+                f"{len(affected_ops)} operator(s) with missing "
+                f"shape inference: {node_names}"
             )
 
         return affected_ops
@@ -106,16 +109,6 @@ class ShapeInferenceValidator(ModelValidator):
         Returns:
             Information object with recommendations
         """
-        # Build operator information for JSON details (limit to first 10)
-        ops_info = []
-        for op in affected_ops[:10]:
-            ops_info.append(
-                {
-                    "op_name": op["op_name"],
-                    "op_type": op["op_type"],
-                }
-            )
-
         # Create recommendation action
         action = Action(
             pattern_from_id="",
@@ -124,15 +117,9 @@ class ShapeInferenceValidator(ModelValidator):
             details=json.dumps(
                 [
                     {
-                        "method": "onnx-simplifier",
-                        "description": "Infer and propagate shapes throughout the model",
-                        "command": "python -m onnxsim input_model.onnx output_model.onnx",
-                    },
-                    {
-                        "method": "onnx-script",
-                        "description": "Use ONNX Script to define shapes explicitly",
-                        "note": "For dynamic shapes, consider constraints via model metadata",
-                    },
+                        "title": "Normalize model",
+                        "command": "wmk optimize --model model.onnx",
+                    }
                 ],
                 indent=2,
             ),

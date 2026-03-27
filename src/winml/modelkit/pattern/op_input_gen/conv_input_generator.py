@@ -92,7 +92,7 @@ class ConvInputGenerator(OpInputGenerator):
             list(range(1, spatial_dims + 1)),
         ]
 
-        # strides: {all 1s, 2s，range(1, n+1)}
+        # strides: {all 1s, 2s, range(1, n+1)}
         strides_opts = [
             [1] * spatial_dims,
             [2] * spatial_dims,
@@ -126,6 +126,15 @@ class ConvInputGenerator(OpInputGenerator):
             "auto_pad": auto_pad_opts,
         }
 
+    def get_qdq_config(self):
+        """Return QDQ configuration for Conv operator inputs."""
+        # https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/quantization/operators/conv.py
+        return {
+            "X": QDQParameterConfig(support_activation=True),
+            "W": QDQParameterConfig(support_weight=True),
+            "B": QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT32),
+        }
+
 
 @register_runtime_checker_op
 class ConvOpInputGenerator(ConvInputGenerator):
@@ -156,11 +165,13 @@ class ConvOpInputGenerator(ConvInputGenerator):
         ]
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
+        """Return finite attribute sets for Conv operator."""
         return {}
 
     def get_input_and_infinite_attribute_combinations(
         self,
     ) -> list[dict[str, InputConstraint]]:
+        """Return input and infinite attribute combinations for Conv operator."""
         combinations = []
         for x_shape, m, k_shape in self.get_base_conv_shapes():
             spatial_dims = len(x_shape) - 2
@@ -175,7 +186,8 @@ class ConvOpInputGenerator(ConvInputGenerator):
             ):
                 # Skip invalid combination: SAME_LOWER/SAME_UPPER auto_pad with
                 # non-uniform dilations (ONNX Runtime doesn't support this)
-                # TODO: refine the condition to skip a case when auto_pad is in ("SAME_LOWER", "SAME_UPPER")
+                # TODO: refine the condition to skip a case when
+                # auto_pad is in ("SAME_LOWER", "SAME_UPPER")
                 dilations_all_ones = all(d == 1 for d in dilations)
                 if auto_pad in ("SAME_LOWER", "SAME_UPPER") and not dilations_all_ones:
                     continue
@@ -247,14 +259,6 @@ class ConvOpInputGenerator(ConvInputGenerator):
             "attr_group",
             "B_shape",
         ]
-
-    def get_qdq_config(self):
-        # https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/quantization/operators/conv.py
-        return {
-            "X": QDQParameterConfig(support_activation=True),
-            "W": QDQParameterConfig(support_weight=True),
-            "B": QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT32),
-        }
 
 
 @register_runtime_checker_op
@@ -341,11 +345,13 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
         ]
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
+        """Return finite attribute sets for ConvTranspose operator."""
         return {}
 
     def get_input_and_infinite_attribute_combinations(
         self,
     ) -> list[dict[str, InputConstraint]]:
+        """Return input and infinite attribute combinations for ConvTranspose operator."""
         combinations = []
         for x_shape, m, k_shape in self.get_base_conv_shapes():
             spatial_dims = len(x_shape) - 2
@@ -370,7 +376,8 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
             ):
                 # Skip invalid combination: SAME_LOWER/SAME_UPPER auto_pad with
                 # non-uniform dilations (ONNX Runtime doesn't support this)
-                # TODO: refine the condition to skip a case when auto_pad is in ("SAME_LOWER", "SAME_UPPER")
+                # TODO: refine the condition to skip a case when
+                # auto_pad is in ("SAME_LOWER", "SAME_UPPER")
                 dilations_all_ones = all(d == 1 for d in dilations)
                 if auto_pad in ("SAME_LOWER", "SAME_UPPER") and not dilations_all_ones:
                     continue

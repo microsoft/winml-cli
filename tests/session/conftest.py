@@ -18,9 +18,13 @@ EP Markers:
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 import onnx
 import pytest
 from onnx import TensorProto, helper
@@ -55,18 +59,14 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip tests if required EP is not available.
 
     Note: EP discovery is only performed when tests with @pytest.mark.ep() markers
     are found. This avoids slow WinML initialization for pure unit tests.
     """
     # First, check if any items have EP markers - skip discovery if none
-    items_with_ep_markers = [
-        item for item in items if any(item.iter_markers(name="ep"))
-    ]
+    items_with_ep_markers = [item for item in items if any(item.iter_markers(name="ep"))]
     if not items_with_ep_markers:
         return  # No EP markers, skip expensive WinML discovery
 
@@ -95,13 +95,9 @@ def pytest_collection_modifyitems(
 
             provider_name = EP_NAME_MAP.get(ep_name.lower())
             if provider_name is None:
-                item.add_marker(
-                    pytest.mark.skip(reason=f"Unknown EP marker: {ep_name}")
-                )
+                item.add_marker(pytest.mark.skip(reason=f"Unknown EP marker: {ep_name}"))
             elif provider_name not in available_providers:
-                item.add_marker(
-                    pytest.mark.skip(reason=f"EP not available: {provider_name}")
-                )
+                item.add_marker(pytest.mark.skip(reason=f"EP not available: {provider_name}"))
 
 
 def create_matmul_onnx(output_path: Path) -> Path:
@@ -114,15 +110,15 @@ def create_matmul_onnx(output_path: Path) -> Path:
     This is the simplest possible ONNX model that can run on any EP.
     """
     # Input tensor info
-    A = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+    A = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])  # noqa: N806
 
     # Output tensor info
-    C = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+    C = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])  # noqa: N806
 
     # Constant weights (4x4 matrix)
     np.random.seed(42)  # Reproducible
-    B_values = np.random.randn(4, 4).astype(np.float32)
-    B_tensor = helper.make_tensor("B", TensorProto.FLOAT, [4, 4], B_values.flatten().tolist())
+    B_values = np.random.randn(4, 4).astype(np.float32)  # noqa: N806
+    B_tensor = helper.make_tensor("B", TensorProto.FLOAT, [4, 4], B_values.flatten().tolist())  # noqa: N806
 
     # MatMul node
     matmul_node = helper.make_node("MatMul", ["A", "B"], ["C"], name="matmul")
@@ -180,9 +176,7 @@ def create_static_batch_onnx(output_path: Path, batch_size: int = 1) -> Path:
     # Constant weights (4x4 matrix)
     np.random.seed(42)  # Reproducible
     b_values = np.random.randn(4, 4).astype(np.float32)
-    b_tensor = helper.make_tensor(
-        "B", TensorProto.FLOAT, [4, 4], b_values.flatten().tolist()
-    )
+    b_tensor = helper.make_tensor("B", TensorProto.FLOAT, [4, 4], b_values.flatten().tolist())
 
     # MatMul node
     matmul_node = helper.make_node("MatMul", ["A", "B"], ["C"], name="matmul")

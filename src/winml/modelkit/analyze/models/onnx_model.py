@@ -52,9 +52,6 @@ class ONNXModel(BaseModel):
     input_count: int = Field(..., ge=0, description="Number of inputs")
     output_count: int = Field(..., ge=0, description="Number of outputs")
 
-    # Store serialized graph data instead of GraphProto directly
-    graph_data: bytes = Field(..., description="Serialized ONNX graph")
-
     # Model-level tags for marking issues and states
     # Maps ModelTag to error message for detailed issue tracking
     model_tags: dict[ModelTag, str] = Field(
@@ -115,10 +112,7 @@ class ONNXModel(BaseModel):
         input_count = len(graph.input)
         output_count = len(graph.output)
 
-        # Serialize graph
-        graph_data = model.SerializeToString()
-
-        return cls(
+        instance = cls(
             model_path=str(model_path),
             opset_version=opset_version,
             producer_name=producer_name,
@@ -127,8 +121,10 @@ class ONNXModel(BaseModel):
             initializer_count=initializer_count,
             input_count=input_count,
             output_count=output_count,
-            graph_data=graph_data,
         )
+        # Store ModelProto by reference instead of serializing to bytes
+        object.__setattr__(instance, "_cached_model", model)
+        return instance
 
     def get_graph(self) -> onnx.GraphProto:
         """Deserialize and return ONNX graph.
@@ -142,18 +138,16 @@ class ONNXModel(BaseModel):
         return self.get_model().graph
 
     def get_model(self) -> onnx.ModelProto:
-        """Deserialize and return ONNX model.
+        """Return the cached ONNX ModelProto.
 
         Returns:
             ONNX ModelProto object
 
-        Note:
-            Caches the deserialized model after first call to improve performance
-            for repeated access. This is especially important for large models.
+        Raises:
+            RuntimeError: If no model is cached (should not happen in normal usage)
         """
         if self._cached_model is None:
-            model = onnx.ModelProto()
-            model.ParseFromString(self.graph_data)
-            # Cache the deserialized model
-            object.__setattr__(self, "_cached_model", model)
+            raise RuntimeError(
+                "No cached ModelProto available. ONNXModel must be created via from_onnx_model()."
+            )
         return self._cached_model

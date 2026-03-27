@@ -5,7 +5,7 @@
 """Central registry for dataset class management."""
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import ClassVar, TypeVar
 
 
 T = TypeVar("T")
@@ -18,7 +18,7 @@ class DataRegistry:
     decorator-based registration pattern.
     """
 
-    _datasets: dict[str, type] = {}
+    _datasets: ClassVar[dict[str, type]] = {}
 
     @classmethod
     def register_dataset(cls, name: str | None = None) -> Callable[[T], T]:

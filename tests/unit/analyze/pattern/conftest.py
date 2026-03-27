@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Shared test infrastructure for pattern tests.
 
 Provides constants, helpers, and fixtures used across all pattern test files.
@@ -20,7 +21,7 @@ from onnx import helper
 
 from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.base import (
-    InvalidPatternMatcherModelException,
+    InvalidPatternMatcherModelError,
     PatternMatcher,
     get_pattern_input_generator,
 )
@@ -38,8 +39,16 @@ PATTERNS_REQUIRING_NEWER_OPSET: dict[str, dict[ONNXDomain, int]] = {
 }
 
 # Patterns to skip for validation/self-matching (runtime limitations)
+#
+# ReshapeTransposeReshapeLowDim is a one-directional transform: it consumes
+# an UNMERGED >=6D Reshape-Transpose-Reshape and emits a MERGED <=5D variant.
+# The generated (merged) model is intentionally NOT re-matchable by this pattern,
+# so the standard "generate model → self-match" assumption does not hold.
+# See TestReshapeTransposeReshapeLowDimPattern.test_already_merged_4d_rtr_is_not_matched
+# for targeted coverage of the no-self-match behaviour.
 SKIP_VALIDATION_PATTERNS: set[str] = {
     "TransposeAttention",
+    "ReshapeTransposeReshapeLowDim",
 }
 
 
@@ -109,7 +118,7 @@ def generate_self_matching_model(
                 results = matcher.match()
             except (
                 onnx.checker.ValidationError,
-                InvalidPatternMatcherModelException,
+                InvalidPatternMatcherModelError,
                 ValueError,
                 AssertionError,
             ):

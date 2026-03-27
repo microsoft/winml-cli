@@ -16,8 +16,6 @@ from typing import Any
 
 import numpy as np
 
-import winml.modelkit.onnx.dtypes as dtypes
-
 from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
@@ -136,11 +134,12 @@ class GatherInputGenerator(OpInputGenerator):
             List of property names that represent shapes/values with infinite possibilities
         """
         return ["data_shape", "indices_shape", "attr_axis"]
-    
+
     def get_qdq_config(self):
+        """Return QDQ configuration for Gather operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
-            "indices": QDQParameterConfig()
+            "indices": QDQParameterConfig(support_non_qdq=True),
         }
 
 
@@ -228,6 +227,13 @@ class GatherElementsInputGenerator(OpInputGenerator):
         """Return names of properties with infinite possible values."""
         return ["data_shape", "indices_shape", "attr_axis"]
 
+    def get_qdq_config(self):
+        """Return QDQ configuration for GatherElements operator inputs."""
+        return {
+            "data": QDQParameterConfig(support_activation=True),
+            "indices": QDQParameterConfig(support_non_qdq=True),
+        }
+
 
 @register_runtime_checker_op
 class GatherNDInputGenerator(OpInputGenerator):
@@ -279,7 +285,7 @@ class GatherNDInputGenerator(OpInputGenerator):
                 if max_k > 2:
                     k_values.add(max_k // 2)
 
-                for k in sorted(list(k_values)):
+                for k in sorted(k_values):
                     for extra_dims in range(2):  # 0 and 1 extra dim
                         # Construct indices shape
                         # First b dims match data
@@ -315,7 +321,8 @@ class GatherNDInputGenerator(OpInputGenerator):
         # The dimensions of data being indexed are data_shape[batch_dims : batch_dims + k]
         # Why?
         # GatherND maps index-tuples to slices.
-        # "indices is an q-dimensional ... best thought of as (q-1)-dimensional tensor of index-tuples".
+        # "indices is an q-dimensional ... best thought of as
+        # (q-1)-dimensional tensor of index-tuples".
         # "Each element defines a slice of data".
         # k = indices.shape[-1]. So each "element" is a vector of size k.
         # This vector indexes into `data` starting from `batch_dims`.
@@ -510,6 +517,14 @@ class ScatterNDInputGenerator(OpInputGenerator):
         """
         return ["data_shape", "indices_value", "updates_shape"]
 
+    def get_qdq_config(self):
+        """Return QDQ configuration for ScatterND operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),  # data
+            self.op_input_names[1]: QDQParameterConfig(support_non_qdq=True),  # indices
+            self.op_input_names[2]: QDQParameterConfig(support_activation=True),  # updates
+        }
+
 
 @register_runtime_checker_op
 class UnsqueezeInputGenerator(OpInputGenerator):
@@ -638,6 +653,13 @@ class UnsqueezeInputGenerator(OpInputGenerator):
             List of property names that represent shapes/values with infinite possibilities
         """
         return ["data_shape", "axes_value"]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Unsqueeze operator inputs."""
+        return {
+            "data": QDQParameterConfig(support_activation=True),
+            "axes": QDQParameterConfig(support_non_qdq=True),
+        }
 
 
 @register_runtime_checker_op
@@ -770,6 +792,7 @@ class SplitInputGenerator(OpInputGenerator):
                         }
                     )
 
+        print(f"Generated {len(combinations)} input combinations for Split operator.")
         return combinations
 
     def derive_properties(self, properties: dict) -> dict:
@@ -812,6 +835,7 @@ class SplitInputGenerator(OpInputGenerator):
     def infer_output_types(
         self, kwargs: dict[str, Any], tags: dict[str, Any], required_outputs_only: bool = True
     ) -> list[str]:
+        """Infer output types for Split operator based on number of outputs."""
         if "split" in kwargs:
             num_output = kwargs["split"].size
         elif "num_outputs" in kwargs:
@@ -821,3 +845,10 @@ class SplitInputGenerator(OpInputGenerator):
         type_var_key = self.schema.outputs[0].type_str
         annotation = tags["type_vars"][f"{type_var_key}_{self.op_name}"]
         return [annotation] * num_output
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Split operator inputs."""
+        return {
+            "input": QDQParameterConfig(support_activation=True),
+            "split": QDQParameterConfig(support_non_qdq=True),
+        }

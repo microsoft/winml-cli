@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 import tqdm
 
 from winml.modelkit.pattern.config import UnifiedPatternConfig
-from winml.modelkit.pattern.match import PatternMatchResult
 
 from ..models.runtime_checks import (
     AlternativeType,
@@ -29,6 +28,8 @@ from .runtime_checker_query import RuntimeCheckerQuery
 
 if TYPE_CHECKING:
     import onnx
+
+    from winml.modelkit.pattern.match import PatternMatchResult
 
     from ..models.onnx_model import ONNXModel
 
@@ -49,7 +50,7 @@ class RuntimeChecker:
     Responsibilities:
     - Query runtime support via RuntimeCheckerQuery
     - Convert ONNX nodes to pattern matches
-    - Classify support level (white/gray/black)
+    - Classify support level (supported/partial/unsupported)
     - Aggregate runtime check results
 
     FR-005: Runtime support checking
@@ -173,7 +174,7 @@ class RuntimeChecker:
         query = self._get_query()
         for node in tqdm.tqdm(model_proto.graph.node):
             # Run runtime check for node
-            results.append(
+            results.append(  # noqa: PERF401
                 query.run_for_node(
                     node,
                     run_unknown_op=run_unknown_op,
@@ -188,6 +189,7 @@ class RuntimeChecker:
     def subgraph_support(
         self,
         patterns: list[PatternMatchResult] | None = None,
+        run_unknown_op: bool = True,
     ) -> list[PatternRuntime]:
         """Check subgraph-level runtime support.
 
@@ -217,7 +219,7 @@ class RuntimeChecker:
 
         results: list[PatternRuntime] = []
         for pattern in patterns:
-            pattern_runtime = self.query_pattern_support(pattern)
+            pattern_runtime = self.query_pattern_support(pattern, run_unknown_op=run_unknown_op)
             results.append(pattern_runtime)
 
         return results
@@ -225,6 +227,7 @@ class RuntimeChecker:
     def query_pattern_support(
         self,
         pattern: PatternMatchResult,
+        run_unknown_op: bool = True,
     ) -> PatternRuntime:
         """Evaluate a single pattern's runtime support + replacements.
 
@@ -250,7 +253,7 @@ class RuntimeChecker:
 
         # Get cached RuntimeCheckerQuery and check pattern support
         query = self._get_query()
-        pattern_runtime = query.run_for_subgraph(pattern)
+        pattern_runtime = query.run_for_subgraph(pattern, run_unknown_op=run_unknown_op)
         result = pattern_runtime.result
 
         logger.debug(
@@ -321,7 +324,7 @@ class RuntimeChecker:
             summary_dict["op_runtime_check_result"] = op_results
 
         # Get subgraph-level support
-        pattern_results = self.subgraph_support(patterns)
+        pattern_results = self.subgraph_support(patterns, run_unknown_op=run_unknown_op)
         summary_dict["subgraph_runtime_check_result"] = pattern_results
 
         return summary_dict

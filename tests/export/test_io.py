@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Tests for modelkit.export.io module.
 
 Tests the model-centric I/O utilities that fully leverage Optimum:
@@ -145,6 +146,25 @@ def bert_model():
     return BertModel(config)
 
 
+@pytest.fixture(scope="module")
+def segformer_model():
+    """Create minimal Segformer model for testing."""
+    from transformers import SegformerConfig, SegformerForSemanticSegmentation
+
+    config = SegformerConfig(
+        image_size=VISION_IMAGE_SIZE,
+        num_channels=VISION_NUM_CHANNELS,
+        num_labels=10,
+        hidden_sizes=[32, 64],
+        num_attention_heads=[1, 2],
+        num_encoder_blocks=2,
+        depths=[1, 1],
+        sr_ratios=[8, 4],
+        decoder_hidden_size=32,
+    )
+    return SegformerForSemanticSegmentation(config)
+
+
 # =============================================================================
 # Parametrized Test Cases
 # =============================================================================
@@ -179,8 +199,15 @@ class TestGetOnnxConfig:
                 ["input_ids", "attention_mask", "token_type_ids"],
                 ["last_hidden_state"],
             ),
+            (
+                "segformer_model",
+                "image-segmentation",
+                "segformer",
+                ["pixel_values"],
+                ["logits"],
+            ),
         ],
-        ids=["resnet", "vit", "clip-vision", "clip-text", "bert"],
+        ids=["resnet", "vit", "clip-vision", "clip-text", "bert", "segformer"],
     )
     def test_get_onnx_config_returns_config(
         self, model_fixture, task, expected_model_type, expected_inputs, expected_outputs, request
@@ -203,16 +230,14 @@ class TestGetOnnxConfig:
         actual_inputs = set(io_config.inputs.keys())
         for expected_input in expected_inputs:
             assert expected_input in actual_inputs, (
-                f"Missing expected input '{expected_input}'. "
-                f"Got: {actual_inputs}"
+                f"Missing expected input '{expected_input}'. Got: {actual_inputs}"
             )
 
         # Verify expected outputs are present
         actual_outputs = set(io_config.outputs.keys())
         for expected_output in expected_outputs:
             assert expected_output in actual_outputs, (
-                f"Missing expected output '{expected_output}'. "
-                f"Got: {actual_outputs}"
+                f"Missing expected output '{expected_output}'. Got: {actual_outputs}"
             )
 
     @pytest.mark.parametrize(
@@ -244,8 +269,9 @@ class TestGenerateDummyInputs:
             ("clip_vision_model", "feature-extraction", ["pixel_values"]),
             ("clip_text_model", "feature-extraction", ["input_ids", "attention_mask"]),
             ("bert_model", "feature-extraction", ["input_ids", "attention_mask"]),
+            ("segformer_model", "image-segmentation", ["pixel_values"]),
         ],
-        ids=["resnet", "vit", "clip-vision", "clip-text", "bert"],
+        ids=["resnet", "vit", "clip-vision", "clip-text", "bert", "segformer"],
     )
     def test_generate_dummy_inputs_returns_expected_keys(
         self, model_fixture, task, expected_inputs, request
@@ -277,6 +303,13 @@ class TestGenerateDummyInputs:
                 "pixel_values",
                 (BATCH_SIZE, 3, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE),
             ),
+            # Segformer: uses image_size from config
+            (
+                "segformer_model",
+                "image-segmentation",
+                "pixel_values",
+                (BATCH_SIZE, VISION_NUM_CHANNELS, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE),
+            ),
             # Text models: uses max_position_embeddings via MaxLengthTextInputGenerator
             (
                 "clip_text_model",
@@ -291,7 +324,7 @@ class TestGenerateDummyInputs:
                 (BATCH_SIZE, TEXT_MAX_POSITION_EMBEDDINGS),
             ),
         ],
-        ids=["resnet", "vit", "clip-vision", "clip-text", "bert"],
+        ids=["resnet", "vit", "clip-vision", "segformer", "clip-text", "bert"],
     )
     def test_generate_dummy_inputs_default_shape(
         self, model_fixture, task, input_name, expected_shape, request
@@ -321,12 +354,11 @@ class TestGenerateDummyInputs:
             ("clip_vision_model", "feature-extraction"),
             ("clip_text_model", "feature-extraction"),
             ("bert_model", "feature-extraction"),
+            ("segformer_model", "image-segmentation"),
         ],
-        ids=["resnet", "vit", "clip-vision", "clip-text", "bert"],
+        ids=["resnet", "vit", "clip-vision", "clip-text", "bert", "segformer"],
     )
-    def test_generate_dummy_inputs_with_custom_batch_size(
-        self, model_fixture, task, request
-    ):
+    def test_generate_dummy_inputs_with_custom_batch_size(self, model_fixture, task, request):
         """generate_dummy_inputs respects custom batch_size."""
         model = request.getfixturevalue(model_fixture)
         custom_batch_size = 4
@@ -338,8 +370,7 @@ class TestGenerateDummyInputs:
         # All inputs should have the custom batch size
         for name, tensor in inputs.items():
             assert tensor.shape[0] == custom_batch_size, (
-                f"Input '{name}' has batch size {tensor.shape[0]}, "
-                f"expected {custom_batch_size}"
+                f"Input '{name}' has batch size {tensor.shape[0]}, expected {custom_batch_size}"
             )
 
     @pytest.mark.parametrize(
@@ -350,8 +381,9 @@ class TestGenerateDummyInputs:
             ("clip_vision_model", "feature-extraction"),
             ("clip_text_model", "feature-extraction"),
             ("bert_model", "feature-extraction"),
+            ("segformer_model", "image-segmentation"),
         ],
-        ids=["resnet", "vit", "clip-vision", "clip-text", "bert"],
+        ids=["resnet", "vit", "clip-vision", "clip-text", "bert", "segformer"],
     )
     def test_generate_dummy_inputs_can_forward(self, model_fixture, task, request):
         """Generated inputs can be passed to model.forward() without error."""
@@ -456,9 +488,7 @@ class TestShapeKwargs:
             max_position_embeddings=TEXT_MAX_POSITION_EMBEDDINGS,
         )
 
-        inputs = generate_dummy_inputs(
-            "bert", "fill-mask", hf_config, sequence_length=128
-        )
+        inputs = generate_dummy_inputs("bert", "fill-mask", hf_config, sequence_length=128)
 
         assert "input_ids" in inputs
         assert inputs["input_ids"].shape[1] == 128, (
@@ -480,9 +510,7 @@ class TestShapeKwargs:
             max_position_embeddings=TEXT_MAX_POSITION_EMBEDDINGS,
         )
 
-        specs = resolve_io_specs(
-            "bert", "fill-mask", hf_config, sequence_length=128
-        )
+        specs = resolve_io_specs("bert", "fill-mask", hf_config, sequence_length=128)
 
         assert "input_shapes" in specs
         assert len(specs["input_shapes"]) > 0
@@ -512,12 +540,8 @@ class TestShapeKwargs:
         assert "pixel_values" in inputs
         pixel_values = inputs["pixel_values"]
         # Shape should be [batch, channels, height, width]
-        assert pixel_values.shape[2] == 128, (
-            f"Expected height=128, got shape {pixel_values.shape}"
-        )
-        assert pixel_values.shape[3] == 128, (
-            f"Expected width=128, got shape {pixel_values.shape}"
-        )
+        assert pixel_values.shape[2] == 128, f"Expected height=128, got shape {pixel_values.shape}"
+        assert pixel_values.shape[3] == 128, f"Expected width=128, got shape {pixel_values.shape}"
 
     def test_generate_dummy_inputs_config_only_no_model(self) -> None:
         """Create BertConfig directly (no model), call generate_dummy_inputs.

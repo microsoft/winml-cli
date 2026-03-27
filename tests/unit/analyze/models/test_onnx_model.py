@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """
 Unit tests for ONNXModel Pydantic validation.
 
@@ -33,7 +34,6 @@ class TestONNXModelValidation:
             initializer_count=0,
             input_count=1,
             output_count=1,
-            graph_data=b"test_graph_data",
         )
         assert model.opset_version == opset
 
@@ -48,22 +48,19 @@ class TestONNXModelValidation:
                 initializer_count=0,
                 input_count=1,
                 output_count=1,
-                graph_data=b"test_graph_data",
             )
 
     def test_graph_must_not_be_empty(self):
         """Test that node_count must not be zero."""
         # Valid non-empty graph
-        model = ONNXModel(
+        ONNXModel(
             model_path="test.onnx",
             opset_version=12,
             node_count=1,
             initializer_count=0,
             input_count=1,
             output_count=1,
-            graph_data=b"test_graph_data",
         )
-        assert model.graph_data == b"test_graph_data"
 
         # Invalid empty graph (node_count = 0)
         with pytest.raises(ValidationError, match="Graph must contain at least one node"):
@@ -74,7 +71,6 @@ class TestONNXModelValidation:
                 initializer_count=0,
                 input_count=1,
                 output_count=1,
-                graph_data=b"test",
             )
 
     def test_from_onnx_model_creates_instance(self):
@@ -96,8 +92,6 @@ class TestONNXModelValidation:
         assert model.node_count == 1
         assert model.input_count == 1
         assert model.output_count == 1
-        assert isinstance(model.graph_data, bytes)
-        assert len(model.graph_data) > 0
 
     def test_get_graph_deserializes_correctly(self):
         """Test that get_graph() returns a valid GraphProto."""
@@ -158,7 +152,6 @@ class TestONNXModelValidation:
             initializer_count=0,
             input_count=1,
             output_count=1,
-            graph_data=b"graph_bytes",
         )
 
         assert model.model_path == "/path/to/model.onnx"
@@ -173,6 +166,5 @@ class TestONNXModelValidation:
             initializer_count=0,
             input_count=1,
             output_count=1,
-            graph_data=b"test_data",
         )
         assert model.opset_version == opset

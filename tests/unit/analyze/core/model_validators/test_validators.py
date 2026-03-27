@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Unit tests for model validators.
 
 Tests cover:
@@ -15,8 +16,6 @@ from __future__ import annotations
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
 from winml.modelkit.analyze.core.model_validators import (
     ConstantFoldingValidator,
     ModelValidatorManager,
@@ -28,6 +27,8 @@ from winml.modelkit.analyze.models.runtime_checks import (
     PatternRuntime,
     RuntimeTestResult,
 )
+from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
+from winml.modelkit.pattern.models import OperatorPattern, PatternType
 
 
 def create_onnx_model_wrapper(model_proto):
@@ -128,7 +129,7 @@ class TestConstantFoldingValidator:
         # Check that explanation mentions constant-only nodes
         assert "constant inputs" in info.explanation
         # Check that details contain tool recommendations (JSON format)
-        assert "onnx-optimizer" in info.actions[0].details
+        assert "wmk optimize" in info.actions[0].details
 
     def test_no_constant_only_nodes(self):
         """Test that models without constant-only nodes return None."""
@@ -185,7 +186,7 @@ class TestConstantFoldingValidator:
         # Check explanation mentions constant inputs
         assert "constant inputs" in info.explanation
         # Check details contain tool recommendations
-        assert "onnx-simplifier" in info.actions[0].details
+        assert "wmk optimize" in info.actions[0].details
 
     def test_explanation_contains_node_count(self):
         """Test that explanation mentions correct node count."""

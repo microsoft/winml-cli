@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Sequence
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import onnx
 import onnxruntime as ort
@@ -28,7 +28,7 @@ class EPChecker:
     # EPs that require a file path (not in-memory bytes) for compilation.
     # VitisAI EP fails with "ep.context_file_path and model_path are both empty"
     # when given in-memory model bytes.
-    EPS_REQUIRING_FILE_PATH = {"VitisAIExecutionProvider"}
+    EPS_REQUIRING_FILE_PATH: ClassVar[set[str]] = {"VitisAIExecutionProvider"}
 
     def __init__(
         self,

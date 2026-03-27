@@ -8,6 +8,7 @@ from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
+    QDQParameterConfig,
     register_runtime_checker_op,
 )
 
@@ -410,3 +411,10 @@ class ShapeInputGenerator(OpInputGenerator):
         """
         input_name = self.op_input_names[0]
         return [f"{input_name}_shape", f"{input_name}_value", "attr_start", "attr_end"]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Reshape operator inputs."""
+        return {
+            "data": QDQParameterConfig(support_activation=True),
+            "shape": QDQParameterConfig(support_non_qdq=True),
+        }

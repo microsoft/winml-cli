@@ -31,8 +31,8 @@ class EPSupport(BaseModel):
         ep_version: Execution provider version (optional)
         driver_version: Driver version (optional)
         runtime_support: Runtime support status
-        has_errors: True if BLACK patterns exist (blocking errors)
-        has_warnings: True if GRAY patterns exist (warnings/optimizations)
+        has_errors: True if unsupported patterns exist (blocking errors)
+        has_warnings: True if partial patterns exist (warnings/optimizations)
         classification: Operator classification by support level
         information: List of information
     """
@@ -44,10 +44,10 @@ class EPSupport(BaseModel):
     driver_version: str | None = Field(default=None, description="Driver version")
     runtime_support: bool = Field(..., description="Runtime support status")
     has_errors: bool = Field(
-        ..., description="True if BLACK patterns exist (blocking errors)"
+        ..., description="True if unsupported patterns exist (blocking errors)"
     )
     has_warnings: bool = Field(
-        ..., description="True if GRAY patterns exist (warnings/optimizations)"
+        ..., description="True if partial patterns exist (warnings/optimizations)"
     )
     classification: dict[SupportLevel, list[str]] = Field(
         ...,

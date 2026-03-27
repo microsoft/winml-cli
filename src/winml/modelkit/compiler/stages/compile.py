@@ -2,8 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Compile stage - generate EPContext model.
-"""
+"""Compile stage - generate EPContext model."""
 
 from __future__ import annotations
 
@@ -35,8 +34,7 @@ COMPILER_SESSION_MAPPING: dict[str, type[WinMLSession]] = {
 
 
 class CompileStage(BaseStage):
-    """Compile model.
-    """
+    """Compile model."""
 
     name: ClassVar[str] = "compile"
 
@@ -147,9 +145,7 @@ class CompileStage(BaseStage):
         """Build provider options from context config."""
         return dict(context.config.get("provider_options", {}))
 
-    def _validate_model(
-        self, session: ort.InferenceSession, context: CompileContext
-    ) -> None:
+    def _validate_model(self, session: ort.InferenceSession, context: CompileContext) -> None:
         """Validate compiled model produces outputs."""
         context.log("Validating compiled model...")
 
@@ -175,9 +171,7 @@ class CompileStage(BaseStage):
         context.log("Validation passed")
         context.add_metric("validation_passed", True)
 
-    def _generate_dummy_inputs(
-        self, session: ort.InferenceSession
-    ) -> dict[str, np.ndarray]:
+    def _generate_dummy_inputs(self, session: ort.InferenceSession) -> dict[str, np.ndarray]:
         """Generate dummy inputs for validation using all-ones data."""
         inputs = {}
 
@@ -205,9 +199,7 @@ class CompileStage(BaseStage):
 
         return inputs
 
-    def _finalize_output(
-        self, context: CompileContext, model_path: Path, output_dir: Path
-    ) -> None:
+    def _finalize_output(self, context: CompileContext, model_path: Path, output_dir: Path) -> None:
         """Find EPContext files and copy to output directory.
 
         WinMLSession saves to work_dir. This method copies the output
@@ -253,7 +245,7 @@ class CompileStage(BaseStage):
         final_bin_name = None
         for f in src_ctx_path.parent.iterdir():
             if f.name.startswith(src_ctx_path.stem) and f.suffix == ".bin":
-                final_bin_name = f"{original_stem}_{device}_ctx{f.name[len(src_ctx_path.stem):]}"
+                final_bin_name = f"{original_stem}_{device}_ctx{f.name[len(src_ctx_path.stem) :]}"
                 final_bin_path = output_dir / final_bin_name
                 if f != final_bin_path:
                     shutil.copy2(f, final_bin_path)
@@ -280,9 +272,7 @@ class CompileStage(BaseStage):
                     context.log(f"Updated ep_cache_context: {final_bin_name}")
                 break
 
-    def _collect_model_info(
-        self, session: ort.InferenceSession, context: CompileContext
-    ) -> None:
+    def _collect_model_info(self, session: ort.InferenceSession, context: CompileContext) -> None:
         """Collect model input/output information."""
         input_shapes = {}
         for inp in session.get_inputs():

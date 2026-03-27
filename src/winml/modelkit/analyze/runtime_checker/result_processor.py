@@ -3,7 +3,6 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import json
-import os
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -78,42 +77,55 @@ def item_to_row(
               consistent property naming when optional inputs are None.
         all_attr_names: Optional set of all attribute names across all check results.
               Used to ensure consistent property naming when attributes are omitted.
-        use_qdq: When True, skip adding input_is_constant properties because QDQ only cares about types.
+        use_qdq: when True, fix missing input_is_constant by setting to False
 
     Returns:
         Flat dictionary with all properties as keys
     """
     res = {}
+    if "case_index" in item:
+        res["case_index"] = item["case_index"]
+
     # properties
     if "check_result" in item:
+        compile_result = item["check_result"]["compile"]["result"]
+        run_result = item["check_result"]["run"]["result"]
         res["compile_run_success"] = (
-            item["check_result"]["compile"]["result"]["success"],
-            item["check_result"]["run"]["result"]["success"],
+            compile_result["success"],
+            run_result["success"],
         )
+        compile_reason = compile_result.get("reason")
+        run_reason = run_result.get("reason")
+        res["compile_reason"] = compile_reason
+        res["run_reason"] = run_reason
+        res["has_not_run_placeholder_reason"] = (
+            isinstance(compile_reason, str) and compile_reason.startswith("not_run")
+        ) or (isinstance(run_reason, str) and run_reason.startswith("not_run"))
     # common properties
     res.update(item["type_vars"])
     # TODO: add _dyanmic_axes and _is_fixed_shape for QDQ?
     dynamic_axes = item.get("dynamic_axes", {})
-    if (
-        not use_qdq or "input_is_constant" in item
-    ):  # QDQ may omit input_is_constant if it is all-QDQed
+
+    def set_properties_for_dynamic_axes(input_name: str, is_constant: bool):
+        if "__" not in input_name:  # skip variadic inputs
+            axes = dynamic_axes.get(input_name, ())
+            res[f"{input_name}_is_constant"] = is_constant
+            res[f"{input_name}_is_fixed_shape"] = len(axes) == 0
+            res[f"{input_name}_dynamic_axes"] = tuple(axes)
+
+    if "input_is_constant" in item:
         for input_name, is_constant in item["input_is_constant"].items():
-            if "__" not in input_name:  # skip variadic inputs
-                axes = dynamic_axes.get(input_name, ())
-                res[f"{input_name}_is_constant"] = is_constant
-                res[f"{input_name}_is_fixed_shape"] = len(axes) == 0
-                res[f"{input_name}_dynamic_axes"] = tuple(axes)
+            set_properties_for_dynamic_axes(input_name, is_constant)
     for attr, value in item["attrs"].items():
         res[f"attr_{attr}"] = value
-        res[f"attr_{attr}_is_none"] = True if value is None else False
+        res[f"attr_{attr}_is_none"] = value is None
     for input_name, constraint in item["input_constraints"].items():
         if input_name not in item["attrs"]:
             # Handle optional inputs that are None (not provided)
             if constraint is None:
-                if not use_qdq:
-                    res[f"{input_name}_is_constant"] = True
-                    res[f"{input_name}_is_fixed_shape"] = True
-                    res[f"{input_name}_dynamic_axes"] = ()
+                res[f"{input_name}_is_constant"] = True
+                res[f"{input_name}_is_fixed_shape"] = True
+                res[f"{input_name}_dynamic_axes"] = ()
                 res[f"{input_name}_is_none"] = True
                 # Use the constraint type from non-None cases to ensure consistent keys
                 constraint_type = input_constraint_types[input_name]
@@ -130,19 +142,24 @@ def item_to_row(
                     element["value"] if element["type"] == "value" else None
                     for element in constraint["elements"]
                 )
-                if not use_qdq:
+                if use_qdq:
+                    res[f"{input_name}_is_constant"] = tuple(
+                        item.get("input_is_constant", {}).get(f"{input_name}__{idx}", False)
+                        for idx in range(len(constraint["elements"]))
+                    )
+                else:
                     res[f"{input_name}_is_constant"] = tuple(
                         item["input_is_constant"][f"{input_name}__{idx}"]
                         for idx in range(len(constraint["elements"]))
                     )
-                    res[f"{input_name}_is_fixed_shape"] = tuple(
-                        len(dynamic_axes.get(f"{input_name}__{idx}", ())) == 0
-                        for idx in range(len(constraint["elements"]))
-                    )
-                    res[f"{input_name}_dynamic_axes"] = tuple(
-                        tuple(dynamic_axes.get(f"{input_name}__{idx}", ()))
-                        for idx in range(len(constraint["elements"]))
-                    )
+                res[f"{input_name}_is_fixed_shape"] = tuple(
+                    len(dynamic_axes.get(f"{input_name}__{idx}", ())) == 0
+                    for idx in range(len(constraint["elements"]))
+                )
+                res[f"{input_name}_dynamic_axes"] = tuple(
+                    tuple(dynamic_axes.get(f"{input_name}__{idx}", ()))
+                    for idx in range(len(constraint["elements"]))
+                )
                 res[f"{input_name}_is_none"] = False
             elif constraint["type"] == "shape":
                 res[f"{input_name}_shape"] = constraint["shape"]
@@ -151,16 +168,18 @@ def item_to_row(
                 res[f"{input_name}_value"] = constraint["value"]
                 res[f"{input_name}_is_none"] = False
 
+            if use_qdq and f"{input_name}_is_constant" not in res:
+                set_properties_for_dynamic_axes(input_name, False)
+
     # Handle inputs that are omitted from this item's input_constraints
     # (present in other test cases but not in this one)
     if input_constraint_types:
         for input_name, constraint_type in input_constraint_types.items():
             if input_name not in item["input_constraints"] and input_name not in item["attrs"]:
                 # Treat omitted input same as None constraint
-                if not use_qdq:
-                    res[f"{input_name}_is_constant"] = True
-                    res[f"{input_name}_is_fixed_shape"] = True
-                    res[f"{input_name}_dynamic_axes"] = ()
+                res[f"{input_name}_is_constant"] = True
+                res[f"{input_name}_is_fixed_shape"] = True
+                res[f"{input_name}_dynamic_axes"] = ()
                 res[f"{input_name}_is_none"] = True
                 if constraint_type == "shape":
                     res[f"{input_name}_shape"] = None
@@ -187,6 +206,18 @@ def item_to_row(
     return res
 
 
+def _format_rule_signature(group_cols: list[str], group_key: Any) -> str:
+    """Build a readable signature for a conflict group."""
+    if not group_cols:
+        return "all_rows"
+    key_tuple = group_key if isinstance(group_key, tuple) else (group_key,)
+    parts = []
+    for col, value in zip(group_cols, key_tuple, strict=False):
+        value_repr = "NA" if pd.isna(value) else repr(value)
+        parts.append(f"{col}={value_repr}")
+    return ";".join(parts)
+
+
 def check_df_consistent(
     df: pd.DataFrame, op_name: str, result_col: str, ignored_cols: list[str]
 ) -> bool:
@@ -206,29 +237,59 @@ def check_df_consistent(
     Raises:
         ValueError: If conflicts are found (same properties, different results)
     """
-    df_no_infinite = df.drop(columns=ignored_cols, errors="ignore")
-    group_cols = [c for c in df_no_infinite.columns if c != result_col]
-    grouped = df_no_infinite.groupby(group_cols, dropna=False)[result_col]
-    conflicts = grouped.agg(list).reset_index(name=f"{result_col}_values")
-    conflicts = conflicts[conflicts[f"{result_col}_values"].map(lambda vals: len(set(vals)) > 1)]
-    if conflicts.empty:
+    placeholder_col = "has_not_run_placeholder_reason"
+
+    excluded_group_cols = set(ignored_cols)
+    excluded_group_cols.add(result_col)
+    if placeholder_col in df.columns:
+        excluded_group_cols.add(placeholder_col)
+
+    group_cols = [c for c in df.columns if c not in excluded_group_cols]
+    grouped = df.groupby(group_cols, dropna=False) if group_cols else [((), df)]
+
+    conflict_details: list[pd.DataFrame] = []
+    rule_counter = 1
+    for group_key, group_df in grouped:
+        eval_df = group_df
+        if placeholder_col in group_df.columns:
+            eval_df = group_df[not group_df[placeholder_col]]
+
+        # If all rows are placeholders, this group should not trigger conflicts.
+        if eval_df.empty:
+            continue
+
+        unique_results = set(eval_df[result_col].tolist())
+        if len(unique_results) > 1:
+            cols_to_show = group_cols + ignored_cols + [result_col]
+            cols_to_show = [c for c in cols_to_show if c in group_df.columns]
+            # Add a deterministic signature so rows from the same
+            # rule candidate can be grouped visually.
+            conflict_df = group_df.loc[:, cols_to_show].copy()
+            conflict_df.insert(0, "rule_index", rule_counter)
+            conflict_df["rule_signature"] = _format_rule_signature(group_cols, group_key)
+            conflict_details.append(conflict_df)
+            rule_counter += 1
+
+    if not conflict_details:
         return True
 
-    details: list[pd.DataFrame] = []
-    for _, conflict_row in conflicts.iterrows():
-        mask = pd.Series(True, index=df.index)
-        for col in group_cols:
-            val = conflict_row[col]
-            mask &= df[col].isna() if pd.isna(val) else df[col] == val
-        cols_to_show = group_cols + ignored_cols + [result_col]
-        cols_to_show = [c for c in cols_to_show if c in df.columns]
-        details.append(df.loc[mask, cols_to_show])
-
-    details_data_frame = pd.concat(details, ignore_index=False)
-    details_data_frame.to_csv(f"{op_name}_conflicts.csv", index=True, index_label="row_no")
+    details_data_frame = pd.concat(conflict_details, ignore_index=False)
+    ordered_cols = ["rule_index"]
+    if "case_index" in details_data_frame.columns:
+        ordered_cols.append("case_index")
+    # keep other columns except the signature, then place signature last
+    ordered_cols.extend(
+        [c for c in details_data_frame.columns if c not in ordered_cols and c != "rule_signature"]
+    )
+    ordered_cols.append("rule_signature")
+    details_data_frame = details_data_frame.loc[:, ordered_cols]
+    details_data_frame.to_csv(f"{op_name}_conflicts.csv", index=False)
 
     raise ValueError(
-        f"Found groups with multiple {result_col} values, consider adding more derived properties to distinguish them, save conflicts result to {op_name}_conflicts.csv\n\n"
+        f"Found groups with multiple {result_col} values, "
+        f"consider adding more derived properties to "
+        f"distinguish them, save conflicts result to "
+        f"{op_name}_conflicts.csv\n\n"
     )
 
 
@@ -274,7 +335,7 @@ def extract_single_negative_rules(
     all_negative_rules = []
     all_failed = []
     for i in range(n_results):
-        results = df[result_col].apply(lambda x: x[i])
+        results = df[result_col].apply(lambda x, _i=i: x[_i])
         all_failed.append(np_to_python_value(results.eq(False).all()))
         negative_rules = {}
         for col in target_cols:
@@ -338,16 +399,28 @@ def build_op_query_negative_rules_and_table(
     rows = [get_row(item) for item in check_results]
 
     # Create DataFrame and replace NaN with None
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows, dtype=object)
     df = df.replace({np.nan: None})
 
     # Auto-detect infinite properties (those ending with _shape or _value)
     # These represent unbounded input spaces that should not be used for negative rules
     infinite_properties = input_generator.get_infinite_property_names()
-    assert check_df_consistent(df, op_name, "compile_run_success", infinite_properties)
+    internal_reason_cols = [
+        "compile_reason",
+        "run_reason",
+        "has_not_run_placeholder_reason",
+        "case_index",
+    ]
+    consistency_ignored = [*infinite_properties, *internal_reason_cols]
+    assert check_df_consistent(df, op_name, "compile_run_success", consistency_ignored)
+
+    # Internal reason columns are only for consistency filtering and must not be
+    # exported to tables/rules, otherwise downstream matcher treats them as
+    # required condition keys.
+    export_df = df.drop(columns=internal_reason_cols, errors="ignore")
 
     negative_rules, all_failed = extract_single_negative_rules(
-        df, "compile_run_success", infinite_properties
+        export_df, "compile_run_success", infinite_properties
     )
     names = ["compile", "run"]
 
@@ -355,10 +428,10 @@ def build_op_query_negative_rules_and_table(
         "op_name": op_name,
         "negative_rules": dict(zip(names, negative_rules, strict=False)),
         "all_failed": dict(zip(names, all_failed, strict=False)),
-        "total_row_count": len(df),
+        "total_row_count": len(export_df),
     }
 
-    return negative_rules_dict, df
+    return negative_rules_dict, export_df
 
 
 def _parse_filename(filename: str) -> tuple[str, str, str, str, int, bool]:
@@ -463,15 +536,25 @@ if __name__ == "__main__":
         help="Zip rule files and update the zip rules files in modelkit/analyze/rules",
     )
     parser.add_argument(
+        "--append",
+        action="store_true",
+        help="When updating zip, keep existing files not in the new output; "
+        "if a file exists in both, merge JSON dicts "
+        "(new values override old keys, old-only keys are preserved) and sort.",
+    )
+    parser.add_argument(
+        "-range",
         "--opset_range_ref_op",
         type=str,
         default=None,
-        help="Reference operator to determine the opset version range to process. "
-        "When provided, the tool computes the range of opset versions that share "
-        "the same since_version for this op, starting from --opset_version, "
-        "and processes ALL ops for each version in that range. "
-        "For example, --opset_range_ref_op Slice --opset_version 11 will process "
-        "opset versions 11-12 since Slice has since_versions 1, 10, 11, 13.",
+        help="Reference operator name or end opset version number. "
+        "When a number N is provided, processes all opset versions in "
+        "[--opset_version, N] (inclusive). "
+        "When an operator name is provided, computes the range of opset versions "
+        "that share the same since_version for this op, starting from --opset_version. "
+        "Example: --opset_range_ref_op 12 --opset_version 11 processes versions 11-12. "
+        "Example: --opset_range_ref_op Slice --opset_version 11 processes versions 11-12 "
+        "since Slice has since_versions 1, 10, 11, 13.",
     )
     args = parser.parse_args()
 
@@ -489,7 +572,8 @@ if __name__ == "__main__":
         print(f"No JSON files found in {input_dir}")
         exit(1)
 
-    # Extract unique (op_name, ep_name, device, is_qdq) combinations from filenames for the target domain
+    # Extract unique (op_name, ep_name, device, is_qdq)
+    # combinations from filenames for the target domain
     # Filename format: <op_name>_<ep_name>_<device>_<domain>_opset<N>[_qdq].json
     import re
 
@@ -513,13 +597,19 @@ if __name__ == "__main__":
 
     # Determine which opset versions to process
     if args.opset_range_ref_op:
-        opset_versions_to_process = get_opset_version_range(
-            args.opset_range_ref_op, args.opset_version, target_domain
-        )
-        print(
-            f"Reference op '{args.opset_range_ref_op}' with opset_version {args.opset_version}: "
-            f"will process opset versions {opset_versions_to_process}"
-        )
+        if args.opset_range_ref_op.isdigit():
+            end_opset = int(args.opset_range_ref_op)
+            opset_versions_to_process = list(range(args.opset_version, end_opset + 1))
+            print(f"Numeric range: will process opset versions {opset_versions_to_process}")
+        else:
+            opset_versions_to_process = get_opset_version_range(
+                args.opset_range_ref_op, args.opset_version, target_domain
+            )
+            print(
+                f"Reference op '{args.opset_range_ref_op}' "
+                f"with opset_version {args.opset_version}: "
+                f"will process opset versions {opset_versions_to_process}"
+            )
     else:
         opset_versions_to_process = [args.opset_version]
 
@@ -536,13 +626,16 @@ if __name__ == "__main__":
             print(f"{'=' * 60}")
 
         # Group results by (EP, device, domain, opset, is_qdq)
-        results_by_ep_domain_opset: dict[tuple[str, str, str, int, bool], dict[str, Any]] = {}
-        tables_by_ep_domain_opset: dict[tuple[str, str, str, int, bool], dict[str, Any]] = {}
+        _key_type = tuple[str, str, str, int, bool]
+        results_by_ep_domain_opset: dict[_key_type, dict[str, Any]] = {}
+        tables_by_ep_domain_opset: dict[_key_type, dict[str, Any]] = {}
 
         for op_name, ep_name, device, is_qdq in sorted(op_info_set):
-            # Get the since_version for this operator based on the current opset_version
-            # handle Op and Pattern
-            # TODO: build a since_version list for PatternSchemas based on since_version of included ops
+            # Get the since_version for this operator based on
+            # the current opset_version. Handle Op and Pattern.
+            # TODO: build a since_version list for
+            # PatternSchemas based on since_version of
+            # included ops
             try:
                 since_version = get_op_since_version(op_name, current_opset_version, target_domain)
             except SchemaError:
@@ -550,7 +643,11 @@ if __name__ == "__main__":
 
             # Build the expected filename with since_version
             qdq_suffix = "_qdq" if is_qdq else ""
-            expected_filename = f"{op_name}_{ep_name}_{device}_{domain_str_for_filename}_opset{since_version}{qdq_suffix}.json"
+            expected_filename = (
+                f"{op_name}_{ep_name}_{device}"
+                f"_{domain_str_for_filename}"
+                f"_opset{since_version}{qdq_suffix}.json"
+            )
             json_file = input_dir / expected_filename
 
             print(f"Processing {expected_filename}...", end=" ")
@@ -582,7 +679,9 @@ if __name__ == "__main__":
                     )
                 except SchemaError:
                     # pattern case
-                    # TODO: if a pattern depends on multiple domains, the filename currently contains only AI_ONNX; need to recover all domains
+                    # TODO: if a pattern depends on multiple
+                    # domains, the filename currently contains
+                    # only AI_ONNX; need to recover all domains
                     domain_versions = {
                         op_domain: opset_version,
                         ONNXDomain.COM_MICROSOFT: 1,  # safeguard
@@ -623,9 +722,10 @@ if __name__ == "__main__":
             # Create domain-specific filename
             domain_str = op_domain if op_domain else "ai.onnx"
             qdq_suffix = "_qdq" if is_qdq else ""
-            output_file = (
-                output_dir
-                / f"{ep_name}_{device}_{domain_str}_opset{opset_version}_negative_rules{qdq_suffix}.json"
+            output_file = output_dir / (
+                f"{ep_name}_{device}_{domain_str}"
+                f"_opset{opset_version}"
+                f"_negative_rules{qdq_suffix}.json"
             )
 
             with open(output_file, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
@@ -657,7 +757,9 @@ if __name__ == "__main__":
             zip_group.setdefault(f"{ep_name}_{device}", []).append(output_file)
 
         print(
-            f"\nProcessing complete! Generated {len(results_by_ep_domain_opset)} negative rule file(s) "
+            f"\nProcessing complete! Generated "
+            f"{len(results_by_ep_domain_opset)} "
+            f"negative rule file(s) "
             f"and {len(tables_by_ep_domain_opset)} table file(s)."
         )
 
@@ -666,11 +768,39 @@ if __name__ == "__main__":
                 rule_zip_path = Path(__file__).parent.joinpath(
                     f"../rules/runtime_check_rules/{group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip"
                 )
+
+                # In append mode, load existing zip entries to preserve files not being updated
+                existing_content: dict[str, bytes] = {}
+                if args.append and rule_zip_path.exists():
+                    with zipfile.ZipFile(rule_zip_path, mode="r") as existing_zf:
+                        for name in existing_zf.namelist():
+                            existing_content[name] = existing_zf.read(name)
+
+                new_arcnames = {Path(f).name for f in file_list}
+
                 with zipfile.ZipFile(
                     rule_zip_path, mode="w", compression=zipfile.ZIP_DEFLATED
                 ) as rule_zf:
+                    # Keep existing entries not covered by the new output
+                    for name, data in existing_content.items():
+                        if name not in new_arcnames:
+                            rule_zf.writestr(name, data)
+
                     for filename in file_list:
-                        rule_zf.write(filename, arcname=os.path.basename(filename))
+                        arcname = Path(filename).name
+                        if args.append and arcname in existing_content:
+                            # Merge: old dict updated with new dict, then sort
+                            old_dict = json.loads(existing_content[arcname])
+                            with open(filename, encoding="utf-8") as f:  # noqa: PTH123
+                                new_dict = json.load(f)
+                            merged = dict(sorted({**old_dict, **new_dict}.items()))
+                            rule_zf.writestr(arcname, json.dumps(merged, indent=2))
+                        else:
+                            rule_zf.write(filename, arcname=arcname)
+
                 print(
-                    f"Rule zip file {group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip updated with {len(file_list)} files."
+                    f"Rule zip file {group_name}"
+                    f"_{domain_str_for_filename}"
+                    f"_opset{current_opset_version}.zip "
+                    f"updated with {len(file_list)} files."
                 )

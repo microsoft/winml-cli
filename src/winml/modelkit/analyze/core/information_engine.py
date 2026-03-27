@@ -91,7 +91,9 @@ class InformationEngine:
         """
         if not op_runtime_results and not subgraph_runtime_results and model is None:
             raise ValueError(
-                "At least one of op_runtime_results, subgraph_runtime_results, or model must be provided"
+                "At least one of op_runtime_results, "
+                "subgraph_runtime_results, or model "
+                "must be provided"
             )
 
         self._op_runtime_results = op_runtime_results
@@ -226,9 +228,8 @@ class InformationEngine:
 
         except Exception as e:
             logger.exception(
-                "Model validation failed (%s: %s). Continuing with pattern-level analysis...",
+                "Model validation failed (%s). Continuing with pattern-level analysis...",
                 type(e).__name__,
-                str(e),
             )
             return []
 
@@ -242,9 +243,9 @@ class InformationEngine:
             1. Iterate through self.op_runtime_results
             2. Aggregate by (op_type, classification, reason)
             3. For each group, check result.classification:
-               - BLACK: Required action to replace unsupported operator
-               - GRAY: Optional action to optimize performance
-               - WHITE: No action needed
+               - UNSUPPORTED: Required action to replace unsupported operator
+               - PARTIAL: Optional action to optimize performance
+               - SUPPORTED: No action needed
             4. Does NOT include alternative patterns from runtime_result.alternatives
             5. Generate explanation and actions based on classification with aggregated count
         """
@@ -348,7 +349,11 @@ class InformationEngine:
                         explanation = f"Operator '{pattern_id}' is not supported"
                 else:
                     if reason:
-                        explanation = f"{count} instances of operator '{pattern_id}' are not supported: {reason}"
+                        explanation = (
+                            f"{count} instances of operator "
+                            f"'{pattern_id}' are not "
+                            f"supported: {reason}"
+                        )
                     else:
                         explanation = (
                             f"{count} instances of operator '{pattern_id}' are not supported"
@@ -366,16 +371,31 @@ class InformationEngine:
                     ),
                 )
                 actions.append(action)
-                logger.debug("Operator %s: BLACK (not supported) - %d instances", pattern_id, count)
+                logger.debug(
+                    "Operator %s: UNSUPPORTED - %d instances",
+                    pattern_id,
+                    count,
+                )
 
             elif classification == SupportLevel.UNKNOWN:
-                # Unknown support - generate information only if doc checker found constraint violations
-                # Check if reason contains DOC_CHECKER_PREFIX to identify doc checker findings
+                # Unknown support - generate information only if doc
+                # checker found constraint violations. Check if
+                # reason contains DOC_CHECKER_PREFIX to identify
+                # doc checker findings.
                 if reason and DOC_CHECKER_PREFIX in reason:
                     if count == 1:
-                        explanation = f"Operator '{pattern_id}' has unknown support status with constraint violations: {reason}"
+                        explanation = (
+                            f"Operator '{pattern_id}' has "
+                            f"unknown support status with "
+                            f"constraint violations: {reason}"
+                        )
                     else:
-                        explanation = f"{count} instances of operator '{pattern_id}' have unknown support status with constraint violations: {reason}"
+                        explanation = (
+                            f"{count} instances of operator "
+                            f"'{pattern_id}' have unknown "
+                            f"support status with constraint "
+                            f"violations: {reason}"
+                        )
 
                     logger.debug(
                         "Operator %s: UNKNOWN with constraint violations - %d instances",
@@ -383,9 +403,11 @@ class InformationEngine:
                         count,
                     )
                 else:
-                    # Skip UNKNOWN operators without constraint violations
+                    # Skip UNKNOWN operators without constraint
+                    # violations
                     logger.debug(
-                        "Operator %s: UNKNOWN (status unclear) - skipping (no constraint violations)",
+                        "Operator %s: UNKNOWN (status unclear)"
+                        " - skipping (no constraint violations)",
                         pattern_id,
                     )
                     continue
@@ -688,9 +710,9 @@ class InformationEngine:
             2. Second pass: Generate information dynamically for unmatched patterns:
                - Iterate through op_runtime_results and subgraph_runtime_results
                - For each runtime result, check result.classification:
-                 * BLACK: Required action for unsupported pattern
-                 * GRAY: Optional action to enable fusion/optimization
-                 * WHITE: No action needed
+                 * UNSUPPORTED: Required action for unsupported pattern
+                 * PARTIAL: Optional action to enable fusion/optimization
+                 * SUPPORTED: No action needed
                - Include alternative patterns from runtime_result.alternatives
             3. Return combined results (predefined first, then generated)
             4. Deduplicate information by Information_id
@@ -774,7 +796,7 @@ class InformationEngine:
         for (
             pattern_id,
             classification,
-            reason,
+            _reason,
         ), runtime_results in grouped_subgraph_results.items():
             count = len(runtime_results)
 
@@ -833,7 +855,9 @@ class InformationEngine:
             info_list.append(info)
 
         logger.debug(
-            "Generated %d pattern information items (%d predefined, %d generated, %d aggregated subgraphs)",
+            "Generated %d pattern information items "
+            "(%d predefined, %d generated, "
+            "%d aggregated subgraphs)",
             len(info_list),
             len(matched_pattern_ids),
             len(info_list) - len(seen_info_ids) - len(grouped_subgraph_results),
@@ -879,7 +903,8 @@ class InformationEngine:
                 pattern_list=runtime_results,
             )
 
-        # Use first runtime_result as representative (all should have same classification/alternatives)
+        # Use first runtime_result as representative
+        # (all should have same classification/alternatives)
         runtime_result = runtime_results[0]
         pattern_id = runtime_result.pattern_id
         classification = runtime_result.result.classification
@@ -966,7 +991,7 @@ class InformationEngine:
             pattern_runtime: PatternRuntime object with result and alternatives
 
         Returns:
-            Information object with actions, or None if pattern is WHITE with no alternatives
+            Information object with actions, or None if pattern is supported with no alternatives
             (indicating no action needed)
         """
         from ..models.information import Information
@@ -1021,7 +1046,7 @@ class InformationEngine:
             1. Check pattern_runtime.result.classification
             2. For each alternative, determine if it's better
             3. Create actions using helper method
-            4. Handle case with no alternatives for BLACK patterns
+            4. Handle case with no alternatives for unsupported patterns
         """
         actions: list[Action] = []
         pattern_id = pattern_runtime.pattern_id

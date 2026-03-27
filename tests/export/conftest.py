@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Export test fixtures - minimal HF configs for I/O spec testing.
 
 Provides module-scoped HF config fixtures for fast parametrized testing
@@ -121,6 +122,25 @@ def camembert_config():
         max_position_embeddings=34,
         pad_token_id=1,
         type_vocab_size=1,
+    )
+
+
+@pytest.fixture
+def mpnet_config():
+    """Minimal MPNetConfig for testing (max_position_embeddings=34, usable=32).
+
+    MPNet: max_position_embeddings = usable_length + pad_token_id + 1 = 32 + 1 + 1 = 34.
+    """
+    from transformers import MPNetConfig
+
+    return MPNetConfig(
+        vocab_size=100,
+        hidden_size=64,
+        num_hidden_layers=2,
+        num_attention_heads=2,
+        intermediate_size=128,
+        max_position_embeddings=34,
+        pad_token_id=1,
     )
 
 

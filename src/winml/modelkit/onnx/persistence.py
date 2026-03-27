@@ -18,10 +18,10 @@ from pathlib import Path
 import onnx
 from onnx.external_data_helper import _get_all_tensors, uses_external_data
 
+from winml.modelkit.onnx.utils import EXTERNAL_DATA_THRESHOLD, get_model_size
+
 
 logger = logging.getLogger(__name__)
-
-_EXTERNAL_DATA_THRESHOLD = 100 * 1024 * 1024  # 100 MiB
 
 
 def load_onnx(
@@ -72,7 +72,7 @@ def save_onnx(
     path: str | Path,
     *,
     use_external_data: bool = True,
-    threshold_size: int = _EXTERNAL_DATA_THRESHOLD,
+    threshold_size: int = EXTERNAL_DATA_THRESHOLD,
     location: str | None = None,
 ) -> None:
     """Save an ONNX model to disk.
@@ -93,9 +93,7 @@ def save_onnx(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    has_existing_external = any(
-        uses_external_data(t) for t in _get_all_tensors(model)
-    )
+    has_existing_external = any(uses_external_data(t) for t in _get_all_tensors(model))
 
     if has_existing_external:
         save_external = True
@@ -104,7 +102,7 @@ def save_onnx(
     elif threshold_size <= 0:
         save_external = True
     else:
-        save_external = model.ByteSize() >= threshold_size
+        save_external = get_model_size(model) >= threshold_size
 
     if save_external:
         ext_location = location or f"{path.name}.data"

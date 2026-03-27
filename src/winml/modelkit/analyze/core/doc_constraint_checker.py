@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import onnx
 import pandas as pd
@@ -34,6 +33,8 @@ from ..utils.model_utils import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import onnx
 
 
@@ -54,7 +55,7 @@ class DocConstraintChecker:
     """
 
     # Mapping of checker function names to actual callable functions
-    CHECKER_FUNCTIONS: dict[str, Callable] = {
+    CHECKER_FUNCTIONS: ClassVar[dict[str, Callable]] = {
         "check_max_rank": ShapeConstraintChecker.check_max_rank,
         "check_min_rank": ShapeConstraintChecker.check_min_rank,
         "check_exact_rank": ShapeConstraintChecker.check_exact_rank,
@@ -99,10 +100,10 @@ class DocConstraintChecker:
         )
 
         if not rule_path.exists():
-            logger.warning(f"Rule file not found: {rule_path}")
+            logger.debug(f"Rule file not found: {rule_path}")
             return {}
 
-        with open(rule_path, encoding="utf-8") as f:
+        with rule_path.open(encoding="utf-8") as f:
             data = json.load(f)
 
         # Convert to DataFrames for easier querying
@@ -112,7 +113,7 @@ class DocConstraintChecker:
                 df = pd.DataFrame(op_data)
                 op_dfs[op_type] = df
                 logger.debug(f"Loaded constraints for operator: {op_type} ({len(df)} records)")
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203
                 logger.error(f"Failed to load constraints for {op_type}: {e}")
 
         return op_dfs
@@ -130,14 +131,14 @@ class DocConstraintChecker:
             )
         else:
             # For other EPs, could load different mapping files in the future
-            logger.warning(f"No operator mapping defined for {self.ep_name}")
+            logger.debug(f"No operator mapping defined for {self.ep_name}")
             return {}
 
         if not mapping_path.exists():
-            logger.warning(f"Mapping file not found: {mapping_path}")
+            logger.debug(f"Mapping file not found: {mapping_path}")
             return {}
 
-        with open(mapping_path, encoding="utf-8") as f:
+        with mapping_path.open(encoding="utf-8") as f:
             mapping_config = json.load(f)
 
         logger.debug(f"Loaded operator mapping config for {self.ep_name}")
@@ -369,9 +370,6 @@ class DocConstraintChecker:
         # Get constraints for the mapped operator
         df = self.get_op_constraints(target_op)
         if df is None or df.empty:
-            logger.warning(
-                f"No constraints found in doc DB for operator '{target_op}' (mapped from '{op_type}')"
-            )
             return PatternRuntime(
                 pattern_id=pattern_match.pattern.pattern_id,
                 result=RuntimeTestResult(
@@ -392,8 +390,12 @@ class DocConstraintChecker:
             matching_rows = df[df["dtype"] == "OTHERS"]
 
         if matching_rows.empty:
+            actual_dtype = self._get_node_actual_dtype(node)
             logger.warning(
-                f"No constraints found for operator '{target_op}' with dtype category '{dtype_category}' (actual dtype: {self._get_node_actual_dtype(node)})"
+                f"No constraints found for operator "
+                f"'{target_op}' with dtype category "
+                f"'{dtype_category}' (actual dtype: "
+                f"{actual_dtype})"
             )
             return PatternRuntime(
                 pattern_id=pattern_match.pattern.pattern_id,
@@ -415,56 +417,56 @@ class DocConstraintChecker:
         reason = row.get("reason", "")
 
         # If dtype is not supported, return immediately
-        if not compile_success and not run_success:
-            if reason == "dtype_not_supported":
-                # Get actual dtype and supported dtypes
-                actual_dtype = self._get_node_actual_dtype(node)
+        if not compile_success and not run_success and reason == "dtype_not_supported":
+            # Get actual dtype and supported dtypes
+            actual_dtype = self._get_node_actual_dtype(node)
 
-                # TODO: FLOAT dtype check temporarily skipped - will follow up
-                if actual_dtype == "FLOAT":
-                    # Skip other constraint checks for FLOAT
-                    return PatternRuntime(
-                        pattern_id=pattern_match.pattern.pattern_id,
-                        result=RuntimeTestResult(
-                            run=True,
-                            compile=True,
-                            no_data=False,
-                            reason="OK",
-                        ),
-                        alternatives=self.alternatives,
-                        pattern_match=pattern_match,
-                    )
+            # TODO: FLOAT dtype check temporarily skipped - will follow up
+            if actual_dtype == "FLOAT":
+                # Skip other constraint checks for FLOAT
+                return PatternRuntime(
+                    pattern_id=pattern_match.pattern.pattern_id,
+                    result=RuntimeTestResult(
+                        run=True,
+                        compile=True,
+                        no_data=False,
+                        reason="OK",
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
+                )
 
-                # If we didn't skip the error above, prepare error message
-                if not (compile_success and run_success):
-                    supported_dtypes_info = ""
+            # If we didn't skip the error above, prepare error message
+            if not (compile_success and run_success):
+                supported_dtypes_info = ""
 
-                    # Try to get supported dtypes from all matching rows
-                    all_supported_dtypes = set()
-                    for _, dtype_row in df.iterrows():
-                        dtype_val = dtype_row.get("dtype")
-                        if dtype_val and dtype_val != "OTHERS":
-                            compile, run = dtype_row["compile_run_success"]
-                            if compile and run:
-                                all_supported_dtypes.add(dtype_val)
+                # Try to get supported dtypes from all matching rows
+                all_supported_dtypes = set()
+                for _, dtype_row in df.iterrows():
+                    dtype_val = dtype_row.get("dtype")
+                    if dtype_val and dtype_val != "OTHERS":
+                        compile, run = dtype_row["compile_run_success"]
+                        if compile and run:
+                            all_supported_dtypes.add(dtype_val)
 
-                    if all_supported_dtypes:
-                        supported_list = ", ".join(sorted(all_supported_dtypes))
-                        supported_dtypes_info = f". Supported dtypes: {supported_list}"
+                if all_supported_dtypes:
+                    supported_list = ", ".join(sorted(all_supported_dtypes))
+                    supported_dtypes_info = f". Supported dtypes: {supported_list}"
 
-                    dtype_msg = f"Current dtype '{actual_dtype or dtype_category}' is not supported{supported_dtypes_info}"
+                dtype_val = actual_dtype or dtype_category
+                dtype_msg = f"Current dtype '{dtype_val}' is not supported{supported_dtypes_info}"
 
-                    return PatternRuntime(
-                        pattern_id=pattern_match.pattern.pattern_id,
-                        result=RuntimeTestResult(
-                            run=False,
-                            compile=False,
-                            no_data=False,
-                            reason=dtype_msg,
-                        ),
-                        alternatives=self.alternatives,
-                        pattern_match=pattern_match,
-                    )
+                return PatternRuntime(
+                    pattern_id=pattern_match.pattern.pattern_id,
+                    result=RuntimeTestResult(
+                        run=False,
+                        compile=False,
+                        no_data=False,
+                        reason=dtype_msg,
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
+                )
 
         # Execute constraint checkers
         condition_checker = row.get("condition_checker", {})
