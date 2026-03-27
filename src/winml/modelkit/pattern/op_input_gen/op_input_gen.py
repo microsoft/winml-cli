@@ -260,32 +260,23 @@ class QDQParameterConfig:
         support_weight: bool = False,
         support_activation: bool = False,
         support_non_qdq: bool = False,
-        weight_type: dtypes.SupportedONNXType | None = None,
-        activation_type: dtypes.SupportedONNXType | None = None,
+        qdq_types: list[dtypes.SupportedONNXType] | None = None,
     ):
         """Initialize QDQParameterConfig.
 
-        weight_type is not None means support_weight = True.
-        activation_type is not None means support_activation = True.
+        qdq_types, when set, specifies the exact quantization types to yield for this parameter.
+        qdq_types is yielded as a distinct combination.
         """
-        self._support_weight = support_weight
-        self._support_activation = support_activation
-        self.weight_type = weight_type
-        self.activation_type = activation_type
+        self.support_weight = support_weight
+        self.support_activation = support_activation
         self.support_non_qdq = support_non_qdq
-        assert self.support_activation or self.support_weight or self.support_non_qdq, (
-            "At least one of support_weight, support_activation, or support_non_qdq must be True"
-        )
-
-    @property
-    def support_weight(self) -> bool:
-        """Return whether weight quantization is supported."""
-        return self._support_weight or self.weight_type is not None
-
-    @property
-    def support_activation(self) -> bool:
-        """Return whether activation quantization is supported."""
-        return self._support_activation or self.activation_type is not None
+        self.qdq_types = qdq_types
+        assert (
+            self.support_activation
+            or self.support_weight
+            or self.support_non_qdq
+            or self.qdq_types is not None
+        ), "At least one of support_weight, support_activation, support_non_qdq, or qdq_types must be set"
 
 
 class OpInputGenerator(ABC):
@@ -653,13 +644,15 @@ class OpInputGenerator(ABC):
 
         # For each input in the config, collect the possible should_qdq values.
         input_names: list[str] = []
-        input_option_lists: list[list[bool]] = []
+        input_option_lists: list[list[bool | dtypes.SupportedONNXType]] = []
         for input_name, config in expanded_config.items():
             if input_name not in schema_input_names:
                 continue  # output name present in qdq_config; handled below
-            options: list[bool] = []
+            options: list[bool | dtypes.SupportedONNXType] = []
             if config.support_activation or config.support_weight:
                 options.append(True)
+            if config.qdq_types is not None:
+                options.extend(config.qdq_types)
             if config.support_non_qdq:
                 options.append(False)
             input_names.append(input_name)
@@ -1153,21 +1146,26 @@ class OpInputGenerator(ABC):
                 continue
 
             config = qdq_config[input_name]
-            # If neither weight nor activation quantization is supported, treat as
-            # pass-through: no QDQ nodes for this input regardless of is_constant.
-            if not config.support_weight and not config.support_activation:
-                continue
+            should_val = should_qdq_map.get(input_name)
 
-            if is_constant and not config.support_weight:
-                # Config doesn't support this input as weight
-                return
-            if not is_constant and not config.support_activation:
-                # Config doesn't support this input as activation
-                return
-
-            # Determine if we need to iterate over weight/activation types
-            if is_constant and config.support_weight and config.weight_type is None:
-                needs_weight_iteration = True
+            if isinstance(should_val, dtypes.SupportedONNXType):
+                # Specific type from qdq_types — always quantize with this type, skip
+                # weight/activation mode checks since the type is fully determined.
+                pass
+            else:
+                # should_val is True (from support_weight or support_activation)
+                # If neither flag is set, treat as pass-through.
+                if not config.support_weight and not config.support_activation:
+                    continue
+                if is_constant and not config.support_weight:
+                    # Config doesn't support this input as weight
+                    return
+                if not is_constant and not config.support_activation:
+                    # Config doesn't support this input as activation
+                    return
+                # Only need weight iteration when type is not already determined
+                if is_constant and config.support_weight:
+                    needs_weight_iteration = True
 
         # Step 3: Validate input types against qdq_generator.SUPPORT_DQ_OUTPUT_TYPES
         # DQ nodes output the type that the operator expects as input; the original input
@@ -1187,10 +1185,15 @@ class OpInputGenerator(ABC):
             if ta_key not in self.type_annotations:
                 raise ValueError(f"Input '{input_name}' not found in type annotations")
             config = qdq_config[input_name]
-            if not config.support_activation and not config.support_weight:
-                continue  # This input is not quantized, skip type check
-            if should_qdq_map.get(input_name) is False:
+            should_val = should_qdq_map.get(input_name)
+            if should_val is False:
                 continue  # should_qdq_map says no DQ for this input, skip type check
+            if (
+                not config.support_activation
+                and not config.support_weight
+                and not isinstance(should_val, dtypes.SupportedONNXType)
+            ):
+                continue  # This input is not quantized, skip type check
             type_template = self.type_annotations[ta_key]
             annotation = self._apply_type_var_combination(type_template, tags[self.type_vars_key])
             try:
@@ -1251,29 +1254,28 @@ class OpInputGenerator(ABC):
                         continue
 
                     config = qdq_config[input_name]
-                    if not config.support_activation and not config.support_weight:
+                    should_val = should_qdq_map.get(input_name)
+                    if (
+                        not config.support_activation
+                        and not config.support_weight
+                        and not isinstance(should_val, dtypes.SupportedONNXType)
+                    ):
                         qdq_types[input_name] = None  # Pass-through input (support_non_qdq only)
                         new_constant_map[input_name] = (
                             is_constant  # Pass-through input, keep original constant setting
                         )
                         continue
 
-                    if is_constant:
-                        # Use weight type - from config override or iteration
-                        if config.weight_type is not None:
-                            qdq_types[input_name] = config.weight_type
-                        else:
-                            qdq_types[input_name] = dtypes.SupportedONNXType.from_onnx_type(
-                                weight_onnx_type
-                            )
+                    if isinstance(should_val, dtypes.SupportedONNXType):
+                        qdq_types[input_name] = should_val
+                    elif is_constant:
+                        qdq_types[input_name] = dtypes.SupportedONNXType.from_onnx_type(
+                            weight_onnx_type
+                        )
                     else:
-                        # Use activation type - from config override or iteration
-                        if config.activation_type is not None:
-                            qdq_types[input_name] = config.activation_type
-                        else:
-                            qdq_types[input_name] = dtypes.SupportedONNXType.from_onnx_type(
-                                activation_onnx_type
-                            )
+                        qdq_types[input_name] = dtypes.SupportedONNXType.from_onnx_type(
+                            activation_onnx_type
+                        )
 
                 # Infer output types for this combination first
                 output_dtypes = self.infer_output_types(kwargs, tags)
@@ -1815,16 +1817,10 @@ class OpInputGenerator(ABC):
         weight or activation.
         - as weight: the input is from initializer
         - as activation: the input is not from initializer
-        - if the config has weight_type or activation_type, it
-          indicates the input could be quantized as that type.
-          Overwrites the default list.
-        If input names are not in the dict:
-        - if the input name is optional, then when the value is
-          actually provided, we will not generate the model
-          because we don't know what is supported
-        - if the input name is required, then we will not
-          generate the model because we don't know what is
-          supported
+        - if the config has qdq_types, it indicates the input could be quantized as those types. Overwrite the default list
+        If input names are not in the dict
+        - if the input name is optional, then when the value is actually provided, we will not generate the model because we don't know what it is supported
+        - if the input name is required, then we will not generate the model because we don't know what it is supported
         """
         return None
 

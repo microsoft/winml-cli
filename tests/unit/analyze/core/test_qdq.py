@@ -92,8 +92,7 @@ class TestQDQParameterConfig:
         assert config.support_weight is False
         assert config.support_activation is False
         assert config.support_non_qdq is True
-        assert config.weight_type is None
-        assert config.activation_type is None
+        assert config.qdq_types is None
 
     def test_support_flags(self) -> None:
         """Test support_weight and support_activation flags."""
@@ -112,23 +111,28 @@ class TestQDQParameterConfig:
         assert config_both.support_weight is True
         assert config_both.support_activation is True
 
-    def test_type_implies_support_flag(self) -> None:
-        """Test that setting type implies corresponding support flag is True."""
-        # weight_type implies support_weight=True
-        config_w = QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT8)
-        assert config_w.support_weight is True
-        assert config_w.weight_type == dtypes.SupportedONNXType.INT8
+    def test_qdq_types_field(self) -> None:
+        """Test that qdq_types stores the specified type list."""
+        # standalone qdq_types — no support_weight or support_activation needed
+        config_standalone = QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32])
+        assert config_standalone.support_weight is False
+        assert config_standalone.support_activation is False
+        assert config_standalone.qdq_types == [dtypes.SupportedONNXType.INT32]
 
-        # activation_type implies support_activation=True
-        config_a = QDQParameterConfig(activation_type=dtypes.SupportedONNXType.UINT8)
-        assert config_a.support_activation is True
-        assert config_a.activation_type == dtypes.SupportedONNXType.UINT8
-
-        # Even when explicit flag is False, type overrides it
-        config_override = QDQParameterConfig(
-            support_weight=False, weight_type=dtypes.SupportedONNXType.INT8
+        # combined with support_weight — yields both True and the specific types
+        config_w = QDQParameterConfig(
+            support_weight=True, qdq_types=[dtypes.SupportedONNXType.INT8]
         )
-        assert config_override.support_weight is True
+        assert config_w.support_weight is True
+        assert config_w.qdq_types == [dtypes.SupportedONNXType.INT8]
+
+        config_multi = QDQParameterConfig(
+            support_weight=True,
+            qdq_types=[dtypes.SupportedONNXType.INT8, dtypes.SupportedONNXType.INT32],
+        )
+        assert config_multi.qdq_types == [
+            dtypes.SupportedONNXType.INT8, dtypes.SupportedONNXType.INT32
+        ]
 
 
 class TestQDQTypeInfo:
@@ -671,53 +675,44 @@ class TestIterQDQCombinationsUnit:
         )
         assert len(first) == len(second) > 0
 
-    def test_weight_type_override_skips_weight_iteration(self, tanh_gen) -> None:
-        """A fixed weight_type yields |activation_types| models, not |weight| x |activation|."""
+    def test_qdq_types_skips_weight_iteration(self, tanh_gen) -> None:
+        """qdq_types yields |activation_types| models, not |weight| x |activation|."""
         gen = tanh_gen
         kwargs, tags = self._float_kwargs_tags(gen)
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: True}
-        qdq_config = {
-            input_name: QDQParameterConfig(
-                support_weight=True, weight_type=dtypes.SupportedONNXType.INT8
-            )
-        }
+        qdq_config = {input_name: QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT8])}
+        should_qdq = {input_name: dtypes.SupportedONNXType.INT8}
         results = list(
-            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, should_qdq, qdq_config, set())
         )
         assert len(results) == len(gen.qdq_generator.activation_onnx_types)
 
-    def test_weight_type_override_sets_correct_type_in_tags(self, tanh_gen) -> None:
-        """A fixed weight_type override appears verbatim in qdq_types for every yielded model."""
+    def test_qdq_types_sets_correct_weight_type_in_tags(self, tanh_gen) -> None:
+        """qdq_types for a constant input appears verbatim in qdq_types tags."""
         gen = tanh_gen
         kwargs, tags = self._float_kwargs_tags(gen)
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: True}
-        qdq_config = {
-            input_name: QDQParameterConfig(
-                support_weight=True, weight_type=dtypes.SupportedONNXType.INT8
-            )
-        }
+        qdq_config = {input_name: QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT8])}
+        should_qdq = {input_name: dtypes.SupportedONNXType.INT8}
         results = list(
-            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, should_qdq, qdq_config, set())
         )
         assert len(results) > 0
         for _, final_tags in results:
             assert final_tags["qdq_types"][input_name] == dtypes.SupportedONNXType.INT8.annotation
 
-    def test_activation_type_override_sets_correct_type_in_tags(self, tanh_gen) -> None:
-        """A fixed activation_type override appears verbatim in qdq_types for every model."""
+    def test_qdq_types_sets_correct_activation_type_in_tags(self, tanh_gen) -> None:
+        """qdq_types for a non-constant input appears verbatim in qdq_types tags."""
         gen = tanh_gen
         kwargs, tags = self._float_kwargs_tags(gen)
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
-        qdq_config = {
-            input_name: QDQParameterConfig(
-                support_activation=True, activation_type=dtypes.SupportedONNXType.UINT8
-            )
-        }
+        qdq_config = {input_name: QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.UINT8])}
+        should_qdq = {input_name: dtypes.SupportedONNXType.UINT8}
         results = list(
-            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, should_qdq, qdq_config, set())
         )
         assert len(results) > 0
         for _, final_tags in results:
