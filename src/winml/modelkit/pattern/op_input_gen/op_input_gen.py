@@ -157,6 +157,14 @@ class InputValueConstraint(InputConstraint):
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
         if isinstance(self.value, np.ndarray):
+            flat = self.value.ravel()
+            if flat.size > 0 and np.all(flat == flat[0]):
+                return {
+                    "type": "value",
+                    "same_value": flat[0].item(),
+                    "same_value_shape": list(self.value.shape),
+                    "dtype": str(self.value.dtype),
+                }
             return {
                 "type": "value",
                 "value": self.value.tolist(),  # Nested list structure reflects shape

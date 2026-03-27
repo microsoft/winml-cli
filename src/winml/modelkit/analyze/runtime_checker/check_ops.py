@@ -44,6 +44,27 @@ from .ep_checker import EPChecker
 winml.register_execution_providers(ort=True)
 
 
+def _normalize_constraint_dict(c: dict) -> dict:
+    """Expand same_value/same_value_shape back to the canonical value list form.
+
+    This keeps signatures stable regardless of which to_dict() representation
+    was used (compact same_value form vs full value list).
+    """
+    if "same_value" in c and "same_value_shape" in c:
+        normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
+        normalized["value"] = np.full(c["same_value_shape"], c["same_value"]).tolist()
+        return normalized
+    return c
+
+
+def _normalize_input_constraints(constraints: dict) -> dict:
+    """Normalize all constraint dicts within input_constraints for stable hashing."""
+    return {
+        k: _normalize_constraint_dict(v) if isinstance(v, dict) else v
+        for k, v in constraints.items()
+    }
+
+
 def _compute_case_signature(case: dict, *, namespace: str) -> str:
     """Compute a signature for a test case based on its content.
 
@@ -95,7 +116,7 @@ def _compute_case_signature(case: dict, *, namespace: str) -> str:
 
     # Input constraints (shapes/values)
     if "input_constraints" in case:
-        constraints = case["input_constraints"]
+        constraints = _normalize_input_constraints(case["input_constraints"])
         sig_parts.append(f"inputs:{_safe_dump(constraints)}")
 
     # Input is constant flags
