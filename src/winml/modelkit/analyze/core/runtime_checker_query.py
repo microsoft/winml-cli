@@ -2087,9 +2087,11 @@ class RuntimeCheckerQuery:
 
                         if run_unknown_op:
                             # Fallback to per-node check
-                            return self._run_for_subgraph_per_node(
+                            local_result =  self._run_for_subgraph_per_node(
                                 pattern_match, pattern_name, run_unknown_op
                             )
+                            if local_result is not None:
+                                return local_result
 
                         return PatternRuntime(
                             pattern_id=pattern_id,
@@ -2110,9 +2112,11 @@ class RuntimeCheckerQuery:
                 else:
                     # No table data — fallback to per-node check if allowed
                     if run_unknown_op:
-                        return self._run_for_subgraph_per_node(
+                        local_result = self._run_for_subgraph_per_node(
                             pattern_match, pattern_name, run_unknown_op
                         )
+                        if local_result is not None:
+                            return local_result
 
                     return PatternRuntime(
                         pattern_id=pattern_id,

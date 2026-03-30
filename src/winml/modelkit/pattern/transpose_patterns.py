@@ -371,7 +371,7 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
 
     def get_infinite_property_names(self) -> list[str]:
         """Return names of properties with infinite possible values."""
-        return ["attr_transpose_shape", "attr_output_shape"]
+        return ["attr_transpose_shape", "attr_output_shape", "attr_perm", "data_shape"]
 
 
 @register_pattern_input_generator
