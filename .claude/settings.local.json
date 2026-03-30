@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(python scripts/e2e_eval/run_eval.py --registry scripts/e2e_eval/testsets/models_P0.json --list)",
+      "Bash(.venv/Scripts/python.exe -c \"import modelkit\")",
+      "Bash(.venv/Scripts/pip show:*)",
+      "Bash(.venv/Scripts/pip list:*)",
+      "Bash(python -c \"import winml.modelkit.cli\")",
+      "Bash(python -m winml.modelkit.cli --help)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\); import winml\")",
+      "Bash(.venv/Scripts/python.exe -m pip show winml-modelkit)",
+      "Bash(.venv/Scripts/python.exe -c \"import winml.modelkit.cli\")",
+      "Bash(.venv/Scripts/python.exe scripts/e2e_eval/run_eval.py --hf-model microsoft/resnet-50 --task image-classification)"
+    ]
+  }
+}
