@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 
 logger = logging.getLogger(__name__)
@@ -55,14 +56,14 @@ _pdh = ctypes.windll.pdh
 # PDH structure definitions
 # ---------------------------------------------------------------------------
 class _PdhFmtDouble(ctypes.Structure):
-    _fields_ = [
+    _fields_: ClassVar = [
         ("CStatus", wintypes.DWORD),
         ("doubleValue", ctypes.c_double),
     ]
 
 
 class _PdhFmtLarge(ctypes.Structure):
-    _fields_ = [
+    _fields_: ClassVar = [
         ("CStatus", wintypes.DWORD),
         ("_padding", wintypes.DWORD),
         ("largeValue", ctypes.c_longlong),
@@ -134,14 +135,10 @@ class PdhQuery:
         """
         pdh_fmt = _PDH_FMT_DOUBLE if fmt == "double" else _PDH_FMT_LARGE
         entry = _CounterEntry(name=name, path=path, fmt=pdh_fmt)
-        status = _pdh.PdhAddEnglishCounterW(
-            self._query, path, 0, ctypes.byref(entry.handle)
-        )
+        status = _pdh.PdhAddEnglishCounterW(self._query, path, 0, ctypes.byref(entry.handle))
         entry.registered = _pdh_ok(status)
         if not entry.registered:
-            logger.debug(
-                "Counter '%s' registration failed: 0x%08X", name, status & 0xFFFFFFFF
-            )
+            logger.debug("Counter '%s' registration failed: 0x%08X", name, status & 0xFFFFFFFF)
         self._counters.append(entry)
         return entry.registered
 
@@ -184,9 +181,7 @@ class PdhQuery:
                 s = _pdh.PdhGetFormattedCounterValue(
                     entry.handle, _PDH_FMT_LARGE, ctypes.byref(ct), ctypes.byref(val)
                 )
-                values[entry.name] = (
-                    val.largeValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
-                )
+                values[entry.name] = val.largeValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
 
         return values
 
@@ -488,10 +483,7 @@ class PdhPoller:
     def memory_samples_mb(self) -> list[float]:
         """All local memory samples in MB (time series copy)."""
         with self._lock:
-            return [
-                b / (1024 * 1024) if b is not None else 0.0
-                for b in self._memory_local_bytes
-            ]
+            return [b / (1024 * 1024) if b is not None else 0.0 for b in self._memory_local_bytes]
 
     @property
     def is_active(self) -> bool:
