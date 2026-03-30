@@ -199,21 +199,19 @@ class TestWinMLSessionProviders:
         assert "CPUExecutionProvider" in providers
 
     def test_winml_registry_ep_discovery(self):
-        """Test that WinMLEPRegistry can discover EPs (may be empty without WinML SDK)."""
-        try:
-            registry = WinMLEPRegistry.get_instance()
-        except Exception:
-            pytest.skip("WinMLEPRegistry initialization failed (WinML SDK not available)")
+        """Test that WinMLEPRegistry can discover EPs when WinML SDK is present."""
+        registry = WinMLEPRegistry.get_instance()
 
         # Registry should be accessible
         assert registry is not None
 
-        # winml_available indicates if WinML SDK is present
-        # This may be False without WinML SDK installed
-        if registry.winml_available:
-            eps = registry.get_available_eps()
-            # If WinML is available, should have at least one EP
-            assert len(eps) > 0, "WinML available but no EPs discovered"
+        # Skip if WinML SDK is not available on this environment
+        if not registry.winml_available:
+            pytest.skip("WinML SDK not available")
+
+        eps = registry.get_available_eps()
+        # If WinML is available, should have at least one EP
+        assert len(eps) > 0, "WinML available but no EPs discovered"
 
 
 class TestWinMLSessionInference:
