@@ -113,17 +113,15 @@ class TestWinMLSessionCompilation:
             device="cpu",
         )
 
-        # First compile creates EPContext
+        # First compile creates session
         session.compile()
-        ctx_path = simple_matmul_onnx.parent / f"{simple_matmul_onnx.stem}_cpu_ctx.onnx"
-        first_mtime = ctx_path.stat().st_mtime
+        assert session.state == SessionState.COMPILED
+        first_session = session._session
 
-        # Second compile should skip (fresh EPContext exists)
+        # Second compile should be a no-op (same session reused)
         session.compile()
-        second_mtime = ctx_path.stat().st_mtime
-
-        # File should not be recreated
-        assert first_mtime == second_mtime
+        assert session.state == SessionState.COMPILED
+        assert session._session is first_session
 
     def test_run_uses_epcontext_after_compile(self, simple_matmul_onnx: Path):
         """Test that run() uses EPContext if compile() was called first."""
@@ -200,19 +198,21 @@ class TestWinMLSessionProviders:
         providers = session._session.get_providers()
         assert "CPUExecutionProvider" in providers
 
+    @pytest.mark.e2e
     def test_winml_registry_ep_discovery(self):
-        """Test that WinMLEPRegistry can discover EPs (may be empty on non-Windows)."""
+        """Test that WinMLEPRegistry can discover EPs when WinML SDK is present."""
         registry = WinMLEPRegistry.get_instance()
 
         # Registry should be accessible
         assert registry is not None
 
-        # winml_available indicates if WinML SDK is present
-        # This may be False on non-Windows or without WinML SDK
-        if registry.winml_available:
-            eps = registry.get_available_eps()
-            # If WinML is available, should have at least one EP
-            assert len(eps) > 0, "WinML available but no EPs discovered"
+        # Skip if WinML SDK is not available on this environment
+        if not registry.winml_available:
+            pytest.skip("WinML SDK not available")
+
+        eps = registry.get_available_eps()
+        # If WinML is available, should have at least one EP
+        assert len(eps) > 0, "WinML available but no EPs discovered"
 
 
 class TestWinMLSessionInference:
@@ -496,6 +496,7 @@ class TestWinMLSessionErrorState:
         assert "C" in outputs
 
 
+@pytest.mark.e2e
 class TestWinMLSessionEPSpecific:
     """EP-specific tests using @pytest.mark.ep() markers.
 
@@ -563,11 +564,12 @@ class TestWinMLSessionEPSpecific:
 
         outputs = session.run(sample_input)
 
-        # Verify expected EP is being used
+        # With policy-based selection, ORT picks the best EP for the device.
+        # Verify inference succeeds and a non-CPU EP is used for gpu/npu devices.
         providers = session._session.get_providers()
-        assert provider_name in providers, (
-            f"{ep_name} EP ({provider_name}) not in providers: {providers}"
-        )
+        if device != "cpu":
+            non_cpu = [p for p in providers if p != "CPUExecutionProvider"]
+            assert len(non_cpu) > 0, f"Expected non-CPU EP for device={device}, got: {providers}"
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
 

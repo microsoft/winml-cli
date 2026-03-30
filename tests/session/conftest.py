@@ -29,8 +29,6 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.session.ep_registry import get_ort_available_providers
-
 
 # =============================================================================
 # EP MARKERS - Skip tests if required EP is not available
@@ -84,8 +82,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         available_providers = {d.ep_name for d in ort.get_ep_devices()}
     except Exception:
         available_providers = set()
-    # Supplement with static ORT providers (e.g., CPUExecutionProvider, DmlExecutionProvider)
-    available_providers |= set(get_ort_available_providers(use_winml=False))
+    # Only add CPUExecutionProvider as guaranteed fallback.
+    # Do NOT add all ORT providers here — get_ort_available_providers() returns
+    # library-present EPs (e.g., DmlExecutionProvider) even without hardware.
+    available_providers.add("CPUExecutionProvider")
 
     for item in items_with_ep_markers:
         for marker in item.iter_markers(name="ep"):
