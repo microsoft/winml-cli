@@ -24,14 +24,15 @@ jobs:
           - group: optim
             paths: tests/optim tests/optracing
           - group: models
-            paths: tests/models tests/loader
+            paths: tests/models tests/loader tests/dataset_tests
           - group: commands
-            paths: tests/commands tests/config tests/build tests/compiler
+            paths: tests/commands tests/config tests/build tests/compiler tests/session
+          - group: eval-export
+            paths: tests/export tests/eval
           - group: remaining
             paths: >-
-              tests/export tests/eval tests/session tests/cache
-              tests/dataset_tests tests/core tests/utils tests/sysinfo
-              tests/regression tests/onnx tests/inspect
+              tests/core tests/onnx tests/cache tests/utils tests/sysinfo
+              tests/inspect tests/regression
               tests/test_cli.py tests/test_text_classification.py
 
     name: test (${{ matrix.group }})
