@@ -108,7 +108,7 @@ console = Console()
     "--shape-config",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help="JSON with shape overrides (e.g., {\"sequence_length\": 2048, \"height\": 640}).",
+    help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
 @click.pass_context
 def export(
@@ -177,9 +177,6 @@ def export(
     # Configure logging based on verbose flag
     if verbose:
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
-    else:
-        # Suppress INFO messages when not verbose
-        logging.getLogger().setLevel(logging.WARNING)
 
     # Show export info
     console.print(f"[bold blue]Model:[/bold blue] {model}")
@@ -250,20 +247,19 @@ def export(
             from ..export.config import resolve_export_config as resolve_cfg
 
             auto_export_cfg, _ = resolve_cfg(
-                model_id=model, task=task,
+                model_id=model,
+                task=task,
                 shape_config=shape_overrides,
             )
             if auto_export_cfg.input_tensors:
                 input_tensors = auto_export_cfg.input_tensors
                 console.print(
-                    f"[dim]Auto-resolved input specs: "
-                    f"{[t.name for t in input_tensors]}[/dim]"
+                    f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
                 )
             if auto_export_cfg.output_tensors:
                 output_tensors = auto_export_cfg.output_tensors
                 console.print(
-                    f"[dim]Auto-resolved output specs: "
-                    f"{[t.name for t in output_tensors]}[/dim]"
+                    f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
                 )
         except Exception as e:
             logger.debug("I/O tensor auto-resolution failed: %s", e)

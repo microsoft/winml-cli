@@ -33,14 +33,14 @@ class TestLoadClassFromScript:
         """Test error when script is not a .py file."""
         script = tmp_path / "script.txt"
         script.write_text("# not python")
-        with pytest.raises(ValueError, match=".py file"):
+        with pytest.raises(ValueError, match=r".py file"):
             _load_class_from_script(str(script), "SomeClass")
 
     def test_class_not_found(self, tmp_path):
         """Test error when class not found in script."""
         script = tmp_path / "empty.py"
         script.write_text("# Empty script\nsome_var = 123")
-        with pytest.raises(AttributeError, match="WrongClassName.*not found"):
+        with pytest.raises(AttributeError, match=r"WrongClassName.*not found"):
             _load_class_from_script(str(script), "WrongClassName")
 
     def test_not_a_class(self, tmp_path):
@@ -139,7 +139,7 @@ class CustomResNet(ResNetForImageClassification):
 '''
         )
 
-        model, config, task = load_hf_model(
+        model, _config, _task = load_hf_model(
             "microsoft/resnet-18",  # Use smaller model for faster test
             task="image-classification",
             model_class="CustomResNet",
@@ -173,7 +173,7 @@ class TestModelArchitectureOverride:
     def test_model_class_override_basic(self):
         """Test explicit model_class overrides auto-detection."""
         # Use a simple model for faster testing
-        model, config, task = load_hf_model(
+        model, _config, _task = load_hf_model(
             "microsoft/resnet-18",
             task="image-classification",
             model_class="AutoModelForImageClassification",
@@ -205,9 +205,7 @@ class TestModelArchitectureOverrideFast:
         resolve_calls = []
 
         def mock_resolve(config, task=None, model_class=None):
-            resolve_calls.append(
-                {"task": task, "model_class": model_class}
-            )
+            resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "MockModel"
             return "image-classification", mock_class
@@ -247,9 +245,7 @@ class TestModelArchitectureOverrideFast:
         resolve_calls = []
 
         def mock_resolve(config, task=None, model_class=None):
-            resolve_calls.append(
-                {"task": task, "model_class": model_class}
-            )
+            resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "AutoDetectedModel"
             return "image-classification", mock_class
@@ -359,7 +355,7 @@ class TestCLIPModelArchitectureOverride:
         Uses image-feature-extraction task with explicit model_class
         to get CLIPVisionModelWithProjection instead of default CLIPModel.
         """
-        model, config, task = load_hf_model(
+        model, _config, task = load_hf_model(
             "openai/clip-vit-base-patch32",
             task="feature-extraction",
             model_class="CLIPVisionModelWithProjection",
@@ -370,7 +366,7 @@ class TestCLIPModelArchitectureOverride:
 
     def test_load_clip_text_with_projection(self):
         """Test loading CLIPTextModelWithProjection with model_class override."""
-        model, config, task = load_hf_model(
+        model, _config, task = load_hf_model(
             "openai/clip-vit-base-patch32",
             task="feature-extraction",
             model_class="CLIPTextModelWithProjection",
@@ -412,7 +408,7 @@ class NSPModel(BertForNextSentencePrediction):
         )
 
         # Use a tiny BERT model for fast testing
-        model, config, task = load_hf_model(
+        model, _config, _task = load_hf_model(
             "prajjwal1/bert-tiny",
             task="fill-mask",  # Use a supported task for detection
             model_class="NSPModel",

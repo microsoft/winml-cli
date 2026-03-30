@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .configs import WinMLCompileConfig
 from .context import CompileContext
 from .result import CompileResult
 
@@ -22,12 +21,15 @@ DEVICE_COMPILER_MAPPING: dict[str | None, list[str]] = {
     None: ["ort"],
 }
 
+
 def list_compilers(device: str) -> str:
     """Return available compilers for a device as a comma-separated string."""
     compilers = DEVICE_COMPILER_MAPPING.get(device, DEVICE_COMPILER_MAPPING[None])
     return ", ".join(compilers)
 
+
 if TYPE_CHECKING:
+    from .configs import WinMLCompileConfig
     from .stages.base import BaseStage
 
 

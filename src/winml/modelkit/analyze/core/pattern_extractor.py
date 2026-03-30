@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, TypedDict
 
-from winml.modelkit.pattern.base import InvalidPatternMatcherModelException, PatternMatcher
+from winml.modelkit.pattern.base import InvalidPatternMatcherModelError, PatternMatcher
 from winml.modelkit.pattern.config import UnifiedPatternConfig
 
 from ..models.onnx_model import ONNXModel
@@ -250,10 +250,10 @@ class PatternExtractor:
         # Get model proto for PatternMatcher
         model_proto = self._model.get_model()
 
-        # Create PatternMatcher instance - may raise InvalidPatternMatcherModelException
+        # Create PatternMatcher instance - may raise InvalidPatternMatcherModelError
         try:
             matcher = PatternMatcher(model_proto)
-        except InvalidPatternMatcherModelException as e:
+        except InvalidPatternMatcherModelError as e:
             # Model is invalid for pattern matching (e.g., nodes with empty names)
             logger.warning("Model validation failed for pattern matching: %s", str(e))
             # Mark model with the exception's associated tag and error message

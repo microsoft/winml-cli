@@ -15,12 +15,12 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import onnx
-
 from .registry import auto_enable_dependencies
 
 
 if TYPE_CHECKING:
+    import onnx
+
     from .pipes.base import BasePipe
 
 # Configure module logger
@@ -182,4 +182,3 @@ class Optimizer:
                 result[python_name] = value
 
         return result
-

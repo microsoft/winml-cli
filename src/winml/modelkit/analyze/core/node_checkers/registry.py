@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 from collections.abc import Callable
-from typing import TypeVar
+from typing import ClassVar, TypeVar
 
 from .base import NodeChecker
 
@@ -17,7 +17,7 @@ class NodeCheckerRegistry:
     Enables decorator-based registration of custom checker classes.
     """
 
-    _checkers: dict[str, type[NodeChecker]] = {}
+    _checkers: ClassVar[dict[str, type[NodeChecker]]] = {}
 
     @classmethod
     def register_checker(cls, name: str | None = None) -> Callable[[T], T]:

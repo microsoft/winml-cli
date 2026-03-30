@@ -10,6 +10,7 @@ Provides recursive merge functionality for dataclasses and dict-like configs.
 from __future__ import annotations
 
 import dataclasses
+import typing
 from typing import Any, TypeVar
 
 
@@ -120,17 +121,35 @@ def _merge_dataclass(base: T, overrides: dict[str, Any]) -> T:
 
 
 def _get_field_type(obj: Any, field_name: str) -> type | None:
-    """Get the type annotation for a dataclass field."""
+    """Get the type annotation for a dataclass field.
+
+    Handles both runtime type objects and PEP 563 string annotations
+    (from ``from __future__ import annotations``).
+    """
     if not dataclasses.is_dataclass(obj):
         return None
-    for f in dataclasses.fields(obj):
-        if f.name == field_name:
-            # Handle Optional[X] -> X
-            origin = getattr(f.type, "__origin__", None)
-            if origin is type(None) or str(origin) == "typing.Union":
-                args = getattr(f.type, "__args__", ())
-                for arg in args:
-                    if arg is not type(None):
-                        return arg  # type: ignore[return-value]
-            return f.type if isinstance(f.type, type) else None
-    return None
+
+    # Resolve string annotations to actual types
+    try:
+        hints = typing.get_type_hints(type(obj))
+    except (NameError, AttributeError):
+        hints = {}
+
+    resolved = hints.get(field_name)
+    if resolved is None:
+        # Fallback to raw field.type if get_type_hints fails
+        for f in dataclasses.fields(obj):
+            if f.name == field_name:
+                resolved = f.type
+                break
+        if resolved is None:
+            return None
+
+    # Handle Optional[X] / X | None / Union[X, None] -> X
+    args = getattr(resolved, "__args__", ())
+    if args and type(None) in args:
+        # It's an Optional/Union with None — extract the non-None type
+        for arg in args:
+            if arg is not type(None):
+                return arg  # type: ignore[return-value]
+    return resolved if isinstance(resolved, type) else None

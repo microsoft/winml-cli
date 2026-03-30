@@ -20,19 +20,22 @@ import numpy as np
 from onnx.defs import OpSchema
 
 from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
-from winml.modelkit.pattern.utils import get_attribute_proto_value
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
     PatternMatchResult,
-    PatternMismatchedException,
+    PatternMismatchedError,
     PatternSchema,
     Skeleton,
     SkeletonMatchResult,
     register_pattern_input_generator,
 )
-from winml.modelkit.pattern.utils import get_tensor_shape, validate_scale_bias_shape_for_axis
+from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
+from winml.modelkit.pattern.utils import (
+    get_attribute_proto_value,
+    get_tensor_shape,
+    validate_scale_bias_shape_for_axis,
+)
 
 
 def _validate_layernorm_scale_bias(
@@ -65,9 +68,7 @@ def _validate_layernorm_scale_bias(
         return False
 
     bias_shape = get_tensor_shape(bias_tensor, matcher)
-    return bias_shape is None or validate_scale_bias_shape_for_axis(
-        bias_shape, input_shape, axis
-    )
+    return bias_shape is None or validate_scale_bias_shape_for_axis(bias_shape, input_shape, axis)
 
 
 # Shared schema for LayerNormalization patterns
@@ -238,10 +239,10 @@ class _LayerNormalizationExpandedPatternBase(LayerNormalizationPatternBase):
         reducemean_node = nodes[0]
         if opset_version >= 18:
             if len(reducemean_node.input) < 2:
-                raise PatternMismatchedException("ReduceMean missing axes input")
+                raise PatternMismatchedError("ReduceMean missing axes input")
             axes_tensor = reducemean_node.input[1]
             if axes_tensor not in matcher.tensor_values:
-                raise PatternMismatchedException(f"Axes tensor {axes_tensor} not found")
+                raise PatternMismatchedError(f"Axes tensor {axes_tensor} not found")
             axes_value = matcher.tensor_values[axes_tensor]
         else:
             axes_value = None
@@ -250,20 +251,20 @@ class _LayerNormalizationExpandedPatternBase(LayerNormalizationPatternBase):
                     axes_value = np.array(list(attr.ints), dtype=np.int64)
                     break
             if axes_value is None:
-                raise PatternMismatchedException("ReduceMean missing axes attribute")
+                raise PatternMismatchedError("ReduceMean missing axes attribute")
 
         if len(axes_value) != 1:
-            raise PatternMismatchedException(
+            raise PatternMismatchedError(
                 f"Only single-axis normalization supported, got axes={axes_value}"
             )
         axis = int(axes_value[0])
 
         epsilon_node = nodes[4]
         if len(epsilon_node.input) < 2:
-            raise PatternMismatchedException("Epsilon node has fewer than 2 inputs")
+            raise PatternMismatchedError("Epsilon node has fewer than 2 inputs")
         epsilon_tensor = epsilon_node.input[1]
         if epsilon_tensor not in matcher.tensor_values:
-            raise PatternMismatchedException(f"Epsilon tensor {epsilon_tensor} not found")
+            raise PatternMismatchedError(f"Epsilon tensor {epsilon_tensor} not found")
         epsilon_value = float(matcher.tensor_values[epsilon_tensor].flat[0])
 
         return {"axis": axis, "epsilon": epsilon_value}
@@ -470,7 +471,7 @@ class TransposedSingleLayerNormalizationPattern(LayerNormalizationPatternBase):
                 perm_forward = list(attr.ints)
                 break
         if perm_forward is None:
-            raise PatternMismatchedException("Transpose missing perm attribute")
+            raise PatternMismatchedError("Transpose missing perm attribute")
 
         # Infer original axis: the position that was moved to -1
         # perm_forward[-1] tells us which original axis is now at the end
@@ -484,13 +485,11 @@ class TransposedSingleLayerNormalizationPattern(LayerNormalizationPatternBase):
                 epsilon = get_attribute_proto_value(attr, replace_float_with_dummy=False)
                 break
         if epsilon is None:
-            raise PatternMismatchedException("LayerNormalization missing epsilon")
+            raise PatternMismatchedError("LayerNormalization missing epsilon")
 
         return {"axis": axis, "epsilon": epsilon}
 
-    def _get_normalized_dim(
-        self, inputs: dict[str, np.ndarray], attributes: dict[str, Any]
-    ) -> int:
+    def _get_normalized_dim(self, inputs: dict[str, np.ndarray], attributes: dict[str, Any]) -> int:
         """Get the size of the dimension being normalized."""
         x_shape = inputs["X"].shape
         axis = attributes["axis"]

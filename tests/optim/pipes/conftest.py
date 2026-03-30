@@ -51,21 +51,15 @@ def build_causal_mask_model(
         ONNX model with causal mask pattern
     """
     # Build causal mask (lower triangular with zeros, upper with mask_value)
-    causal_mask_values = np.triu(
-        np.full((seq_len, seq_len), mask_value, dtype=np.float32), k=1
-    )
+    causal_mask_values = np.triu(np.full((seq_len, seq_len), mask_value, dtype=np.float32), k=1)
     causal_mask_values = causal_mask_values.reshape(1, 1, seq_len, seq_len)
 
     # Initializers
     causal_mask_init = numpy_helper.from_array(causal_mask_values, "causal_mask.1")
-    mask_value_init = numpy_helper.from_array(
-        np.array(mask_value, dtype=np.float32), "mask_value"
-    )
+    mask_value_init = numpy_helper.from_array(np.array(mask_value, dtype=np.float32), "mask_value")
 
     # Input/Output
-    input_tensor = helper.make_tensor_value_info(
-        "attention_mask", TensorProto.INT64, [1, seq_len]
-    )
+    input_tensor = helper.make_tensor_value_info("attention_mask", TensorProto.INT64, [1, seq_len])
     output_tensor = helper.make_tensor_value_info(
         "causal_mask", TensorProto.FLOAT, [1, 1, seq_len, seq_len]
     )
@@ -121,8 +115,7 @@ def build_causal_mask_model(
         initializer=[causal_mask_init, mask_value_init],
     )
 
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
-    return model
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
 def build_model_with_normal_constants() -> onnx.ModelProto:
@@ -145,8 +138,7 @@ def build_model_with_normal_constants() -> onnx.ModelProto:
         initializer=[normal_const],
     )
 
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
-    return model
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
 # =============================================================================

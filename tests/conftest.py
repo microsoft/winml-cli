@@ -10,7 +10,6 @@ Fixtures are organized by scope for optimal performance.
 
 from __future__ import annotations
 
-import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -55,9 +54,7 @@ def ort_optimized_model(ort_original_model: onnx.ModelProto) -> onnx.ModelProto:
         sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
         sess_opts.optimized_model_filepath = str(output_path)
 
-        _ = ort.InferenceSession(
-            str(input_path), sess_opts, providers=["CPUExecutionProvider"]
-        )
+        _ = ort.InferenceSession(str(input_path), sess_opts, providers=["CPUExecutionProvider"])
 
         return onnx.load(str(output_path))
 
@@ -74,8 +71,7 @@ def ort_model_inputs(ort_original_model: onnx.ModelProto) -> dict[str, np.ndarra
             continue
 
         shape = [
-            dim.dim_value if dim.dim_value > 0 else 1
-            for dim in inp.type.tensor_type.shape.dim
+            dim.dim_value if dim.dim_value > 0 else 1 for dim in inp.type.tensor_type.shape.dim
         ]
 
         dtype = inp.type.tensor_type.elem_type

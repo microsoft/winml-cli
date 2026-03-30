@@ -34,12 +34,12 @@ class LintResult:
     """Lint-style result summarizing errors, warnings, and informational items.
 
     Attributes:
-        errors: Count of BLACK patterns (blocking errors)
-        warnings: Count of GRAY patterns (warnings/optimization opportunities)
+        errors: Count of unsupported patterns (blocking errors)
+        warnings: Count of partial patterns (warnings/optimization opportunities)
         info: Count of information items
         passed: True if no errors and no warnings exist (errors == 0 and warnings == 0)
-        error_patterns: List of BLACK pattern IDs (blocking errors)
-        warning_patterns: List of GRAY pattern IDs (warnings/optimizations)
+        error_patterns: List of unsupported pattern IDs (blocking errors)
+        warning_patterns: List of partial pattern IDs (warnings/optimizations)
         information: List of information items
         optimization_config: WinML optimization configuration based on detected patterns
     """
@@ -88,7 +88,7 @@ class AnalysisResult:
                 If None, checks if all EPs in results are fully supported.
 
         Returns:
-            bool: True if all operators are WHITE (fully supported)
+            bool: True if all operators are supported (fully supported)
 
         Example:
             >>> result = analyzer.analyze(
@@ -122,14 +122,14 @@ class AnalysisResult:
         return found_target
 
     def has_errors(self, ep: str | None = None) -> bool:
-        """Check if there are any BLACK patterns (blocking errors).
+        """Check if there are any unsupported patterns (blocking errors).
 
         Args:
             ep: Optional execution provider to filter by (e.g., "QNNExecutionProvider").
                 If None, checks if any EP in results has errors.
 
         Returns:
-            bool: True if BLACK patterns exist (model has blocking errors)
+            bool: True if unsupported patterns exist (model has blocking errors)
 
         Example:
             >>> result = analyzer.analyze(
@@ -155,14 +155,14 @@ class AnalysisResult:
         return False
 
     def has_warnings(self, ep: str | None = None) -> bool:
-        """Check if there are any GRAY patterns (warnings/optimization opportunities).
+        """Check if there are any partial patterns (warnings/optimization opportunities).
 
         Args:
             ep: Optional execution provider to filter by (e.g., "QNNExecutionProvider").
                 If None, checks if any EP in results has warnings.
 
         Returns:
-            bool: True if GRAY patterns exist (model has warnings)
+            bool: True if partial patterns exist (model has warnings)
 
         Example:
             >>> result = analyzer.analyze(
@@ -237,10 +237,10 @@ class AnalysisResult:
             if ep_normalized and ep_support.ep_type != ep_normalized:
                 continue
 
-            # Collect BLACK patterns (errors)
+            # Collect unsupported patterns (errors)
             error_patterns.extend(ep_support.classification.get(SupportLevel.UNSUPPORTED, []))
 
-            # Collect GRAY patterns (warnings)
+            # Collect partial patterns (warnings)
             warning_patterns.extend(ep_support.classification.get(SupportLevel.PARTIAL, []))
 
             # Collect information items
@@ -311,7 +311,7 @@ class AnalysisResult:
                 If None, returns actions for all EPs in results (deduplicated).
 
         Returns:
-            list[Action]: List of actions for BLACK or GRAY classified patterns.
+            list[Action]: List of actions for unsupported or partial classified patterns.
                          When ep=None, actions are deduplicated by pattern_from_id and
                          pattern_to_id.
 
@@ -698,9 +698,15 @@ class ONNXStaticAnalyzer:
                 model=onnx_model,
                 patterns=pattern_matches,
             )
+            # TODO: add VitisAIExecutionProvider back once non-QDQ
+            # data is ready, and run_unknown_op is supported for QDQ ops
+            run_unknown_op_for_ep = run_unknown_op
+            if current_ep == "VitisAIExecutionProvider":
+                run_unknown_op_for_ep = False
+
             runtime_summary = runtime_checker.summary(
                 patterns=pattern_matches,
-                run_unknown_op=run_unknown_op,
+                run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
             )
 
@@ -761,7 +767,7 @@ class AnalyzeResult:
 
     @property
     def has_errors(self) -> bool:
-        """True if blocking errors (BLACK patterns) exist."""
+        """True if blocking errors (unsupported patterns) exist."""
         return self.lint.errors > 0
 
     @property

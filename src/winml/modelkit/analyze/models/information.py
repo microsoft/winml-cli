@@ -28,12 +28,12 @@ class ActionItem(BaseModel):
     """Represents a specific transformation or optimization step.
 
     Attributes:
-        type: Type of transformation (e.g., OrtTransformersOptimization)
+        type: Type of transformation (e.g., OrtTransformersOptimization, ModelRewrite)
         optimization_options: Configuration options for the transformation
     """
 
     type: str = Field(
-        ..., description="Type of transformation or optimizatio, e.g. Olive pass name"
+        ..., description="Type of transformation or optimization, e.g. Olive pass name"
     )
     optimization_options: dict[str, object] | None = Field(
         default=None, description="Configuration options"

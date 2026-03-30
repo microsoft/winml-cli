@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
-import onnx
 import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
@@ -25,6 +24,8 @@ from .stats import PerfStats
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    import onnx
 
     from ..compiler.configs import EPConfig
 
@@ -390,17 +391,17 @@ class WinMLSession:
                 matched = self._find_ep_device(target_name)
                 if matched:
                     opts = ort.SessionOptions()
-                    opts.add_provider_for_devices(
-                        [matched], self._provider_options
-                    )
+                    opts.add_provider_for_devices([matched], self._provider_options)
                     logger.info(
-                        "Explicit EP: %s (%s)", self._ep, target_name,
+                        "Explicit EP: %s (%s)",
+                        self._ep,
+                        target_name,
                     )
                     return opts
                 logger.warning(
-                    "EP '%s' (%s) not found in available devices; "
-                    "falling back to policy",
-                    self._ep, target_name,
+                    "EP '%s' (%s) not found in available devices; falling back to policy",
+                    self._ep,
+                    target_name,
                 )
 
         # Policy-based selection (default path)
@@ -461,9 +462,7 @@ class WinMLSession:
         """
         # Build dtype map from io_config
         io_cfg = self.io_config
-        name_to_type = dict(
-            zip(io_cfg["input_names"], io_cfg["input_types"], strict=True)
-        )
+        name_to_type = dict(zip(io_cfg["input_names"], io_cfg["input_types"], strict=True))
 
         ort_inputs = {}
         for name, value in inputs.items():
@@ -588,9 +587,7 @@ class WinMLSession:
             model = load_onnx(self._onnx_path, load_weights=False, validate=False)
             self._io_config = get_io_config(model)
             # Enrich with value_range from build config if available
-            self._io_config["input_value_ranges"] = (
-                self._load_input_value_ranges()
-            )
+            self._io_config["input_value_ranges"] = self._load_input_value_ranges()
         return self._io_config
 
     def _load_input_value_ranges(self) -> dict[str, list[int]]:
@@ -617,9 +614,7 @@ class WinMLSession:
                 try:
                     with cfg_path.open() as f:
                         build_cfg = json.load(f)
-                    for tensor in (build_cfg.get("export") or {}).get(
-                        "input_tensors", []
-                    ):
+                    for tensor in (build_cfg.get("export") or {}).get("input_tensors", []):
                         name = tensor.get("name")
                         vr = tensor.get("value_range")
                         if name and vr and len(vr) == 2:
@@ -632,9 +627,7 @@ class WinMLSession:
                         )
                         return value_ranges
                 except (json.JSONDecodeError, OSError) as exc:
-                    logger.debug(
-                        "Could not read build config %s: %s", cfg_path, exc
-                    )
+                    logger.debug("Could not read build config %s: %s", cfg_path, exc)
 
         return value_ranges
 
@@ -695,20 +688,12 @@ class WinMLSession:
                 if name and name in all_value_info:
                     inputs.append(all_value_info[name])
                 elif name:
-                    inputs.append(
-                        helper.make_tensor_value_info(
-                            name, TensorProto.FLOAT, [1, 1]
-                        )
-                    )
+                    inputs.append(helper.make_tensor_value_info(name, TensorProto.FLOAT, [1, 1]))
             for name in node.output:
                 if name and name in all_value_info:
                     outputs.append(all_value_info[name])
                 elif name:
-                    outputs.append(
-                        helper.make_tensor_value_info(
-                            name, TensorProto.FLOAT, [1, 1]
-                        )
-                    )
+                    outputs.append(helper.make_tensor_value_info(name, TensorProto.FLOAT, [1, 1]))
         else:
             # No graph context — use dummy shapes
             inputs.extend(
@@ -727,12 +712,8 @@ class WinMLSession:
 
         # 2. Build minimal model
         try:
-            test_graph = helper.make_graph(
-                [node], "compat_test", inputs, outputs
-            )
-            test_model = helper.make_model(
-                test_graph, opset_imports=[helper.make_opsetid("", 17)]
-            )
+            test_graph = helper.make_graph([node], "compat_test", inputs, outputs)
+            test_model = helper.make_model(test_graph, opset_imports=[helper.make_opsetid("", 17)])
             test_model.ir_version = 8
 
             # 3. Try creating session with same device policy
@@ -745,4 +726,3 @@ class WinMLSession:
             return True
         except Exception:
             return False
-

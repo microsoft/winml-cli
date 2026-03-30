@@ -548,14 +548,13 @@ ISOLATED_TEST_CASES: list[IsolatedTestCase | pytest.param] = [
     make_isolated_test_case("NotWhereFusion"),
 ]
 
+
 # Filter out None values (cases where builder doesn't exist)
 # Also filter pytest.param that wraps None values
 def _is_valid_case(c):
     if c is None:
         return False
-    if hasattr(c, "values") and (c.values[0] is None):
-        return False
-    return True
+    return not (hasattr(c, "values") and c.values[0] is None)
 
 
 ISOLATED_TEST_CASES = [c for c in ISOLATED_TEST_CASES if _is_valid_case(c)]
@@ -670,9 +669,9 @@ class TestBuilderRegistryCoverage:
         # - L1 optimizers: run at ORT_ENABLE_BASIC level, not Level 2+
         # - Basic optimizers (ConstantFolding): always-on fundamental ops, no fusion pattern
         untestable = {
-            "EliminateSlice",       # L1 optimizer
-            "ExpandElimination",    # L1 optimizer
-            "ConstantFolding",      # Basic optimizer, always runs, no fusion pattern
+            "EliminateSlice",  # L1 optimizer
+            "ExpandElimination",  # L1 optimizer
+            "ConstantFolding",  # Basic optimizer, always runs, no fusion pattern
         }
 
         missing = [

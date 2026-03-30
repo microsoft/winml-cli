@@ -17,9 +17,13 @@ Key Principle:
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 import pytest
 
 from winml.modelkit.compiler.configs import EPConfig
@@ -503,12 +507,42 @@ class TestWinMLSessionEPSpecific:
         ("ep_name", "device", "provider_name"),
         [
             pytest.param("qnn", "npu", "QNNExecutionProvider", marks=pytest.mark.ep("qnn")),
-            pytest.param("openvino", "npu", "OpenVINOExecutionProvider", marks=pytest.mark.ep("openvino")),
-            pytest.param("directml", "gpu", "DmlExecutionProvider", marks=pytest.mark.ep("directml")),
-            pytest.param("cuda", "gpu", "CUDAExecutionProvider", marks=pytest.mark.ep("cuda")),
-            pytest.param("tensorrt", "gpu", "TensorrtExecutionProvider", marks=pytest.mark.ep("tensorrt")),
-            pytest.param("tensorrt_rtx", "gpu", "NvTensorRTRTXExecutionProvider", marks=pytest.mark.ep("tensorrt_rtx")),
-            pytest.param("vitisai", "npu", "VitisAIExecutionProvider", marks=pytest.mark.ep("vitisai")),
+            pytest.param(
+                "openvino",
+                "npu",
+                "OpenVINOExecutionProvider",
+                marks=pytest.mark.ep("openvino"),
+            ),
+            pytest.param(
+                "directml",
+                "gpu",
+                "DmlExecutionProvider",
+                marks=pytest.mark.ep("directml"),
+            ),
+            pytest.param(
+                "cuda",
+                "gpu",
+                "CUDAExecutionProvider",
+                marks=pytest.mark.ep("cuda"),
+            ),
+            pytest.param(
+                "tensorrt",
+                "gpu",
+                "TensorrtExecutionProvider",
+                marks=pytest.mark.ep("tensorrt"),
+            ),
+            pytest.param(
+                "tensorrt_rtx",
+                "gpu",
+                "NvTensorRTRTXExecutionProvider",
+                marks=pytest.mark.ep("tensorrt_rtx"),
+            ),
+            pytest.param(
+                "vitisai",
+                "npu",
+                "VitisAIExecutionProvider",
+                marks=pytest.mark.ep("vitisai"),
+            ),
             pytest.param("rocm", "gpu", "ROCMExecutionProvider", marks=pytest.mark.ep("rocm")),
         ],
         ids=["qnn", "openvino", "directml", "cuda", "tensorrt", "tensorrt_rtx", "vitisai", "rocm"],

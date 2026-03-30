@@ -8,8 +8,6 @@ import numpy as np
 from onnx.defs import OpSchema
 
 from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint, InputValueConstraint
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
@@ -17,6 +15,8 @@ from winml.modelkit.pattern.base import (
     Skeleton,
     register_pattern_input_generator,
 )
+from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
+from winml.modelkit.pattern.op_input_gen import InputShapeConstraint, InputValueConstraint
 
 
 # Shared schema for MatMulAdd and ReshapeGemmReshape patterns
@@ -313,11 +313,12 @@ class ReshapeGemmReshapePattern(Pattern):
             if "B" in inputs and inputs["B"] is not None:
                 b_shape = inputs["B"].shape
                 # Output shape: A's batch dims + B's output dim
-                output_shape = list(a_shape[:-1]) + [b_shape[-1]]
+                output_shape = [*list(a_shape[:-1]), b_shape[-1]]
                 second_reshape_shape = np.array(output_shape, dtype=np.int64)
             else:
                 raise ValueError(
-                    "Input 'B' is required to determine output shape for ReshapeGemmReshape pattern."
+                    "Input 'B' is required to determine output "
+                    "shape for ReshapeGemmReshape pattern."
                 )
             internal_constants.append((2, 1, second_reshape_shape))
 
@@ -395,6 +396,7 @@ class GemmPatternInputGenerator(PatternInputGenerator):
     def get_input_and_infinite_attribute_combinations(
         self,
     ) -> list[dict[str, Any]]:
+        """Return input and infinite attribute combinations for ReshapeGemmReshape."""
         combinations = []
         # Use m=3, k=4, n=5 as base dimensions
         # Output shape will be (3, 5) after multiplication
@@ -412,7 +414,7 @@ class GemmPatternInputGenerator(PatternInputGenerator):
             InputValueConstraint(np.array(0)),  # default is 0 scalar
         ]
 
-        # Generate all 16 combinations: 2 A shapes × 2 B shapes × 4 C options
+        # Generate all 16 combinations: 2 A shapes x 2 B shapes x 4 C options
         for a_shape in a_shapes:
             for b_shape in b_shapes:
                 for c_option in c_options:

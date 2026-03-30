@@ -9,10 +9,14 @@ Tests the compile command CLI interface using Click's CliRunner.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
@@ -73,11 +77,15 @@ class TestCompileCommand:
         mock_result.total_time = 1.5
         mock_compile_onnx.return_value = mock_result
 
-        result = runner.invoke(main, [
-            "compile",
-            "--model", str(model_path),
-            "--no-quantize",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "compile",
+                "--model",
+                str(model_path),
+                "--no-quantize",
+            ],
+        )
 
         assert result.exit_code == 0
         assert mock_compile_onnx.called
@@ -107,12 +115,18 @@ class TestCompileCommand:
         mock_result.total_time = 1.5
         mock_compile_onnx.return_value = mock_result
 
-        result = runner.invoke(main, [
-            "compile",
-            "--model", str(model_path),
-            "--compiler", "qairt",
-            "--qnn-sdk-root", str(sdk_root),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "compile",
+                "--model",
+                str(model_path),
+                "--compiler",
+                "qairt",
+                "--qnn-sdk-root",
+                str(sdk_root),
+            ],
+        )
 
         assert result.exit_code == 0
         call_kwargs = mock_compile_onnx.call_args.kwargs
@@ -125,8 +139,8 @@ class TestCompileCommand:
         import onnx
         from onnx import TensorProto, helper
 
-        X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])
-        Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])
+        X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])  # noqa: N806
+        Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])  # noqa: N806
         node = helper.make_node("Identity", ["X"], ["Y"])
         graph = helper.make_graph([node], "test", [X], [Y])
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])

@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import onnx
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 import pytest
 from onnx import TensorProto, checker, helper
 
@@ -27,10 +31,9 @@ def simple_model_proto() -> onnx.ModelProto:
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 224, 224])
     relu_node = helper.make_node("Relu", ["input"], ["output"], name="relu")
     graph_def = helper.make_graph([relu_node], "test_graph", [input1], [output])
-    model_def = helper.make_model(
+    return helper.make_model(
         graph_def, producer_name="test", opset_imports=[helper.make_opsetid("", 13)]
     )
-    return model_def
 
 
 @pytest.fixture

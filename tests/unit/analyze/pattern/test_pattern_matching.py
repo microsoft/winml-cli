@@ -2,11 +2,13 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Unit tests for pattern matching on ONNX models."""
 
 from pathlib import Path
 
 import onnx
+import onnx.helper as oh
 import pytest
 
 from winml.modelkit.pattern import (
@@ -71,12 +73,12 @@ class TestErfConvNextPatternMatching:
 
         # Verify expected counts
         assert len(gelu_results) == 18, f"Expected 18 Gelu matches, found {len(gelu_results)}"
-        assert (
-            len(matmuladd_results) == 36
-        ), f"Expected 36 MatMulAdd matches, found {len(matmuladd_results)}"
-        assert (
-            len(reshape_gemm_results) == 0
-        ), f"Expected 0 ReshapeGemmReshape matches, found {len(reshape_gemm_results)}"
+        assert len(matmuladd_results) == 36, (
+            f"Expected 36 MatMulAdd matches, found {len(matmuladd_results)}"
+        )
+        assert len(reshape_gemm_results) == 0, (
+            f"Expected 0 ReshapeGemmReshape matches, found {len(reshape_gemm_results)}"
+        )
 
         # Verify all matches are removable
         for r in results:
@@ -207,12 +209,12 @@ class TestGeluConvNextPatternMatching:
 
         # Verify expected counts
         assert len(gelu_results) == 0, f"Expected 0 Gelu matches, found {len(gelu_results)}"
-        assert (
-            len(matmuladd_results) == 0
-        ), f"Expected 0 MatMulAdd matches, found {len(matmuladd_results)}"
-        assert (
-            len(reshape_gemm_results) == 36
-        ), f"Expected 36 ReshapeGemmReshape matches, found {len(reshape_gemm_results)}"
+        assert len(matmuladd_results) == 0, (
+            f"Expected 0 MatMulAdd matches, found {len(matmuladd_results)}"
+        )
+        assert len(reshape_gemm_results) == 36, (
+            f"Expected 36 ReshapeGemmReshape matches, found {len(reshape_gemm_results)}"
+        )
 
         # Verify all matches are removable
         for r in results:
@@ -259,3 +261,70 @@ class TestGeluConvNextPatternMatching:
 
         # Check removable flag
         assert result.skeleton_match_result.removable is True
+
+
+def _make_gelu_model_with_unnamed_nodes() -> onnx.ModelProto:
+    """Build a minimal ONNX model with a Gelu2 pattern plus extra nodes with empty names.
+
+    Graph: X -> Div -> Erf -> Add -> Mul -> Mul -> Y  (Gelu2Pattern, all named)
+           X -> [unnamed Slice] -> [unnamed Slice] -> Z  (extra unnamed nodes)
+    """
+    X = oh.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 8])  # noqa: N806
+    Y = oh.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 8])  # noqa: N806
+    Z = oh.make_tensor_value_info("Z", onnx.TensorProto.FLOAT, None)  # noqa: N806
+
+    sqrt2 = oh.make_tensor("sqrt2", onnx.TensorProto.FLOAT, [], [1.4142135])
+    half = oh.make_tensor("half", onnx.TensorProto.FLOAT, [], [0.5])
+    one = oh.make_tensor("one_val", onnx.TensorProto.FLOAT, [], [1.0])
+    axes = oh.make_tensor("axes_t", onnx.TensorProto.INT64, [1], [1])
+    starts = oh.make_tensor("starts_t", onnx.TensorProto.INT64, [1], [0])
+    ends = oh.make_tensor("ends_t", onnx.TensorProto.INT64, [1], [4])
+
+    # Gelu2 pattern nodes (all named).
+    # Topology: X/sqrt2 -> Erf -> +1 -> (X * result) * 0.5
+    # Node 3: Mul(X, add_out);  Node 4: Mul(mul3_out, 0.5)
+    div = oh.make_node("Div", ["X", "sqrt2"], ["div_out"], name="div_node")
+    erf = oh.make_node("Erf", ["div_out"], ["erf_out"], name="erf_node")
+    add = oh.make_node("Add", ["erf_out", "one_val"], ["add_out"], name="add_node")
+    mul1 = oh.make_node("Mul", ["X", "add_out"], ["mul1_out"], name="mul1_node")
+    mul2 = oh.make_node("Mul", ["mul1_out", "half"], ["Y"], name="mul2_node")
+
+    # Extra unnamed Slice nodes (simulating real-world models with missing names)
+    slice1 = oh.make_node("Slice", ["X", "starts_t", "ends_t", "axes_t"], ["slice1_out"], name="")
+    slice2 = oh.make_node("Slice", ["slice1_out", "starts_t", "ends_t", "axes_t"], ["Z"], name="")
+
+    graph = oh.make_graph(
+        [div, erf, add, mul1, mul2, slice1, slice2],
+        "test_graph",
+        [X],
+        [Y, Z],
+        initializer=[sqrt2, half, one, axes, starts, ends],
+    )
+    return oh.make_model(graph, opset_imports=[oh.make_opsetid("", 13)])
+
+
+class TestPatternMatchingWithUnnamedNodes:
+    """Pattern matching should skip unnamed nodes, not fail entirely."""
+
+    def test_unnamed_nodes_do_not_raise(self):
+        """PatternMatcher must not raise for models with some empty-named nodes."""
+        model = _make_gelu_model_with_unnamed_nodes()
+        # Should not raise InvalidPatternMatcherModelError
+        matcher = PatternMatcher(model)
+        assert matcher is not None
+
+    def test_named_patterns_still_matched_despite_unnamed_nodes(self):
+        """Gelu2 pattern is matched even when the model contains unnamed Slice nodes."""
+        model = _make_gelu_model_with_unnamed_nodes()
+        matcher = PatternMatcher(model)
+        matcher.register_pattern(Gelu2Pattern())
+        results = matcher.match()
+        assert len(results) == 1, f"Expected 1 Gelu2Pattern match, got {len(results)}"
+
+    def test_raise_on_invalid_model_false_still_works(self):
+        """raise_on_invalid_model=False still works after the workaround."""
+        model = _make_gelu_model_with_unnamed_nodes()
+        matcher = PatternMatcher(model, raise_on_invalid_model=False)
+        matcher.register_pattern(Gelu2Pattern())
+        results = matcher.match()
+        assert len(results) == 1

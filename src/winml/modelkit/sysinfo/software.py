@@ -58,7 +58,7 @@ class OS:
 
     def is_windows_11(self) -> bool:
         """Check if the OS is Windows 11 based on build number.
-        
+
         Windows 11 has build number >= 22000.
         This is more reliable than checking Caption, which may report
         Windows 10 for compatibility reasons.

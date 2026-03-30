@@ -96,41 +96,10 @@ class BinaryInputGenerator(OpInputGenerator):
         second_param = self.op_input_names[1]  # Usually 'B' or 'slope'
 
         return [
+            # Group by max dimensions to ensure coverage across dimensionalities
             # ===== 0D Inputs (dimension 0) =====
             {
                 first_param: InputShapeConstraint(()),
-                second_param: InputShapeConstraint(()),
-            },
-            {
-                first_param: InputShapeConstraint(()),
-                second_param: InputShapeConstraint((6,)),
-            },
-            {
-                first_param: InputShapeConstraint((6,)),
-                second_param: InputShapeConstraint(()),
-            },
-            {
-                first_param: InputShapeConstraint(()),
-                second_param: InputShapeConstraint((4, 5)),
-            },
-            {
-                first_param: InputShapeConstraint((4, 5)),
-                second_param: InputShapeConstraint(()),
-            },
-            {
-                first_param: InputShapeConstraint(()),
-                second_param: InputShapeConstraint((3, 2, 5)),
-            },
-            {
-                first_param: InputShapeConstraint((3, 2, 5)),
-                second_param: InputShapeConstraint(()),
-            },
-            {
-                first_param: InputShapeConstraint(()),
-                second_param: InputShapeConstraint((2, 3, 4, 5)),
-            },
-            {
-                first_param: InputShapeConstraint((2, 3, 4, 5)),
                 second_param: InputShapeConstraint(()),
             },
             # ===== 1D Inputs (dimension 1) =====
@@ -138,6 +107,15 @@ class BinaryInputGenerator(OpInputGenerator):
             {
                 first_param: InputShapeConstraint((6,)),
                 second_param: InputShapeConstraint((6,)),
+            },
+            # 0 <=> 1
+            {
+                first_param: InputShapeConstraint(()),
+                second_param: InputShapeConstraint((6,)),
+            },
+            {
+                first_param: InputShapeConstraint((6,)),
+                second_param: InputShapeConstraint(()),
             },
             # A broadcasts to B (scalar to vector)
             {
@@ -149,16 +127,20 @@ class BinaryInputGenerator(OpInputGenerator):
                 first_param: InputShapeConstraint((6,)),
                 second_param: InputShapeConstraint((1,)),
             },
-            # Convnext
-            {
-                first_param: InputShapeConstraint((1, 56, 56, 96)),
-                second_param: InputShapeConstraint((96,)),
-            },
             # ===== 2D Inputs (dimension 2) =====
             # Equal shapes
             {
                 first_param: InputShapeConstraint((4, 5)),
                 second_param: InputShapeConstraint((4, 5)),
+            },
+            # 0 <=> 2
+            {
+                first_param: InputShapeConstraint(()),
+                second_param: InputShapeConstraint((4, 5)),
+            },
+            {
+                first_param: InputShapeConstraint((4, 5)),
+                second_param: InputShapeConstraint(()),
             },
             # A broadcasts to B (1D to 2D)
             {
@@ -169,11 +151,6 @@ class BinaryInputGenerator(OpInputGenerator):
             {
                 first_param: InputShapeConstraint((4, 5)),
                 second_param: InputShapeConstraint((5,)),
-            },
-            # 1D to 3D broadcasting patterns from P0 models
-            {
-                first_param: InputShapeConstraint((768,)),
-                second_param: InputShapeConstraint((1, 77, 768)),
             },
             # Bidirectional broadcast (both have size-1 dims)
             {
@@ -195,6 +172,20 @@ class BinaryInputGenerator(OpInputGenerator):
             {
                 first_param: InputShapeConstraint((3, 2, 5)),
                 second_param: InputShapeConstraint((3, 2, 5)),
+            },
+            # 0 <=> 3
+            {
+                first_param: InputShapeConstraint(()),
+                second_param: InputShapeConstraint((3, 2, 5)),
+            },
+            {
+                first_param: InputShapeConstraint((3, 2, 5)),
+                second_param: InputShapeConstraint(()),
+            },
+            # 1D to 3D broadcasting patterns from P0 models
+            {
+                first_param: InputShapeConstraint((768,)),
+                second_param: InputShapeConstraint((1, 77, 768)),
             },
             # A broadcasts to B (2D to 3D)
             {
@@ -227,6 +218,30 @@ class BinaryInputGenerator(OpInputGenerator):
                 first_param: InputShapeConstraint((2, 4, 5, 6)),
                 second_param: InputShapeConstraint((2, 4, 5, 6)),
             },
+            # 0 <=> 4
+            {
+                first_param: InputShapeConstraint(()),
+                second_param: InputShapeConstraint((2, 3, 4, 5)),
+            },
+            {
+                first_param: InputShapeConstraint((2, 3, 4, 5)),
+                second_param: InputShapeConstraint(()),
+            },
+            # Convnext (B to A)
+            {
+                first_param: InputShapeConstraint((1, 56, 56, 96)),
+                second_param: InputShapeConstraint((96,)),
+            },
+            # detr (Bidirectional broadcast)
+            {
+                first_param: InputShapeConstraint((1, 25, 25, 1)),
+                second_param: InputShapeConstraint((128,)),
+            },
+            # Convnext
+            {
+                first_param: InputShapeConstraint((96,)),
+                second_param: InputShapeConstraint((1, 56, 56, 96)),
+            },
             # A broadcasts to B (3D to 4D)
             {
                 first_param: InputShapeConstraint((4, 5, 6)),
@@ -251,11 +266,6 @@ class BinaryInputGenerator(OpInputGenerator):
             {
                 first_param: InputShapeConstraint((2, 4, 5, 6)),
                 second_param: InputShapeConstraint((1, 1, 5, 6)),
-            },
-            # Convnext
-            {
-                first_param: InputShapeConstraint((96,)),
-                second_param: InputShapeConstraint((1, 56, 56, 96)),
             },
             # ===== 5D Inputs (dimension 5) =====
             # Equal shapes (batch, channels, depth, height, width)
@@ -302,6 +312,7 @@ class BinaryInputGenerator(OpInputGenerator):
         ]
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive additional properties from input shapes."""
         x_name = self.op_input_names[0]
         y_name = self.op_input_names[1]
         item = properties.copy()
@@ -346,14 +357,20 @@ class BinaryInputGenerator(OpInputGenerator):
         return item
 
     def get_infinite_property_names(self) -> list[str]:
+        """Return names of properties with infinite value ranges."""
         x_name = self.op_input_names[0]
         y_name = self.op_input_names[1]
         return [f"{x_name}_shape", f"{y_name}_shape"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for binary operator inputs."""
         return {
-            self.op_input_names[0]: QDQParameterConfig(support_activation=True, support_weight=True),
-            self.op_input_names[1]: QDQParameterConfig(support_activation=True, support_weight=True),
+            self.op_input_names[0]: QDQParameterConfig(
+                support_activation=True, support_weight=True
+            ),
+            self.op_input_names[1]: QDQParameterConfig(
+                support_activation=True, support_weight=True
+            ),
         }
 
 
@@ -367,6 +384,7 @@ class AddInputGenerator(BinaryInputGenerator):
     op_name = "Add"
 
     def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
@@ -378,6 +396,7 @@ class SubInputGenerator(BinaryInputGenerator):
     op_name = "Sub"
 
     def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
@@ -389,6 +408,7 @@ class MulInputGenerator(BinaryInputGenerator):
     op_name = "Mul"
 
     def derive_properties(self, properties):
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
@@ -400,6 +420,7 @@ class DivInputGenerator(BinaryInputGenerator):
     op_name = "Div"
 
     def derive_properties(self, properties):
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
@@ -440,6 +461,7 @@ class PowInputGenerator(BinaryInputGenerator):
     op_name = "Pow"
 
     def derive_properties(self, properties):
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)
 
@@ -488,36 +510,57 @@ class BitwiseXorInputGenerator(BinaryInputGenerator):
 # ===== Comparison Operators =====
 
 
+class ComparisonInputGenerator(BinaryInputGenerator):
+    """Base input generator for comparison operators (Equal, Greater, etc.).
+
+    Comparison operators have the same input characteristics as other binary
+    operators, but we can add common properties related to comparison operations
+    here if needed in the future.
+    """
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for comparison operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(
+                support_activation=True, support_weight=True
+            ),
+            self.op_input_names[1]: QDQParameterConfig(
+                support_activation=True, support_weight=True
+            ),
+            "C": QDQParameterConfig(support_non_qdq=True),
+        }
+
+
 @register_runtime_checker_op
-class EqualInputGenerator(BinaryInputGenerator):
+class EqualInputGenerator(ComparisonInputGenerator):
     """Input generator for Equal operator."""
 
     op_name = "Equal"
 
 
 @register_runtime_checker_op
-class GreaterInputGenerator(BinaryInputGenerator):
+class GreaterInputGenerator(ComparisonInputGenerator):
     """Input generator for Greater operator."""
 
     op_name = "Greater"
 
 
 @register_runtime_checker_op
-class GreaterOrEqualInputGenerator(BinaryInputGenerator):
+class GreaterOrEqualInputGenerator(ComparisonInputGenerator):
     """Input generator for GreaterOrEqual operator."""
 
     op_name = "GreaterOrEqual"
 
 
 @register_runtime_checker_op
-class LessInputGenerator(BinaryInputGenerator):
+class LessInputGenerator(ComparisonInputGenerator):
     """Input generator for Less operator."""
 
     op_name = "Less"
 
 
 @register_runtime_checker_op
-class LessOrEqualInputGenerator(BinaryInputGenerator):
+class LessOrEqualInputGenerator(ComparisonInputGenerator):
     """Input generator for LessOrEqual operator."""
 
     op_name = "LessOrEqual"
@@ -538,5 +581,6 @@ class PReluInputGenerator(BinaryInputGenerator):
     op_name = "PRelu"
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive properties including broadcasting information."""
         item = super().derive_properties(properties)
         return self._derive_broadcasting_properties(item)

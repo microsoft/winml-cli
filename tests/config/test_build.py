@@ -218,7 +218,7 @@ class TestGenerateBuildConfigFast:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -257,7 +257,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(tc_loader_config, mock_hf_config, mock_model_class),
             ) as mock_resolve,
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -283,7 +283,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ) as mock_resolve,
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -311,7 +311,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -679,7 +679,7 @@ class TestSubmoduleDiscovery:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -853,7 +853,8 @@ class TestBuildSubmoduleConfig:
         assert result.quant.samples == 1
 
     def test_submodule_config_with_quant_passes_validate(
-        self, parent_config: WinMLBuildConfig,
+        self,
+        parent_config: WinMLBuildConfig,
     ) -> None:
         """Submodule config with quant(task=None) passes validate()."""
         parent_config.loader.task = "image-classification"
@@ -874,7 +875,8 @@ class TestBuildSubmoduleConfig:
         result.validate()
 
     def test_submodule_quant_omits_task_in_json(
-        self, parent_config: WinMLBuildConfig,
+        self,
+        parent_config: WinMLBuildConfig,
     ) -> None:
         """Submodule quant serialization omits task, model_name, dataset_name when None."""
         parent_config.loader.task = "fill-mask"
@@ -975,10 +977,7 @@ class TestGenerateBuildConfigOverride:
 
         # Both configs should be equivalent
         assert config_no_override.loader.task == config_none_override.loader.task
-        assert (
-            config_no_override.loader.model_class
-            == config_none_override.loader.model_class
-        )
+        assert config_no_override.loader.model_class == config_none_override.loader.model_class
         assert config_no_override.export.opset_version == config_none_override.export.opset_version
         assert config_no_override.export.batch_size == config_none_override.export.batch_size
 
@@ -1013,7 +1012,7 @@ class TestConfigCliOverride:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1046,7 +1045,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1139,7 +1138,7 @@ class TestModelTypeOverride:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(auto_loader_config, mock_hf_config, mock_model_class),
             ) as mock_resolve,
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1185,7 +1184,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(standalone_loader_config, mock_hf_config, mock_model_class),
             ) as mock_resolve,
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1255,7 +1254,7 @@ class TestModelTypeCliOverride:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1265,10 +1264,14 @@ patch(
             result = runner.invoke(
                 config_command,
                 [
-                    "-m", "some-model",
-                    "--model-type", "bert",
-                    "--task", "fill-mask",
-                    "-o", str(output_file),
+                    "-m",
+                    "some-model",
+                    "--model-type",
+                    "bert",
+                    "--task",
+                    "fill-mask",
+                    "-o",
+                    str(output_file),
                 ],
             )
 
@@ -1292,7 +1295,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1329,7 +1332,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(standalone_loader_config, mock_hf_config, mock_model_class),
             ) as mock_resolve,
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1434,7 +1437,7 @@ class TestEdgeCases:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(standalone_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1444,9 +1447,12 @@ patch(
             result = runner.invoke(
                 config_command,
                 [
-                    "--model-type", "bert",
-                    "-c", str(override_file),
-                    "-o", str(output_file),
+                    "--model-type",
+                    "bert",
+                    "-c",
+                    str(override_file),
+                    "-o",
+                    str(output_file),
                 ],
             )
 
@@ -1472,7 +1478,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ),
@@ -1511,7 +1517,7 @@ class TestShapeConfig:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ) as mock_gen_export,
@@ -1539,7 +1545,7 @@ patch(
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ) as mock_gen_export,
@@ -1611,9 +1617,7 @@ patch(
         override_h = specs_override["input_shapes"][0][2]
 
         assert override_h == 128
-        assert default_h != 128, (
-            f"Default height {default_h} should differ from override 128"
-        )
+        assert default_h != 128, f"Default height {default_h} should differ from override 128"
 
 
 class TestShapeConfigCli:
@@ -1629,10 +1633,14 @@ class TestShapeConfigCli:
         result = runner.invoke(
             config_command,
             [
-                "--model-type", "resnet",
-                "--task", "image-classification",
-                "--shape-config", str(shape_file),
-                "-o", str(output_file),
+                "--model-type",
+                "resnet",
+                "--task",
+                "image-classification",
+                "--shape-config",
+                str(shape_file),
+                "-o",
+                str(output_file),
             ],
         )
 
@@ -1665,7 +1673,7 @@ class TestShapeConfigCli:
                 "winml.modelkit.config.build.resolve_loader_config",
                 return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-patch(
+            patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
             ) as mock_gen_export,
@@ -1675,10 +1683,14 @@ patch(
             result = runner.invoke(
                 config_command,
                 [
-                    "-m", "bert-base-uncased",
-                    "-c", str(config_file),
-                    "--shape-config", str(shape_file),
-                    "-o", str(output_file),
+                    "-m",
+                    "bert-base-uncased",
+                    "-c",
+                    str(config_file),
+                    "--shape-config",
+                    str(shape_file),
+                    "-o",
+                    str(output_file),
                 ],
             )
 
@@ -2004,7 +2016,9 @@ class TestDevicePrecisionIntegration:
             ),
         ):
             result = generate_build_config(
-                "bert-base-uncased", device=device, precision=precision,
+                "bert-base-uncased",
+                device=device,
+                precision=precision,
             )
 
         # Verify quant config
@@ -2047,7 +2061,9 @@ class TestDevicePrecisionIntegration:
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
         ):
             result = generate_build_config(
-                "bert-base-uncased", device="auto", precision="auto",
+                "bert-base-uncased",
+                device="auto",
+                precision="auto",
             )
 
         # Both auto: quant and compile should be at dataclass defaults
@@ -2061,7 +2077,7 @@ class TestDevicePrecisionIntegration:
         assert result.compile.ep_config.provider == "qnn"
 
     def test_auto_auto_skips_resolve_device(self) -> None:
-        """device='auto' + precision='auto' does NOT call resolve_device (preserves assembled defaults)."""
+        """device='auto' + precision='auto' does NOT call resolve_device."""
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
@@ -2082,7 +2098,9 @@ class TestDevicePrecisionIntegration:
             ) as mock_rd,
         ):
             generate_build_config(
-                "bert-base-uncased", device="auto", precision="auto",
+                "bert-base-uncased",
+                device="auto",
+                precision="auto",
             )
 
         mock_rd.assert_not_called()
@@ -2109,7 +2127,9 @@ class TestDevicePrecisionIntegration:
             ) as mock_rd,
         ):
             generate_build_config(
-                "bert-base-uncased", device="auto", precision="int8",
+                "bert-base-uncased",
+                device="auto",
+                precision="int8",
             )
 
         mock_rd.assert_called_once()
@@ -2189,7 +2209,8 @@ class TestDevicePrecisionCli:
             return_value=("gpu", ["gpu", "cpu"]),
         )
         result, output_file = self._invoke(
-            tmp_path, ["--device", "gpu", "--precision", "fp16"],
+            tmp_path,
+            ["--device", "gpu", "--precision", "fp16"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2205,7 +2226,8 @@ class TestDevicePrecisionCli:
             return_value=("cpu", ["cpu"]),
         )
         result, output_file = self._invoke(
-            tmp_path, ["--device", "cpu", "--precision", "fp32"],
+            tmp_path,
+            ["--device", "cpu", "--precision", "fp32"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2226,7 +2248,8 @@ class TestDevicePrecisionCli:
     def test_auto_precision_int8_triggers_detection(self, tmp_path) -> None:
         """--device auto --precision int8 → triggers device detection."""
         result, output_file = self._invoke(
-            tmp_path, ["--device", "auto", "--precision", "int8"],
+            tmp_path,
+            ["--device", "auto", "--precision", "int8"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2523,7 +2546,8 @@ class TestGenerateBuildConfigOnnxPath:
             ),
         ):
             config = generate_onnx_build_config(
-                str(onnx_file), task="image-classification",
+                str(onnx_file),
+                task="image-classification",
             )
 
         assert config.loader.task == "image-classification"
@@ -2570,7 +2594,9 @@ class TestGenerateBuildConfigOnnxPath:
             ),
         ):
             config = generate_onnx_build_config(
-                str(onnx_file), device="npu", override=override,
+                str(onnx_file),
+                device="npu",
+                override=override,
             )
 
         assert config.optim["gelu_fusion"] is True
@@ -2603,7 +2629,9 @@ class TestGenerateBuildConfigOnnxPath:
             # Call with a real override that sets quant=None
             override_cfg = WinMLBuildConfig.from_dict(override_dict)
             config = generate_onnx_build_config(
-                str(onnx_file), device="npu", override=override_cfg,
+                str(onnx_file),
+                device="npu",
+                override=override_cfg,
             )
 
         mock_merge.assert_called_once()
@@ -2630,7 +2658,8 @@ class TestGenerateBuildConfigOnnxPath:
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
         ):
             config = generate_onnx_build_config(
-                str(onnx_file), override=override,
+                str(onnx_file),
+                override=override,
             )
 
         # Override is applied after compiled detection, so quant is non-None.
@@ -2656,7 +2685,9 @@ class TestGenerateBuildConfigOnnxPath:
             ),
         ):
             config = generate_onnx_build_config(
-                str(onnx_file), device="npu", override=None,
+                str(onnx_file),
+                device="npu",
+                override=None,
             )
 
         # Without override, raw+npu should have quant and compile
@@ -2776,7 +2807,9 @@ class TestGenerateBuildConfigOnnxPath:
             ),
         ):
             config = generate_onnx_build_config(
-                str(onnx_file), device="gpu", ep="migraphx",
+                str(onnx_file),
+                device="gpu",
+                ep="migraphx",
             )
 
         assert config.compile is not None
@@ -2850,7 +2883,8 @@ class TestResolveQuantCompileConfig:
             return_value=("gpu", ["gpu", "cpu"]),
         ):
             _quant, compile_cfg = resolve_quant_compile_config(
-                device="gpu", ep="tensorrt",
+                device="gpu",
+                ep="tensorrt",
             )
 
         assert compile_cfg is not None
@@ -2886,7 +2920,8 @@ class TestResolveQuantCompileConfig:
             return_value=("npu", ["npu", "cpu"]),
         ):
             quant, _compile_cfg = resolve_quant_compile_config(
-                device="npu", precision="int8",
+                device="npu",
+                precision="int8",
             )
 
         assert quant is not None
@@ -2900,7 +2935,8 @@ class TestResolveQuantCompileConfig:
             return_value=("gpu", ["gpu", "cpu"]),
         ):
             quant, _compile_cfg = resolve_quant_compile_config(
-                device="gpu", precision="fp32",
+                device="gpu",
+                precision="fp32",
             )
 
         assert quant is None

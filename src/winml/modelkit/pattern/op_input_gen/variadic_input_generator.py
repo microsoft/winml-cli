@@ -12,8 +12,8 @@ from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
     OpInputGenerator,
-    VariadicInputConstraint,
     QDQParameterConfig,
+    VariadicInputConstraint,
     register_runtime_checker_op,
 )
 
@@ -48,187 +48,53 @@ class ConcatInputGenerator(OpInputGenerator):
         Test cases systematically cover:
         - Different tensor ranks (1D through 6D)
         - For each dimension: 3 test cases (axis=0, axis=-1, axis=middle)
-        - All cases use exactly 2 input tensors
+        - Variadic input counts: 2, 3, 4, 5
         - Shapes differ only on the concatenation axis
         """
         combinations = []
 
-        # 1D tensors - only axis=0 (same as axis=-1)
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((3,)),
-                        InputShapeConstraint((5,)),
-                    ]
-                ),
-                "axis": 0,
-            }
-        )
+        def _append_variadic_count_variants(
+            shape_a: tuple[int, ...], shape_b: tuple[int, ...], axis: int
+        ) -> None:
+            # Expand each base pair to cover common variadic counts seen in real models.
+            # Use an alternating pattern to keep all shapes valid and bounded.
+            for input_count in (2, 3, 4, 5):
+                shape_list = [shape_a if idx % 2 == 0 else shape_b for idx in range(input_count)]
+                combinations.append(
+                    {
+                        "inputs": VariadicInputConstraint(
+                            [InputShapeConstraint(shape) for shape in shape_list]
+                        ),
+                        "axis": axis,
+                    }
+                )
 
-        # 2D tensors - axis=0, axis=-1
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 4)),
-                        InputShapeConstraint((3, 4)),
-                    ]
-                ),
-                "axis": 0,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((3, 2)),
-                        InputShapeConstraint((3, 5)),
-                    ]
-                ),
-                "axis": -1,
-            }
-        )
+        base_cases: list[tuple[tuple[int, ...], tuple[int, ...], int]] = [
+            # 1D tensors - only axis=0 (same as axis=-1)
+            ((3,), (5,), 0),
+            # 2D tensors - axis=0, axis=-1
+            ((2, 4), (3, 4), 0),
+            ((3, 2), (3, 5), -1),
+            # 3D tensors - axis=0, axis=-1, axis=1 (middle)
+            ((2, 3, 4), (5, 3, 4), 0),
+            ((2, 3, 4), (2, 3, 6), -1),
+            ((2, 3, 4), (2, 6, 4), 1),
+            # 4D tensors - axis=0, axis=-1, axis=2 (middle)
+            ((2, 3, 4, 4), (5, 3, 4, 4), 0),
+            ((2, 3, 4, 4), (2, 3, 4, 6), -1),
+            ((2, 3, 4, 4), (2, 3, 6, 4), 2),
+            # 5D tensors - axis=0, axis=-1, axis=2 (middle)
+            ((2, 3, 2, 3, 3), (5, 3, 2, 3, 3), 0),
+            ((2, 3, 2, 3, 3), (2, 3, 2, 3, 6), -1),
+            ((2, 3, 2, 3, 3), (2, 3, 6, 3, 3), 2),
+            # 6D tensors - axis=0, axis=-1, axis=3 (middle)
+            ((2, 2, 2, 2, 2, 3), (5, 2, 2, 2, 2, 3), 0),
+            ((2, 2, 2, 2, 2, 3), (2, 2, 2, 2, 2, 6), -1),
+            ((2, 2, 2, 2, 2, 3), (2, 2, 2, 5, 2, 3), 3),
+        ]
 
-        # 3D tensors - axis=0, axis=-1, axis=1 (middle)
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 4)),
-                        InputShapeConstraint((5, 3, 4)),
-                    ]
-                ),
-                "axis": 0,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 4)),
-                        InputShapeConstraint((2, 3, 6)),
-                    ]
-                ),
-                "axis": -1,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 4)),
-                        InputShapeConstraint((2, 6, 4)),
-                    ]
-                ),
-                "axis": 1,
-            }
-        )
-
-        # 4D tensors - axis=0, axis=-1, axis=2 (middle)
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 4, 4)),
-                        InputShapeConstraint((5, 3, 4, 4)),
-                    ]
-                ),
-                "axis": 0,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 4, 4)),
-                        InputShapeConstraint((2, 3, 4, 6)),
-                    ]
-                ),
-                "axis": -1,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 4, 4)),
-                        InputShapeConstraint((2, 3, 6, 4)),
-                    ]
-                ),
-                "axis": 2,
-            }
-        )
-
-        # 5D tensors - axis=0, axis=-1, axis=2 (middle)
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 2, 3, 3)),
-                        InputShapeConstraint((5, 3, 2, 3, 3)),
-                    ]
-                ),
-                "axis": 0,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 2, 3, 3)),
-                        InputShapeConstraint((2, 3, 2, 3, 6)),
-                    ]
-                ),
-                "axis": -1,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 3, 2, 3, 3)),
-                        InputShapeConstraint((2, 3, 6, 3, 3)),
-                    ]
-                ),
-                "axis": 2,
-            }
-        )
-
-        # 6D tensors - axis=0, axis=-1, axis=3 (middle)
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 2, 2, 2, 2, 3)),
-                        InputShapeConstraint((5, 2, 2, 2, 2, 3)),
-                    ]
-                ),
-                "axis": 0,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 2, 2, 2, 2, 3)),
-                        InputShapeConstraint((2, 2, 2, 2, 2, 6)),
-                    ]
-                ),
-                "axis": -1,
-            }
-        )
-        combinations.append(
-            {
-                "inputs": VariadicInputConstraint(
-                    [
-                        InputShapeConstraint((2, 2, 2, 2, 2, 3)),
-                        InputShapeConstraint((2, 2, 2, 5, 2, 3)),
-                    ]
-                ),
-                "axis": 3,
-            }
-        )
+        for shape_a, shape_b, axis in base_cases:
+            _append_variadic_count_variants(shape_a, shape_b, axis)
 
         return combinations
 
@@ -253,10 +119,9 @@ class ConcatInputGenerator(OpInputGenerator):
         inputs_value = item["inputs_value"]
         axis = item["attr_axis"]
 
-        # Not derive number of inputs for now as concat op support multiple inputs. Will adjust later if needed.
-        # item["num_inputs"] = len(inputs_shape)
+        item["num_inputs"] = len(inputs_shape) if inputs_shape is not None else len(inputs_value)
 
-        if inputs_shape[0] is not None:
+        if inputs_shape is not None and inputs_shape[0] is not None:
             item["inputs_dim"] = len(inputs_shape[0])
         else:
             array = np.array(inputs_value[0])
@@ -280,6 +145,7 @@ class ConcatInputGenerator(OpInputGenerator):
         return ["inputs_shape", "inputs_value", "attr_axis", "inputs_is_constant"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for Concat operator inputs."""
         return {
             "inputs": QDQParameterConfig(support_activation=True),
         }

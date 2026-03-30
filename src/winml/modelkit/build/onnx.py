@@ -153,7 +153,7 @@ def build_onnx_model(
         )
         stages_skipped.append("optimize")
         # Optimize+analyze only, no autoconf re-optimization
-        current_path, _, analyze_iters, analyze_blacks, analyze_details = (
+        current_path, _, analyze_iters, analyze_unsupported, analyze_details = (
             run_optimize_analyze_loop(
                 model_path=current_path,
                 optimized_path=optimized_path,
@@ -165,7 +165,7 @@ def build_onnx_model(
         )
     else:
         logger.info("Optimizing ONNX model...")
-        current_path, opt_elapsed, analyze_iters, analyze_blacks, analyze_details = (
+        current_path, opt_elapsed, analyze_iters, analyze_unsupported, analyze_details = (
             run_optimize_analyze_loop(
                 model_path=current_path,
                 optimized_path=optimized_path,
@@ -218,9 +218,7 @@ def build_onnx_model(
             current_path = quantized_path
             stage_timings["quantize"] = time.monotonic() - t0
             stages_completed.append("quantize")
-            logger.info(
-                "Quantize done (%.1fs) -> %s", stage_timings["quantize"], quantized_path
-            )
+            logger.info("Quantize done (%.1fs) -> %s", stage_timings["quantize"], quantized_path)
     else:
         stages_skipped.append("quantize")
         logger.info("Quantize skipped (config.quant is None)")
@@ -241,10 +239,11 @@ def build_onnx_model(
             raise RuntimeError(f"Compilation failed: {errors}")
         if compile_result.output_path and Path(compile_result.output_path) != compiled_path:
             copy_onnx_model(compile_result.output_path, compiled_path)
-        current_path = compiled_path
+        if compiled_path.exists():
+            current_path = compiled_path
         stage_timings["compile"] = time.monotonic() - t0
         stages_completed.append("compile")
-        logger.info("Compile done (%.1fs) -> %s", stage_timings["compile"], compiled_path)
+        logger.info("Compile done (%.1fs) -> %s", stage_timings["compile"], current_path)
     else:
         stages_skipped.append("compile")
         logger.info("Compile skipped (config.compile is None)")
@@ -270,7 +269,7 @@ def build_onnx_model(
         "stages": [],
         "final_artifact": final_path.name,
         "analyze_iterations": analyze_iters,
-        "analyze_black_node_count": analyze_blacks,
+        "analyze_unsupported_node_count": analyze_unsupported,
         "analyze_details": analyze_details,
     }
 
@@ -291,20 +290,20 @@ def build_onnx_model(
             if stage_name == "quantize" and quant_result is not None:
                 entry["nodes_quantized"] = quant_result.nodes_quantized
                 entry["nodes_skipped"] = quant_result.nodes_skipped
-                entry["calibration_time_seconds"] = round(
-                    quant_result.calibration_time_seconds, 3
-                )
+                entry["calibration_time_seconds"] = round(quant_result.calibration_time_seconds, 3)
                 entry["qdq_insertion_time_seconds"] = round(
                     quant_result.qdq_insertion_time_seconds, 3
                 )
             manifest["stages"].append(entry)
         elif stage_name in stages_skipped:
-            manifest["stages"].append({
-                "name": stage_name,
-                "status": "skipped",
-                "filename": None,
-                "elapsed_seconds": None,
-            })
+            manifest["stages"].append(
+                {
+                    "name": stage_name,
+                    "status": "skipped",
+                    "filename": None,
+                    "elapsed_seconds": None,
+                }
+            )
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
     logger.debug("Build manifest persisted: %s", manifest_path)

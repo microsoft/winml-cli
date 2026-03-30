@@ -32,6 +32,7 @@ class EpContextNodeChecker(NodeChecker):
     def can_check(
         self, node: "onnx.NodeProto", op_domain: "ONNXDomain", opset_version: int
     ) -> bool:
+        """Check whether this checker can handle the given node."""
         return node.op_type == "EPContext" and op_domain == ONNXDomain.COM_MICROSOFT
 
     def check(
@@ -43,6 +44,7 @@ class EpContextNodeChecker(NodeChecker):
         alternatives: "list[PatternAlternative]",
         **kwargs: dict[str, Any],
     ) -> "PatternRuntime":
+        """Check EPContext node partition_name against the execution provider name."""
         ep_name = kwargs.get("ep_name")
         partition_name = self.get_attribute_value(node, "partition_name")
         if partition_name is None:
@@ -85,6 +87,7 @@ class EpContextNodeChecker(NodeChecker):
         )
 
     def get_attribute_value(self, node: "onnx.NodeProto", attr_name: str) -> str | None:
+        """Return the string value of a node attribute, or None if not found."""
         attr = next((attr for attr in node.attribute if attr.name == attr_name), None)
         if not attr:
             return None

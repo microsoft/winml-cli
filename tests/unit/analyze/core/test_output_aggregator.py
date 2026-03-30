@@ -8,8 +8,6 @@ from datetime import datetime
 
 import pytest
 
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
 from winml.modelkit.analyze.core.output_aggregator import OutputAggregator
 from winml.modelkit.analyze.models.ihv_type import IHVType
 from winml.modelkit.analyze.models.information import Action, ActionLevel, Information
@@ -23,6 +21,8 @@ from winml.modelkit.analyze.models.runtime_checks import (
     RuntimeTestResult,
 )
 from winml.modelkit.analyze.models.support_level import SupportLevel
+from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
+from winml.modelkit.pattern.models import OperatorPattern, PatternType
 
 
 @pytest.fixture
@@ -268,8 +268,8 @@ class TestOutputAggregatorBuildEPSupport:
         assert ihv_support.runtime_support is True
         assert len(ihv_support.classification[SupportLevel.SUPPORTED]) == 1
 
-    def test_build_ep_support_classifies_white(self) -> None:
-        """Test WHITE classification for fully supported patterns."""
+    def test_build_ep_support_classifies_supported(self) -> None:
+        """Test SUPPORTED classification for fully supported patterns."""
         aggregator = OutputAggregator()
 
         check_results = [
@@ -290,8 +290,8 @@ class TestOutputAggregatorBuildEPSupport:
         assert len(ihv_support.classification[SupportLevel.UNSUPPORTED]) == 0
         assert ihv_support.runtime_support is True
 
-    def test_build_ep_support_classifies_gray(self) -> None:
-        """Test GRAY classification for partially supported patterns."""
+    def test_build_ep_support_classifies_partial(self) -> None:
+        """Test PARTIAL classification for partially supported patterns."""
         aggregator = OutputAggregator()
 
         check_results = [
@@ -308,8 +308,8 @@ class TestOutputAggregatorBuildEPSupport:
         )
         assert ihv_support.runtime_support is False
 
-    def test_build_ep_support_classifies_black(self) -> None:
-        """Test BLACK classification for unsupported patterns."""
+    def test_build_ep_support_classifies_unsupported(self) -> None:
+        """Test UNSUPPORTED classification for unsupported patterns."""
         aggregator = OutputAggregator()
 
         check_results = [
@@ -353,8 +353,8 @@ class TestOutputAggregatorBuildEPSupport:
         # Should only appear once in classification
         assert ihv_support.classification[SupportLevel.SUPPORTED].count("OP/ai.onnx/Conv") == 1
 
-    def test_build_ep_support_runtime_support_false_with_black(self) -> None:
-        """Test runtime_support is False when BLACK patterns present."""
+    def test_build_ep_support_runtime_support_false_with_unsupported(self) -> None:
+        """Test runtime_support is False when unsupported patterns present."""
         aggregator = OutputAggregator()
 
         check_results = [
@@ -376,8 +376,8 @@ class TestOutputAggregatorBuildEPSupport:
 
         assert ihv_support.runtime_support is False
 
-    def test_build_ep_support_runtime_support_false_with_gray(self) -> None:
-        """Test runtime_support is False when GRAY patterns present."""
+    def test_build_ep_support_runtime_support_false_with_partial(self) -> None:
+        """Test runtime_support is False when partial patterns present."""
         aggregator = OutputAggregator()
 
         check_results = [
@@ -414,7 +414,7 @@ class TestOutputAggregatorBuildEPSupport:
             ep_type="QNNExecutionProvider",
         )
 
-        # BLACK classification also makes runtime_support False
+        # UNSUPPORTED classification also makes runtime_support False
         assert ihv_support.runtime_support is False
 
     def test_build_ep_support_with_empty_check_results(self) -> None:
