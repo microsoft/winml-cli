@@ -65,17 +65,16 @@ class FlattenInputGenerator(OpInputGenerator):
             (2, 2, 2, 2, 2, 2),  # 6D
         ]
 
-        combinations = []
-        for dim, shape in enumerate(shapes):  # 0D -> 6D
-            for axis in range(dim + 1):
-                combinations.append(
-                    {
-                        "input": InputShapeConstraint(shape),
-                        "axis": axis,
-                    }
-                )
+        combinations = [
+            {
+                "input": InputShapeConstraint(shape),
+                "axis": axis,
+            }
+            for dim, shape in enumerate(shapes)  # 0D -> 6D
+            for axis in range(dim + 1)
+        ]
 
-        return combinations
+        return combinations  # noqa: RET504
 
     def derive_properties(self, properties: dict[str, any]) -> dict[str, any]:
         """Derive additional properties for Flatten operator testing.
@@ -102,6 +101,7 @@ class FlattenInputGenerator(OpInputGenerator):
         return ["input_shape", "input_value", "attr_axis"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for Flatten operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),
         }

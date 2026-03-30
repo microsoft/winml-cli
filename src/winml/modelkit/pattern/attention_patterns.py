@@ -45,7 +45,6 @@ import numpy as np
 from onnx.defs import OpSchema
 
 from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
@@ -55,6 +54,7 @@ from winml.modelkit.pattern.base import (
     SkeletonMatchResult,
     register_pattern_input_generator,
 )
+from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 
 
 # Type constraints for Attention operator (from opset 24 spec)
@@ -244,12 +244,12 @@ class ExpandedAttentionPattern(Pattern):
         # 3=MatMul(QK), 4=Add, 5=Softmax, 6=MatMul(V)
         node_op_types = [
             "Transpose",  # 0: K transpose BSHD->BHDS
-            "Mul",        # 1: K * sqrt_scale
-            "Mul",        # 2: Q * sqrt_scale
-            "MatMul",     # 3: Q @ K^T
-            "Add",        # 4: + attn_mask
-            "Softmax",    # 5: softmax
-            "MatMul",     # 6: @ V
+            "Mul",  # 1: K * sqrt_scale
+            "Mul",  # 2: Q * sqrt_scale
+            "MatMul",  # 3: Q @ K^T
+            "Add",  # 4: + attn_mask
+            "Softmax",  # 5: softmax
+            "MatMul",  # 6: @ V
         ]
         node_domains = [ONNXDomain.AI_ONNX] * len(node_op_types)
 
@@ -257,14 +257,14 @@ class ExpandedAttentionPattern(Pattern):
         # -1, -2, -3, -4 represent the inputs to the subgraph (Q, K, V, attn_mask)
         edges = [
             (-2, 0, 0, 0),  # K -> Transpose[0] (node 0)
-            (0, 0, 1, 0),   # Transpose(K) -> Mul[0] (node 1)
+            (0, 0, 1, 0),  # Transpose(K) -> Mul[0] (node 1)
             (-1, 0, 2, 0),  # Q -> Mul[0] (node 2)
-            (2, 0, 3, 0),   # Mul(Q) -> MatMul[0] (node 3)
-            (1, 0, 3, 1),   # Mul(K) -> MatMul[1] (node 3)
-            (3, 0, 4, 0),   # MatMul -> Add[0] (node 4)
+            (2, 0, 3, 0),  # Mul(Q) -> MatMul[0] (node 3)
+            (1, 0, 3, 1),  # Mul(K) -> MatMul[1] (node 3)
+            (3, 0, 4, 0),  # MatMul -> Add[0] (node 4)
             (-4, 0, 4, 1),  # attn_mask -> Add[1] (node 4)
-            (4, 0, 5, 0),   # Add -> Softmax[0] (node 5)
-            (5, 0, 6, 0),   # Softmax -> MatMul[0] (node 6)
+            (4, 0, 5, 0),  # Add -> Softmax[0] (node 5)
+            (5, 0, 6, 0),  # Softmax -> MatMul[0] (node 6)
             (-3, 0, 6, 1),  # V -> MatMul[1] (node 6)
         ]
 
@@ -311,7 +311,7 @@ class ExpandedAttentionPattern(Pattern):
 
         internal_attributes: dict[tuple[int, str], Any] = {
             (0, "perm"): [0, 2, 3, 1],  # Node 0 (Transpose K): BSHD->BHDS
-            (5, "axis"): -1,            # Node 5 (Softmax): axis=-1
+            (5, "axis"): -1,  # Node 5 (Softmax): axis=-1
         }
 
         return internal_constants, internal_attributes
@@ -354,9 +354,7 @@ class ExpandedAttentionPattern(Pattern):
         # Base class validates attribute constraints (internal_constants is empty)
         return super().check_skeleton_result(skelton_match_result)
 
-    def _infer_schema_attributes(
-        self, skelton_match_result: SkeletonMatchResult
-    ) -> dict[str, Any]:
+    def _infer_schema_attributes(self, skelton_match_result: SkeletonMatchResult) -> dict[str, Any]:
         """Infer schema-level attributes from matched expanded attention nodes.
 
         Extracts scale from the sqrt(scale) constants.
@@ -438,7 +436,7 @@ class TransposeAttentionPattern(Pattern):
         edges = [
             (-2, 0, 0, 0),  # K -> Transpose[0] (node 0)
             (-1, 0, 1, 0),  # Q -> Attention[0] (node 1)
-            (0, 0, 1, 1),   # Transpose(K) -> Attention[1] (node 1)
+            (0, 0, 1, 1),  # Transpose(K) -> Attention[1] (node 1)
             (-3, 0, 1, 2),  # V -> Attention[2] (node 1)
             (-4, 0, 1, 3),  # attn_mask -> Attention[3] (node 1)
         ]
@@ -487,9 +485,7 @@ class TransposeAttentionPattern(Pattern):
 
         return internal_constants, internal_attributes
 
-    def _infer_schema_attributes(
-        self, skelton_match_result: SkeletonMatchResult
-    ) -> dict[str, Any]:
+    def _infer_schema_attributes(self, skelton_match_result: SkeletonMatchResult) -> dict[str, Any]:
         """Infer schema-level attributes from matched Transpose+Attention nodes.
 
         Extracts scale attribute from the matched Attention node.
@@ -554,25 +550,25 @@ class ExpandedAttentionPatternInputGenerator(PatternInputGenerator):
         return [
             # Small attention: batch=1, q_seq=4, kv_seq=6, heads=2, head_size=8
             {
-                "Q": InputShapeConstraint((1, 2, 4, 8)),      # BHSD
-                "K": InputShapeConstraint((1, 6, 2, 8)),      # BSHD
-                "V": InputShapeConstraint((1, 2, 6, 8)),      # BHSD
+                "Q": InputShapeConstraint((1, 2, 4, 8)),  # BHSD
+                "K": InputShapeConstraint((1, 6, 2, 8)),  # BSHD
+                "V": InputShapeConstraint((1, 2, 6, 8)),  # BHSD
                 "attn_mask": InputShapeConstraint((1, 2, 4, 6)),
                 "scale": 1.0 / 8,  # 1.0 / head_size
             },
             # Medium attention: batch=2, seq=8, heads=4, head_size=16
             {
-                "Q": InputShapeConstraint((2, 4, 8, 16)),     # BHSD
-                "K": InputShapeConstraint((2, 8, 4, 16)),     # BSHD
-                "V": InputShapeConstraint((2, 4, 8, 16)),     # BHSD
+                "Q": InputShapeConstraint((2, 4, 8, 16)),  # BHSD
+                "K": InputShapeConstraint((2, 8, 4, 16)),  # BSHD
+                "V": InputShapeConstraint((2, 4, 8, 16)),  # BHSD
                 "attn_mask": InputShapeConstraint((2, 4, 8, 8)),
                 "scale": 1.0 / 16,  # 1.0 / head_size
             },
             # BERT-like: batch=1, seq=512, heads=2, head_size=64
             {
-                "Q": InputShapeConstraint((1, 2, 512, 64)),   # BHSD
-                "K": InputShapeConstraint((1, 512, 2, 64)),   # BSHD
-                "V": InputShapeConstraint((1, 2, 512, 64)),   # BHSD
+                "Q": InputShapeConstraint((1, 2, 512, 64)),  # BHSD
+                "K": InputShapeConstraint((1, 512, 2, 64)),  # BSHD
+                "V": InputShapeConstraint((1, 2, 512, 64)),  # BHSD
                 "attn_mask": InputShapeConstraint((1, 2, 512, 512)),
                 "scale": 1.0 / 64,  # 1.0 / head_size
             },
@@ -610,16 +606,16 @@ class TransposeAttentionPatternInputGenerator(PatternInputGenerator):
         return [
             # Small attention: batch=1, q_seq=4, kv_seq=6, heads=2, head_size=8
             {
-                "Q": InputShapeConstraint((1, 2, 4, 8)),      # BHSD
-                "K": InputShapeConstraint((1, 6, 2, 8)),      # BSHD
-                "V": InputShapeConstraint((1, 2, 6, 8)),      # BHSD
+                "Q": InputShapeConstraint((1, 2, 4, 8)),  # BHSD
+                "K": InputShapeConstraint((1, 6, 2, 8)),  # BSHD
+                "V": InputShapeConstraint((1, 2, 6, 8)),  # BHSD
                 "attn_mask": InputShapeConstraint((1, 2, 4, 6)),
             },
             # Medium attention: batch=2, seq=8, heads=4, head_size=16
             {
-                "Q": InputShapeConstraint((2, 4, 8, 16)),     # BHSD
-                "K": InputShapeConstraint((2, 8, 4, 16)),     # BSHD
-                "V": InputShapeConstraint((2, 4, 8, 16)),     # BHSD
+                "Q": InputShapeConstraint((2, 4, 8, 16)),  # BHSD
+                "K": InputShapeConstraint((2, 8, 4, 16)),  # BSHD
+                "V": InputShapeConstraint((2, 4, 8, 16)),  # BHSD
                 "attn_mask": InputShapeConstraint((2, 4, 8, 8)),
             },
         ]

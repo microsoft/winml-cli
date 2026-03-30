@@ -280,7 +280,7 @@ class ORTGraphPipeConfig(PipeConfig):
         """
         for cap in GRAPH_CAPABILITIES.values():
             if hasattr(cap, "python_name") and cap.python_name == python_name:
-                if hasattr(cap, "ort_name") and cap.ort_name:
+                if hasattr(cap, "ort_name") and cap.ort_name:  # noqa: SIM102
                     if cap.ort_name not in self.disabled_optimizers:
                         self.disabled_optimizers.append(cap.ort_name)
                 break
@@ -565,9 +565,7 @@ class ORTGraphPipe(BasePipe):
 
             # Verbose output for process
             if config.verbose:
-                self._log_process_verbose(
-                    config, model, input_file, output_file, disable_list
-                )
+                self._log_process_verbose(config, model, input_file, output_file, disable_list)
 
             # Create session to trigger optimization
             try:

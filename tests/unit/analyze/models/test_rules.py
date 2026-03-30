@@ -53,7 +53,7 @@ class TestRuntimeTestResultValidation:
         )
         assert result1.classification == SupportLevel.UNSUPPORTED
 
-        # compile=False, run=True gives GRAY (fallback to CPU scenario)
+        # compile=False, run=True gives PARTIAL (fallback to CPU scenario)
         result2 = RuntimeTestResult(
             compile=False,
             run=True,

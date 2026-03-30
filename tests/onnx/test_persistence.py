@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Tests for modelkit.onnx.persistence module.
 
 Covers load_onnx, save_onnx, and cleanup_onnx with inline and external-data
@@ -11,7 +12,6 @@ models, error paths, and edge cases.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import numpy as np
 import onnx
@@ -20,11 +20,11 @@ from onnx import TensorProto, helper, numpy_helper
 from onnx.external_data_helper import _get_all_tensors, uses_external_data
 
 from winml.modelkit.onnx.persistence import (
-    _EXTERNAL_DATA_THRESHOLD,
     cleanup_onnx,
     load_onnx,
     save_onnx,
 )
+from winml.modelkit.onnx.utils import EXTERNAL_DATA_THRESHOLD
 
 
 if TYPE_CHECKING:
@@ -60,9 +60,7 @@ def _make_model_with_initializer(
     y_info = helper.make_tensor_value_info("Y", TensorProto.FLOAT, list(weight_shape))
     w_tensor = numpy_helper.from_array(weights, name="W")
     node = helper.make_node("Add", ["X", "W"], ["Y"])
-    graph = helper.make_graph(
-        [node], "test_init", [x_info], [y_info], initializer=[w_tensor]
-    )
+    graph = helper.make_graph([node], "test_init", [x_info], [y_info], initializer=[w_tensor])
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
 
@@ -289,17 +287,16 @@ class TestSaveOnnx:
         assert not data_path.exists()
 
     def test_large_model_via_mocked_bytesize(self, tmp_path: Path) -> None:
-        """Model with ByteSize >= threshold triggers external data path.
+        """Model with raw tensor data >= threshold triggers external data path.
 
-        Mocks ByteSize to simulate a >2GiB model without actually
-        allocating that much memory.
+        Uses a low threshold to simulate the large-model code path without
+        allocating gigabytes of memory.
         """
         model = _make_model_with_initializer()
         model_path = tmp_path / "mocked_large.onnx"
 
-        two_gib = 2 * 1024 * 1024 * 1024  # 2 GiB
-        with patch.object(type(model), "ByteSize", return_value=two_gib):
-            save_onnx(model, model_path)
+        # Use threshold_size=1 so even tiny tensor data exceeds it
+        save_onnx(model, model_path, threshold_size=1)
 
         assert model_path.exists()
         data_path = tmp_path / "mocked_large.onnx.data"
@@ -325,9 +322,7 @@ class TestSaveOnnx:
         marked_model = onnx.load(str(step1_path), load_external_data=False)
 
         # Verify it has external markers
-        has_markers = any(
-            uses_external_data(t) for t in _get_all_tensors(marked_model)
-        )
+        has_markers = any(uses_external_data(t) for t in _get_all_tensors(marked_model))
         assert has_markers, "Model should have external data markers after step1"
 
         # Save again with use_external_data=False; markers should override
@@ -340,9 +335,7 @@ class TestSaveOnnx:
 
         # Verify that external data markers were preserved in the re-saved model
         resaved = onnx.load(str(step2_path), load_external_data=False)
-        has_markers_after = any(
-            uses_external_data(t) for t in _get_all_tensors(resaved)
-        )
+        has_markers_after = any(uses_external_data(t) for t in _get_all_tensors(resaved))
         assert has_markers_after, (
             "External data markers should be preserved because the model "
             "already had them, overriding use_external_data=False"
@@ -594,4 +587,4 @@ class TestConstants:
     """Verify module-level constants."""
 
     def test_threshold_is_100mib(self) -> None:
-        assert _EXTERNAL_DATA_THRESHOLD == 100 * 1024 * 1024
+        assert EXTERNAL_DATA_THRESHOLD == 100 * 1024 * 1024

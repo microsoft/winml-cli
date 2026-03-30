@@ -283,6 +283,6 @@ class ReshapeInputGenerator(OpInputGenerator):
     def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
         """Returns QDQ configuration for Reshape operator."""
         return {
-                "data": QDQParameterConfig(support_activation=True),
-                "shape": QDQParameterConfig(),
-            }
+            "data": QDQParameterConfig(support_activation=True),
+            "shape": QDQParameterConfig(support_non_qdq=True),
+        }

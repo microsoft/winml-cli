@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Pattern matching system for ONNX models.
 
 This module provides a flexible framework for matching and validating subgraph patterns
@@ -151,15 +152,19 @@ Important Notes
 - Type conversions use SupportedONNXType for consistency
 - Constant validation should use type-aware dtypes from inferred types
 - Helper methods _infer_type_mapping() and _build_input_infos() are available
-- The base check_skeleton_result() validates constants and attributes from get_internal_constants_and_attributes()
+- The base check_skeleton_result() validates constants and
+  attributes from get_internal_constants_and_attributes()
 """
 
 
 # TODO: currently assuming one single output
-# TODO: add "hyper-variables" to support offline constant folding (evaluated before in graph building stage, which will not be reflected in the onnx model)
+# TODO: add "hyper-variables" to support offline constant folding
+# (evaluated before in graph building stage, which will not be
+# reflected in the onnx model)
 # TODO: a common onnx model util class to ease different model-related queries
 
 import itertools as it
+import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -170,19 +175,24 @@ import onnx
 from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.dtypes import SupportedONNXType
 from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx.dtypes import SupportedONNXType
+from winml.modelkit.onnx.shape import infer_onnx_shapes
+from winml.modelkit.onnx.utils import check_onnx_model
 from winml.modelkit.pattern.match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 from winml.modelkit.pattern.op_input_gen.op_input_gen import OpInputGenerator
 from winml.modelkit.pattern.utils import get_attribute_proto_value, make_hashable
 
-# ModelTag string constants (inlined to avoid analyze dependency)
+
+logger = logging.getLogger(__name__)
+
+# ModelTag string constants (inlined to avoid static_analyzer dependency)
 _MODEL_TAG_INVALID_PATTERN_MATCHER_MODEL = "invalid_pattern_matcher_model"
 _MODEL_TAG_MISSING_NODE_NAMES = "missing_node_names"
 
 
-class PatternMismatchedException(Exception):
+class PatternMismatchedError(Exception):
     """Exception raised when a skeleton match fails to validate as a pattern.
 
     This exception is raised during _infer_schema_attributes or other validation
@@ -194,7 +204,7 @@ class PatternMismatchedException(Exception):
     """
 
 
-class InvalidPatternMatcherModelException(Exception):
+class InvalidPatternMatcherModelError(Exception):
     """Exception raised when a model is invalid for pattern matching.
 
     This exception is raised during PatternMatcher initialization when the model
@@ -386,10 +396,8 @@ def make_single_op_pattern(
 
     # Build edges: each virtual input connects to the corresponding input slot
     # Virtual inputs are -1, -2, -3, ... (we use -(i+1) for input i)
-    edges: list[tuple[int, int, int, int]] = []
-    for i in range(n_inputs):
-        # Virtual input -(i+1) connects with slot 0 to node 0's input slot i
-        edges.append((-(i + 1), 0, 0, i))
+    # Virtual input -(i+1) connects with slot 0 to node 0's input slot i
+    edges: list[tuple[int, int, int, int]] = [(-(i + 1), 0, 0, i) for i in range(n_inputs)]
 
     # Create the Pattern subclass dynamically
     class SingleOpPattern(Pattern):
@@ -500,7 +508,9 @@ class PatternSchema:
 class Pattern(ABC):
     """Abstract base class for patterns used in static analysis of onnx models."""
 
-    # This class is intentend to be the rough equivalent of onnx schema or OpInputGenerator for general patterns, both op and subgraphs.
+    # This class is intentend to be the rough equivalent of onnx
+    # schema or OpInputGenerator for general patterns, both op
+    # and subgraphs.
 
     @property
     def pattern_id(self) -> str:
@@ -543,7 +553,7 @@ class Pattern(ABC):
         """
         try:
             return self._check_skeleton_result_impl(skeleton_match_result)
-        except PatternMismatchedException:
+        except PatternMismatchedError:
             return None
 
     def _check_skeleton_result_impl(
@@ -552,7 +562,7 @@ class Pattern(ABC):
         """Implementation of check_skeleton_result.
 
         This method contains the actual validation logic. It may raise
-        PatternMismatchedException if the skeleton cannot be validated.
+        PatternMismatchedError if the skeleton cannot be validated.
 
         Args:
             skeleton_match_result: The skeleton match result to validate.
@@ -561,7 +571,7 @@ class Pattern(ABC):
             PatternMatchResult if validation passes, None otherwise.
 
         Raises:
-            PatternMismatchedException: If pattern-specific validation fails.
+            PatternMismatchedError: If pattern-specific validation fails.
         """
         # First, infer type mapping from actual tensor types in the model
         type_param_to_type = self._infer_type_mapping(skeleton_match_result)
@@ -853,11 +863,7 @@ class Pattern(ABC):
                 if const_node_idx == node_idx:
                     all_slots.add(const_slot)
 
-            if not all_slots:
-                # Node has no inputs (shouldn't happen in practice)
-                max_slot = -1
-            else:
-                max_slot = max(all_slots)
+            max_slot = -1 if not all_slots else max(all_slots)
 
             # Check for contiguous slots
             expected_slots = set(range(max_slot + 1))
@@ -874,13 +880,8 @@ class Pattern(ABC):
                 if (node_idx, slot) in constant_tensor_names:
                     input_name = constant_tensor_names[(node_idx, slot)]
                 elif slot in input_slots:
-                    src, src_slot = input_slots[slot]
-                    if src < 0:
-                        # Virtual input
-                        input_name = virtual_input_names[src]
-                    else:
-                        # Output from another node
-                        input_name = node_output_names[src]
+                    src, _src_slot = input_slots[slot]
+                    input_name = virtual_input_names[src] if src < 0 else node_output_names[src]
                 else:
                     raise ValueError(f"Node {node_idx} ({op_type}) missing input at slot {slot}")
 
@@ -949,7 +950,7 @@ class Pattern(ABC):
         model.ir_version = 11
 
         try:
-            model = onnx.shape_inference.infer_shapes(model)
+            model = infer_onnx_shapes(model)
         except Exception:
             pass
 
@@ -1035,6 +1036,8 @@ class Pattern(ABC):
 
 
 class PatternInputGenerator(OpInputGenerator):
+    """Input generator that wraps a Pattern for runtime checking."""
+
     pattern: Pattern = None
     registration_name: str
 
@@ -1062,6 +1065,7 @@ class PatternInputGenerator(OpInputGenerator):
         is_constant_map: dict[str, bool],
         output_dtypes: list[str],
         qdq_types: dict[str, Any] | None = None,
+        dynamic_axes: dict[str, tuple[int, ...]] | None = None,
     ) -> onnx.ModelProto:
         """Create ONNX model using the pattern's get_onnx_model method.
 
@@ -1217,9 +1221,8 @@ class PatternMatcher:
         """
         # Run shape inference to populate value_info with type information
         # This is critical for type inference and shape lookups
-        from onnx import shape_inference
 
-        self.model = shape_inference.infer_shapes(onnx_model)
+        self.model = infer_onnx_shapes(onnx_model)
         self.graph = self.model.graph
 
         # Registered patterns: pattern class name -> pattern instance
@@ -1255,13 +1258,15 @@ class PatternMatcher:
 
         if raise_on_invalid_model:
             try:
-                onnx.checker.check_model(self.model)
+                check_onnx_model(self.model)
             except onnx.checker.ValidationError as e:
-                raise InvalidPatternMatcherModelException(
+                raise InvalidPatternMatcherModelError(
                     f"Model failed ONNX validation: {e}",
                     error_tag=_MODEL_TAG_INVALID_PATTERN_MATCHER_MODEL,
                 ) from e
-            # Validate all nodes have non-empty names
+            # Warn about nodes with empty names; they get auto-generated names
+            # (node_{idx}) in _build_lookups and are added to all lookup structures,
+            # so pattern matching proceeds normally via tensor connectivity.
             nodes_with_empty_names = [
                 (idx, node.op_type) for idx, node in enumerate(self.graph.node) if not node.name
             ]
@@ -1271,10 +1276,12 @@ class PatternMatcher:
                 )
                 if len(nodes_with_empty_names) > 10:
                     node_details += f", ... and {len(nodes_with_empty_names) - 10} more"
-                raise InvalidPatternMatcherModelException(
-                    f"Model has {len(nodes_with_empty_names)} nodes with empty names: {node_details}. "
-                    "All nodes must have non-empty names for pattern matching.",
-                    error_tag=_MODEL_TAG_MISSING_NODE_NAMES,
+                logger.warning(
+                    "Model has %d nodes with empty names (%s). "
+                    "These nodes are assigned auto-generated names (node_<idx>) "
+                    "and participate in pattern matching normally via tensor connectivity.",
+                    len(nodes_with_empty_names),
+                    node_details,
                 )
 
         # Build the lookup structures
@@ -1391,7 +1398,8 @@ class PatternMatcher:
 
         # Build tensor shapes and types lookup for O(1) access
         # This eliminates repeated graph traversals during pattern matching
-        # Sources: graph inputs, outputs, value_info, initializers (shapes added above for constants)
+        # Sources: graph inputs, outputs, value_info,
+        # initializers (shapes added above for constants)
 
         # From graph inputs
         for value_info in self.graph.input:
@@ -1650,7 +1658,7 @@ class PatternMatcher:
             if graph_input.name:
                 edge_partial_matching_results[graph_input.name] = []
 
-        for idx, node in enumerate(self.graph.node):
+        for _idx, node in enumerate(self.graph.node):
             # touch output edges
             for out_edge in node.output:
                 edge_partial_matching_results[out_edge] = []
@@ -1689,24 +1697,25 @@ class PatternMatcher:
                             mapping = {src: input_edge}
                             dst_slot_partial_mappings.append([mapping])
                         else:
-                            # assert input_edge in edge_pattial_matching_results, f"Edge {input_edge} not in partial matching results"
                             if input_edge not in edge_partial_matching_results:
                                 assert input_edge in self.constant_and_initializer_names, (
-                                    f"Edge {input_edge} not in partial matching results or constants/initializers"
+                                    f"Edge {input_edge} not in "
+                                    f"partial matching results or "
+                                    f"constants/initializers"
                                 )
-                                # cannot match non-constant/initializer edges, since src >= 0
-                                # print('if src >=0, it cannot be constant, adding empty list:', input_edge)
+                                # cannot match non-constant/
+                                # initializer edges, since src >= 0
                                 dst_slot_partial_mappings.append([])
                                 # src_node_matched = False
                                 continue
-                            src_matched_mappings = []
-                            for partial_mapping in edge_partial_matching_results[input_edge]:
-                                # check if partial mapping contains src node
+                            src_matched_mappings = [
+                                partial_mapping.node_mapping.copy()
+                                for partial_mapping in edge_partial_matching_results[input_edge]
                                 if (
                                     src in partial_mapping.node_mapping
                                     and edge_info.src_name == partial_mapping.node_mapping[src]
-                                ):
-                                    src_matched_mappings.append(partial_mapping.node_mapping.copy())
+                                )
+                            ]
                             dst_slot_partial_mappings.append(src_matched_mappings)
                     else:
                         continue  # edge not specified in subgraph, skipping adding mapping
@@ -1736,40 +1745,37 @@ class PatternMatcher:
                             )
                         )
 
-                if valid_merged_mappings:
-                    # print(f"  Subgraph node {subgraph_node} matched with {len(valid_merged_mappings)} mappings.")
-                    if subgraph_node in exit_nodes:
-                        # print(f"    (is exit node)")
-                        for valid_mapping in valid_merged_mappings:
-                            # print(valid_mapping)
+                if valid_merged_mappings and subgraph_node in exit_nodes:
+                    # print(f"    (is exit node)")
+                    for valid_mapping in valid_merged_mappings:
+                        # print(valid_mapping)
 
-                            # Extract inputs (virtual nodes -1, -2, -3, ... in that order)
-                            inputs = [valid_mapping[-i] for i in range(1, skeleton.n_inputs + 1)]
+                        # Extract inputs (virtual nodes -1, -2, -3, ... in that order)
+                        inputs = [valid_mapping[-i] for i in range(1, skeleton.n_inputs + 1)]
 
-                            # Get output from exit node (assuming single exit node with output slot 0)
-                            exit_node_name = valid_mapping[subgraph_node]
-                            exit_node = self.node_lookup[exit_node_name]
-                            output = exit_node.output[0]
+                        # Get output from exit node (assuming
+                        # single exit node with output slot 0)
+                        exit_node_name = valid_mapping[subgraph_node]
+                        exit_node = self.node_lookup[exit_node_name]
+                        output = exit_node.output[0]
 
-                            # Compute matched_nodes for removability check
-                            matched_node_names = [valid_mapping[i] for i in range(n_nodes)]
-                            removable = self._compute_removable(matched_node_names, output)
+                        # Compute matched_nodes for removability check
+                        matched_node_names = [valid_mapping[i] for i in range(n_nodes)]
+                        removable = self._compute_removable(matched_node_names, output)
 
-                            # Convert node names to NodeProto objects
-                            matched_nodes_list = [
-                                self.node_lookup[name] for name in matched_node_names
-                            ]
+                        # Convert node names to NodeProto objects
+                        matched_nodes_list = [self.node_lookup[name] for name in matched_node_names]
 
-                            skeleton_results.append(
-                                SkeletonMatchResult(
-                                    pattern=pattern,
-                                    matched_nodes=matched_nodes_list,
-                                    matcher=self,
-                                    inputs=inputs,
-                                    output=output,
-                                    removable=removable,
-                                )
+                        skeleton_results.append(
+                            SkeletonMatchResult(
+                                pattern=pattern,
+                                matched_nodes=matched_nodes_list,
+                                matcher=self,
+                                inputs=inputs,
+                                output=output,
+                                removable=removable,
                             )
+                        )
 
         return skeleton_results
 
@@ -1838,26 +1844,28 @@ class PatternRewriter:
         graph_output_names = {output.name for output in graph.output}
 
         # Remove unused Constant nodes
-        unused_nodes = []
-        for node in graph.node:
+        unused_nodes = [
+            node
+            for node in graph.node
             if (
                 node.op_type == "Constant"
                 and node.output[0] not in graph_output_names
                 and node.output[0] not in input_name_to_nodes
-            ):
-                unused_nodes.append(node)
+            )
+        ]
 
         for node in unused_nodes:
             graph.node.remove(node)
 
         # Remove unused initializers
-        unused_initializers = []
-        for initializer in graph.initializer:
+        unused_initializers = [
+            initializer
+            for initializer in graph.initializer
             if (
                 initializer.name not in input_name_to_nodes
                 and initializer.name not in graph_output_names
-            ):
-                unused_initializers.append(initializer)
+            )
+        ]
 
         for initializer in unused_initializers:
             graph.initializer.remove(initializer)
@@ -1884,7 +1892,6 @@ class PatternRewriter:
         import copy
         import warnings
 
-        import onnx
         from onnx import helper
 
         # Deep copy the model to avoid modifying the original
@@ -1911,8 +1918,10 @@ class PatternRewriter:
             for match_result in match_results:
                 # Rebuild node_name_to_idx before each rewrite to handle index changes
                 # This avoids issues if matches within a group are in bad order
-                # TODO: avoid rebuiling by using dict[node_name, linked_list_node];
-                # this would reduce theoretical time complexity but we need careful implementation to make it actually faster
+                # TODO: avoid rebuiling by using
+                # dict[node_name, linked_list_node]; this would
+                # reduce theoretical time complexity but we need
+                # careful implementation to make it actually faster
                 node_name_to_idx: dict[str, int] = {}
                 for idx, node in enumerate(graph.node):
                     assert node.name is not None, "All nodes must have names for rewriting."
@@ -2000,7 +2009,8 @@ class PatternRewriter:
                 )
 
                 # Find insertion point: position of last matched node after deletions
-                # Since original graph is topologically sorted, last matched node is after all input producers
+                # Since original graph is topologically sorted,
+                # last matched node is after all input producers
                 matched_indices = [node_name_to_idx[n] for n in skeleton_match.matched_node_names]
                 max_matched_idx = max(matched_indices)
                 insert_idx = max_matched_idx - (len(matched_indices) - 1)
@@ -2038,7 +2048,7 @@ class PatternRewriter:
 
         # Run shape inference on the final model
         try:
-            new_model = onnx.shape_inference.infer_shapes(new_model)
+            new_model = infer_onnx_shapes(new_model)
         except Exception as e:
             warnings.warn(
                 f"Shape inference failed on rewritten model: {e}",
@@ -2047,7 +2057,7 @@ class PatternRewriter:
 
         # Check model validity
         try:
-            onnx.checker.check_model(new_model)
+            check_onnx_model(new_model)
         except Exception as e:
             warnings.warn(
                 f"Model validation failed on rewritten model: {e}",

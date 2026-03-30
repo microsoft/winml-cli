@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Tests for HuggingFace Model Class Two-Level Mapping.
 
 This module tests the mapping system that resolves the correct HuggingFace
@@ -60,6 +61,16 @@ class TestHFModelClassMappingDesign:
             task="image-feature-extraction",
         )
         assert result.__name__ == "CLIPVisionModelWithProjection"
+
+    def test_segformer_image_segmentation_returns_semantic_segmentation(self):
+        """Segformer with image-segmentation should return AutoModelForSemanticSegmentation."""
+        from winml.modelkit.loader.task import _get_custom_model_class
+
+        result = _get_custom_model_class(
+            model_type="segformer",
+            task="image-segmentation",
+        )
+        assert result.__name__ == "AutoModelForSemanticSegmentation"
 
     # =========================================================================
     # Level 2: Task Defaults (tasks not in TasksManager)
@@ -173,6 +184,19 @@ class TestHFModelClassMappingRegistry:
         assert ("clip", "feature-extraction") in HF_MODEL_CLASS_MAPPING
         assert ("clip", "image-feature-extraction") in HF_MODEL_CLASS_MAPPING
 
+    def test_segformer_class_mapping_registered(self):
+        """Segformer class mapping should be in the registry."""
+        from winml.modelkit.models import HF_MODEL_CLASS_MAPPING
+
+        assert ("segformer", "image-segmentation") in HF_MODEL_CLASS_MAPPING
+
+    def test_segformer_module_class_mapping_structure(self):
+        """Segformer module should export MODEL_CLASS_MAPPING dict."""
+        from winml.modelkit.models.hf.segformer import MODEL_CLASS_MAPPING
+
+        assert isinstance(MODEL_CLASS_MAPPING, dict)
+        assert ("segformer", "image-segmentation") in MODEL_CLASS_MAPPING
+
     def test_clip_module_class_mapping_structure(self):
         """CLIP module should export MODEL_CLASS_MAPPING dict.
 
@@ -202,6 +226,14 @@ class TestHFModelClassMappingIntegration:
         assert result is not None
         assert result.__name__ == "CLIPVisionModelWithProjection"
 
+    def test_segformer_specialization_returns_class_directly(self):
+        """Segformer specialization should return class directly, not go through TasksManager."""
+        from winml.modelkit.loader.task import _get_custom_model_class
+
+        result = _get_custom_model_class("segformer", "image-segmentation")
+        assert result is not None
+        assert result.__name__ == "AutoModelForSemanticSegmentation"
+
 
 class TestResolveTaskAndModelClass:
     """Tests for the resolve_task_and_model_class() function."""
@@ -225,9 +257,7 @@ class TestResolveTaskAndModelClass:
         from winml.modelkit.loader.task import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="image-classification"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="image-classification")
 
         assert task == "image-classification"
         assert "ImageClassification" in resolved_class.__name__
@@ -241,18 +271,26 @@ class TestResolveTaskAndModelClass:
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
         # image-feature-extraction should return CLIPVisionModelWithProjection
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="image-feature-extraction"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="image-feature-extraction")
         assert task == "image-feature-extraction"  # preserves original task name
         assert resolved_class.__name__ == "CLIPVisionModelWithProjection"
 
         # feature-extraction should return CLIPTextModelWithProjection directly
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="feature-extraction"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="feature-extraction")
         assert task == "feature-extraction"
         assert resolved_class.__name__ == "CLIPTextModelWithProjection"
+
+    def test_case2_task_only_with_segformer_specialization(self):
+        """Case 2: task specified triggers specialization (Segformer)."""
+        from transformers import SegformerConfig
+
+        from winml.modelkit.loader.task import resolve_task_and_model_class
+
+        config = SegformerConfig()
+
+        task, resolved_class = resolve_task_and_model_class(config, task="image-segmentation")
+        assert task == "image-segmentation"
+        assert resolved_class.__name__ == "AutoModelForSemanticSegmentation"
 
     def test_case2_task_only_nsp(self):
         """Case 2: NSP task uses HF_TASK_DEFAULTS."""
@@ -261,9 +299,7 @@ class TestResolveTaskAndModelClass:
         from winml.modelkit.loader.task import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("prajjwal1/bert-tiny")
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="next-sentence-prediction"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="next-sentence-prediction")
 
         assert task == "next-sentence-prediction"
         # AutoModelForNextSentencePrediction resolves to concrete class
@@ -339,7 +375,7 @@ class TestHFModelClassMappingE2E:
         """E2E: Load CLIP with image-feature-extraction task."""
         from winml.modelkit.loader.hf import load_hf_model
 
-        model, config, task = load_hf_model(
+        model, _config, _task = load_hf_model(
             "openai/clip-vit-base-patch32",
             task="image-feature-extraction",
         )
@@ -350,7 +386,7 @@ class TestHFModelClassMappingE2E:
         """E2E: Load CLIP with feature-extraction resolves to text model."""
         from winml.modelkit.loader.hf import load_hf_model
 
-        model, config, task = load_hf_model(
+        model, _config, task = load_hf_model(
             "openai/clip-vit-base-patch32",
             task="feature-extraction",
         )
@@ -361,7 +397,7 @@ class TestHFModelClassMappingE2E:
         """E2E: Load BERT with next-sentence-prediction task."""
         from winml.modelkit.loader.hf import load_hf_model
 
-        model, config, task = load_hf_model(
+        model, _config, _task = load_hf_model(
             "prajjwal1/bert-tiny",
             task="next-sentence-prediction",
         )
@@ -393,13 +429,11 @@ class TestConflictScenarios:
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
         # Without model_class: specialization picks CLIPTextModelWithProjection
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="feature-extraction"
-        )
+        _task, resolved_class = resolve_task_and_model_class(config, task="feature-extraction")
         assert resolved_class.__name__ == "CLIPTextModelWithProjection"
 
         # With model_class: user override takes precedence
-        task, resolved_class = resolve_task_and_model_class(
+        _task, resolved_class = resolve_task_and_model_class(
             config,
             task="feature-extraction",
             model_class="CLIPModel",
@@ -442,9 +476,7 @@ class TestConflictScenarios:
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
         # Original task "image-feature-extraction" should find specialization
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="image-feature-extraction"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="image-feature-extraction")
 
         # Task preserves original name (normalization is internal for lookup)
         assert task == "image-feature-extraction"

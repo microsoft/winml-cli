@@ -19,11 +19,15 @@ from .surgery import SURGERY_CAPABILITIES, SurgeryPipe, SurgeryPipeConfig
 
 
 # Optimization pipes to run in sequence
-# - RewritePipe: Pattern-based subgraph rewriting (runs before ORT to normalise the graph)
-# - ORTGraphPipe: ORT graph-level optimizations (C++ optimizer)
+# - ORTGraphPipe: ORT graph-level optimizations (C++ optimizer), including constant folding.
+#   Runs first so downstream pipes see a constant-folded graph (e.g. Reshape shape inputs
+#   become literal constants, enabling skeleton-based pattern matching).
+# - RewritePipe: Pattern-based subgraph rewriting (runs after ORT constant folding so that
+#   shape constants are visible, but before ORTFusionPipe so normalised patterns are
+#   available for transformer fusions).
 # - ORTFusionPipe: ORT transformer fusions (Python optimizer)
 # - SurgeryPipe: Post-optimization model surgery (runs last to clamp constants after folding)
-PIPES: list[type[BasePipe]] = [RewritePipe, ORTGraphPipe, ORTFusionPipe, SurgeryPipe]
+PIPES: list[type[BasePipe]] = [ORTGraphPipe, RewritePipe, ORTFusionPipe, SurgeryPipe]
 
 
 def get_all_capabilities() -> dict[str, Any]:

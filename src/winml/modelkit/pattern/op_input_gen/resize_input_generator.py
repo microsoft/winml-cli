@@ -15,6 +15,7 @@ from .op_input_gen import (
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
+    QDQParameterConfig,
     register_runtime_checker_op,
 )
 
@@ -156,6 +157,29 @@ class ResizeInputGenerator(OpInputGenerator):
                 }
             )
 
+            combinations.append(
+                {
+                    # Intel/zoedepth-nyu-kitti/depth-estimation
+                    "coordinate_transformation_mode": "align_corners",
+                    "cubic_coeff_a": -0.75,
+                    "mode": "linear",
+                    "nearest_mode": "floor",
+                    "X": InputShapeConstraint(x_shape),
+                    "roi": InputValueConstraint(np.zeros(2 * ndim, dtype=np.float32)),
+                    "sizes": InputValueConstraint(np.array(target_sizes_half, dtype=np.int64)),
+                    "extrapolation_value": 0.0,
+                    "axes": list(range(ndim)),
+                }
+            )
+
+        if "roi" in self.optional_input_names:
+            # duplicate combinations with roi dropped
+            new_combinations = []
+            for combo in combinations:
+                combo_no_roi = {k: v for k, v in combo.items() if k != "roi"}
+                new_combinations.append(combo_no_roi)
+            combinations.extend(new_combinations)
+
         return combinations
 
     def derive_properties(self, properties: dict) -> dict:
@@ -188,6 +212,8 @@ class ResizeInputGenerator(OpInputGenerator):
 
         if sizes_value is not None:
             item["uses_sizes"] = len(sizes_value) > 0
+        elif item.get("sizes_shape") is not None:
+            item["uses_sizes"] = True  # Sizes provided but value unknown
         else:
             item["uses_sizes"] = False
 
@@ -204,3 +230,12 @@ class ResizeInputGenerator(OpInputGenerator):
             + [f"{input_name}_shape" for input_name in self.op_input_names]
             + ["attr_cubic_coeff_a", "attr_extrapolation_value", "attr_axes"]
         )
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Resize operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),
+            self.op_input_names[1]: QDQParameterConfig(support_non_qdq=True),  # roi
+            self.op_input_names[2]: QDQParameterConfig(support_non_qdq=True),  # scales
+            self.op_input_names[3]: QDQParameterConfig(support_non_qdq=True),  # sizes
+        }

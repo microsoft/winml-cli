@@ -25,7 +25,7 @@ from .op_input_gen import (
 # Shared data shapes for Slice operator (1D through 6D)
 _SLICE_DATA_SHAPES: list[tuple[int, ...]] = [
     # (6,),  # 1D
-    # (4, 5),  # 2D
+    (4, 5),  # 2D - timpal0l/mdeberta-v3-base-squad2
     (3, 4, 5),  # 3D
     (3, 4, 5, 6),  # 4D
     # (3, 3, 4, 5, 6),  # 5D
@@ -117,44 +117,57 @@ class SliceInputGenerator(OpInputGenerator):
 
                     if is_all_forward:
                         # Forward slicing patterns
-                        starts_ends_patterns.append((
-                            np.zeros(num_axes, dtype=np.int64),
-                            np.array([d for d in axis_dims], dtype=np.int64)
-                        ))
+                        starts_ends_patterns.append(
+                            (
+                                np.zeros(num_axes, dtype=np.int64),
+                                np.array(list(axis_dims), dtype=np.int64),
+                            )
+                        )
                         if all(d >= 3 for d in axis_dims):
-                            starts_ends_patterns.append((
-                                np.ones(num_axes, dtype=np.int64),
-                                np.array([d - 1 for d in axis_dims], dtype=np.int64)
-                            ))
+                            starts_ends_patterns.append(
+                                (
+                                    np.ones(num_axes, dtype=np.int64),
+                                    np.array([d - 1 for d in axis_dims], dtype=np.int64),
+                                )
+                            )
                     elif is_all_backward:
-                    # Backward slicing patterns
-                        starts_ends_patterns.append((
-                            np.array([d - 1 for d in axis_dims], dtype=np.int64),
-                            np.zeros(num_axes, dtype=np.int64)
-                        ))
+                        # Backward slicing patterns
+                        starts_ends_patterns.append(
+                            (
+                                np.array([d - 1 for d in axis_dims], dtype=np.int64),
+                                np.zeros(num_axes, dtype=np.int64),
+                            )
+                        )
                         if all(d >= 3 for d in axis_dims):
-                            starts_ends_patterns.append((
-                                np.array([d - 2 for d in axis_dims], dtype=np.int64),
-                                np.zeros(num_axes, dtype=np.int64)
-                            ))
+                            starts_ends_patterns.append(
+                                (
+                                    np.array([d - 2 for d in axis_dims], dtype=np.int64),
+                                    np.zeros(num_axes, dtype=np.int64),
+                                )
+                            )
                     for starts, ends in starts_ends_patterns:
-                        combinations.append({
-                            "data": InputShapeConstraint(data_shape),
-                            "starts": InputValueConstraint(starts),
-                            "ends": InputValueConstraint(ends),
-                            "axes": InputValueConstraint(axes),
-                            "steps": InputValueConstraint(steps),
-                        })
+                        combinations.append(
+                            {
+                                "data": InputShapeConstraint(data_shape),
+                                "starts": InputValueConstraint(starts),
+                                "ends": InputValueConstraint(ends),
+                                "axes": InputValueConstraint(axes),
+                                "steps": InputValueConstraint(steps),
+                            }
+                        )
 
             # Add combinations without axes or steps (default behavior)
-            combinations.append({
-                "data": InputShapeConstraint(data_shape),
-                "starts": InputValueConstraint(np.zeros(rank, dtype=np.int64)),
-                "ends": InputValueConstraint(np.array([d for d in data_shape], dtype=np.int64)),
-                "axes": None,
-                "steps": None,
-            })
+            combinations.append(
+                {
+                    "data": InputShapeConstraint(data_shape),
+                    "starts": InputValueConstraint(np.zeros(rank, dtype=np.int64)),
+                    "ends": InputValueConstraint(np.array(list(data_shape), dtype=np.int64)),
+                    "axes": None,
+                    "steps": None,
+                }
+            )
 
+        print(f"Generated {len(combinations)} input combinations for Slice operator.")
         return combinations
 
     def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
@@ -211,9 +224,7 @@ class SliceInputGenerator(OpInputGenerator):
             starts_array = np.array(starts_value, dtype=np.int64)
 
         # Normalize negative starts: add axis_dim if negative
-        normalized_starts = np.where(
-            starts_array < 0, starts_array + axis_dims, starts_array
-        )
+        normalized_starts = np.where(starts_array < 0, starts_array + axis_dims, starts_array)
 
         # Derive ends-related properties
         ends_value = item.get("ends_value")
@@ -225,8 +236,13 @@ class SliceInputGenerator(OpInputGenerator):
         # Normalize negative ends: add axis_dim if negative
         normalized_ends = np.where(ends_array < 0, ends_array + axis_dims, ends_array)
 
+        # Check if starts are at the last element of each sliced axis
+        item["starts_equal_shape"] = bool(np.all(normalized_starts == axis_dims - 1))
+
         # Check if this is a full slice (starts at 0, ends at dimension size)
-        item["slice_all"] = bool(np.all(normalized_starts == 0) and np.all(normalized_ends >= axis_dims))
+        item["slice_all"] = bool(
+            np.all(normalized_starts == 0) and np.all(normalized_ends >= axis_dims)
+        )
 
         # Derive steps-related properties
         steps_value = item.get("steps_value")
@@ -248,19 +264,14 @@ class SliceInputGenerator(OpInputGenerator):
         Returns:
             List of property names that represent shapes/values with infinite possibilities
         """
-        return [
-            "data_shape",
-            "starts_value",
-            "ends_value",
-            "axes_value",
-            "steps_value"
-        ]
+        return ["data_shape", "starts_value", "ends_value", "axes_value", "steps_value"]
 
     def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
+        """Return QDQ configuration for Slice operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),  # data
-            self.op_input_names[1]: QDQParameterConfig(),  # starts
-            self.op_input_names[2]: QDQParameterConfig(),  # ends
-            self.op_input_names[3]: QDQParameterConfig(),  # axes
-            self.op_input_names[4]: QDQParameterConfig(),  # steps
+            self.op_input_names[1]: QDQParameterConfig(support_non_qdq=True),  # starts
+            self.op_input_names[2]: QDQParameterConfig(support_non_qdq=True),  # ends
+            self.op_input_names[3]: QDQParameterConfig(support_non_qdq=True),  # axes
+            self.op_input_names[4]: QDQParameterConfig(support_non_qdq=True),  # steps
         }

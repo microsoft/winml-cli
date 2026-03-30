@@ -18,13 +18,12 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from .models.output import AnalysisOutput
 from .models.support_level import SupportLevel
 
 
 if TYPE_CHECKING:
     from .models.information import Information
-    from .models.output import EPSupport
+    from .models.output import AnalysisOutput, EPSupport
 
 
 class StaticAnalyzerConsoleWriter:
@@ -353,9 +352,11 @@ class StaticAnalyzerConsoleWriter:
             if info.pattern_node_list:
                 instance_count = len(info.pattern_node_list)
                 total_nodes = sum(len(nodes) for nodes in info.pattern_node_list)
+                affected_label = self._bold("Affected:")
+                inst_str = self._bright_cyan(instance_count)
+                nodes_str = self._bright_cyan(total_nodes)
                 self.console.print(
-                    f"      {self._bold('Affected:')} {self._bright_cyan(instance_count)} pattern instances, "
-                    f"{self._bright_cyan(total_nodes)} total nodes"
+                    f"      {affected_label} {inst_str} pattern instances, {nodes_str} total nodes"
                 )
 
                 # Show first 3 pattern instances with node lists
@@ -368,14 +369,14 @@ class StaticAnalyzerConsoleWriter:
                         # Show all nodes for readability
                         for i, node in enumerate(node_list):
                             node_escaped = escape(node)
-                            self.console.print(
-                                f"            {self._dim(f'{i + 1}.')} {self._bright_green(node_escaped)}"
-                            )
+                            dim_idx = self._dim(f"{i + 1}.")
+                            green_node = self._bright_green(node_escaped)
+                            self.console.print(f"            {dim_idx} {green_node}")
 
                 if instance_count > max_patterns_to_show:
-                    self.console.print(
-                        f"         {self._dim(f'... and {instance_count - max_patterns_to_show} more pattern instances')}"
-                    )
+                    remaining = instance_count - max_patterns_to_show
+                    more_msg = self._dim(f"... and {remaining} more pattern instances")
+                    self.console.print(f"         {more_msg}")
                 self.console.print()
 
             # Show actions with transformation details
@@ -393,21 +394,22 @@ class StaticAnalyzerConsoleWriter:
                         else ""
                     )
 
+                    transform_label = self._bold("Transform:")
                     self.console.print(
-                        f"         {action_idx}. {self._bold('Transform:')} {transformation}{priority_str}"
+                        f"         {action_idx}. {transform_label} {transformation}{priority_str}"
                     )
 
                     # Show expected status after transformation
                     if action.status:
                         status_icon = {
-                            "WHITE": "✅",
-                            "GRAY": "⚠️",
-                            "UNKNOWN": "❓",
-                            "BLACK": "⛔",
+                            "supported": "✅",
+                            "partial": "⚠️",
+                            "unknown": "❓",
+                            "unsupported": "⛔",
                         }.get(action.status.value, "•")
-                        self.console.print(
-                            f"            {self._bold('Expected Result:')} {status_icon} {self._bright_green(action.status.value)}"
-                        )
+                        result_label = self._bold("Expected Result:")
+                        status_val = self._bright_green(action.status.value)
+                        self.console.print(f"            {result_label} {status_icon} {status_val}")
 
                     # Show action details
                     if action.details:
@@ -515,11 +517,8 @@ class StaticAnalyzerConsoleWriter:
                 }
 
                 if any(issue_counts.values()):
-                    # Check if only unknown nodes (no black or gray)
-                    has_only_unknown = all(
-                        level == SupportLevel.UNKNOWN
-                        for level in issue_counts
-                    )
+                    # Check if only unknown nodes (no unsupported or partial)
+                    has_only_unknown = all(level == SupportLevel.UNKNOWN for level in issue_counts)
 
                     issue_summary = ", ".join(
                         f"{count} {level.value}"
@@ -528,13 +527,11 @@ class StaticAnalyzerConsoleWriter:
                     )
 
                     if has_only_unknown:
-                        self.console.print(
-                            f"   • {self._bright_yellow(platform_name)}: Unknown nodes found ({issue_summary})"
-                        )
+                        name = self._bright_yellow(platform_name)
+                        self.console.print(f"   • {name}: Unknown nodes found ({issue_summary})")
                     else:
-                        self.console.print(
-                            f"   • {self._bright_red(platform_name)}: Issues found ({issue_summary})"
-                        )
+                        name = self._bright_red(platform_name)
+                        self.console.print(f"   • {name}: Issues found ({issue_summary})")
 
         self.console.print()
         self.console.print(

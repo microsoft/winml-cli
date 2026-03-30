@@ -28,23 +28,25 @@ def sample_config():
     """Create a minimal WinMLBuildConfig for testing."""
     from winml.modelkit.config import WinMLBuildConfig
 
-    return WinMLBuildConfig.from_dict({
-        "loader": {
-            "task": "image-classification",
-            "model_class": "AutoModelForImageClassification",
-        },
-        "export": {"opset_version": 17, "batch_size": 1},
-        "optim": {},
-        "quant": {
-            "mode": "qdq",
-            "samples": 10,
-            "task": "image-classification",
-            "model_name": "test-model",
-        },
-        "compile": {
-            "execution_provider": "qnn",
-        },
-    })
+    return WinMLBuildConfig.from_dict(
+        {
+            "loader": {
+                "task": "image-classification",
+                "model_class": "AutoModelForImageClassification",
+            },
+            "export": {"opset_version": 17, "batch_size": 1},
+            "optim": {},
+            "quant": {
+                "mode": "qdq",
+                "samples": 10,
+                "task": "image-classification",
+                "model_name": "test-model",
+            },
+            "compile": {
+                "execution_provider": "qnn",
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -52,13 +54,15 @@ def sample_config_no_quant_compile():
     """Config with quant=None, compile=None."""
     from winml.modelkit.config import WinMLBuildConfig
 
-    return WinMLBuildConfig.from_dict({
-        "loader": {"task": "image-classification"},
-        "export": {"opset_version": 17},
-        "optim": {},
-        "quant": None,
-        "compile": None,
-    })
+    return WinMLBuildConfig.from_dict(
+        {
+            "loader": {"task": "image-classification"},
+            "export": {"opset_version": 17},
+            "optim": {},
+            "quant": None,
+            "compile": None,
+        }
+    )
 
 
 def _create_file_side_effect(output_kwarg_name: str, return_value: object = None):
@@ -71,23 +75,30 @@ def _create_file_side_effect(output_kwarg_name: str, return_value: object = None
         output_kwarg_name: The keyword argument name that carries the output path.
         return_value: Optional value to return from the mock call.
     """
+
     def side_effect(*args: object, **kwargs: object) -> object:
         path = kwargs.get(output_kwarg_name)
         if path is not None:
             Path(path).write_text("mock")
         return return_value
+
     return side_effect
 
 
 def _default_analyze_result():
     """Build a default AnalyzeResult with no opportunities (analyzer converges)."""
-    from winml.modelkit.optim.config import WinMLOptimizationConfig
     from winml.modelkit.analyze.analyzer import AnalyzeResult, LintResult
+    from winml.modelkit.optim.config import WinMLOptimizationConfig
 
     config = WinMLOptimizationConfig()
     lint = LintResult(
-        errors=0, warnings=0, info=0, passed=True,
-        error_patterns=[], warning_patterns=[], information=[],
+        errors=0,
+        warnings=0,
+        info=0,
+        passed=True,
+        error_patterns=[],
+        warning_patterns=[],
+        information=[],
         optimization_config=config,
     )
     return AnalyzeResult(lint=lint, optimization_config=config)
@@ -201,21 +212,15 @@ class TestBuildResult:
 class TestBuildHfModel:
     """Test build_hf_model() function."""
 
-    def test_creates_output_dir(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
+    def test_creates_output_dir(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         output_dir = tmp_path / "new_dir"
         assert not output_dir.exists()
 
         build_hf_model(config=sample_config, output_dir=output_dir, model_id="test")
         assert output_dir.is_dir()
 
-    def test_produces_build_result(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
-        result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+    def test_produces_build_result(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
+        result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         assert isinstance(result, BuildResult)
         assert result.output_dir == tmp_path
         assert result.final_onnx_path == tmp_path / "model.onnx"
@@ -223,9 +228,7 @@ class TestBuildHfModel:
         assert result.reused is False
         assert result.elapsed >= 0
 
-    def test_persists_config(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
+    def test_persists_config(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         config_path = tmp_path / "winml_build_config.json"
         assert config_path.exists()
@@ -233,24 +236,16 @@ class TestBuildHfModel:
         assert "export" in data
         assert "optim" in data
 
-    def test_all_stages_completed(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
-        result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+    def test_all_stages_completed(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
+        result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         assert "export" in result.stages_completed
         assert "optimize" in result.stages_completed
         assert "quantize" in result.stages_completed
         assert "compile" in result.stages_completed
         assert result.stages_skipped == []
 
-    def test_stage_timings_populated(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
-        result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+    def test_stage_timings_populated(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
+        result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         assert "export" in result.stage_timings
         assert "optimize" in result.stage_timings
         assert all(t >= 0 for t in result.stage_timings.values())
@@ -267,15 +262,11 @@ class TestBuildHfModel:
         mock_pipeline["quantize"].assert_not_called()
         mock_pipeline["compile"].assert_not_called()
 
-    def test_reuses_existing_artifact(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
+    def test_reuses_existing_artifact(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         # Create fake existing artifact
         (tmp_path / "model.onnx").write_text("existing")
 
-        result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+        result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         assert result.reused is True
         assert result.stages_completed == []
         mock_pipeline["export"].assert_not_called()
@@ -288,7 +279,9 @@ class TestBuildHfModel:
         (tmp_path / "export.onnx").write_text("old_export")
 
         result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             rebuild=True,
         )
         assert result.reused is False
@@ -303,7 +296,9 @@ class TestBuildHfModel:
         (tmp_path / "quantized.onnx").write_text("stale_quant")
 
         build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             rebuild=True,
         )
         # Old artifacts should have been removed before rebuild
@@ -315,18 +310,14 @@ class TestBuildHfModel:
     ) -> None:
         (tmp_path / "model.onnx").write_text("existing")
 
-        build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+        build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         # Config should NOT be written when reusing
         assert not (tmp_path / "winml_build_config.json").exists()
 
     def test_pretrained_weights_calls_load_model(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="bert-base"
-        )
+        build_hf_model(config=sample_config, output_dir=tmp_path, model_id="bert-base")
         mock_pipeline["load"].assert_called_once()
         call_args = mock_pipeline["load"].call_args
         assert call_args[0][1] == "bert-base"  # model_id
@@ -336,8 +327,10 @@ class TestBuildHfModel:
     ) -> None:
         pre_loaded = MagicMock()
         build_hf_model(
-            config=sample_config, output_dir=tmp_path,
-            model_id="test", pytorch_model=pre_loaded,
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
+            pytorch_model=pre_loaded,
         )
         mock_pipeline["load"].assert_not_called()
         # export should receive the pre-loaded model
@@ -349,9 +342,7 @@ class TestBuildHfModel:
     ) -> None:
         mock_pipeline["export"].side_effect = RuntimeError("ONNX export failed")
         with pytest.raises(RuntimeError, match="ONNX export failed"):
-            build_hf_model(
-                config=sample_config, output_dir=tmp_path, model_id="test"
-            )
+            build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
 
     def test_quantize_failure_raises_runtime_error(
         self, tmp_path: Path, sample_config, mock_pipeline
@@ -365,9 +356,7 @@ class TestBuildHfModel:
         )
 
         with pytest.raises(RuntimeError, match="Quantization failed"):
-            build_hf_model(
-                config=sample_config, output_dir=tmp_path, model_id="test"
-            )
+            build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
 
 
 class TestBuildValidation:
@@ -375,37 +364,31 @@ class TestBuildValidation:
 
     def test_empty_model_id_rejected(self, tmp_path: Path, sample_config) -> None:
         with pytest.raises(ValueError, match="empty string"):
-            build_hf_model(
-                config=sample_config, output_dir=tmp_path, model_id=""
-            )
+            build_hf_model(config=sample_config, output_dir=tmp_path, model_id="")
 
     def test_whitespace_model_id_rejected(self, tmp_path: Path, sample_config) -> None:
         with pytest.raises(ValueError, match="empty string"):
-            build_hf_model(
-                config=sample_config, output_dir=tmp_path, model_id="   "
-            )
+            build_hf_model(config=sample_config, output_dir=tmp_path, model_id="   ")
 
     def test_output_dir_is_file_rejected(self, tmp_path: Path, sample_config) -> None:
         file_path = tmp_path / "a_file.txt"
         file_path.write_text("not a dir")
         with pytest.raises(ValueError, match="not a directory"):
-            build_hf_model(
-                config=sample_config, output_dir=file_path, model_id="test"
-            )
+            build_hf_model(config=sample_config, output_dir=file_path, model_id="test")
 
     def test_invalid_config_rejected(self, tmp_path: Path) -> None:
         """build_hf_model() rejects invalid config via validate()."""
         from winml.modelkit.config import WinMLBuildConfig
 
-        bad_config = WinMLBuildConfig.from_dict({
-            "loader": {"task": None},  # Missing required task
-            "export": {"opset_version": 17},
-            "optim": {},
-        })
+        bad_config = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": None},  # Missing required task
+                "export": {"opset_version": 17},
+                "optim": {},
+            }
+        )
         with pytest.raises(ValueError, match="Config validation failed"):
-            build_hf_model(
-                config=bad_config, output_dir=tmp_path, model_id="test"
-            )
+            build_hf_model(config=bad_config, output_dir=tmp_path, model_id="test")
 
 
 # =============================================================================
@@ -420,7 +403,9 @@ class TestCacheKey:
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
         result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key="imgcls_abc123",
         )
         assert result.final_onnx_path == tmp_path / "imgcls_abc123_model.onnx"
@@ -429,7 +414,9 @@ class TestCacheKey:
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
         result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key="imgcls_abc123",
         )
         assert result.config_path == tmp_path / "imgcls_abc123_winml_build_config.json"
@@ -439,7 +426,9 @@ class TestCacheKey:
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
         build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key="imgcls_abc123",
         )
         # Verify export was called with prefixed path
@@ -450,7 +439,9 @@ class TestCacheKey:
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
         build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key="imgcls_abc123",
         )
         opt_call = mock_pipeline["optimize"].call_args
@@ -461,7 +452,9 @@ class TestCacheKey:
     ) -> None:
         """cache_key=None (default) preserves original unprefixed behavior."""
         result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key=None,
         )
         assert result.final_onnx_path == tmp_path / "model.onnx"
@@ -475,7 +468,9 @@ class TestCacheKey:
         (tmp_path / "imgcls_abc123_model.onnx").write_text("existing")
 
         result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key="imgcls_abc123",
         )
         assert result.reused is True
@@ -489,8 +484,11 @@ class TestCacheKey:
         (tmp_path / "keep_me.txt").write_text("important")
 
         build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
-            cache_key="imgcls_abc123", rebuild=True,
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
+            cache_key="imgcls_abc123",
+            rebuild=True,
         )
         assert (tmp_path / "keep_me.txt").exists()
 
@@ -503,8 +501,11 @@ class TestCacheKey:
         (tmp_path / "txtcls_def456_model.onnx").write_text("variant_b")
 
         build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
-            cache_key="imgcls_abc123", rebuild=True,
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
+            cache_key="imgcls_abc123",
+            rebuild=True,
         )
         # variant_b should survive
         assert (tmp_path / "txtcls_def456_model.onnx").exists()
@@ -518,13 +519,9 @@ class TestCacheKey:
 class TestBuildManifest:
     """Test build_manifest.json writing."""
 
-    def test_build_manifest_written(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
+    def test_build_manifest_written(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """Manifest file is created after a successful build."""
-        result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+        result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         manifest_path = tmp_path / "build_manifest.json"
         assert manifest_path.exists()
         assert result.manifest_path == manifest_path
@@ -535,16 +532,12 @@ class TestBuildManifest:
         """Manifest is NOT written when reusing a cached artifact."""
         (tmp_path / "model.onnx").write_text("existing")
 
-        result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test"
-        )
+        result = build_hf_model(config=sample_config, output_dir=tmp_path, model_id="test")
         assert result.reused is True
         assert result.manifest_path is None
         assert not (tmp_path / "build_manifest.json").exists()
 
-    def test_build_manifest_content(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
+    def test_build_manifest_content(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """Manifest contains correct stages, model_id, task, etc."""
         result = build_hf_model(
             config=sample_config, output_dir=tmp_path, model_id="microsoft/resnet-50"
@@ -578,7 +571,9 @@ class TestBuildManifest:
     ) -> None:
         """Manifest filename is prefixed when cache_key is set."""
         result = build_hf_model(
-            config=sample_config, output_dir=tmp_path, model_id="test",
+            config=sample_config,
+            output_dir=tmp_path,
+            model_id="test",
             cache_key="imgcls_abc123",
         )
         expected = tmp_path / "imgcls_abc123_build_manifest.json"
@@ -607,8 +602,8 @@ class TestBuildAnalyzerLoop:
         optimization_config: dict | None = None,
     ):
         """Build a mock AnalyzeResult."""
-        from winml.modelkit.optim.config import WinMLOptimizationConfig
         from winml.modelkit.analyze.analyzer import AnalyzeResult, LintResult
+        from winml.modelkit.optim.config import WinMLOptimizationConfig
 
         config = WinMLOptimizationConfig(**(optimization_config or {}))
         lint = LintResult(
@@ -697,7 +692,8 @@ class TestBuildAnalyzerLoop:
         )
 
         with patch(
-            "winml.modelkit.build.common.analyze_onnx", return_value=result_always_has_opps,
+            "winml.modelkit.build.common.analyze_onnx",
+            return_value=result_always_has_opps,
         ) as m:
             build_hf_model(
                 config=sample_config_no_quant_compile,
@@ -710,10 +706,10 @@ class TestBuildAnalyzerLoop:
         # 4 analyze calls: 1 initial + 3 re-analyze after autoconf re-optimizations
         assert m.call_count == 4
 
-    def test_autoconf_black_nodes_raise(
+    def test_autoconf_unsupported_nodes_raise(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
-        """Black nodes after convergence raise RuntimeError."""
+        """Unsupported nodes after convergence raise RuntimeError."""
         result_with_errors = self._make_analyze_result(
             has_opportunities=False,
             has_errors=True,
@@ -722,7 +718,7 @@ class TestBuildAnalyzerLoop:
 
         with (
             patch("winml.modelkit.build.common.analyze_onnx", return_value=result_with_errors),
-            pytest.raises(RuntimeError, match="Black nodes persist"),
+            pytest.raises(RuntimeError, match="Unsupported nodes persist"),
         ):
             build_hf_model(
                 config=sample_config_no_quant_compile,
@@ -754,7 +750,7 @@ class TestBuildAnalyzerLoop:
 
         data = json.loads(result.manifest_path.read_text())
         assert data["analyze_iterations"] == 2
-        assert data["analyze_black_node_count"] == 0
+        assert data["analyze_unsupported_node_count"] == 0
 
         # No separate "analyze" stage in stages list
         stage_names = [s["name"] for s in data["stages"]]
@@ -807,7 +803,8 @@ class TestBuildHfPreQuantized:
 
         output_dir = tmp_path / "output"
         result = build_hf_model(
-            config=sample_config, output_dir=output_dir,
+            config=sample_config,
+            output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
         assert "optimize" in result.stages_skipped
@@ -825,7 +822,8 @@ class TestBuildHfPreQuantized:
 
         output_dir = tmp_path / "output"
         result = build_hf_model(
-            config=sample_config, output_dir=output_dir,
+            config=sample_config,
+            output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
         assert "export" in result.stages_completed
@@ -839,7 +837,8 @@ class TestBuildHfPreQuantized:
 
         output_dir = tmp_path / "output"
         result = build_hf_model(
-            config=sample_config, output_dir=output_dir,
+            config=sample_config,
+            output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
         assert "compile" in result.stages_completed
@@ -853,21 +852,21 @@ class TestBuildHfPreQuantized:
 
         output_dir = tmp_path / "output"
         build_hf_model(
-            config=sample_config, output_dir=output_dir,
+            config=sample_config,
+            output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
         mock_pipeline["analyze"].assert_called()
         mock_pipeline["optimize"].assert_called_once()
 
-    def test_skip_optimize_kwarg(
-        self, tmp_path: Path, sample_config, mock_pipeline
-    ) -> None:
+    def test_skip_optimize_kwarg(self, tmp_path: Path, sample_config, mock_pipeline) -> None:
         """skip_optimize=True forces optimize+quantize skip."""
         mock_pipeline["is_quantized_onnx"].return_value = False
 
         output_dir = tmp_path / "output"
         result = build_hf_model(
-            config=sample_config, output_dir=output_dir,
+            config=sample_config,
+            output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
             skip_optimize=True,
         )

@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Transpose-related patterns for ONNX models.
 
 This module provides patterns for matching Reshape-Transpose-Reshape sequences
@@ -14,28 +15,30 @@ import numpy as np
 from onnx.defs import OpSchema
 
 from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
-    PatternMismatchedException,
+    PatternMatchResult,
+    PatternMismatchedError,
     PatternSchema,
     Skeleton,
     SkeletonMatchResult,
     register_pattern_input_generator,
 )
+from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 
 
 # Schema for ReshapeTransposeReshape pattern
 _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
-    name="ReshapeTransposeReshapePattern",
+    name="ReshapeTransposeReshapeOverlyHighDimPattern",
     doc=(
         "Reshape followed by Transpose followed by Reshape pattern.\n"
         "This pattern is common in attention mechanisms where tensors are reshaped "
         "for multi-head attention, transposed to rearrange dimensions, "
         "and then reshaped back.\n"
         "\n"
-        "Computes: output = Reshape(Transpose(Reshape(data, transpose_shape), perm), output_shape)\n"
+        "Computes: output = Reshape(Transpose(Reshape(data, transpose_shape), perm), "
+        "output_shape)\n"
         "\n"
         "Attributes:\n"
         "- transpose_shape: Shape for the first Reshape (before Transpose)\n"
@@ -111,15 +114,19 @@ _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
 )
 
 
-class ReshapeTransposeReshapePattern(Pattern):
-    """Pattern definition for Reshape -> Transpose -> Reshape sequence.
+class ReshapeTransposeReshapeOverlyHighDimPattern(Pattern):
+    """Pattern for Reshape -> Transpose -> Reshape with overly high intermediate dimensionality.
 
     This pattern represents: Y = Reshape(Transpose(Reshape(X, transpose_shape), perm), output_shape)
+    where the intermediate transpose operates on >= 6 dimensions, indicating an opportunity
+    to merge consecutive axes and reduce the Transpose dimensionality.
 
     This is commonly found in:
     - Attention mechanisms (reshaping for multi-head attention)
     - Tensor dimension rearrangement operations
     - View/permute operations in deep learning models
+
+    Dimension constraint: intermediate transpose_shape must have >= 6 dimensions.
 
     Attributes (inferred from matched nodes via _infer_schema_attributes):
     - transpose_shape: Shape constant for the first Reshape (node 0, slot 1)
@@ -241,7 +248,7 @@ class ReshapeTransposeReshapePattern(Pattern):
             Dictionary with 'transpose_shape', 'perm', and 'output_shape' attributes.
 
         Raises:
-            PatternMismatchedException: If any required attribute cannot be extracted
+            PatternMismatchedError: If any required attribute cannot be extracted
                 (e.g., shape inputs are not constants).
         """
         attributes: dict[str, Any] = {}
@@ -251,10 +258,10 @@ class ReshapeTransposeReshapePattern(Pattern):
         # Extract transpose_shape from first Reshape's shape input
         reshape1_node = matched_nodes[0]
         if len(reshape1_node.input) <= 1:
-            raise PatternMismatchedException("First Reshape node missing shape input")
+            raise PatternMismatchedError("First Reshape node missing shape input")
         shape_input_name = reshape1_node.input[1]
         if shape_input_name not in matcher.tensor_values:
-            raise PatternMismatchedException(
+            raise PatternMismatchedError(
                 f"First Reshape shape input '{shape_input_name}' is not a constant"
             )
         attributes["transpose_shape"] = tuple(matcher.tensor_values[shape_input_name].tolist())
@@ -268,20 +275,42 @@ class ReshapeTransposeReshapePattern(Pattern):
                 perm_found = True
                 break
         if not perm_found:
-            raise PatternMismatchedException("Transpose node missing 'perm' attribute")
+            raise PatternMismatchedError("Transpose node missing 'perm' attribute")
 
         # Extract output_shape from second Reshape's shape input
         reshape2_node = matched_nodes[2]
         if len(reshape2_node.input) <= 1:
-            raise PatternMismatchedException("Second Reshape node missing shape input")
+            raise PatternMismatchedError("Second Reshape node missing shape input")
         shape_input_name = reshape2_node.input[1]
         if shape_input_name not in matcher.tensor_values:
-            raise PatternMismatchedException(
+            raise PatternMismatchedError(
                 f"Second Reshape shape input '{shape_input_name}' is not a constant"
             )
         attributes["output_shape"] = tuple(matcher.tensor_values[shape_input_name].tolist())
 
         return attributes
+
+    def check_skeleton_result(
+        self, skeleton_match_result: SkeletonMatchResult
+    ) -> "PatternMatchResult | None":
+        """Validate and filter the skeleton match result.
+
+        Enforces the OverlyHighDim constraint (intermediate transpose >= 6D) and
+        excludes already-merged instances where ``_compute_merged_transpose`` would
+        produce no change.  Such subgraphs are already in their optimised form and
+        need neither a rewrite nor a report.
+        """
+        result = super().check_skeleton_result(skeleton_match_result)
+        if result is None:
+            return None
+        transpose_shape = tuple(result.attributes["transpose_shape"])
+        if len(transpose_shape) < 6:
+            return None
+        perm = tuple(result.attributes["perm"])
+        merged_shape, merged_perm = _compute_merged_transpose(transpose_shape, perm)
+        if merged_shape == transpose_shape and merged_perm == perm:
+            return None
+        return result
 
     def get_schema(self) -> PatternSchema:
         """Return the schema definition for ReshapeTransposeReshape pattern.
@@ -324,7 +353,6 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
     def derive_properties(self, properties: dict) -> dict:
         """Derive additional properties for testing."""
         item = properties.copy()
-        item["data_dim"] = len(item["attr_data_shape"])
         transpose_shape = item["attr_transpose_shape"]
         perm = item["attr_perm"]
         item["transpose_dim"] = len(transpose_shape)
@@ -335,15 +363,17 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
 
     def get_infinite_property_names(self) -> list[str]:
         """Return names of properties with infinite possible values."""
-        return ["attr_data_shape", "attr_transpose_shape", "attr_output_shape"]
+        return ["attr_transpose_shape", "attr_output_shape"]
 
 
 @register_pattern_input_generator
-class ReshapeTransposeReshapePatternInputGenerator(_ReshapeTransposeReshapeInputGeneratorBase):
-    """PatternInputGenerator for ReshapeTransposeReshape pattern."""
+class ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator(
+    _ReshapeTransposeReshapeInputGeneratorBase
+):
+    """PatternInputGenerator for ReshapeTransposeReshapeOverlyHighDim pattern."""
 
-    pattern = ReshapeTransposeReshapePattern()
-    registration_name = "ReshapeTransposeReshape"
+    pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
+    registration_name = "ReshapeTransposeReshapeOverlyHighDim"
 
 
 def _resolve_negative_dims(shape: tuple[int, ...], total_size: int) -> tuple[int, ...]:
@@ -491,11 +521,11 @@ def _compute_merged_transpose(
     return tuple(merged_shape), tuple(merged_perm)
 
 
-class MergedReshapeTransposeReshapePattern(ReshapeTransposeReshapePattern):
-    """Pattern for Reshape -> Transpose -> Reshape with axis merging optimization.
+class ReshapeTransposeReshapeLowDimPattern(ReshapeTransposeReshapeOverlyHighDimPattern):
+    """Target pattern for Reshape -> Transpose -> Reshape after axis-merging optimization.
 
-    This pattern inherits from ReshapeTransposeReshapePattern but generates
-    ONNX models with merged axes in the Transpose operation to reduce dimensionality.
+    This pattern inherits from ReshapeTransposeReshapeOverlyHighDimPattern but generates
+    ONNX models with merged axes in the Transpose operation to reduce dimensionality to <= 5D.
 
     The merging optimization identifies neighboring axes that can be combined without
     affecting the Transpose result. Axes can be merged if they are consecutive in
@@ -505,7 +535,9 @@ class MergedReshapeTransposeReshapePattern(ReshapeTransposeReshapePattern):
         Original: reshape to (1, 32, 8, 32, 8, 96) -> Transpose(perm=(0,1,3,2,4,5))
         - Axes 0,1 have perm values 0,1 (consecutive) -> merge to 1*32=32
         - Axes 4,5 have perm values 4,5 (consecutive) -> merge to 8*96=768
-        Merged: reshape to (32, 8, 32, 768) -> Transpose(perm=(0,2,1,3))
+        Merged: reshape to (32, 8, 32, 768) -> Transpose(perm=(0,2,1,3))  [4D <= 5D]
+
+    Dimension constraint: intermediate transpose_shape must have <= 5 dimensions.
 
     This is useful for:
     - Reducing Transpose complexity for better hardware compatibility
@@ -515,6 +547,18 @@ class MergedReshapeTransposeReshapePattern(ReshapeTransposeReshapePattern):
     Note: During model generation (get_onnx_model), the internal constants/attributes
     use the MERGED shapes and perm, while the schema attributes store the ORIGINAL values.
     """
+
+    def check_skeleton_result(
+        self, skeleton_match_result: SkeletonMatchResult
+    ) -> "PatternMatchResult | None":
+        """Validate match and enforce low-dim constraint (intermediate transpose <= 5D)."""
+        result = Pattern.check_skeleton_result(self, skeleton_match_result)
+        if result is None:
+            return None
+        transpose_shape = tuple(result.attributes["transpose_shape"])
+        if len(transpose_shape) > 5:
+            return None
+        return result
 
     def get_internal_constants_and_attributes(
         self,
@@ -567,10 +611,10 @@ class MergedReshapeTransposeReshapePattern(ReshapeTransposeReshapePattern):
 
 
 @register_pattern_input_generator
-class MergedReshapeTransposeReshapePatternInputGenerator(
+class ReshapeTransposeReshapeLowDimPatternInputGenerator(
     _ReshapeTransposeReshapeInputGeneratorBase
 ):
-    """PatternInputGenerator for MergedReshapeTransposeReshape pattern."""
+    """PatternInputGenerator for ReshapeTransposeReshapeLowDim pattern."""
 
-    pattern = MergedReshapeTransposeReshapePattern()
-    registration_name = "MergedReshapeTransposeReshape"
+    pattern = ReshapeTransposeReshapeLowDimPattern()
+    registration_name = "ReshapeTransposeReshapeLowDim"

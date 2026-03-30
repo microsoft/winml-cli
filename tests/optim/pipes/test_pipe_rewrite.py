@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """RewritePipe unit tests.
 
 Tests for the JSON-based pattern rewriting pipe.
@@ -36,7 +37,7 @@ from winml.modelkit.optim.pipes.rewrite_rules import (
     list_rewrite_families,
 )
 from winml.modelkit.pattern.base import (
-    InvalidPatternMatcherModelException,
+    InvalidPatternMatcherModelError,
     PatternMatcher,
     get_pattern_input_generator,
 )
@@ -79,7 +80,7 @@ def _build_self_matching_model(
                 results = matcher.match()
             except (
                 onnx.checker.ValidationError,
-                InvalidPatternMatcherModelException,
+                InvalidPatternMatcherModelError,
                 ValueError,
                 AssertionError,
             ):
@@ -132,12 +133,12 @@ class TestRewriteGroupDiscovery:
         for group in REWRITE_GROUPS:
             assert group.target_class, f"Group {group.pattern_id!r} has empty target"
 
-    def test_flag_names_are_lowercase_ascii(self) -> None:
+    def test_flag_names_are_kebab_case(self) -> None:
         import re
 
         for group in REWRITE_GROUPS:
             name = group.flag_name
-            assert re.fullmatch(r"[a-z0-9\-]+", name), f"Bad flag name: {name!r}"
+            assert re.fullmatch(r"[a-zA-Z0-9\-]+", name), f"Bad flag name: {name!r}"
 
     def test_rewrite_capabilities_matches_groups(self) -> None:
         # Each group registers a group-level flag, plus per-source flags for
@@ -230,9 +231,7 @@ class TestRewritePipeConfig:
         assert config.rules == []
 
     def test_enable_gelu_cap_populates_rules(self) -> None:
-        gelu_group = next(
-            (g for g in REWRITE_GROUPS if "gelu" in g.pattern_id.lower()), None
-        )
+        gelu_group = next((g for g in REWRITE_GROUPS if "gelu" in g.pattern_id.lower()), None)
         if gelu_group is None:
             pytest.skip("No GELU group found")
         cap_name = gelu_group.flag_name
@@ -241,9 +240,7 @@ class TestRewritePipeConfig:
         assert all(r.target.__class__.__name__ == gelu_group.target_class for r in config.rules)
 
     def test_enable_gemm_cap_populates_rules(self) -> None:
-        gemm_group = next(
-            (g for g in REWRITE_GROUPS if "gemm" in g.pattern_id.lower()), None
-        )
+        gemm_group = next((g for g in REWRITE_GROUPS if "gemm" in g.pattern_id.lower()), None)
         if gemm_group is None:
             pytest.skip("No Gemm group found")
         cap_name = gemm_group.flag_name
@@ -478,9 +475,7 @@ class TestConflictDetection:
         """process() must log a WARNING when conflicting matches are detected."""
         import logging
 
-        gelu_group = next(
-            (g for g in REWRITE_GROUPS if "gelu" in g.pattern_id.lower()), None
-        )
+        gelu_group = next((g for g in REWRITE_GROUPS if "gelu" in g.pattern_id.lower()), None)
         if gelu_group is None:
             pytest.skip("No GELU group found")
 

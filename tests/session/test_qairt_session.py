@@ -60,7 +60,9 @@ class TestResolveSdkPath:
 class TestCompileIdempotency:
     """Test compile() idempotency behavior."""
 
-    def test_compile_is_idempotent(self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch):
+    def test_compile_is_idempotent(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
         """Test that calling compile() twice only compiles once.
 
         Key branch: if self._session is not None: return
@@ -72,12 +74,16 @@ class TestCompileIdempotency:
         session = WinMLQairtSession(onnx_path=simple_matmul_onnx)
 
         # Mock the compile pipeline methods
-        with patch.object(session, "_compile_to_qnn_bin") as mock_compile, \
-             patch.object(session, "_create_context_bin_info"), \
-             patch.object(session, "_wrap_bin_to_onnx"), \
-             patch.object(session, "_create_inference_session"), \
-             patch("winml.modelkit.session.qairt.qairt_session.ensure_venv", return_value=Path("python.exe")):
-
+        with (
+            patch.object(session, "_compile_to_qnn_bin") as mock_compile,
+            patch.object(session, "_create_context_bin_info"),
+            patch.object(session, "_wrap_bin_to_onnx"),
+            patch.object(session, "_create_inference_session"),
+            patch(
+                "winml.modelkit.session.qairt.qairt_session.ensure_venv",
+                return_value=Path("python.exe"),
+            ),
+        ):
             # Set _session to simulate already compiled
             session._session = MagicMock()
 
@@ -92,7 +98,9 @@ class TestCompileIdempotency:
 class TestCompileToQnnBin:
     """Test _compile_to_qnn_bin subprocess handling."""
 
-    def test_raises_on_subprocess_failure(self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch):
+    def test_raises_on_subprocess_failure(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
         """Test RuntimeError raised when subprocess returns non-zero.
 
         Key branch: if result.returncode != 0: raise RuntimeError
@@ -105,20 +113,22 @@ class TestCompileToQnnBin:
 
         # Mock subprocess.run to return failure
         mock_result = CompletedProcess(
-            args=[],
-            returncode=1,
-            stderr="QAIRT compilation failed: unsupported op"
+            args=[], returncode=1, stderr="QAIRT compilation failed: unsupported op"
         )
 
-        with patch("subprocess.run", return_value=mock_result):
-            with pytest.raises(RuntimeError, match="QAIRT compilation failed"):
-                session._compile_to_qnn_bin(Path("python.exe"))
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            pytest.raises(RuntimeError, match="QAIRT compilation failed"),
+        ):
+            session._compile_to_qnn_bin(Path("python.exe"))
 
 
 class TestWrapBinToOnnx:
     """Test _wrap_bin_to_onnx logic."""
 
-    def test_validates_json_format(self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch):
+    def test_validates_json_format(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
         """Test RuntimeError when JSON doesn't have required keys.
 
         Key branch: if "info" not in qnn_json_obj or "graphs" not in...
@@ -132,19 +142,22 @@ class TestWrapBinToOnnx:
         # Create invalid JSON (missing "info" and "graphs" keys)
         invalid_json = {"version": "1.0"}
         session._bin_info_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(session._bin_info_path, "w") as f:
+        with session._bin_info_path.open("w") as f:
             json.dump(invalid_json, f)
 
         with pytest.raises(RuntimeError, match="Unrecognized bin info JSON format"):
             session._wrap_bin_to_onnx()
 
-    def test_patches_tensor_ids_from_raw_json(self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch):
+    def test_patches_tensor_ids_from_raw_json(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
         """Test that tensor IDs are patched from raw JSON graphInputs/graphOutputs.
 
         Key logic: The fix for parse_qnn_graph not setting id field.
         Verifies qnn_input_tensor_dic[name].id and qnn_output_tensor_dic[name].id are set.
         """
         from unittest.mock import MagicMock
+
         from winml.modelkit.session import WinMLQairtSession
 
         monkeypatch.setenv("QNN_SDK_ROOT", str(mock_qairt_sdk_root))
@@ -155,21 +168,37 @@ class TestWrapBinToOnnx:
         valid_json = {
             "info": {
                 "buildId": "2.26.0",
-                "graphs": [{
-                    "info": {
-                        "name": "test_graph",
-                        "graphInputs": [{
-                            "info": {"name": "input_tensor", "id": 42, "type": {"info": {"dataType": "FLOAT32"}}, "dimensions": [1, 4]}
-                        }],
-                        "graphOutputs": [{
-                            "info": {"name": "output_tensor", "id": 99, "type": {"info": {"dataType": "FLOAT32"}}, "dimensions": [1, 4]}
-                        }]
+                "graphs": [
+                    {
+                        "info": {
+                            "name": "test_graph",
+                            "graphInputs": [
+                                {
+                                    "info": {
+                                        "name": "input_tensor",
+                                        "id": 42,
+                                        "type": {"info": {"dataType": "FLOAT32"}},
+                                        "dimensions": [1, 4],
+                                    }
+                                }
+                            ],
+                            "graphOutputs": [
+                                {
+                                    "info": {
+                                        "name": "output_tensor",
+                                        "id": 99,
+                                        "type": {"info": {"dataType": "FLOAT32"}},
+                                        "dimensions": [1, 4],
+                                    }
+                                }
+                            ],
+                        }
                     }
-                }]
+                ],
             }
         }
         session._bin_info_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(session._bin_info_path, "w") as f:
+        with session._bin_info_path.open("w") as f:
             json.dump(valid_json, f)
 
         # Create mock bin file
@@ -190,9 +219,15 @@ class TestWrapBinToOnnx:
         def mock_generate_wrapper(**kwargs):
             Path(kwargs["model_file_name"]).touch()
 
-        with patch("onnxruntime.tools.qnn.gen_qnn_ctx_onnx_model.parse_qnn_graph", mock_parse_qnn_graph), \
-             patch("onnxruntime.tools.qnn.gen_qnn_ctx_onnx_model.generate_wrapper_onnx_file", mock_generate_wrapper):
-
+        with (
+            patch(
+                "onnxruntime.tools.qnn.gen_qnn_ctx_onnx_model.parse_qnn_graph", mock_parse_qnn_graph
+            ),
+            patch(
+                "onnxruntime.tools.qnn.gen_qnn_ctx_onnx_model.generate_wrapper_onnx_file",
+                mock_generate_wrapper,
+            ),
+        ):
             session._wrap_bin_to_onnx()
 
         # Verify tensor IDs were patched from raw JSON
@@ -203,7 +238,9 @@ class TestWrapBinToOnnx:
 class TestQairtSessionPaths:
     """Test QAIRT-specific path construction."""
 
-    def test_constructs_qairt_paths_from_onnx_path(self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch):
+    def test_constructs_qairt_paths_from_onnx_path(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
         """Test that _bin_path, _bin_info_path, _ctx_path are constructed correctly.
 
         Key logic: Paths are based on input ONNX model's stem and parent directory.
@@ -222,13 +259,15 @@ class TestQairtSessionPaths:
         assert session._bin_info_path == model_dir / f"{model_stem}_cache_info.json"
         assert session._ctx_path == model_dir / f"{model_stem}_qnn_ctx.onnx"
 
-    def test_uses_sdk_root_from_ep_config(self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch):
+    def test_uses_sdk_root_from_ep_config(
+        self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
+    ):
         """Test that SDK root from ep_config takes precedence over env var.
 
         Key logic: ep_config.qnn_sdk_root is used if provided.
         """
-        from winml.modelkit.session import WinMLQairtSession
         from winml.modelkit.compiler.configs import EPConfig
+        from winml.modelkit.session import WinMLQairtSession
 
         # Set env var to a different path
         monkeypatch.setenv("QNN_SDK_ROOT", str(mock_qairt_sdk_root.parent / "wrong_sdk"))

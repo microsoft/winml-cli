@@ -16,9 +16,9 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..analyze import analyze_onnx
 from ..onnx import copy_onnx_model
 from ..optim import optimize_onnx
-from ..analyze import analyze_onnx
 
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ def run_optimize_analyze_loop(
         2. Analyze the result (lint + autoconf discovery)
         3. For up to ``max_optim_iterations``: if autoconf found new flags,
            re-optimize and re-analyze
-        4. Wrap up: persist flags, check black nodes, build manifest details
+        4. Wrap up: persist flags, check unsupported nodes, build manifest details
 
     Args:
         model_path: Path to the input ONNX model.
@@ -58,10 +58,10 @@ def run_optimize_analyze_loop(
         **onnx_kwargs: Additional ONNX-level kwargs.
 
     Returns:
-        ``(optimized_path, elapsed, analyze_count, black_node_count, details)``
+        ``(optimized_path, elapsed, analyze_count, unsupported_node_count, details)``
 
     Raises:
-        RuntimeError: If black nodes persist after analysis.
+        RuntimeError: If unsupported nodes persist after analysis.
     """
     t0 = time.monotonic()
 
@@ -89,7 +89,8 @@ def run_optimize_analyze_loop(
 
             logger.info(
                 "Autoconf iteration %d: discovered %s",
-                _iteration + 1, analysis.optimization_config.to_dict(),
+                _iteration + 1,
+                analysis.optimization_config.to_dict(),
             )
 
             if not copied:
@@ -97,7 +98,8 @@ def run_optimize_analyze_loop(
                 copied = True
 
             optimize_onnx(
-                model=iter_model, output=iter_model,
+                model=iter_model,
+                output=iter_model,
                 **onnx_kwargs,
                 **analysis.optimization_config,
             )
@@ -122,7 +124,7 @@ def run_optimize_analyze_loop(
 
     if analysis.has_errors:
         raise RuntimeError(
-            f"Black nodes persist after {analyze_count} analyze "
+            f"Unsupported nodes persist after {analyze_count} analyze "
             f"pass(es): {analysis.lint.error_patterns}"
         )
 

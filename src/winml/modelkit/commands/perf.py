@@ -51,10 +51,10 @@ _HW_POLL_INTERVAL_MS = 200
 
 # Default values for dynamic dimensions (by position)
 DYNAMIC_DIM_DEFAULTS = {
-    0: 1,      # Batch dimension
-    1: 128,    # Sequence length or channels
-    2: 224,    # Height
-    3: 224,    # Width
+    0: 1,  # Batch dimension
+    1: 128,  # Sequence length or channels
+    2: 224,  # Height
+    3: 224,  # Width
 }
 
 
@@ -339,11 +339,13 @@ class PerfBenchmark:
 
         if is_onnx:
             self._model = WinMLAutoModel.from_onnx(
-                onnx_path=model_path, **common_kwargs,
+                onnx_path=model_path,
+                **common_kwargs,
             )
         else:
             self._model = WinMLAutoModel.from_pretrained(
-                model_id, **common_kwargs,
+                model_id,
+                **common_kwargs,
             )
 
     def _generate_inputs(self) -> None:
@@ -496,7 +498,7 @@ class PerfBenchmark:
             actual_device=self._model._session.device,
             actual_task=self.config.task or "auto-detected",
             # Hardware monitor metrics (only present when --monitor is used)
-            hw_monitor=getattr(self, '_hw_metrics', None),
+            hw_monitor=getattr(self, "_hw_metrics", None),
         )
 
 
@@ -577,11 +579,16 @@ def _perf_modules(
         module_path = cfg.loader.module_path
         if not module_path:
             console.print(f"[red]  Config #{i} missing loader.module_path[/red]")
-            all_results.append({
-                "module_path": "unknown",
-                "mean_ms": -1, "p90_ms": -1, "min_ms": -1, "max_ms": -1,
-                "error": "Missing module_path",
-            })
+            all_results.append(
+                {
+                    "module_path": "unknown",
+                    "mean_ms": -1,
+                    "p90_ms": -1,
+                    "min_ms": -1,
+                    "max_ms": -1,
+                    "error": "Missing module_path",
+                }
+            )
             continue
         label = f"{module_class}[{module_path}]"
         console.print(f"[dim]  [{i + 1}/{len(module_configs)}] {label}[/dim]")
@@ -639,15 +646,11 @@ def _perf_modules(
                     "min_ms": round(mod_stats.min_ms, 3),
                     "max_ms": round(mod_stats.max_ms, 3),
                     "std_ms": round(
-                        float(np.std(mod_stats.samples_ms))
-                        if mod_stats.samples_ms
-                        else 0.0,
+                        float(np.std(mod_stats.samples_ms)) if mod_stats.samples_ms else 0.0,
                         3,
                     ),
                     "throughput_sps": (
-                        round(1000.0 / mod_stats.mean_ms, 2)
-                        if mod_stats.mean_ms > 0
-                        else 0.0
+                        round(1000.0 / mod_stats.mean_ms, 2) if mod_stats.mean_ms > 0 else 0.0
                     ),
                 }
                 if hw_metrics:
@@ -655,14 +658,16 @@ def _perf_modules(
                 all_results.append(result_entry)
             except Exception as e:
                 console.print(f"[red]  {label}: FAILED ({e})[/red]")
-                all_results.append({
-                    "module_path": module_path,
-                    "mean_ms": -1,
-                    "p90_ms": -1,
-                    "min_ms": -1,
-                    "max_ms": -1,
-                    "error": str(e),
-                })
+                all_results.append(
+                    {
+                        "module_path": module_path,
+                        "mean_ms": -1,
+                        "p90_ms": -1,
+                        "min_ms": -1,
+                        "max_ms": -1,
+                        "error": str(e),
+                    }
+                )
 
     # Display results table
     table = Table(title=f"Per-Module Perf: {module_class}", show_header=True)
@@ -729,8 +734,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     console.print(f"[dim]Precision:[/dim]   {result.config.precision}")
     console.print(f"[dim]Task:[/dim]        {result.actual_task}")
     console.print(
-        f"[dim]Iterations:[/dim]  {result.config.iterations} "
-        f"(+ {result.config.warmup} warmup)"
+        f"[dim]Iterations:[/dim]  {result.config.iterations} (+ {result.config.warmup} warmup)"
     )
     console.print(f"[dim]Batch Size:[/dim]  {result.config.batch_size}")
 
@@ -808,8 +812,6 @@ def generate_output_path(model_id: str) -> Path:
         return Path(f"{p.stem}_perf.json")
     slug = model_id.replace("/", "_").replace("\\", "_")
     return Path(f"{slug}_perf.json")
-
-
 
 
 # =============================================================================
@@ -896,7 +898,7 @@ def generate_output_path(model_id: str) -> Path:
     "shape_config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help="JSON file with shape overrides (e.g., {\"height\": 480, \"width\": 480}).",
+    help='JSON file with shape overrides (e.g., {"height": 480, "width": 480}).',
 )
 @click.option(
     "--no-quantize",
@@ -1004,8 +1006,7 @@ def perf(
     # Resolve deprecated --hf-model alias
     if hf_model_deprecated and model_id:
         raise click.UsageError(
-            "Cannot use both -m/--model and --hf-model. "
-            "Use -m/--model (--hf-model is deprecated)."
+            "Cannot use both -m/--model and --hf-model. Use -m/--model (--hf-model is deprecated)."
         )
     if hf_model_deprecated:
         import warnings
@@ -1024,7 +1025,7 @@ def perf(
 
     # Setup logging
     if verbose or (ctx.obj and ctx.obj.get("debug")):
-        logging.getLogger("modelkit").setLevel(logging.DEBUG)
+        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     console = Console()
 
@@ -1071,8 +1072,7 @@ def perf(
                 shape_config = json.load(f)
             if not isinstance(shape_config, dict):
                 raise click.ClickException(
-                    f"--shape-config must contain a JSON object, "
-                    f"got {type(shape_config).__name__}"
+                    f"--shape-config must contain a JSON object, got {type(shape_config).__name__}"
                 )
         except json.JSONDecodeError as e:
             raise click.ClickException(
@@ -1118,9 +1118,7 @@ def perf(
             console.print(f"[dim]Building + benchmarking ONNX:[/dim] {model_path}")
         else:
             if precision != "auto":
-                console.print(
-                    f"[dim]Precision: {precision} (applied during model build)[/dim]"
-                )
+                console.print(f"[dim]Precision: {precision} (applied during model build)[/dim]")
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
         benchmark = PerfBenchmark(config)
@@ -1140,12 +1138,8 @@ def perf(
             from ..optracing import is_qnn_profiling_available
 
             if not is_qnn_profiling_available():
-                console.print(
-                    "[red]Error:[/red] Op-tracing requires onnxruntime-qnn"
-                )
-                console.print(
-                    "Install with: [bold]pip install onnxruntime-qnn[/bold]"
-                )
+                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
+                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
                 raise SystemExit(1)
 
             from ..optracing.registry import get_tracer
@@ -1157,13 +1151,10 @@ def perf(
             # Determine the ONNX model path from the benchmark flow.
             # For HF models the ONNX is built internally by PerfBenchmark.
             try:
-                onnx_for_trace = (
-                    model_path if is_onnx else benchmark._model._onnx_path
-                )
+                onnx_for_trace = model_path if is_onnx else benchmark._model._onnx_path
             except AttributeError:
                 console.print(
-                    "[red]Error:[/red] Could not determine ONNX model "
-                    "path for op-tracing"
+                    "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
                 )
                 raise SystemExit(1) from None
 
@@ -1173,8 +1164,7 @@ def perf(
             tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
             if tracer_cls is None:
                 console.print(
-                    f"[red]Error:[/red] No tracer registered for "
-                    f"QNN EP at level '{op_tracing}'"
+                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
                 )
                 raise SystemExit(1)
 
@@ -1196,9 +1186,7 @@ def perf(
                 model_slug = model_path.stem
             trace_output = output_dir / f"{model_slug}_op_trace.json"
             write_op_trace_json(trace_result, trace_output)
-            console.print(
-                f"[green]Op-trace saved to:[/green] {trace_output}"
-            )
+            console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] Model not found: {e}")

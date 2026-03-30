@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Tests for build CLI command — mock-based, no network, no actual builds.
 
 Tests the CLI wrapper around build_hf_model() API.
@@ -22,14 +23,25 @@ from winml.modelkit.build.hf import BuildResult
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device to avoid hardware detection in all build CLI tests.
+    """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
 
-    The build command calls resolve_device() for I/O (hardware detection + EP
-    discovery). We mock it at the source module since it's a lazy import.
+    The build command calls resolve_device() for I/O and (since #540)
+    WinMLEPRegistry.get_instance() for EP auto-selection when --ep is
+    not specified. Both must be mocked to avoid slow DLL scanning and
+    WinML SDK discovery on CI runners without WinML installed.
     """
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("npu", ["npu", "gpu", "cpu"]),
+    mock_registry = MagicMock()
+    mock_registry.is_ep_available.return_value = False
+
+    with (
+        patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("npu", ["npu", "gpu", "cpu"]),
+        ),
+        patch(
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            return_value=mock_registry,
+        ),
     ):
         yield
 
@@ -48,8 +60,10 @@ def sample_config_file(tmp_path: Path) -> Path:
         "export": {"opset_version": 17, "batch_size": 1},
         "optim": {},
         "quant": {
-            "mode": "qdq", "samples": 10,
-            "task": "image-classification", "model_name": "test",
+            "mode": "qdq",
+            "samples": 10,
+            "task": "image-classification",
+            "model_name": "test",
         },
         "compile": {"execution_provider": "qnn"},
     }
@@ -143,7 +157,15 @@ class TestBuildCliInterface:
 
         result = runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-o", "output/", "--use-cache"],
+            [
+                "-c",
+                str(sample_config_file),
+                "-m",
+                "microsoft/resnet-50",
+                "-o",
+                "output/",
+                "--use-cache",
+            ],
             obj={"debug": False},
         )
         assert result.exit_code != 0
@@ -159,8 +181,11 @@ class TestBuildInvocation:
     """Test that CLI correctly calls build_hf_model."""
 
     def test_basic_build(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -175,8 +200,11 @@ class TestBuildInvocation:
         assert "Build complete" in result.output
 
     def test_model_id_passed(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -188,23 +216,30 @@ class TestBuildInvocation:
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs.get("model_id") == "microsoft/resnet-50"
 
-    def test_no_model_passes_none(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+    def test_model_required(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
+        """Omitting -m/--model is rejected because it is now required."""
         from winml.modelkit.commands.build import build
 
-        runner.invoke(
+        result = runner.invoke(
             build,
             ["-c", str(sample_config_file), "-o", str(tmp_path)],
             obj={"debug": False},
         )
-        call_kwargs = mock_build_api.call_args.kwargs
-        assert call_kwargs.get("model_id") is None
+        assert result.exit_code != 0
+        assert "model" in result.output.lower()
 
     def test_rebuild_passed(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -217,8 +252,11 @@ class TestBuildInvocation:
         assert call_kwargs.get("rebuild") is True
 
     def test_default_rebuild_false(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -240,8 +278,11 @@ class TestBuildConfigOverrides:
     """Test --no-quant and --no-compile CLI overrides."""
 
     def test_no_quant_sets_none(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -254,8 +295,11 @@ class TestBuildConfigOverrides:
         assert config.quant is None
 
     def test_no_compile_sets_none(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -268,15 +312,26 @@ class TestBuildConfigOverrides:
         assert config.compile is None
 
     def test_no_quant_no_compile_together(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
         runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-m", "t", "-o", str(tmp_path),
-             "--no-quant", "--no-compile"],
+            [
+                "-c",
+                str(sample_config_file),
+                "-m",
+                "t",
+                "-o",
+                str(tmp_path),
+                "--no-quant",
+                "--no-compile",
+            ],
             obj={"debug": False},
         )
         config = mock_build_api.call_args.kwargs.get("config")
@@ -293,8 +348,11 @@ class TestBuildReuse:
     """Test reuse message when artifact already exists."""
 
     def test_reuse_message(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_reused: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_reused: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -386,8 +444,11 @@ class TestBuildEpDevice:
     """Test --ep and --device flags are passed to API."""
 
     def test_ep_flag_passed(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -400,8 +461,11 @@ class TestBuildEpDevice:
         assert call_kwargs.get("ep") == "qnn"
 
     def test_device_flag_passed(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -423,8 +487,11 @@ class TestBuildVerbose:
     """Test verbose/debug behavior."""
 
     def test_verbose_flag(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -436,8 +503,11 @@ class TestBuildVerbose:
         assert result.exit_code == 0
 
     def test_debug_inherited(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -458,7 +528,10 @@ class TestBuildOnnxAutoDetect:
     """Test auto-detection of ONNX vs HF model input."""
 
     def test_build_auto_detect_onnx_file(
-        self, runner: CliRunner, sample_config_file: Path, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        tmp_path: Path,
     ) -> None:
         """When -m points to an existing .onnx file, dispatches to build_onnx_model."""
         from winml.modelkit.commands.build import build
@@ -490,8 +563,11 @@ class TestBuildOnnxAutoDetect:
             assert call_kwargs["onnx_path"] == onnx_file
 
     def test_build_auto_detect_hf_model(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """When -m is a HF model ID (not .onnx), dispatches to build_hf_model."""
         from winml.modelkit.commands.build import build
@@ -508,8 +584,11 @@ class TestBuildOnnxAutoDetect:
         assert call_kwargs.get("model_id") == "microsoft/resnet-50"
 
     def test_build_onnx_suffix_but_not_exists_uses_hf(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """An .onnx path that doesn't exist falls through to HF path."""
         from winml.modelkit.commands.build import build
@@ -549,54 +628,82 @@ class TestBuildAnalyzerControl:
         assert "--max-optim-iterations" in result.output
 
     def test_no_analyze_sets_zero_iterations(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
         runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path),
-             "--no-analyze"],
+            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path), "--no-analyze"],
             obj={"debug": False},
         )
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs.get("hack_max_optim_iterations") == 0
 
     def test_max_optim_iterations_passed(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
         runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path),
-             "--max-optim-iterations", "5"],
+            [
+                "-c",
+                str(sample_config_file),
+                "-m",
+                "test",
+                "-o",
+                str(tmp_path),
+                "--max-optim-iterations",
+                "5",
+            ],
             obj={"debug": False},
         )
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs.get("hack_max_optim_iterations") == 5
 
     def test_no_analyze_takes_precedence_over_max_iterations(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """--no-analyze takes precedence when both flags are specified."""
         from winml.modelkit.commands.build import build
 
         runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path),
-             "--no-analyze", "--max-optim-iterations", "5"],
+            [
+                "-c",
+                str(sample_config_file),
+                "-m",
+                "test",
+                "-o",
+                str(tmp_path),
+                "--no-analyze",
+                "--max-optim-iterations",
+                "5",
+            ],
             obj={"debug": False},
         )
         call_kwargs = mock_build_api.call_args.kwargs
         assert call_kwargs.get("hack_max_optim_iterations") == 0
 
     def test_default_no_analyzer_kwargs(
-        self, runner: CliRunner, sample_config_file: Path,
-        mock_build_api: MagicMock, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
     ) -> None:
         from winml.modelkit.commands.build import build
 
@@ -624,7 +731,10 @@ class TestBuildNoOptimizeFlag:
         assert "--no-optimize" in result.output
 
     def test_no_optimize_passed_to_onnx_build(
-        self, runner: CliRunner, sample_config_file: Path, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        tmp_path: Path,
     ) -> None:
         """--no-optimize passes skip_optimize=True to build_onnx_model."""
         from winml.modelkit.commands.build import build
@@ -646,8 +756,15 @@ class TestBuildNoOptimizeFlag:
         with patch("winml.modelkit.build.build_onnx_model", return_value=result_obj) as mock_build:
             result = runner.invoke(
                 build,
-                ["-c", str(sample_config_file), "-m", str(onnx_file),
-                 "-o", str(tmp_path / "out"), "--no-optimize"],
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    str(onnx_file),
+                    "-o",
+                    str(tmp_path / "out"),
+                    "--no-optimize",
+                ],
                 obj={"debug": False},
             )
 
@@ -656,7 +773,10 @@ class TestBuildNoOptimizeFlag:
         assert call_kwargs.get("skip_optimize") is True
 
     def test_no_optimize_passed_to_hf_build(
-        self, runner: CliRunner, sample_config_file: Path, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        tmp_path: Path,
         mock_build_api: MagicMock,
     ) -> None:
         """--no-optimize passes skip_optimize=True to build_hf_model."""
@@ -664,8 +784,15 @@ class TestBuildNoOptimizeFlag:
 
         result = runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-m", "test-model",
-             "-o", str(tmp_path), "--no-optimize"],
+            [
+                "-c",
+                str(sample_config_file),
+                "-m",
+                "test-model",
+                "-o",
+                str(tmp_path),
+                "--no-optimize",
+            ],
             obj={"debug": False},
         )
 
@@ -674,7 +801,10 @@ class TestBuildNoOptimizeFlag:
         assert call_kwargs.get("skip_optimize") is True
 
     def test_no_optimize_default_not_present(
-        self, runner: CliRunner, sample_config_file: Path, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        tmp_path: Path,
         mock_build_api: MagicMock,
     ) -> None:
         """Without --no-optimize, skip_optimize is not in kwargs."""
@@ -682,8 +812,7 @@ class TestBuildNoOptimizeFlag:
 
         runner.invoke(
             build,
-            ["-c", str(sample_config_file), "-m", "test-model",
-             "-o", str(tmp_path)],
+            ["-c", str(sample_config_file), "-m", "test-model", "-o", str(tmp_path)],
             obj={"debug": False},
         )
 

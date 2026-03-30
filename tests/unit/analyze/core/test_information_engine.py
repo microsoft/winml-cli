@@ -48,8 +48,8 @@ def test_device() -> str:
 
 
 @pytest.fixture
-def white_runtime_result() -> PatternRuntime:
-    """Create WHITE (fully supported) runtime result."""
+def supported_runtime_result() -> PatternRuntime:
+    """Create SUPPORTED (fully supported) runtime result."""
     return PatternRuntime(
         pattern_id="OP/ai.onnx/Conv",
         result=RuntimeTestResult(compile=True, run=True),
@@ -58,8 +58,8 @@ def white_runtime_result() -> PatternRuntime:
 
 
 @pytest.fixture
-def gray_runtime_result() -> PatternRuntime:
-    """Create GRAY (partial support) runtime result."""
+def partial_runtime_result() -> PatternRuntime:
+    """Create PARTIAL (partial support) runtime result."""
     return PatternRuntime(
         pattern_id="OP/ai.onnx/MatMul",
         result=RuntimeTestResult(compile=False, run=True, reason="Performance issues"),
@@ -68,8 +68,8 @@ def gray_runtime_result() -> PatternRuntime:
 
 
 @pytest.fixture
-def black_runtime_result() -> PatternRuntime:
-    """Create BLACK (not supported) runtime result."""
+def unsupported_runtime_result() -> PatternRuntime:
+    """Create UNSUPPORTED (not supported) runtime result."""
     return PatternRuntime(
         pattern_id="OP/ai.onnx/Custom",
         result=RuntimeTestResult(compile=False, run=False, reason="Unsupported op"),
@@ -78,8 +78,8 @@ def black_runtime_result() -> PatternRuntime:
 
 
 @pytest.fixture
-def black_with_white_alternative() -> PatternRuntime:
-    """Create BLACK runtime result with WHITE alternative."""
+def unsupported_with_supported_alternative() -> PatternRuntime:
+    """Create UNSUPPORTED runtime result with SUPPORTED alternative."""
     alternative = PatternAlternative(
         pattern_id="OP/ai.onnx/Conv",
         result=RuntimeTestResult(compile=True, run=True),
@@ -93,11 +93,11 @@ def black_with_white_alternative() -> PatternRuntime:
 
 
 @pytest.fixture
-def black_with_gray_alternative() -> PatternRuntime:
-    """Create BLACK runtime result with GRAY alternative."""
+def unsupported_with_partial_alternative() -> PatternRuntime:
+    """Create UNSUPPORTED runtime result with PARTIAL alternative."""
     alternative = PatternAlternative(
         pattern_id="OP/ai.onnx/Alt",
-        result=RuntimeTestResult(compile=False, run=True),  # GRAY: compile=False, run=True
+        result=RuntimeTestResult(compile=False, run=True),  # PARTIAL: compile=False, run=True
         alternative_type=AlternativeType.APPROXIMATION,
     )
     return PatternRuntime(
@@ -108,8 +108,8 @@ def black_with_gray_alternative() -> PatternRuntime:
 
 
 @pytest.fixture
-def gray_with_white_alternative() -> PatternRuntime:
-    """Create GRAY runtime result with WHITE alternative."""
+def partial_with_supported_alternative() -> PatternRuntime:
+    """Create PARTIAL runtime result with SUPPORTED alternative."""
     alternative = PatternAlternative(
         pattern_id="SUBGRAPH/optimized",
         result=RuntimeTestResult(compile=True, run=True),
@@ -117,7 +117,7 @@ def gray_with_white_alternative() -> PatternRuntime:
     )
     return PatternRuntime(
         pattern_id="SUBGRAPH/unoptimized",
-        result=RuntimeTestResult(compile=False, run=True),  # GRAY: compile=False, run=True
+        result=RuntimeTestResult(compile=False, run=True),  # PARTIAL: compile=False, run=True
         alternatives=[alternative],
     )
 
@@ -126,11 +126,11 @@ class TestInformationEngineInit:
     """Tests for InformationEngine initialization."""
 
     def test_init_with_op_results(
-        self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+        self, supported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
         """Test initialization with operator results."""
         engine = InformationEngine(
-            op_runtime_results=[white_runtime_result],
+            op_runtime_results=[supported_runtime_result],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -142,12 +142,12 @@ class TestInformationEngineInit:
         assert engine._ep == "QNNExecutionProvider"
 
     def test_init_with_subgraph_results(
-        self, black_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+        self, unsupported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
         """Test initialization with subgraph results."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_runtime_result],
+            subgraph_runtime_results=[unsupported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -158,15 +158,15 @@ class TestInformationEngineInit:
 
     def test_init_with_both_results(
         self,
-        white_runtime_result: PatternRuntime,
-        black_runtime_result: PatternRuntime,
+        supported_runtime_result: PatternRuntime,
+        unsupported_runtime_result: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test initialization with both operator and subgraph results."""
         engine = InformationEngine(
-            op_runtime_results=[white_runtime_result],
-            subgraph_runtime_results=[black_runtime_result],
+            op_runtime_results=[supported_runtime_result],
+            subgraph_runtime_results=[unsupported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -181,7 +181,11 @@ class TestInformationEngineInit:
         """Test initialization with empty results and no model raises ValueError."""
         with pytest.raises(
             ValueError,
-            match="At least one of op_runtime_results, subgraph_runtime_results, or model must be provided",
+            match=(
+                "At least one of op_runtime_results, "
+                "subgraph_runtime_results, or model "
+                "must be provided"
+            ),
         ):
             InformationEngine(
                 op_runtime_results=[],
@@ -212,11 +216,11 @@ class TestInformationEngineProperties:
     """Tests for InformationEngine properties."""
 
     def test_op_runtime_results_property(
-        self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+        self, supported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
         """Test op_runtime_results property."""
         engine = InformationEngine(
-            op_runtime_results=[white_runtime_result],
+            op_runtime_results=[supported_runtime_result],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -225,15 +229,15 @@ class TestInformationEngineProperties:
 
         results = engine.op_runtime_results
         assert len(results) == 1
-        assert results[0] == white_runtime_result
+        assert results[0] == supported_runtime_result
 
     def test_subgraph_runtime_results_property(
-        self, black_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+        self, unsupported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
         """Test subgraph_runtime_results property."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_runtime_result],
+            subgraph_runtime_results=[unsupported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -241,7 +245,7 @@ class TestInformationEngineProperties:
 
         results = engine.subgraph_runtime_results
         assert len(results) == 1
-        assert results[0] == black_runtime_result
+        assert results[0] == unsupported_runtime_result
 
 
 class TestInformationEngineSummary:
@@ -249,15 +253,15 @@ class TestInformationEngineSummary:
 
     def test_summary_returns_information_list(
         self,
-        white_runtime_result: PatternRuntime,
-        black_runtime_result: PatternRuntime,
+        supported_runtime_result: PatternRuntime,
+        unsupported_runtime_result: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test summary returns list of Information objects."""
         engine = InformationEngine(
-            op_runtime_results=[white_runtime_result],
-            subgraph_runtime_results=[black_runtime_result],
+            op_runtime_results=[supported_runtime_result],
+            subgraph_runtime_results=[unsupported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -270,15 +274,15 @@ class TestInformationEngineSummary:
 
     def test_summary_combines_op_and_pattern_info(
         self,
-        black_runtime_result: PatternRuntime,
-        black_with_white_alternative: PatternRuntime,
+        unsupported_runtime_result: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test summary combines operator and pattern information."""
         engine = InformationEngine(
-            op_runtime_results=[black_runtime_result],
-            subgraph_runtime_results=[black_with_white_alternative],
+            op_runtime_results=[unsupported_runtime_result],
+            subgraph_runtime_results=[unsupported_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -286,19 +290,20 @@ class TestInformationEngineSummary:
 
         result = engine.summary()
 
-        # Should have information for both black operator and black pattern with alternative
+        # Should have information for both unsupported operator
+        # and unsupported pattern with alternative
         assert len(result) >= 2
 
 
 class TestInformationEngineCheckSingleOps:
     """Tests for _check_single_ops method."""
 
-    def test_white_pattern_no_action(
-        self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_supported_pattern_no_action(
+        self, supported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test WHITE pattern generates no information."""
+        """Test SUPPORTED pattern generates no information."""
         engine = InformationEngine(
-            op_runtime_results=[white_runtime_result],
+            op_runtime_results=[supported_runtime_result],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -307,15 +312,15 @@ class TestInformationEngineCheckSingleOps:
 
         info_list = engine._check_single_ops()
 
-        # WHITE patterns should not generate information
+        # Supported patterns should not generate information
         assert len(info_list) == 0
 
-    def test_gray_pattern_optional_action(
-        self, gray_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_partial_pattern_optional_action(
+        self, partial_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test GRAY pattern generates optional action."""
+        """Test PARTIAL pattern generates optional action."""
         engine = InformationEngine(
-            op_runtime_results=[gray_runtime_result],
+            op_runtime_results=[partial_runtime_result],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -332,12 +337,12 @@ class TestInformationEngineCheckSingleOps:
             or "partial support" in info.explanation.lower()
         )
 
-    def test_black_pattern_required_action(
-        self, black_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_unsupported_pattern_required_action(
+        self, unsupported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test BLACK pattern generates required action."""
+        """Test UNSUPPORTED pattern generates required action."""
         engine = InformationEngine(
-            op_runtime_results=[black_runtime_result],
+            op_runtime_results=[unsupported_runtime_result],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -356,13 +361,13 @@ class TestInformationEngineCheckSingleOps:
 
     def test_skip_patterns_with_alternatives(
         self,
-        black_with_white_alternative: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test patterns with alternatives are skipped in _check_single_ops."""
         engine = InformationEngine(
-            op_runtime_results=[black_with_white_alternative],
+            op_runtime_results=[unsupported_with_supported_alternative],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -400,13 +405,13 @@ class TestInformationEngineCheckPatterns:
 
     def test_patterns_with_alternatives_processed(
         self,
-        black_with_white_alternative: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test patterns with alternatives are processed."""
         engine = InformationEngine(
-            op_runtime_results=[black_with_white_alternative],
+            op_runtime_results=[unsupported_with_supported_alternative],
             subgraph_runtime_results=[],
             ep="QNNExecutionProvider",
             model=simple_model,
@@ -421,14 +426,14 @@ class TestInformationEngineCheckPatterns:
 
     def test_subgraph_patterns_processed(
         self,
-        black_with_white_alternative: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test subgraph patterns are processed."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_with_white_alternative],
+            subgraph_runtime_results=[unsupported_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -438,13 +443,13 @@ class TestInformationEngineCheckPatterns:
 
         assert len(info_list) == 1
 
-    def test_white_pattern_with_no_alternatives_skipped(
-        self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_supported_pattern_with_no_alternatives_skipped(
+        self, supported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test WHITE pattern with no alternatives is skipped."""
+        """Test SUPPORTED pattern with no alternatives is skipped."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[white_runtime_result],
+            subgraph_runtime_results=[supported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -458,22 +463,22 @@ class TestInformationEngineCheckPatterns:
 class TestInformationEngineProcessPatternWithAlternatives:
     """Tests for _process_pattern_with_alternatives method."""
 
-    def test_black_to_white_alternative_required_action(
+    def test_unsupported_to_supported_alternative_required_action(
         self,
-        black_with_white_alternative: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
-        """Test BLACK to WHITE alternative generates required action."""
+        """Test UNSUPPORTED to SUPPORTED alternative generates required action."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_with_white_alternative],
+            subgraph_runtime_results=[unsupported_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        info = engine._process_pattern_with_alternatives(black_with_white_alternative)
+        info = engine._process_pattern_with_alternatives(unsupported_with_supported_alternative)
 
         assert info is not None
         assert info.pattern_id == "SUBGRAPH/old_pattern"
@@ -483,64 +488,70 @@ class TestInformationEngineProcessPatternWithAlternatives:
         assert info.actions[0].level == ActionLevel.REQUIRED
         assert info.actions[0].pattern_to_id == "OP/ai.onnx/Conv"
 
-    def test_black_to_gray_alternative_required_action(
-        self, black_with_gray_alternative: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_unsupported_to_partial_alternative_required_action(
+        self,
+        unsupported_with_partial_alternative: PatternRuntime,
+        simple_model: ONNXModel,
+        test_device: str,
     ) -> None:
-        """Test BLACK to GRAY alternative generates required action."""
+        """Test UNSUPPORTED to PARTIAL alternative generates required action."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_with_gray_alternative],
+            subgraph_runtime_results=[unsupported_with_partial_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        info = engine._process_pattern_with_alternatives(black_with_gray_alternative)
+        info = engine._process_pattern_with_alternatives(unsupported_with_partial_alternative)
 
         assert info is not None
         assert info.actions is not None
         assert len(info.actions) == 1
-        # UNSUPPORTED → PARTIAL is still REQUIRED (improvement from not working to partial support)
+        # UNSUPPORTED -> PARTIAL is still REQUIRED (improvement from not working to partial support)
         assert info.actions[0].level == ActionLevel.REQUIRED
         assert (
             "partial support" in info.actions[0].details.lower()
             or "partial" in info.actions[0].details.lower()
         )
 
-    def test_gray_to_white_alternative_optional_action(
-        self, gray_with_white_alternative: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_partial_to_supported_alternative_optional_action(
+        self,
+        partial_with_supported_alternative: PatternRuntime,
+        simple_model: ONNXModel,
+        test_device: str,
     ) -> None:
-        """Test GRAY to WHITE alternative generates required action (improvement to full support)."""
+        """Test PARTIAL to SUPPORTED alternative generates required action."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[gray_with_white_alternative],
+            subgraph_runtime_results=[partial_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        info = engine._process_pattern_with_alternatives(gray_with_white_alternative)
+        info = engine._process_pattern_with_alternatives(partial_with_supported_alternative)
 
         assert info is not None
         assert info.actions is not None
         assert len(info.actions) == 1
-        # GRAY → WHITE is REQUIRED (improvement from partial to full support)
+        # PARTIAL -> SUPPORTED is REQUIRED (improvement from partial to full support)
         assert info.actions[0].level == ActionLevel.REQUIRED
         assert info.actions[0].status == SupportLevel.SUPPORTED
 
-    def test_white_with_no_alternatives_returns_none(
-        self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_supported_with_no_alternatives_returns_none(
+        self, supported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test WHITE pattern with no alternatives returns None."""
+        """Test SUPPORTED pattern with no alternatives returns None."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[white_runtime_result],
+            subgraph_runtime_results=[supported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        info = engine._process_pattern_with_alternatives(white_runtime_result)
+        info = engine._process_pattern_with_alternatives(supported_runtime_result)
 
         assert info is None
 
@@ -548,22 +559,22 @@ class TestInformationEngineProcessPatternWithAlternatives:
 class TestInformationEngineExtractActions:
     """Tests for _extract_actions method."""
 
-    def test_extract_actions_black_to_white(
+    def test_extract_actions_unsupported_to_supported(
         self,
-        black_with_white_alternative: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
-        """Test extracting actions from BLACK to WHITE alternative."""
+        """Test extracting actions from UNSUPPORTED to SUPPORTED alternative."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_with_white_alternative],
+            subgraph_runtime_results=[unsupported_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        actions = engine._extract_actions(black_with_white_alternative)
+        actions = engine._extract_actions(unsupported_with_supported_alternative)
 
         assert len(actions) == 1
         action = actions[0]
@@ -573,23 +584,26 @@ class TestInformationEngineExtractActions:
         assert action.status == SupportLevel.SUPPORTED
         assert "equivalent" in action.details.lower()
 
-    def test_extract_actions_gray_to_white(
-        self, gray_with_white_alternative: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_extract_actions_partial_to_supported(
+        self,
+        partial_with_supported_alternative: PatternRuntime,
+        simple_model: ONNXModel,
+        test_device: str,
     ) -> None:
-        """Test extracting actions from GRAY to WHITE alternative."""
+        """Test extracting actions from PARTIAL to SUPPORTED alternative."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[gray_with_white_alternative],
+            subgraph_runtime_results=[partial_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        actions = engine._extract_actions(gray_with_white_alternative)
+        actions = engine._extract_actions(partial_with_supported_alternative)
 
         assert len(actions) == 1
         action = actions[0]
-        # GRAY → WHITE is REQUIRED (improvement)
+        # PARTIAL -> SUPPORTED is REQUIRED (improvement)
         assert action.level == ActionLevel.REQUIRED
         assert action.status == SupportLevel.SUPPORTED
 
@@ -597,7 +611,7 @@ class TestInformationEngineExtractActions:
         self, simple_model: ONNXModel, test_device: str
     ) -> None:
         """Test alternatives with no improvement are skipped."""
-        # BLACK pattern with BLACK alternative (no improvement)
+        # UNSUPPORTED pattern with UNSUPPORTED alternative (no improvement)
         alternative = PatternAlternative(
             pattern_id="OP/ai.onnx/Alt",
             result=RuntimeTestResult(compile=False, run=False),
@@ -623,19 +637,19 @@ class TestInformationEngineExtractActions:
         assert len(actions) == 1
         assert actions[0].level == ActionLevel.WARNING
 
-    def test_extract_actions_black_with_no_alternatives(
-        self, black_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_extract_actions_unsupported_with_no_alternatives(
+        self, unsupported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test BLACK pattern with no alternatives generates warning."""
+        """Test UNSUPPORTED pattern with no alternatives generates warning."""
         engine = InformationEngine(
             op_runtime_results=[],
-            subgraph_runtime_results=[black_runtime_result],
+            subgraph_runtime_results=[unsupported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
         )
 
-        actions = engine._extract_actions(black_runtime_result)
+        actions = engine._extract_actions(unsupported_runtime_result)
 
         assert len(actions) == 1
         assert actions[0].level == ActionLevel.WARNING
@@ -680,21 +694,21 @@ class TestInformationEngineIntegration:
 
     def test_full_workflow_mixed_results(
         self,
-        white_runtime_result: PatternRuntime,
-        gray_runtime_result: PatternRuntime,
-        black_runtime_result: PatternRuntime,
-        black_with_white_alternative: PatternRuntime,
+        supported_runtime_result: PatternRuntime,
+        partial_runtime_result: PatternRuntime,
+        unsupported_runtime_result: PatternRuntime,
+        unsupported_with_supported_alternative: PatternRuntime,
         simple_model: ONNXModel,
         test_device: str,
     ) -> None:
         """Test complete workflow with mixed runtime results."""
         engine = InformationEngine(
             op_runtime_results=[
-                white_runtime_result,
-                gray_runtime_result,
-                black_runtime_result,
+                supported_runtime_result,
+                partial_runtime_result,
+                unsupported_runtime_result,
             ],
-            subgraph_runtime_results=[black_with_white_alternative],
+            subgraph_runtime_results=[unsupported_with_supported_alternative],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -703,10 +717,10 @@ class TestInformationEngineIntegration:
         info_list = engine.summary()
 
         # Should have information for:
-        # - GRAY operator (optional action)
-        # - BLACK operator (required action)
-        # - BLACK subgraph with alternative (required action)
-        # WHITE operator should not generate information
+        # - PARTIAL operator (optional action)
+        # - UNSUPPORTED operator (required action)
+        # - UNSUPPORTED subgraph with alternative (required action)
+        # SUPPORTED operator should not generate information
         assert len(info_list) >= 3
 
         # Verify all information objects are valid
@@ -715,13 +729,13 @@ class TestInformationEngineIntegration:
             assert info.explanation
             assert info.pattern_id
 
-    def test_all_white_patterns_no_information(
-        self, white_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_all_supported_patterns_no_information(
+        self, supported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test all WHITE patterns generate no information."""
+        """Test all SUPPORTED patterns generate no information."""
         engine = InformationEngine(
-            op_runtime_results=[white_runtime_result],
-            subgraph_runtime_results=[white_runtime_result],
+            op_runtime_results=[supported_runtime_result],
+            subgraph_runtime_results=[supported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -731,13 +745,13 @@ class TestInformationEngineIntegration:
 
         assert len(info_list) == 0
 
-    def test_all_black_patterns_generate_actions(
-        self, black_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
+    def test_all_unsupported_patterns_generate_actions(
+        self, unsupported_runtime_result: PatternRuntime, simple_model: ONNXModel, test_device: str
     ) -> None:
-        """Test all BLACK patterns generate required or warning actions."""
+        """Test all UNSUPPORTED patterns generate required or warning actions."""
         engine = InformationEngine(
-            op_runtime_results=[black_runtime_result],
-            subgraph_runtime_results=[black_runtime_result],
+            op_runtime_results=[unsupported_runtime_result],
+            subgraph_runtime_results=[unsupported_runtime_result],
             ep="QNNExecutionProvider",
             model=simple_model,
             device=test_device,
@@ -748,7 +762,7 @@ class TestInformationEngineIntegration:
         assert len(info_list) == 2
         for info in info_list:
             assert info.actions is not None
-            # BLACK patterns without alternatives generate WARNING or REQUIRED actions
+            # UNSUPPORTED patterns without alternatives generate WARNING or REQUIRED actions
             assert any(
                 action.level in (ActionLevel.REQUIRED, ActionLevel.WARNING)
                 for action in info.actions

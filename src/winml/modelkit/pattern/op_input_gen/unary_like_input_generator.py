@@ -10,12 +10,12 @@ that can reuse the UnaryInputGenerator base shapes while adding operator-specifi
 attributes or input handling.
 """
 
-import itertools
 from typing import Any
 
 import numpy as np
 
 from winml.modelkit.onnx.dtypes import SupportedONNXType
+
 from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
@@ -201,6 +201,7 @@ class SoftmaxInputGenerator(UnaryInputGenerator):
     """
 
     op_name = "Softmax"
+    support_0d_input = False  # Softmax does not support scalar input
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Return axis values to test.
@@ -210,13 +211,25 @@ class SoftmaxInputGenerator(UnaryInputGenerator):
         return {"axis": list(range(-5, 6))}
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive additional properties including axis normalization."""
         item = super().derive_properties(properties)
         input_param_name = self.op_input_names[0]
         shape = item.get(f"{input_param_name}_shape")
-        item["axis_size_is_one"] = shape[item["attr_axis"]] == 1 if shape else False
+        axis = item.get("attr_axis")
+
+        # Defensive: only compute axis_size_is_one when axis is within shape bounds.
+        if shape is not None and axis is not None:
+            axis_idx = axis if axis >= 0 else axis + len(shape)
+            if 0 <= axis_idx < len(shape):
+                item["axis_size_is_one"] = shape[axis_idx] == 1
+            else:
+                item["axis_size_is_one"] = False
+        else:
+            item["axis_size_is_one"] = False
         return item
 
     def get_qdq_config(self):
+        """Return QDQ configuration for Softmax operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),
         }
@@ -231,6 +244,7 @@ class LogSoftmaxInputGenerator(UnaryInputGenerator):
     """
 
     op_name = "LogSoftmax"
+    support_0d_input = False  # LogSoftmax does not support scalar input
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Return axis values to test."""
@@ -246,6 +260,7 @@ class HardmaxInputGenerator(UnaryInputGenerator):
     """
 
     op_name = "Hardmax"
+    support_0d_input = False  # Hardmax does not support scalar input
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Return axis values to test."""
@@ -257,6 +272,8 @@ class ArgExtremaInputGenerator(UnaryInputGenerator):
 
     Provides common functionality for handling axis, keepdims, and select_last_index attributes.
     """
+
+    support_0d_input = False  # ArgMax/ArgMin do not support scalar input
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Return attribute combinations to test.
@@ -289,7 +306,7 @@ class ArgExtremaInputGenerator(UnaryInputGenerator):
                 data_dim = len(shape)
                 # Generate axis values: negative (-1) first, then positive (0, 1, ..., data_dim-1)
                 # Negative axis is more common in real models (e.g., axis=-1 for last dim)
-                axis_values = [-1] + list(range(data_dim))
+                axis_values = [-1, *list(range(data_dim))]
                 for axis in axis_values:
                     new_combo = combo.copy()
                     new_combo["axis"] = InputValueConstraint(axis)
@@ -313,7 +330,7 @@ class ArgExtremaInputGenerator(UnaryInputGenerator):
         Returns:
             List of property names that represent shapes/values with infinite possibilities
         """
-        return super().get_infinite_property_names() + ["attr_axis"]
+        return [*super().get_infinite_property_names(), "attr_axis"]
 
 
 @register_runtime_checker_op
@@ -466,7 +483,15 @@ class ClipInputGenerator(UnaryInputGenerator):
         """
         min_name, max_name = self._get_clip_param_names()
         parent_infinite_props = super().get_infinite_property_names()
-        return parent_infinite_props + [min_name + "_value", max_name + "_value"]
+        return [*parent_infinite_props, min_name + "_value", max_name + "_value"]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Clip operator inputs."""
+        return {
+            "input": QDQParameterConfig(support_activation=True),
+            self.op_input_names[1]: QDQParameterConfig(support_weight=True),  # min
+            self.op_input_names[2]: QDQParameterConfig(support_weight=True),  # max
+        }
 
 
 @register_runtime_checker_op
@@ -504,19 +529,20 @@ class CumSumInputGenerator(UnaryInputGenerator):
             shape = constraint[x_name].shape
             axis_values = range(-len(shape), len(shape))
             # Only add valid axis values for the shape
-            for axis in axis_values:
-                combinations.append(
-                    {
-                        x_name: InputShapeConstraint(shape),
-                        axis_name: InputValueConstraint(np.array(axis, dtype=np.int64)),
-                    }
-                )
+            combinations.extend(
+                {
+                    x_name: InputShapeConstraint(shape),
+                    axis_name: InputValueConstraint(np.array(axis, dtype=np.int64)),
+                }
+                for axis in axis_values
+            )
         return combinations
 
     def get_qdq_config(self):
+        """Return QDQ configuration for CumSum operator inputs."""
         return {
             "x": QDQParameterConfig(support_activation=True),
-            "axis": QDQParameterConfig(),
+            "axis": QDQParameterConfig(support_non_qdq=True),
         }
 
 
@@ -591,7 +617,7 @@ class CastInputGenerator(UnaryInputGenerator):
         """
         from onnx import TensorProto
 
-        return {
+        result = {
             "to": [
                 int(TensorProto.BOOL),
                 int(TensorProto.DOUBLE),
@@ -609,6 +635,11 @@ class CastInputGenerator(UnaryInputGenerator):
             "saturate": [0, 1],
             "rounding_mode": ["up", "nearest"],
         }
+        if self.qdq_generator:
+            # They are only supported in float8e8m0 etc., so removed
+            del result["saturate"]
+            del result["rounding_mode"]
+        return result
 
     def infer_output_types(
         self, kwargs: dict[str, Any], tags: dict[str, Any], required_outputs_only: bool = True
@@ -628,6 +659,13 @@ class CastInputGenerator(UnaryInputGenerator):
         output_type_enum = kwargs["to"]
         onnx_type = SupportedONNXType.from_tensor_proto_type(output_type_enum)
         return [onnx_type.annotation]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Cast operator inputs."""
+        return {
+            "input": QDQParameterConfig(support_activation=True, support_non_qdq=True),
+            "output": QDQParameterConfig(support_activation=True, support_non_qdq=True),
+        }
 
 
 @register_runtime_checker_op

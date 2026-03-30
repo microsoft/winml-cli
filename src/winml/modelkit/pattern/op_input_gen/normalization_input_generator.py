@@ -145,11 +145,14 @@ class BatchNormalizationInputGenerator(NormalizationInputGenerator):
         training_mode is the primary varying attribute.
         epsilon is also tested with common values.
         """
-        return {
+        attrs = {
             "epsilon": self.get_common_epsilon_values(),
             "momentum": [0.9],
-            "training_mode": [0],  # 0: inference, 1: training
         }
+        # opset<14 does not have training_mode
+        if "training_mode" in self.op_attribute_names:
+            attrs["training_mode"] = [0]  # 0: inference, 1: training
+        return attrs
 
     def get_input_and_infinite_attribute_combinations(
         self,
@@ -162,6 +165,9 @@ class BatchNormalizationInputGenerator(NormalizationInputGenerator):
         """
         combinations = []
 
+        # BatchNormalization uses mean/var in older opsets and input_mean/input_var in newer opsets.
+        x_name, scale_name, bias_name, mean_name, var_name = self.op_input_names[:5]
+
         for shape in self.get_common_data_shapes():
             num_channels = shape[1] if len(shape) > 1 else 1  # C dimension
 
@@ -173,11 +179,11 @@ class BatchNormalizationInputGenerator(NormalizationInputGenerator):
 
             combinations.append(
                 {
-                    "X": InputShapeConstraint(shape),
-                    "scale": scale,
-                    "B": bias,  # Parameter name is 'B' in ONNX spec
-                    "input_mean": mean,
-                    "input_var": var,
+                    x_name: InputShapeConstraint(shape),
+                    scale_name: scale,
+                    bias_name: bias,
+                    mean_name: mean,
+                    var_name: var,
                 }
             )
 
@@ -324,6 +330,14 @@ class InstanceNormalizationInputGenerator(NormalizationInputGenerator):
 
         return combinations
 
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig] | None:
+        """Return QDQ configuration for BatchNormalization operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),
+            self.op_input_names[1]: QDQParameterConfig(support_weight=True),
+            self.op_input_names[2]: QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT32),
+        }
+
 
 # ============================================================================
 # LayerNormalization - Normalizes across specified axes
@@ -396,6 +410,7 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
         return combinations
 
     def get_qdq_config(self) -> dict[str, QDQParameterConfig] | None:
+        """Return QDQ configuration for LayerNormalization operator inputs."""
         # Follow https://github.com/microsoft/onnxruntime/blob/727db0d3dc9f7dc5958891d80c1073ef7190f316/onnxruntime/python/tools/quantization/operators/norm.py
         return {
             "X": QDQParameterConfig(support_activation=True),
@@ -467,19 +482,16 @@ class MeanVarianceNormalizationInputGenerator(NormalizationInputGenerator):
 
         Test different axes combinations based on tensor rank.
         """
-        combinations = []
+        combinations = [
+            {
+                "X": InputShapeConstraint(shape),
+                "axes": [axis],
+            }
+            for shape in self.get_common_data_shapes()
+            for axis in range(-1, min(len(shape), 2))
+        ]
 
-        for shape in self.get_common_data_shapes():
-            rank = len(shape)
-            for axis in range(-1, min(rank, 2)):
-                combinations.append(
-                    {
-                        "X": InputShapeConstraint(shape),
-                        "axes": [axis],
-                    }
-                )
-
-        return combinations
+        return combinations  # noqa: RET504
 
 
 # ============================================================================

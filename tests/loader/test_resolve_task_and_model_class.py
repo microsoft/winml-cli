@@ -29,9 +29,7 @@ class TestCase2ModelTypeNone:
         config.model_type = None
         config.architectures = ["BertForSequenceClassification"]
 
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="text-classification"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="text-classification")
 
         assert task == "text-classification"
         # TasksManager should still resolve the class even without model_type
@@ -44,9 +42,7 @@ class TestCase2ModelTypeNone:
         config.architectures = ["CLIPModel"]
 
         # feature-extraction without model_type should NOT trigger CLIP specialization
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="feature-extraction"
-        )
+        task, resolved_class = resolve_task_and_model_class(config, task="feature-extraction")
 
         assert task == "feature-extraction"
         # Should be TasksManager default, not CLIPTextModelWithProjection
@@ -63,9 +59,7 @@ class TestCase2OriginalTaskPreserved:
         config.architectures = ["BertForMaskedLM"]
 
         # "masked-lm" normalizes to "fill-mask" internally
-        task, resolved_class = resolve_task_and_model_class(
-            config, task="masked-lm"
-        )
+        task, _resolved_class = resolve_task_and_model_class(config, task="masked-lm")
 
         # Returns original task name, not normalized
         assert task == "masked-lm"
@@ -107,7 +101,7 @@ class TestCase3EdgeCases:
         config.architectures = ["BertForMaskedLM"]
 
         # "masked-lm" should normalize to "fill-mask" for TasksManager lookup
-        task, resolved_class = resolve_task_and_model_class(
+        task, _resolved_class = resolve_task_and_model_class(
             config,
             task="masked-lm",
             model_class="AutoModelForMaskedLM",

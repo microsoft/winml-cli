@@ -14,7 +14,8 @@ Activation patterns (activation.py):
 - relu_clip_builder: ReLU + Clip -> Relu6
 
 Attention patterns (attention.py):
-- attention_builder: BERT-style self-attention (NOTE: AttentionFusion NOT handled by GraphPipe - TBD)
+- attention_builder: BERT-style self-attention
+  (NOTE: AttentionFusion NOT handled by GraphPipe - TBD)
 - multi_head_attention_builder: Multi-head attention for FusionPipe
 - rotary_embeddings_builder: RoPE pattern for RotaryEmbedding
 

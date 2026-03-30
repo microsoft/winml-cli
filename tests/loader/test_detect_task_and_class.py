@@ -139,7 +139,7 @@ class TestBlipIntegration:
         config = AutoConfig.from_pretrained("Salesforce/blip-image-captioning-base")
 
         with caplog.at_level(logging.WARNING):
-            task, resolved_class = _detect_task_and_class_from_config(config)
+            _task, resolved_class = _detect_task_and_class_from_config(config)
 
         # If TasksManager returns different class, warning should be logged
         if resolved_class.__name__ != "BlipForConditionalGeneration":

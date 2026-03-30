@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 import onnx
 import pytest
 from onnx import TensorProto, helper
@@ -22,14 +26,14 @@ def simple_onnx_model(tmp_path: Path) -> Path:
     Where A is input (1, 4), B is constant (4, 4), C is output (1, 4)
     """
     # Input
-    A = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+    A = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])  # noqa: N806
 
     # Output
-    C = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+    C = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])  # noqa: N806
 
     # Constant weights
-    B_values = np.random.randn(4, 4).astype(np.float32)
-    B_tensor = helper.make_tensor("B", TensorProto.FLOAT, [4, 4], B_values.flatten())
+    B_values = np.random.randn(4, 4).astype(np.float32)  # noqa: N806
+    B_tensor = helper.make_tensor("B", TensorProto.FLOAT, [4, 4], B_values.flatten())  # noqa: N806
 
     # MatMul node
     matmul_node = helper.make_node("MatMul", ["A", "B"], ["C"], name="matmul")
@@ -71,9 +75,7 @@ class TestRandomDataset:
         assert "A" in sample  # Input name from ONNX model
         assert sample["A"].shape == (1, 4)
 
-    def test_random_dataset_generates_correct_dtype(
-        self, simple_onnx_model: Path
-    ) -> None:
+    def test_random_dataset_generates_correct_dtype(self, simple_onnx_model: Path) -> None:
         """RandomDataset should generate data with correct dtype."""
         import torch
 
@@ -88,9 +90,7 @@ class TestRandomDataset:
         # ONNX model has FLOAT input, should be float32
         assert sample["A"].dtype in (np.float32, torch.float32)
 
-    def test_random_dataset_reproducible_with_seed(
-        self, simple_onnx_model: Path
-    ) -> None:
+    def test_random_dataset_reproducible_with_seed(self, simple_onnx_model: Path) -> None:
         """RandomDataset should produce same data with same seed."""
         from winml.modelkit.datasets import RandomDataset
 
@@ -169,7 +169,11 @@ class TestTaskDatasetMapping:
             ("text-feature-extraction", "winml.modelkit.datasets.text", "TextDataset"),
             ("next-sentence-prediction", "winml.modelkit.datasets.text", "TextDataset"),
             ("fill-mask", "winml.modelkit.datasets.text", "TextDataset"),
-            ("object-detection", "winml.modelkit.datasets.object_detection", "ObjectDetectionDataset"),
+            (
+                "object-detection",
+                "winml.modelkit.datasets.object_detection",
+                "ObjectDetectionDataset",
+            ),
             (
                 "image-segmentation",
                 "winml.modelkit.datasets.image_segmentation",
@@ -178,9 +182,7 @@ class TestTaskDatasetMapping:
             ("random", "winml.modelkit.datasets.random_dataset", "RandomDataset"),
         ],
     )
-    def test_task_maps_to_dataset_class(
-        self, task: str, module_path: str, class_name: str
-    ) -> None:
+    def test_task_maps_to_dataset_class(self, task: str, module_path: str, class_name: str) -> None:
         """Each task maps to its expected dataset class."""
         import importlib
 
@@ -194,9 +196,7 @@ class TestTaskDatasetMapping:
 class TestDatasetCalibrationReaderFallback:
     """Tests for DatasetCalibrationReader with unsupported tasks."""
 
-    def test_calibration_reader_with_unknown_task(
-        self, simple_onnx_model: Path
-    ) -> None:
+    def test_calibration_reader_with_unknown_task(self, simple_onnx_model: Path) -> None:
         """DatasetCalibrationReader should handle unknown tasks via fallback."""
         from winml.modelkit.datasets import DatasetCalibrationReader
 
@@ -215,9 +215,7 @@ class TestDatasetCalibrationReaderFallback:
         assert "A" in sample  # Input from ONNX model
         assert isinstance(sample["A"], np.ndarray)
 
-    def test_calibration_reader_get_next_exhaustion(
-        self, simple_onnx_model: Path
-    ) -> None:
+    def test_calibration_reader_get_next_exhaustion(self, simple_onnx_model: Path) -> None:
         """DatasetCalibrationReader should return None when exhausted."""
         from winml.modelkit.datasets import DatasetCalibrationReader
 
@@ -277,18 +275,12 @@ def _create_onnx_with_metadata(
     """Create a BERT-like ONNX model, optionally with winml.io.inputs metadata."""
     import json
 
-    input_ids = helper.make_tensor_value_info(
-        "input_ids", TensorProto.INT64, [1, 16]
-    )
-    attention_mask = helper.make_tensor_value_info(
-        "attention_mask", TensorProto.INT64, [1, 16]
-    )
+    input_ids = helper.make_tensor_value_info("input_ids", TensorProto.INT64, [1, 16])
+    attention_mask = helper.make_tensor_value_info("attention_mask", TensorProto.INT64, [1, 16])
     output = helper.make_tensor_value_info("logits", TensorProto.FLOAT, [1, 2])
 
     cast_node = helper.make_node("Cast", ["input_ids"], ["cast_out"], to=1)
-    reduce_node = helper.make_node(
-        "ReduceMean", ["cast_out"], ["logits"], axes=[1], keepdims=0
-    )
+    reduce_node = helper.make_node("ReduceMean", ["cast_out"], ["logits"], axes=[1], keepdims=0)
 
     graph = helper.make_graph(
         [cast_node, reduce_node],
@@ -302,12 +294,9 @@ def _create_onnx_with_metadata(
         io_inputs = []
         for input_name, vr in value_ranges.items():
             io_inputs.append(
-                {"name": input_name, "dtype": "int32", "shape": [1, 16],
-                 "value_range": vr}
+                {"name": input_name, "dtype": "int32", "shape": [1, 16], "value_range": vr}
             )
-        model.metadata_props.add(
-            key="winml.io.inputs", value=json.dumps(io_inputs)
-        )
+        model.metadata_props.add(key="winml.io.inputs", value=json.dumps(io_inputs))
 
     model_path = tmp_path / name
     onnx.save(model, str(model_path))
@@ -322,7 +311,8 @@ class TestRandomDatasetValueRanges:
         from winml.modelkit.datasets.random_dataset import RandomDataset
 
         model_path = _create_onnx_with_metadata(
-            tmp_path, "bert_with_meta.onnx",
+            tmp_path,
+            "bert_with_meta.onnx",
             value_ranges={"input_ids": [0, 100], "attention_mask": [0, 2]},
         )
         dataset = RandomDataset(str(model_path), max_samples=5)
@@ -338,7 +328,8 @@ class TestRandomDatasetValueRanges:
         from winml.modelkit.datasets.random_dataset import RandomDataset
 
         model_path = _create_onnx_with_metadata(
-            tmp_path, "bert_no_meta.onnx",
+            tmp_path,
+            "bert_no_meta.onnx",
         )
         dataset = RandomDataset(str(model_path), max_samples=5)
 
@@ -352,7 +343,8 @@ class TestRandomDatasetValueRanges:
         from winml.modelkit.datasets.random_dataset import RandomDataset
 
         model_path = _create_onnx_with_metadata(
-            tmp_path, "bert_partial_meta.onnx",
+            tmp_path,
+            "bert_partial_meta.onnx",
             value_ranges={"input_ids": [0, 50]},  # no attention_mask range
         )
         dataset = RandomDataset(str(model_path), max_samples=5)
@@ -377,20 +369,14 @@ class TestOnnxIoMetadata:
         out = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])
         node = helper.make_node("Relu", ["x"], ["y"])
         graph = helper.make_graph([node], "test", [inp], [out])
-        model = helper.make_model(
-            graph, opset_imports=[helper.make_opsetid("", 17)]
-        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
 
         # Add metadata
         io_inputs = [
-            {"name": "input_ids", "dtype": "int32", "shape": [1, 512],
-             "value_range": [0, 30522]},
-            {"name": "attention_mask", "dtype": "int32", "shape": [1, 512],
-             "value_range": [0, 2]},
+            {"name": "input_ids", "dtype": "int32", "shape": [1, 512], "value_range": [0, 30522]},
+            {"name": "attention_mask", "dtype": "int32", "shape": [1, 512], "value_range": [0, 2]},
         ]
-        model.metadata_props.add(
-            key="winml.io.inputs", value=json.dumps(io_inputs)
-        )
+        model.metadata_props.add(key="winml.io.inputs", value=json.dumps(io_inputs))
 
         model_path = tmp_path / "model_with_metadata.onnx"
         onnx.save(model, str(model_path))

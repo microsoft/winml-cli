@@ -34,6 +34,7 @@ import pytest
 
 # Trigger capability auto-discovery by importing capabilities
 import winml.modelkit.optim.capabilities  # noqa: F401
+
 from ..capabilities.conftest import get_all_ort_names
 
 
@@ -223,9 +224,7 @@ def test_ort_names_registry_integrity() -> None:
                     elif not name or not name.strip():
                         invalid_capabilities.append((cap_name, f"ort_name[{idx}] is empty"))
         else:
-            invalid_capabilities.append(
-                (cap_name, f"ort_name has invalid type: {type(ort_name)}")
-            )
+            invalid_capabilities.append((cap_name, f"ort_name has invalid type: {type(ort_name)}"))
 
     # Report all invalid capabilities
     if invalid_capabilities:

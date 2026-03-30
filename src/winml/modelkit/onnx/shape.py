@@ -17,8 +17,12 @@ full optimizer.
 from __future__ import annotations
 
 import logging
+import tempfile
+from pathlib import Path
 
 import onnx
+
+from winml.modelkit.onnx.utils import EXTERNAL_DATA_THRESHOLD, get_model_size
 
 from .metadata import capture_metadata, restore_metadata
 
@@ -78,7 +82,7 @@ def _run_inference(model: onnx.ModelProto) -> onnx.ModelProto:
 
     # Fallback to ONNX (handles standard ops, fails on com.microsoft)
     try:
-        return onnx.shape_inference.infer_shapes(
+        return infer_onnx_shapes(
             model,
             strict_mode=False,
             data_prop=True,
@@ -86,3 +90,37 @@ def _run_inference(model: onnx.ModelProto) -> onnx.ModelProto:
     except Exception as e:
         logger.warning("Shape inference failed: %s", e)
         return model
+
+
+def infer_onnx_shapes(
+    model: onnx.ModelProto,
+    check_type: bool = False,
+    strict_mode: bool = False,
+    data_prop: bool = False,
+) -> onnx.ModelProto:
+    """Same as ``onnx.shape_inference.infer_shapes``, but handles large models.
+
+    Uses a temp file on disk for models exceeding the protobuf size limit.
+
+    For models exceeding the external-data threshold, a temporary directory is
+    used so that both the ``.onnx`` file and its ``.data`` sidecar are cleaned
+    up automatically.  ``onnx.save(..., save_as_external_data=True)`` mutates
+    the in-memory *model* (strips ``raw_data``, sets ``data_location`` to
+    EXTERNAL).  If the subsequent shape-inference or reload step fails, the
+    data is re-internalised from the sidecar before the exception propagates,
+    so the caller never receives a model with dangling external-data refs.
+    """
+    if get_model_size(model) >= EXTERNAL_DATA_THRESHOLD:
+        with tempfile.TemporaryDirectory(prefix="modelkit_compat_") as tmp_dir:
+            tmp_path = str(Path(tmp_dir) / "model.onnx")
+            # onnx.save mutates model in-place; restore immediately
+            onnx.save(model, tmp_path, save_as_external_data=True)
+            onnx.load_external_data_for_model(model, tmp_dir)
+            onnx.shape_inference.infer_shapes_path(
+                tmp_path, check_type=check_type, strict_mode=strict_mode, data_prop=data_prop
+            )
+            return onnx.load(tmp_path)
+
+    return onnx.shape_inference.infer_shapes(
+        model, check_type=check_type, strict_mode=strict_mode, data_prop=data_prop
+    )

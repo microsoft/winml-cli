@@ -155,7 +155,7 @@ class OutputAggregator:
 
         Process:
             1. Classify patterns by support level from check_results
-            2. Determine overall runtime_support status (False if any BLACK)
+            2. Determine overall runtime_support status (False if any unsupported)
             3. Assemble EPSupport with classification and information
         """
         # Infer IHVType from EP name using utility function

@@ -12,19 +12,15 @@ Combines utilities from:
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 from google.protobuf import json_format
 from onnx import AttributeProto, ModelProto, TensorProto, ValueInfoProto
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.dtypes import SupportedONNXType
 from winml.modelkit.onnx.domains import ONNXDomain
-
-
-if TYPE_CHECKING:
-    from winml.modelkit.pattern.match import PatternMatchResult
+from winml.modelkit.onnx.dtypes import SupportedONNXType
 
 
 # ---------------------------------------------------------------------------
@@ -128,10 +124,12 @@ DTYPE_MAP = {
 
 
 def dtype_from_tensorproto_enum(tp: int) -> str:
+    """Convert a TensorProto data type enum to its string name."""
     return DTYPE_MAP.get(tp, f"unknown({tp})")
 
 
 def shape_and_dtype_from_valueinfo(vi: ValueInfoProto) -> tuple[list | None, str | None]:
+    """Extract shape and dtype from a ValueInfoProto."""
     if not vi.type.HasField("tensor_type"):
         return (None, None)
     tt = vi.type.tensor_type
@@ -152,6 +150,7 @@ def shape_and_dtype_from_valueinfo(vi: ValueInfoProto) -> tuple[list | None, str
 
 
 def collect_valueinfo_dict(model: ModelProto) -> dict[str, ValueInfoProto]:
+    """Collect all ValueInfoProto entries from a model into a dict keyed by name."""
     vid = {}
     for vi in list(model.graph.input) + list(model.graph.output) + list(model.graph.value_info):
         vid[vi.name] = vi
@@ -159,6 +158,7 @@ def collect_valueinfo_dict(model: ModelProto) -> dict[str, ValueInfoProto]:
 
 
 def collect_initializers(model: ModelProto) -> dict[str, TensorProto]:
+    """Collect all initializer tensors from a model into a dict keyed by name."""
     return {init.name: init for init in model.graph.initializer}
 
 
@@ -176,7 +176,7 @@ def get_op_input_properties(schema: OpSchema):
     op_variadic_input_name = None
 
     # Extract inputs from schema
-    supported_onnx_types = set(x.onnx_type for x in SupportedONNXType)
+    supported_onnx_types = {x.onnx_type for x in SupportedONNXType}
     for input_param in schema.inputs:
         # legacy compatibility: onnxscript type string or TypeVar_OpName
         if input_param.type_str in supported_onnx_types:
@@ -235,20 +235,25 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
     - Dicts -> Tuple of sorted (key, processed_value) items
     - Others -> Original value
     """
-    if isinstance(value, (float, np.floating)):
-        return DUMMY_FLOAT if replace_float_with_dummy else float(value)
-    if isinstance(value, dict):
+    # Fast path: type identity checks avoid isinstance MRO traversal
+    val_type = type(value)
+    if val_type is int or val_type is str or val_type is bool or value is None:
+        return value
+    if val_type is float:
+        return DUMMY_FLOAT if replace_float_with_dummy else value
+    if val_type is list or val_type is tuple:
+        return tuple([make_hashable(x, replace_float_with_dummy) for x in value])
+    if val_type is dict:
         return tuple(
-            sorted((k, make_hashable(v, replace_float_with_dummy)) for k, v in value.items())
+            sorted([(k, make_hashable(v, replace_float_with_dummy)) for k, v in value.items()])
         )
-    if isinstance(value, (list, tuple)):
-        return tuple(make_hashable(x, replace_float_with_dummy) for x in value)
-    if isinstance(value, np.ndarray):
-        return make_hashable(value.tolist(), replace_float_with_dummy)
+    if isinstance(value, np.floating):
+        return DUMMY_FLOAT if replace_float_with_dummy else float(value)
     return value
 
 
 def get_attribute_proto_value(a: Any, replace_float_with_dummy: bool = True) -> Any:
+    """Extract a Python value from an AttributeProto."""
     # if floating, replace with DUMMY_FLOAT to effectively ignore float values in matching
     if a.type == AttributeProto.FLOAT:
         return make_hashable(a.f, replace_float_with_dummy)

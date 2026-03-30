@@ -14,14 +14,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import onnx
-
 from ..compiler.utils import QDQ_OP_TYPES
 from .persistence import load_onnx
 
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import onnx
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +32,7 @@ def _load_model_lightweight(model_path: Path, operation: str) -> onnx.ModelProto
     try:
         return load_onnx(path_str, load_weights=False, validate=False)
     except FileNotFoundError:
-        raise FileNotFoundError(
-            f"ONNX model not found during {operation}: {model_path}"
-        ) from None
+        raise FileNotFoundError(f"ONNX model not found during {operation}: {model_path}") from None
     except Exception as e:
         raise ValueError(
             f"Failed to load ONNX model for {operation}: {model_path}. "

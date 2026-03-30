@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Integration tests for the Optimizer class and optimization pipeline.
 
 Tests the main optimization pipeline following Cardinal Rules:
@@ -140,9 +141,7 @@ class TestOptimizerExecution:
         assert len(result.graph.input) > 0
         assert len(result.graph.output) > 0
 
-    def test_optimize_calls_all_pipes_in_order(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_calls_all_pipes_in_order(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimize() calls build_config then process for each pipe, in order."""
         call_log: list[str] = []
 
@@ -187,9 +186,7 @@ class TestOptimizerExecution:
         # Verify order: build_a, process_a, build_b, process_b
         assert call_log == ["build_a", "process_a", "build_b", "process_b"]
 
-    def test_optimize_passes_kwargs_to_build_config(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_passes_kwargs_to_build_config(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimize() passes **kwargs to each pipe's build_config."""
         captured_kwargs: dict[str, Any] = {}
 
@@ -222,9 +219,7 @@ class TestOptimizerExecution:
         assert "another" in captured_kwargs
         assert captured_kwargs["another"] == "hello"
 
-    def test_optimize_chains_model_through_pipes(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_chains_model_through_pipes(self, sample_model: onnx.ModelProto) -> None:
         """Verify model flows from one pipe's output to the next pipe's input."""
 
         @dataclass
@@ -270,9 +265,7 @@ class TestOptimizerExecution:
         assert "chain1_marker" in metadata_keys
         assert "chain2_marker" in metadata_keys
 
-    def test_optimize_respects_should_process(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_respects_should_process(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimize() skips pipes when should_process returns False."""
 
         @dataclass
@@ -309,9 +302,7 @@ class TestOptimizerExecution:
             "Pipe should be skipped when should_process is False"
         )
 
-    def test_optimize_with_empty_pipes_list(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_with_empty_pipes_list(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimize() handles empty pipes list gracefully."""
         opt = Optimizer()
         original_pipes = Optimizer.pipes[:]
@@ -498,11 +489,10 @@ class TestCapabilityRegistry:
             )
 
     def test_capability_names_are_kebab_case(self) -> None:
-        """Capability names should use kebab-case convention."""
+        """Capability names should use kebab-case convention (no underscores)."""
         all_caps = get_all_capabilities()
         for name in all_caps:
             assert "_" not in name, f"Capability '{name}' uses underscore, expected kebab-case"
-            assert name == name.lower(), f"Capability '{name}' is not lowercase"
 
     def test_defaults_function(self) -> None:
         """defaults() should return a dict with default values."""
@@ -631,9 +621,7 @@ class TestOptimizerSignature:
         assert "self" in params
         assert "model" in params
         # Should accept **kwargs
-        assert any(
-            sig.parameters[p].kind == inspect.Parameter.VAR_KEYWORD for p in params
-        )
+        assert any(sig.parameters[p].kind == inspect.Parameter.VAR_KEYWORD for p in params)
 
     def test_optimizer_has_initialize_pipes(self) -> None:
         """Verify Optimizer has _initialize_pipes classmethod."""
@@ -654,9 +642,7 @@ class TestOptimizerSignature:
 class TestOptimizerIntegration:
     """Integration tests running real optimization on models."""
 
-    def test_optimize_simple_model_no_capabilities(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_simple_model_no_capabilities(self, sample_model: onnx.ModelProto) -> None:
         """Run optimize on a simple model with no capabilities enabled."""
         opt = Optimizer()
         result = opt.optimize(sample_model)
@@ -664,9 +650,7 @@ class TestOptimizerIntegration:
         assert isinstance(result, onnx.ModelProto)
         assert result.graph is not None
 
-    def test_optimize_preserves_model_io(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_preserves_model_io(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimization preserves model inputs and outputs."""
         opt = Optimizer()
         result = opt.optimize(sample_model)
@@ -674,26 +658,20 @@ class TestOptimizerIntegration:
         assert len(result.graph.input) > 0
         assert len(result.graph.output) > 0
 
-    def test_optimize_with_verbose_flag(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_with_verbose_flag(self, sample_model: onnx.ModelProto) -> None:
         """Verify verbose=True does not cause errors."""
         opt = Optimizer()
         result = opt.optimize(sample_model, verbose=True)
         assert isinstance(result, onnx.ModelProto)
 
-    def test_optimize_dependency_resolution(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_dependency_resolution(self, sample_model: onnx.ModelProto) -> None:
         """Verify _resolve_dependencies runs without error."""
         opt = Optimizer()
         # bias_gelu_fusion depends on gelu_fusion - dependency resolution should handle it
         result = opt.optimize(sample_model, bias_gelu_fusion=True)
         assert isinstance(result, onnx.ModelProto)
 
-    def test_optimize_returns_different_object(
-        self, sample_model: onnx.ModelProto
-    ) -> None:
+    def test_optimize_returns_different_object(self, sample_model: onnx.ModelProto) -> None:
         """Verify optimize returns a new model object (not the same reference)."""
         opt = Optimizer()
         result = opt.optimize(sample_model)

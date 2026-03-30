@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Tests for ModelKit's custom OnnxConfig overrides.
 
 Verifies that ModelKit's custom OnnxConfig registrations (BertIOConfig,
@@ -56,8 +57,19 @@ class TestOnnxConfigRegistration:
             ("roberta", "fill-mask", "RobertaIOConfig"),
             ("xlm-roberta", "fill-mask", "XLMRobertaIOConfig"),
             ("camembert", "fill-mask", "CamemBERTIOConfig"),
+            ("mpnet", "fill-mask", "MPNetIOConfig"),
+            ("zoedepth", "depth-estimation", "ZoeDepthIOConfig"),
         ],
-        ids=["bert", "clip-text", "clip-vision", "roberta", "xlm-roberta", "camembert"],
+        ids=[
+            "bert",
+            "clip-text",
+            "clip-vision",
+            "roberta",
+            "xlm-roberta",
+            "camembert",
+            "mpnet",
+            "zoedepth",
+        ],
     )
     def test_custom_config_registered(
         self, model_type: str, task: str, expected_config_class: str
@@ -197,8 +209,9 @@ class TestRobertaSequenceLengthOverride:
             ("roberta", "roberta_config"),
             ("xlm-roberta", "xlm_roberta_config"),
             ("camembert", "camembert_config"),
+            ("mpnet", "mpnet_config"),
         ],
-        ids=["roberta", "xlm-roberta", "camembert"],
+        ids=["roberta", "xlm-roberta", "camembert", "mpnet"],
     )
     def test_dummy_inputs_use_adjusted_sequence_length(
         self, model_type: str, config_fixture: str, request
@@ -223,8 +236,9 @@ class TestRobertaSequenceLengthOverride:
             ("roberta", "roberta_config"),
             ("xlm-roberta", "xlm_roberta_config"),
             ("camembert", "camembert_config"),
+            ("mpnet", "mpnet_config"),
         ],
-        ids=["roberta", "xlm-roberta", "camembert"],
+        ids=["roberta", "xlm-roberta", "camembert", "mpnet"],
     )
     def test_io_specs_shape_uses_adjusted_length(
         self, model_type: str, config_fixture: str, request
@@ -321,3 +335,56 @@ class TestImageSizeResolution:
         _populate_image_size_from_preprocessor("nonexistent/model-xyz-999", kwargs)
         assert "height" not in kwargs
         assert "width" not in kwargs
+
+
+# =============================================================================
+# Class 7: Roberta-family WinMLBuildConfig registration
+# =============================================================================
+
+
+class TestRobertaFamilyBuildConfig:
+    """Verify Roberta-family models have clamp_constant_values in build config.
+
+    Roberta-family models (like BERT) produce extreme float constants
+    (e.g., -FLT_MAX for attention masking) after ONNX optimization. Without
+    clamp_constant_values=True, these extreme values widen the quantization
+    range, causing precision loss in INT8/INT16 quantization.
+    """
+
+    @pytest.mark.parametrize(
+        "model_type",
+        ["roberta", "xlm-roberta", "camembert"],
+        ids=["roberta", "xlm-roberta", "camembert"],
+    )
+    def test_build_config_registered(self, model_type: str) -> None:
+        """Roberta-family models must be in MODEL_BUILD_CONFIGS."""
+        from winml.modelkit.models.hf import MODEL_BUILD_CONFIGS
+
+        assert model_type in MODEL_BUILD_CONFIGS, (
+            f"'{model_type}' missing from MODEL_BUILD_CONFIGS. "
+            f"Quantization may produce poor results without clamp_constant_values."
+        )
+
+    @pytest.mark.parametrize(
+        "model_type",
+        ["roberta", "xlm-roberta", "camembert"],
+        ids=["roberta", "xlm-roberta", "camembert"],
+    )
+    def test_clamp_constant_values_enabled(self, model_type: str) -> None:
+        """Roberta-family models must have clamp_constant_values=True."""
+        from winml.modelkit.models.hf import MODEL_BUILD_CONFIGS
+
+        config = MODEL_BUILD_CONFIGS[model_type]
+        assert config.optim.get("clamp_constant_values") is True, (
+            f"'{model_type}' WinMLBuildConfig missing clamp_constant_values=True. "
+            f"Extreme constants (-FLT_MAX) will cause quantization precision loss."
+        )
+
+    def test_roberta_family_share_same_config(self) -> None:
+        """All Roberta-family types should reference the same config object."""
+        from winml.modelkit.models.hf import MODEL_BUILD_CONFIGS
+
+        configs = [MODEL_BUILD_CONFIGS[t] for t in ("roberta", "xlm-roberta", "camembert")]
+        assert configs[0] is configs[1] is configs[2], (
+            "Roberta-family configs should be the same object (ROBERTA_FAMILY_CONFIG)"
+        )

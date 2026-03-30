@@ -24,21 +24,21 @@ import numpy as np
 from onnx.defs import OpSchema
 
 from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.pattern.base import (
+    Pattern,
+    PatternInputGenerator,
+    PatternMatchResult,
+    PatternMismatchedError,
+    PatternSchema,
+    Skeleton,
+    SkeletonMatchResult,
+    register_pattern_input_generator,
+)
 from winml.modelkit.pattern.op_input_gen import InputShapeConstraint, InputValueConstraint
 from winml.modelkit.pattern.utils import (
     get_attribute_proto_value,
     get_tensor_shape,
     validate_scale_bias_shape_for_axis,
-)
-from winml.modelkit.pattern.base import (
-    Pattern,
-    PatternInputGenerator,
-    PatternMatchResult,
-    PatternMismatchedException,
-    PatternSchema,
-    Skeleton,
-    SkeletonMatchResult,
-    register_pattern_input_generator,
 )
 
 
@@ -65,9 +65,7 @@ def _validate_rmsnorm_scale(
         return True
 
     scale_shape = get_tensor_shape(scale_tensor, matcher)
-    return scale_shape is None or validate_scale_bias_shape_for_axis(
-        scale_shape, input_shape, axis
-    )
+    return scale_shape is None or validate_scale_bias_shape_for_axis(scale_shape, input_shape, axis)
 
 
 # Shared schema for RMSNormalization patterns (follows ONNX opset 23 spec)
@@ -239,10 +237,10 @@ class _RMSNormalizationExpandedPatternBase(RMSNormalizationPatternBase):
         reducemean_node = nodes[1]
         if opset_version >= 18:
             if len(reducemean_node.input) < 2:
-                raise PatternMismatchedException("ReduceMean missing axes input")
+                raise PatternMismatchedError("ReduceMean missing axes input")
             axes_tensor = reducemean_node.input[1]
             if axes_tensor not in matcher.tensor_values:
-                raise PatternMismatchedException(f"Axes tensor {axes_tensor} not found")
+                raise PatternMismatchedError(f"Axes tensor {axes_tensor} not found")
             axes_value = matcher.tensor_values[axes_tensor]
         else:
             axes_value = None
@@ -251,10 +249,10 @@ class _RMSNormalizationExpandedPatternBase(RMSNormalizationPatternBase):
                     axes_value = np.array(list(attr.ints), dtype=np.int64)
                     break
             if axes_value is None:
-                raise PatternMismatchedException("ReduceMean missing axes attribute")
+                raise PatternMismatchedError("ReduceMean missing axes attribute")
 
         if len(axes_value) != 1:
-            raise PatternMismatchedException(
+            raise PatternMismatchedError(
                 f"Only single-axis normalization supported, got axes={axes_value}"
             )
         axis = int(axes_value[0])
@@ -262,10 +260,10 @@ class _RMSNormalizationExpandedPatternBase(RMSNormalizationPatternBase):
         # Epsilon Add is at node index 2
         epsilon_node = nodes[2]
         if len(epsilon_node.input) < 2:
-            raise PatternMismatchedException("Epsilon node has fewer than 2 inputs")
+            raise PatternMismatchedError("Epsilon node has fewer than 2 inputs")
         epsilon_tensor = epsilon_node.input[1]
         if epsilon_tensor not in matcher.tensor_values:
-            raise PatternMismatchedException(f"Epsilon tensor {epsilon_tensor} not found")
+            raise PatternMismatchedError(f"Epsilon tensor {epsilon_tensor} not found")
         epsilon_value = float(matcher.tensor_values[epsilon_tensor].flat[0])
 
         return {"axis": axis, "epsilon": epsilon_value}
@@ -396,9 +394,7 @@ class TransposedSingleRMSNormalizationPattern(RMSNormalizationPatternBase):
     Universal rewrite target for Pow/Mul patterns.
     """
 
-    def _compute_transpose_permutation(
-        self, axis: int, rank: int
-    ) -> tuple[list[int], list[int]]:
+    def _compute_transpose_permutation(self, axis: int, rank: int) -> tuple[list[int], list[int]]:
         """Compute permutations to move axis to last position and back."""
         if axis < 0:
             axis = rank + axis
@@ -453,7 +449,7 @@ class TransposedSingleRMSNormalizationPattern(RMSNormalizationPatternBase):
                 perm_forward = list(attr.ints)
                 break
         if perm_forward is None:
-            raise PatternMismatchedException("Transpose missing perm attribute")
+            raise PatternMismatchedError("Transpose missing perm attribute")
 
         # perm_forward[-1] tells us which original axis is now at the end
         axis = perm_forward[-1]
@@ -463,18 +459,14 @@ class TransposedSingleRMSNormalizationPattern(RMSNormalizationPatternBase):
         epsilon = None
         for attr in rmsnorm_node.attribute:
             if attr.name == "epsilon":
-                epsilon = get_attribute_proto_value(
-                    attr, replace_float_with_dummy=False
-                )
+                epsilon = get_attribute_proto_value(attr, replace_float_with_dummy=False)
                 break
         if epsilon is None:
-            raise PatternMismatchedException("RMSNormalization missing epsilon")
+            raise PatternMismatchedError("RMSNormalization missing epsilon")
 
         return {"axis": axis, "epsilon": epsilon}
 
-    def _get_normalized_dim(
-        self, inputs: dict[str, np.ndarray], attributes: dict[str, Any]
-    ) -> int:
+    def _get_normalized_dim(self, inputs: dict[str, np.ndarray], attributes: dict[str, Any]) -> int:
         """Get the size of the dimension being normalized."""
         x_shape = inputs["X"].shape
         axis = attributes["axis"]
@@ -548,16 +540,12 @@ class RMSNormalizationPatternInputGenerator(PatternInputGenerator):
                 normalized_dim = shape[normalized_axis]
 
                 if axis == -1 or normalized_axis == rank - 1:
-                    scale = InputValueConstraint(
-                        np.ones((normalized_dim,), dtype=np.float32)
-                    )
+                    scale = InputValueConstraint(np.ones((normalized_dim,), dtype=np.float32))
                 else:
                     broadcast_shape = [1] * rank
                     broadcast_shape[normalized_axis] = normalized_dim
                     scale = InputValueConstraint(
-                        np.ones((normalized_dim,), dtype=np.float32).reshape(
-                            broadcast_shape
-                        )
+                        np.ones((normalized_dim,), dtype=np.float32).reshape(broadcast_shape)
                     )
 
                 adapted.append(
@@ -589,9 +577,7 @@ class RMSNormalizationMulPatternInputGenerator(RMSNormalizationPatternInputGener
 
 
 @register_pattern_input_generator
-class TransposedSingleRMSNormalizationPatternInputGenerator(
-    RMSNormalizationPatternInputGenerator
-):
+class TransposedSingleRMSNormalizationPatternInputGenerator(RMSNormalizationPatternInputGenerator):
     """PatternInputGenerator for TransposedSingleRMSNormalizationPattern."""
 
     pattern = TransposedSingleRMSNormalizationPattern()

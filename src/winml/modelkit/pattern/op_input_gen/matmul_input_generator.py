@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Input generators for matrix multiplication ONNX operators.
 
 This module provides input generators for matrix multiplication operators:
@@ -11,8 +12,6 @@ This module provides input generators for matrix multiplication operators:
 Matrix multiplication operators perform matrix product operations on tensors,
 following Numpy's matmul semantics with broadcasting support for higher dimensions.
 """
-
-from operator import ne
 
 import winml.modelkit.onnx.dtypes as dtypes
 
@@ -170,6 +169,7 @@ class MatMulInputGenerator(OpInputGenerator):
         return ["A_shape", "B_shape"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for MatMul operator inputs."""
         return {
             "A": QDQParameterConfig(support_activation=True, support_weight=True),
             "B": QDQParameterConfig(support_activation=True, support_weight=True),
@@ -200,14 +200,10 @@ class GemmInputGenerator(OpInputGenerator):
         Attributes:
         - alpha: Scalar multiplier for A*B (use single value close to 1.0)
         - beta: Scalar multiplier for C (use single value close to 1.0)
-        - transA: Whether to transpose A (0 or 1)
-        - transB: Whether to transpose B (0 or 1)
         """
         return {
             "alpha": [None, 1.0],  # Single value for float attribute
             "beta": [None, 1.0],  # Single value for float attribute
-            "transA": [None, 0, 1],
-            "transB": [None, 0, 1],
         }
 
     def get_input_and_infinite_attribute_combinations(
@@ -220,50 +216,59 @@ class GemmInputGenerator(OpInputGenerator):
         - B: (K, N) if transB=0, (N, K) if transB=1
         - C: broadcastable to (M, N), can be None
 
-        We create 16 combinations by varying:
-        - A shape for transA=0 vs transA=1 (2 options)
-        - B shape for transB=0 vs transB=1 (2 options)
-        - C shape: same as output, 1D, scalar, or None (4 options)
-        Total: 2 * 2 * 4 = 16 combinations
+        We enumerate transA/transB inside the loop and only keep shape pairs where
+        the inner dimensions match after transpose (a_shape[1] == b_shape[0]).
+        For each valid pair we emit C options: full bias, 1D bias, scalar, or None.
         """
         combinations = []
 
+        def _after_transpose(shape: tuple[int, int], flag: int | None) -> tuple[int, int]:
+            return (shape[1], shape[0]) if flag == 1 else shape
+
         # Use m=3, k=4, n=5 as base dimensions
-        # Output shape will be (3, 5) after multiplication
         m, k, n = 3, 4, 5
 
-        # A shapes: for transA=0 (m, k), for transA=1 (k, m)
         a_shapes = [
-            (m, k),  # transA=0: (3, 4)
-            (k, m),  # transA=1: (4, 3) -> becomes (3, 4) after transpose
+            (m, k),
+            (k, m),
         ]
 
-        # B shapes: for transB=0 (k, n), for transB=1 (n, k)
         b_shapes = [
-            (k, n),  # transB=0: (4, 5)
-            (n, k),  # transB=1: (5, 4) -> becomes (4, 5) after transpose
+            (k, n),
+            (n, k),
         ]
 
-        # C options: full output, 1D, scalar, or None (no C)
-        # Output after A@B is always (m, n) = (3, 5)
-        c_options: list[InputConstraint | None] = [
-            InputShapeConstraint((m, n)),  # Full bias matrix: (3, 5)
-            InputShapeConstraint((n,)),  # 1D bias (broadcasts to (3, 5)): (5,)
-            InputShapeConstraint(()),  # Scalar broadcast: ()
-            None,  # C not provided
-        ]
+        trans_options = [None, 0, 1]
 
-        # Generate all 16 combinations: 2 A shapes × 2 B shapes × 4 C options
         for a_shape in a_shapes:
             for b_shape in b_shapes:
-                for c_option in c_options:
-                    combination: dict[str, InputConstraint] = {
-                        "A": InputShapeConstraint(a_shape),
-                        "B": InputShapeConstraint(b_shape),
-                    }
-                    combination["C"] = c_option
+                for transA in trans_options:  # noqa: N806
+                    for transB in trans_options:  # noqa: N806
+                        a_eff = _after_transpose(a_shape, transA)
+                        b_eff = _after_transpose(b_shape, transB)
+                        if a_eff[1] != b_eff[0]:
+                            continue
 
-                    combinations.append(combination)
+                        m_out, n_out = a_eff[0], b_eff[1]
+                        c_options: list[InputConstraint | None] = [
+                            InputShapeConstraint((m_out, n_out)),
+                            InputShapeConstraint((n_out,)),
+                            InputShapeConstraint(()),
+                            None,
+                        ]
+
+                        for c_option in c_options:
+                            combination: dict[str, InputConstraint | int] = {
+                                "A": InputShapeConstraint(a_shape),
+                                "B": InputShapeConstraint(b_shape),
+                                "C": c_option,
+                            }
+                            if transA is not None:
+                                combination["transA"] = transA
+                            if transB is not None:
+                                combination["transB"] = transB
+
+                            combinations.append(combination)
 
         return combinations
 
@@ -292,9 +297,10 @@ class GemmInputGenerator(OpInputGenerator):
         Returns:
             List of property names that represent shapes with infinite possibilities
         """
-        return ["A_shape", "B_shape", "C_shape"]
+        return ["A_shape", "B_shape", "C_shape", "C_value"]
 
     def get_qdq_config(self):
+        """Return QDQ configuration for Gemm operator inputs."""
         # https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/python/tools/quantization/operators/gemm.py
         return {
             "A": QDQParameterConfig(support_activation=True),

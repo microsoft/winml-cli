@@ -30,20 +30,22 @@ def sample_onnx_config():
     """Create a minimal WinMLBuildConfig for ONNX builds (export=None)."""
     from winml.modelkit.config import WinMLBuildConfig
 
-    return WinMLBuildConfig.from_dict({
-        "loader": {"task": "image-classification"},
-        "export": None,
-        "optim": {},
-        "quant": {
-            "mode": "qdq",
-            "samples": 10,
-            "task": "image-classification",
-            "model_name": "test-model",
-        },
-        "compile": {
-            "execution_provider": "qnn",
-        },
-    })
+    return WinMLBuildConfig.from_dict(
+        {
+            "loader": {"task": "image-classification"},
+            "export": None,
+            "optim": {},
+            "quant": {
+                "mode": "qdq",
+                "samples": 10,
+                "task": "image-classification",
+                "model_name": "test-model",
+            },
+            "compile": {
+                "execution_provider": "qnn",
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -51,13 +53,15 @@ def sample_onnx_config_minimal():
     """Config with quant=None, compile=None for minimal pipeline."""
     from winml.modelkit.config import WinMLBuildConfig
 
-    return WinMLBuildConfig.from_dict({
-        "loader": {},
-        "export": None,
-        "optim": {},
-        "quant": None,
-        "compile": None,
-    })
+    return WinMLBuildConfig.from_dict(
+        {
+            "loader": {},
+            "export": None,
+            "optim": {},
+            "quant": None,
+            "compile": None,
+        }
+    )
 
 
 @pytest.fixture
@@ -74,23 +78,30 @@ def _create_file_side_effect(output_kwarg_name: str, return_value: object = None
     build_onnx_model() uses copy_onnx_model() at the end, so every stage
     must actually create a file at its output path.
     """
+
     def side_effect(*args: object, **kwargs: object) -> object:
         path = kwargs.get(output_kwarg_name)
         if path is not None:
             Path(path).write_text("mock")
         return return_value
+
     return side_effect
 
 
 def _default_analyze_result():
     """Build a default AnalyzeResult with no opportunities (analyzer converges)."""
-    from winml.modelkit.optim.config import WinMLOptimizationConfig
     from winml.modelkit.analyze.analyzer import AnalyzeResult, LintResult
+    from winml.modelkit.optim.config import WinMLOptimizationConfig
 
     config = WinMLOptimizationConfig()
     lint = LintResult(
-        errors=0, warnings=0, info=0, passed=True,
-        error_patterns=[], warning_patterns=[], information=[],
+        errors=0,
+        warnings=0,
+        info=0,
+        passed=True,
+        error_patterns=[],
+        warning_patterns=[],
+        information=[],
         optimization_config=config,
     )
     return AnalyzeResult(lint=lint, optimization_config=config)
@@ -198,7 +209,9 @@ class TestBuildOnnxModelBasic:
         """All stages appear in stages_completed."""
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert "optimize" in result.stages_completed
         assert "quantize" in result.stages_completed
@@ -211,7 +224,9 @@ class TestBuildOnnxModelBasic:
         """Stage timings are recorded."""
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert "optimize" in result.stage_timings
         assert all(t >= 0 for t in result.stage_timings.values())
@@ -237,9 +252,7 @@ class TestBuildOnnxModelBasic:
 class TestBuildOnnxValidation:
     """Test input validation for build_onnx_model()."""
 
-    def test_build_onnx_file_not_found(
-        self, tmp_path: Path, sample_onnx_config
-    ) -> None:
+    def test_build_onnx_file_not_found(self, tmp_path: Path, sample_onnx_config) -> None:
         """Nonexistent ONNX path raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError, match="ONNX file not found"):
             build_onnx_model(
@@ -248,9 +261,7 @@ class TestBuildOnnxValidation:
                 output_dir=tmp_path / "output",
             )
 
-    def test_onnx_path_is_directory_rejected(
-        self, tmp_path: Path, sample_onnx_config
-    ) -> None:
+    def test_onnx_path_is_directory_rejected(self, tmp_path: Path, sample_onnx_config) -> None:
         """Directory path instead of file raises ValueError."""
         dir_path = tmp_path / "a_dir"
         dir_path.mkdir()
@@ -284,8 +295,7 @@ class TestBuildOnnxStageSkip:
     """Test stage skipping behavior."""
 
     def test_build_onnx_skip_quant_when_none(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
     ) -> None:
         """config.quant=None skips quantize stage."""
         output_dir = tmp_path / "output"
@@ -299,8 +309,7 @@ class TestBuildOnnxStageSkip:
         mock_onnx_pipeline["quantize"].assert_not_called()
 
     def test_build_onnx_skip_compile_when_none(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
     ) -> None:
         """config.compile=None skips compile stage."""
         output_dir = tmp_path / "output"
@@ -323,8 +332,7 @@ class TestBuildOnnxPreQuantized:
     """Test pre-quantized model auto-detection."""
 
     def test_build_onnx_pre_quantized_detection(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
         """Model with QDQ nodes skips quant even if config.quant is set."""
         # Make is_quantized_onnx return True
@@ -332,36 +340,40 @@ class TestBuildOnnxPreQuantized:
 
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert "quantize" in result.stages_skipped
         assert "quantize" not in result.stages_completed
         mock_onnx_pipeline["quantize"].assert_not_called()
 
     def test_build_onnx_non_quantized_proceeds(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
         """Model without QDQ nodes proceeds with quantization."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = False
 
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert "quantize" in result.stages_completed
         mock_onnx_pipeline["quantize"].assert_called_once()
 
     def test_pre_quantized_skips_optimize_and_quantize(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
         """QDQ model skips both optimize AND quantize stages."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert "optimize" in result.stages_skipped
         assert "quantize" in result.stages_skipped
@@ -371,44 +383,47 @@ class TestBuildOnnxPreQuantized:
         mock_onnx_pipeline["quantize"].assert_not_called()
 
     def test_pre_quantized_still_compiles(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
         """QDQ model still runs compile stage."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert "compile" in result.stages_completed
         mock_onnx_pipeline["compile"].assert_called_once()
 
     def test_pre_quantized_runs_analyze_only(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
         """QDQ model runs analyze (via run_analyze_only) but not optimize."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
         build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         # analyze_onnx should be called (via run_analyze_only)
         mock_onnx_pipeline["analyze"].assert_called()
         mock_onnx_pipeline["optimize"].assert_called_once()
 
     def test_skip_optimize_kwarg(
-        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config,
-        mock_onnx_pipeline
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
         """skip_optimize=True forces optimize+quantize skip even without QDQ."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = False
 
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
             skip_optimize=True,
         )
         assert "optimize" in result.stages_skipped
@@ -434,7 +449,9 @@ class TestBuildOnnxReuse:
         (output_dir / "model.onnx").write_text("existing")
 
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert result.reused is True
         assert result.stages_completed == []
@@ -449,7 +466,9 @@ class TestBuildOnnxReuse:
         (output_dir / "model.onnx").write_text("old")
 
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
             rebuild=True,
         )
         assert result.reused is False
@@ -470,7 +489,9 @@ class TestBuildOnnxManifest:
         """Manifest file is created after a successful build."""
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert result.manifest_path is not None
         assert result.manifest_path.exists()
@@ -481,7 +502,9 @@ class TestBuildOnnxManifest:
         """Manifest contains correct source, stages, etc."""
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         data = json.loads(result.manifest_path.read_text())
 
@@ -502,7 +525,9 @@ class TestBuildOnnxManifest:
         """Manifest includes QuantizeResult metrics when quantize runs."""
         output_dir = tmp_path / "output"
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         data = json.loads(result.manifest_path.read_text())
 
@@ -522,7 +547,9 @@ class TestBuildOnnxManifest:
         (output_dir / "model.onnx").write_text("existing")
 
         result = build_onnx_model(
-            fake_onnx, config=sample_onnx_config, output_dir=output_dir,
+            fake_onnx,
+            config=sample_onnx_config,
+            output_dir=output_dir,
         )
         assert result.reused is True
         assert result.manifest_path is None

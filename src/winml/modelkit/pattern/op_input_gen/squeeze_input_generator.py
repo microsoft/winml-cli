@@ -13,6 +13,7 @@ from .op_input_gen import (
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
+    QDQParameterConfig,
     register_runtime_checker_op,
 )
 
@@ -117,7 +118,7 @@ class SqueezeInputGenerator(OpInputGenerator):
                     "axes": InputValueConstraint(np.array([], dtype=np.int64)),
                 }
             )
-
+        print(f"Generated {len(combinations)} input combinations for Squeeze operator.")
         return combinations
 
     def derive_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
@@ -159,3 +160,10 @@ class SqueezeInputGenerator(OpInputGenerator):
     def get_infinite_property_names(self) -> list[str]:
         """Returns names of infinite properties for Squeeze operator."""
         return ["data_shape", "data_value", "axes_value"]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Squeeze operator inputs."""
+        return {
+            "data": QDQParameterConfig(support_activation=True),
+            "axes": QDQParameterConfig(support_non_qdq=True),
+        }

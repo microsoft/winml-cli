@@ -23,16 +23,17 @@ import onnx
 import onnxruntime as ort
 from google.protobuf import json_format
 
-from ... import winml
-from ...sysinfo import SysInfo
-from ...utils import constants
 from winml.modelkit.onnx.domains import ONNXDomain
-from ..runtime_checker.ep_checker import EPChecker
 from winml.modelkit.pattern.base import (
     PatternInputGenerator,
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
 )
+
+from ... import winml
+from ...sysinfo import SysInfo
+from ...utils import constants
+from ..runtime_checker.ep_checker import EPChecker
 
 
 winml.register_execution_providers(ort=True)
@@ -72,7 +73,9 @@ class CheckResultWriter:
                     self.results = data["check_results"]
                     self.skip_cases = len(self.results)
                     print(
-                        f"Found existing file with {self.skip_cases} test cases. Will continue from there."
+                        f"Found existing file with "
+                        f"{self.skip_cases} test cases. "
+                        f"Will continue from there."
                     )
 
     def get_skip_cases(self) -> int:
@@ -204,7 +207,8 @@ def check_patterns(
             opset_suffix = f"_{first_domain.value}_opset{first_version}"
 
         # Prepare output file
-        output_filename = f"{pattern_name}_{ep_checker.ep_name}_{constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]}{opset_suffix}.json"
+        device = constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]
+        output_filename = f"{pattern_name}_{ep_checker.ep_name}_{device}{opset_suffix}.json"
         output_path = output_dir / output_filename
 
         # Use writer as context manager (auto-flushes on exit)
@@ -288,7 +292,9 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     }
     if ep_name not in ep_name_to_checker:
         raise ValueError(
-            f"Unsupported execution provider: {ep_name}. Available: QNNExecutionProvider, OpenVINOExecutionProvider"
+            f"Unsupported execution provider: {ep_name}. "
+            f"Available: QNNExecutionProvider, "
+            f"OpenVINOExecutionProvider"
         )
     return ep_name_to_checker[ep_name](device_type=device_type)
 
@@ -341,7 +347,7 @@ def parse_and_check() -> None:
         type=str,
         nargs="+",
         required=True,
-        help=("Domain:version pairs for ONNX opset versions, " "e.g., ai.onnx:17 com.microsoft:1"),
+        help=("Domain:version pairs for ONNX opset versions, e.g., ai.onnx:17 com.microsoft:1"),
     )
     parser.add_argument(
         "--validate_inputs",

@@ -115,6 +115,7 @@ class GlobalAveragePoolInputGenerator(GlobalPoolingInputGenerator):
     op_name = "GlobalAveragePool"
 
     def get_qdq_config(self):
+        """Return QDQ configuration for GlobalAveragePool operator inputs."""
         return {
             "X": QDQParameterConfig(support_activation=True),
         }

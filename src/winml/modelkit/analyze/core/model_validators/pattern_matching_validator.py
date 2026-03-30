@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from ...models import ModelTag
 from ...models.information import Action, ActionLevel, Information
@@ -55,10 +55,13 @@ class PatternMatchingValidator(ModelValidator):
     """
 
     # Centralized error configurations - add new error types here
-    ERROR_CONFIGS = [
+    ERROR_CONFIGS: ClassVar[list] = [
         PatternErrorConfig(
             tag=ModelTag.MISSING_NODE_NAMES,
-            error_message="Model has nodes with empty names - all nodes must have non-empty names for pattern matching",
+            error_message=(
+                "Model has nodes with empty names - all nodes must"
+                " have non-empty names for pattern matching"
+            ),
             explanation_template=(
                 "Model validation failed for subgraph pattern matching.\n\n"
                 "Error: {error_msg}\n\n"
@@ -67,8 +70,10 @@ class PatternMatchingValidator(ModelValidator):
             ),
             # Todo: Update with actual command when available
             action_method="wmk onnx_normalize",
-            action_description="Add missing node names to the model using ONNX utilities",
-            action_command="[Placeholder] wmk onnx_normalize <input_model.onnx> <output_model.onnx>",
+            action_description=("Add missing node names to the model using ONNX utilities"),
+            action_command=(
+                "[Placeholder] wmk onnx_normalize <input_model.onnx> <output_model.onnx>"
+            ),
         ),
         PatternErrorConfig(
             tag=ModelTag.INVALID_PATTERN_MATCHER_MODEL,
@@ -77,11 +82,16 @@ class PatternMatchingValidator(ModelValidator):
                 "Model validation failed for subgraph pattern matching.\n\n"
                 "Error: {error_msg}\n\n"
                 "Subgraph pattern matching has been skipped. "
-                "Please fix the model issues to enable pattern detection and optimization recommendations.\n\n"
+                "Please fix the model issues to enable pattern "
+                "detection and optimization recommendations.\n\n"
             ),
             action_method="onnx.checker.check_model",
-            action_description="Validate and fix model structure using ONNX checker",
-            action_command="python -c \"import onnx; model = onnx.load('input.onnx'); onnx.checker.check_model(model)\"",
+            action_description=("Validate and fix model structure using ONNX checker"),
+            action_command=(
+                'python -c "import onnx; model ='
+                " onnx.load('input.onnx');"
+                ' onnx.checker.check_model(model)"'
+            ),
         ),
     ]
 

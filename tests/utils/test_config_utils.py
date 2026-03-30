@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Tests for merge_config utility function.
 
 Tests cover:
@@ -181,9 +182,8 @@ class TestMergeConfigNoneHandling:
 
         Note: When base field is None and override provides a dict, merge_config
         attempts to use from_dict if available on the field type to reconstruct.
-        However, due to type annotation parsing limitations, it may fall back to
-        using the dict as-is. For reliable None->value transitions, pass a proper
-        config object instead of a dict.
+        The type resolver uses typing.get_type_hints() to resolve PEP 563
+        string annotations, then reconstructs via from_dict() when available.
         """
         base = WinMLBuildConfig(quant=None)
         assert base.quant is None
@@ -191,8 +191,9 @@ class TestMergeConfigNoneHandling:
         merged = merge_config(base, {"quant": {"samples": 100}})
 
         assert merged.quant is not None
-        # Current behavior: dict is used as-is when type can't be determined
-        assert merged.quant == {"samples": 100}
+        # Type is correctly resolved and reconstructed via from_dict()
+        assert isinstance(merged.quant, WinMLQuantizationConfig)
+        assert merged.quant.samples == 100
 
     def test_none_to_value_transition_with_config_object(self) -> None:
         """Test transitioning from None to a value using a config object.

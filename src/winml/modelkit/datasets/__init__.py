@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from onnxruntime.quantization import CalibrationDataReader
 
 from .base import BaseTaskDataset
@@ -28,6 +27,8 @@ from .text import TextDataset
 
 if TYPE_CHECKING:
     from collections.abc import Set
+
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 

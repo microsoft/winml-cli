@@ -46,6 +46,29 @@
         "pattern_id": "SUBGRAPH/GemmPattern"
     },
     {
+        "Information_id": "b2d4f6e8-1a3c-4e5f-9b7d-8c6a4b2e1f0d",
+        "actions": [
+            {
+                "action_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "pattern_from_id": "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+                "pattern_to_id": "SUBGRAPH/ReshapeTransposeReshapeLowDimPattern",
+                "action_items": [
+                    {
+                        "type": "GraphOptimization",
+                        "optimization_options": {
+                            "highdimRTR-lowdimRTR": true
+                        }
+                    }
+                ],
+                "enabled": true,
+                "details": "The ReshapeTransposeReshapeOverlyHighDimPattern (commonly found in attention mechanisms) can be merged into a single ReshapeTransposeReshapeLowDimPattern. Use the ModelKit rewrite flag to apply this optimization before exporting."
+            }
+        ],
+        "enabled": true,
+        "explanation": "The current Reshape-Transpose-Reshape sequence can be fused into a single optimized operator. This pattern is commonly found in attention mechanisms (e.g., SAM2 encoder) and the merge reduces graph complexity, improving inference performance.",
+        "pattern_id": "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern"
+    },
+    {
         "Information_id": "7c3f8d2e-9b1a-4e5c-a8f7-3d6c5b4e2a1f",
         "actions": [
             {

@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from .conftest import get_all_ort_names
 from ..conftest import optimize_at_level
+from .conftest import get_all_ort_names
 
 
 if TYPE_CHECKING:
@@ -62,15 +62,9 @@ def apply_optimization_with_capability(
     return optimize_at_level(model, level=2, disabled_optimizers=disabled_list)
 
 
-def count_nodes_by_prefix_and_op(
-    model: onnx.ModelProto, prefix: str, op_type: str
-) -> int:
+def count_nodes_by_prefix_and_op(model: onnx.ModelProto, prefix: str, op_type: str) -> int:
     """Count nodes with given prefix and op type."""
-    return sum(
-        1
-        for n in model.graph.node
-        if n.name.startswith(prefix) and n.op_type == op_type
-    )
+    return sum(1 for n in model.graph.node if n.name.startswith(prefix) and n.op_type == op_type)
 
 
 def count_nodes_by_prefix(model: onnx.ModelProto, prefix: str) -> int:
@@ -123,14 +117,10 @@ class TestGeluFusionIsolation:
         )
 
         # Count MatMul nodes in p06 pattern AFTER
-        after_matmul = count_nodes_by_prefix_and_op(
-            optimized, "p06_matmuladdrelu_", "MatMul"
-        )
+        after_matmul = count_nodes_by_prefix_and_op(optimized, "p06_matmuladdrelu_", "MatMul")
 
         # Also check for Gemm nodes (MatMulAddFusion converts MatMul+Add to Gemm)
-        after_gemm = count_nodes_by_prefix_and_op(
-            optimized, "p06_matmuladdrelu_", "Gemm"
-        )
+        after_gemm = count_nodes_by_prefix_and_op(optimized, "p06_matmuladdrelu_", "Gemm")
 
         # ASSERTION: MatMul nodes should NOT be converted to Gemm
         # If MatMulAddFusion ran, MatMul count would drop and Gemm count would increase
@@ -193,15 +183,11 @@ class TestMatMulAddFusionIsolation:
         optimized = apply_optimization_with_capability(all_patterns_model, matmul_ort_names)
 
         # Count Erf nodes (key indicator of GELU pattern - Erf is part of GELU)
-        before_erf = count_nodes_by_prefix_and_op(
-            all_patterns_model, "p08_biasgelu_", "Erf"
-        )
+        before_erf = count_nodes_by_prefix_and_op(all_patterns_model, "p08_biasgelu_", "Erf")
         after_erf = count_nodes_by_prefix_and_op(optimized, "p08_biasgelu_", "Erf")
 
         # Check for BiasGelu fused op
-        after_biasgelu = count_nodes_by_prefix_and_op(
-            optimized, "p08_biasgelu_", "BiasGelu"
-        )
+        after_biasgelu = count_nodes_by_prefix_and_op(optimized, "p08_biasgelu_", "BiasGelu")
 
         # ASSERTION: GELU pattern should remain unoptimized
         assert before_erf > 0, "Precondition: Model should have Erf nodes in p08"
@@ -235,18 +221,14 @@ class TestMatMulAddFusionIsolation:
 class TestDefaultBehavior:
     """Test behavior when no capabilities are explicitly enabled."""
 
-    def test_no_explicit_enable_all_disabled(
-        self, all_patterns_model: onnx.ModelProto
-    ):
+    def test_no_explicit_enable_all_disabled(self, all_patterns_model: onnx.ModelProto):
         """With all capabilities disabled, model should remain unchanged.
 
         This tests that disabling all ORT optimizers returns to unoptimized state.
         """
         # Disable ALL capabilities
         ort_names = get_all_ort_names()
-        optimized = optimize_at_level(
-            all_patterns_model, level=2, disabled_optimizers=ort_names
-        )
+        optimized = optimize_at_level(all_patterns_model, level=2, disabled_optimizers=ort_names)
 
         # Node count should remain the same (no optimizations ran)
         before_nodes = len(all_patterns_model.graph.node)
@@ -263,9 +245,7 @@ class TestDefaultBehavior:
 class TestExplicitDisable:
     """Test that explicit disable works correctly."""
 
-    def test_explicit_disable_prevents_optimization(
-        self, all_patterns_model: onnx.ModelProto
-    ):
+    def test_explicit_disable_prevents_optimization(self, all_patterns_model: onnx.ModelProto):
         """Explicitly disabling matmul_add_fusion should prevent MatMul→Gemm conversion."""
         # Disable only MatMulAddFusion - all others enabled
         optimized = optimize_at_level(
@@ -276,9 +256,7 @@ class TestExplicitDisable:
         before_matmul = count_nodes_by_prefix_and_op(
             all_patterns_model, "p06_matmuladdrelu_", "MatMul"
         )
-        after_matmul = count_nodes_by_prefix_and_op(
-            optimized, "p06_matmuladdrelu_", "MatMul"
-        )
+        after_matmul = count_nodes_by_prefix_and_op(optimized, "p06_matmuladdrelu_", "MatMul")
 
         # MatMul nodes should remain (not converted to Gemm)
         assert before_matmul > 0, "Precondition: Model should have MatMul nodes"
@@ -331,9 +309,7 @@ class TestGlobalIsolation:
         before_count = count_nodes_by_prefix_and_op(
             all_patterns_model, protected_pattern, protected_op
         )
-        after_count = count_nodes_by_prefix_and_op(
-            optimized, protected_pattern, protected_op
-        )
+        after_count = count_nodes_by_prefix_and_op(optimized, protected_pattern, protected_op)
 
         # ASSERTION: Protected pattern should remain unchanged
         assert before_count > 0, (
