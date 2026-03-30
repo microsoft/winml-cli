@@ -120,7 +120,7 @@ class SliceInputGenerator(OpInputGenerator):
                         starts_ends_patterns.append(
                             (
                                 np.zeros(num_axes, dtype=np.int64),
-                                np.array([d for d in axis_dims], dtype=np.int64),
+                                np.array(list(axis_dims), dtype=np.int64),
                             )
                         )
                         if all(d >= 3 for d in axis_dims):
@@ -169,7 +169,7 @@ class SliceInputGenerator(OpInputGenerator):
                 {
                     "data": InputShapeConstraint(data_shape),
                     "starts": InputValueConstraint(np.zeros(rank, dtype=np.int64)),
-                    "ends": InputValueConstraint(np.array([d for d in data_shape], dtype=np.int64)),
+                    "ends": InputValueConstraint(np.array(list(data_shape), dtype=np.int64)),
                     "axes": None,
                     "steps": None,
                 }
@@ -275,6 +275,7 @@ class SliceInputGenerator(OpInputGenerator):
         return ["data_shape", "starts_value", "ends_value", "axes_value", "steps_value"]
 
     def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
+        """Return QDQ configuration for Slice operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),  # data
             self.op_input_names[1]: QDQParameterConfig(support_non_qdq=True),  # starts
