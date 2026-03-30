@@ -115,10 +115,10 @@ _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
 )
 
 _RESHAPE_TRANSPOSE_RESHAPE_OVERLY_HIGH_DIM_SCHEMA = replace(
-    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeOverlyHighDim"
+    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeOverlyHighDimPattern"
 )
 _RESHAPE_TRANSPOSE_RESHAPE_LOW_DIM_SCHEMA = replace(
-    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeLowDim"
+    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeLowDimPattern"
 )
 
 
