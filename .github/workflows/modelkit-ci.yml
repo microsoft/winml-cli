@@ -1,0 +1,59 @@
+name: ModelKit CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: unit
+            paths: tests/unit
+          - group: models
+            paths: tests/models tests/loader tests/dataset_tests tests/export
+          - group: optim
+            paths: tests/optim
+          - group: commands
+            paths: >-
+              tests/commands tests/config tests/build tests/compiler
+              tests/session tests/eval
+          - group: remaining
+            paths: >-
+              tests/core tests/onnx tests/cache tests/utils tests/sysinfo
+              tests/inspect tests/regression tests/optracing
+              tests/test_cli.py tests/test_text_classification.py
+
+    name: test (${{ matrix.group }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.10
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests (${{ matrix.group }})
+        shell: pwsh
+        run: |
+          uv run pytest ${{ matrix.paths }} --tb=short --no-cov `
+            -m "not e2e and not npu and not gpu"
