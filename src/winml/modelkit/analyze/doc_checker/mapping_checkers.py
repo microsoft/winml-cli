@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Operator Mapping Checkers (ADR-002)
+"""Operator Mapping Checkers (ADR-002).
 
 Wrapper functions for operator mapping decision logic.
 These checkers reuse the base constraint checkers from ADR-001 and adapt them

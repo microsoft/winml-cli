@@ -114,9 +114,6 @@ def inspect(
     # Configure logging based on verbosity
     if verbose:
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
-    else:
-        logging.getLogger("winml.modelkit").setLevel(logging.WARNING)
-        logging.getLogger().setLevel(logging.WARNING)
 
     try:
         result = inspect_model(model, include_hierarchy=hierarchy, task_override=task)

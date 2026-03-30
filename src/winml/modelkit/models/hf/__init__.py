@@ -25,6 +25,8 @@ Exports:
 
 from __future__ import annotations
 
+from winml.modelkit.models.hf.vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
+
 # Import configs - importing triggers ONNX config registration with TasksManager
 # ConvNeXT and SAM2 modules also register PATCHING_SPECS / _MODEL_PATCHER
 # on their OnnxConfig classes at import time.
@@ -34,15 +36,21 @@ from .clip import CLIP_CONFIG
 from .clip import MODEL_CLASS_MAPPING as _CLIP_CLASS_MAPPING
 from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registration
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
+from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
+from .roberta import ROBERTA_FAMILY_CONFIG
 from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registration
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
+from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
+from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
+from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
 # Aggregated model class mappings: (model_type, task) -> HF model class
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     **_CLIP_CLASS_MAPPING,
     **_SAM2_CLASS_MAPPING,
+    **_SEGFORMER_CLASS_MAPPING,
 }
 
 # Registry: model_type -> WinMLBuildConfig
@@ -51,10 +59,14 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 MODEL_BUILD_CONFIGS = {
     "bert": BERT_CONFIG,
     "blip": BLIP_CONFIG,
+    "camembert": ROBERTA_FAMILY_CONFIG,
     "clip": CLIP_CONFIG,
     "clip-text-model": CLIP_CONFIG,
     "clip-vision-model": CLIP_CONFIG,
     "detr": DETR_CONFIG,
+    "roberta": ROBERTA_FAMILY_CONFIG,
+    "vision-encoder-decoder": VISION_ENCODER_DECODER_CONFIG,
+    "xlm-roberta": ROBERTA_FAMILY_CONFIG,
 }
 
 __all__ = [

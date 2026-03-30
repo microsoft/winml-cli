@@ -11,6 +11,7 @@ from .op_input_gen import (
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
+    QDQParameterConfig,
     register_runtime_checker_op,
 )
 
@@ -341,3 +342,10 @@ class ExpandInputGenerator(OpInputGenerator):
             with infinite possibilities
         """
         return ["input_shape", "input_value", "shape_shape", "shape_value"]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Expand operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),
+            self.op_input_names[1]: QDQParameterConfig(support_non_qdq=True),
+        }

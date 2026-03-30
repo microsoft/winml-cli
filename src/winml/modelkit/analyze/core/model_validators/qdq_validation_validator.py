@@ -25,13 +25,16 @@ class QDQValidationValidator(ModelValidator):
 
     @property
     def validator_name(self) -> str:
+        """Return the name of this validator."""
         return "QDQValidationValidator"
 
     @property
     def pattern_id(self) -> str:
+        """Return the pattern identifier for QDQ validation."""
         return "MODEL/QDQValidation"
 
     def validate(self) -> Information | None:
+        """Validate QDQ parameters and return information if invalid nodes are found."""
         invalid_nodes = self._find_invalid_qdq_params()
 
         if not invalid_nodes:
@@ -79,12 +82,15 @@ class QDQValidationValidator(ModelValidator):
 
     def _create_information(self, invalid_nodes: list[str]) -> Information:
         examples = ", ".join(invalid_nodes[:3])
-        more_text = f" and {len(invalid_nodes) - 3} more" if len(invalid_nodes) > 3 else ""
+        remaining = len(invalid_nodes) - 3
+        more_text = f" and {remaining} more" if len(invalid_nodes) > 3 else ""
 
         explanation = (
-            f"Model contains {len(invalid_nodes)} QDQ node(s) with invalid quantization parameters. "
+            f"Model contains {len(invalid_nodes)} QDQ node(s) "
+            f"with invalid quantization parameters. "
             f"Examples: {examples}{more_text}. "
-            "Scale is invalid if the value is Inf, NaN, or 0. Zero point is invalid if the value is Inf or NaN. "
+            "Scale is invalid if the value is Inf, NaN, or 0. "
+            "Zero point is invalid if the value is Inf or NaN. "
         )
 
         action = Action(

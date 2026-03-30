@@ -138,21 +138,13 @@ class WinMLBuildConfig:
         compile_data = config_dict.get("compile")
         return cls(
             loader=WinMLLoaderConfig.from_dict(loader_data),
-            export=(
-                WinMLExportConfig.from_dict(export_data)
-                if export_data is not None
-                else None
-            ),
+            export=(WinMLExportConfig.from_dict(export_data) if export_data is not None else None),
             optim=WinMLOptimizationConfig.from_dict(config_dict.get("optim", {})),
             quant=(
-                WinMLQuantizationConfig.from_dict(quant_data)
-                if quant_data is not None
-                else None
+                WinMLQuantizationConfig.from_dict(quant_data) if quant_data is not None else None
             ),
             compile=(
-                WinMLCompileConfig.from_dict(compile_data)
-                if compile_data is not None
-                else None
+                WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
         )
 
@@ -207,27 +199,18 @@ class WinMLBuildConfig:
             is_submodule = bool(self.loader and self.loader.module_path)
             needs_quant_ids = not is_onnx_build and not is_submodule
             if needs_quant_ids and not self.quant.task:
-                errors.append(
-                    "quant.task is required when quant is enabled for HF builds"
-                )
+                errors.append("quant.task is required when quant is enabled for HF builds")
             if needs_quant_ids and not self.quant.model_name:
-                errors.append(
-                    "quant.model_name is required when quant is enabled for HF builds"
-                )
+                errors.append("quant.model_name is required when quant is enabled for HF builds")
 
         # 4. compile validation (when present)
         if self.compile is not None and (
             not self.compile.ep_config or not self.compile.ep_config.provider
         ):
-            errors.append(
-                "compile.ep_config.provider is required when compile is enabled"
-            )
+            errors.append("compile.ep_config.provider is required when compile is enabled")
 
         if errors:
-            raise ValueError(
-                "Invalid WinMLBuildConfig:\n"
-                + "\n".join(f"  - {e}" for e in errors)
-            )
+            raise ValueError("Invalid WinMLBuildConfig:\n" + "\n".join(f"  - {e}" for e in errors))
 
     def generate_cache_key(self) -> str:
         """Generate deterministic cache key for caching pipeline outputs."""
@@ -298,7 +281,8 @@ def resolve_quant_compile_config(
     resolved_device, available_devices = resolve_device(device=device)
     logger.info(
         "Device resolved: %s (available: %s)",
-        resolved_device, ", ".join(available_devices),
+        resolved_device,
+        ", ".join(available_devices),
     )
 
     policy = resolve_precision(
@@ -383,7 +367,10 @@ def generate_onnx_build_config(
     else:
         # Resolve quant + compile from device/precision policy
         resolved_quant, resolved_compile = resolve_quant_compile_config(
-            device=device, precision=precision, ep=ep, task=task,
+            device=device,
+            precision=precision,
+            ep=ep,
+            task=task,
         )
 
         if is_quantized_onnx(onnx_path_resolved):
@@ -399,6 +386,11 @@ def generate_onnx_build_config(
     # User override has highest priority — applied last
     if override:
         config = merge_config(config, override)
+        # Preserve export=None sentinel for ONNX builds.
+        # merge_config may reconstruct a default WinMLExportConfig from the
+        # override's default field, but ONNX builds use export=None to signal
+        # "already exported, skip export stage".
+        config.export = None
 
     return config
 
@@ -576,7 +568,9 @@ def generate_hf_build_config(
     # When both are "auto", preserve _assemble_config() defaults (registry values).
     if device != "auto" or precision != "auto" or ep is not None:
         resolved_quant, resolved_compile = resolve_quant_compile_config(
-            device=device, precision=precision, ep=ep,
+            device=device,
+            precision=precision,
+            ep=ep,
             task=parent_config.loader.task,
         )
         if resolved_quant is not None:
@@ -609,10 +603,7 @@ def generate_hf_build_config(
             model = resolved_class.from_config(hf_config)
 
         # Extract input shapes and dtypes from export_config -- NO HARDCODED VALUES
-        input_tensors = [
-            t for t in (export_config.input_tensors or [])
-            if t.shape is not None
-        ]
+        input_tensors = [t for t in (export_config.input_tensors or []) if t.shape is not None]
         input_shapes = [t.shape for t in input_tensors]
         input_dtypes = [t.dtype for t in input_tensors]
         if not input_shapes:
@@ -622,14 +613,14 @@ def generate_hf_build_config(
                 "or provide shapes explicitly."
             )
         submodules = _find_submodules_by_class(
-            model, module, input_shapes=input_shapes, input_dtypes=input_dtypes,
+            model,
+            module,
+            input_shapes=input_shapes,
+            input_dtypes=input_dtypes,
         )
         logger.info("Found %d submodules matching '%s'", len(submodules), module)
 
-        return [
-            _build_submodule_config(sub_info, parent_config)
-            for sub_info in submodules
-        ]
+        return [_build_submodule_config(sub_info, parent_config) for sub_info in submodules]
 
     return parent_config
 
@@ -787,8 +778,7 @@ def _build_submodule_config(
 
     # Build OutputTensorSpec for EACH output tensor
     output_tensors = [
-        OutputTensorSpec(name=f"output_{i}")
-        for i in range(len(sub_info.output_shapes))
+        OutputTensorSpec(name=f"output_{i}") for i in range(len(sub_info.output_shapes))
     ]
 
     return WinMLBuildConfig(
@@ -837,14 +827,10 @@ def _merge_export_config(
     # Pick input/output tensors: override wins when non-None.
     # Deep-copy lists to avoid sharing references with the registry singleton.
     input_tensors = (
-        override.input_tensors
-        if override.input_tensors is not None
-        else base.input_tensors
+        override.input_tensors if override.input_tensors is not None else base.input_tensors
     )
     output_tensors = (
-        override.output_tensors
-        if override.output_tensors is not None
-        else base.output_tensors
+        override.output_tensors if override.output_tensors is not None else base.output_tensors
     )
 
     return WinMLExportConfig(
@@ -858,16 +844,10 @@ def _merge_export_config(
             if override.batch_size != WinMLExportConfig().batch_size
             else base.batch_size
         ),
-        input_tensors=(
-            copy.deepcopy(input_tensors) if input_tensors is not None else None
-        ),
-        output_tensors=(
-            copy.deepcopy(output_tensors) if output_tensors is not None else None
-        ),
+        input_tensors=(copy.deepcopy(input_tensors) if input_tensors is not None else None),
+        output_tensors=(copy.deepcopy(output_tensors) if output_tensors is not None else None),
         dynamic_axes=(
-            override.dynamic_axes
-            if override.dynamic_axes is not None
-            else base.dynamic_axes
+            override.dynamic_axes if override.dynamic_axes is not None else base.dynamic_axes
         ),
     )
 
@@ -1012,8 +992,7 @@ def _find_submodules_by_class(
     if input_dtypes:
         dtype_map = _get_dtype_map()
         torch_dtypes = [
-            dtype_map.get(d, torch.float32) if d else torch.float32
-            for d in input_dtypes
+            dtype_map.get(d, torch.float32) if d else torch.float32 for d in input_dtypes
         ]
 
     # Run torchinfo to get module hierarchy with shapes
@@ -1061,12 +1040,8 @@ def _find_submodules_by_class(
             layer_output_dtypes = io_info.output_dtypes
         else:
             # Fall back to torchinfo data (single input only)
-            layer_input_shapes = (
-                [layer_info.input_size] if layer_info.input_size else []
-            )
-            layer_output_shapes = (
-                [layer_info.output_size] if layer_info.output_size else []
-            )
+            layer_input_shapes = [layer_info.input_size] if layer_info.input_size else []
+            layer_output_shapes = [layer_info.output_size] if layer_info.output_size else []
 
             # torchinfo does not expose per-layer dtypes; infer from module
             # parameters, falling back to "float32" for parameter-free layers.

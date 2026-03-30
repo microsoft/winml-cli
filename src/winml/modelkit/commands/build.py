@@ -12,7 +12,7 @@ Usage:
     wmk build -c config.json -m microsoft/resnet-50 -o output/
     wmk build -c config.json -m model.onnx -o output/
     wmk build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
-    wmk build -c config.json -o output/ --use-cache
+    wmk build -c config.json -m microsoft/resnet-50 --random-init -o output/
     wmk build -c config.json -m microsoft/resnet-50 -o output/ --rebuild -v
 """
 
@@ -94,9 +94,7 @@ def _load_config(
                 )
         return [_apply_overrides(WinMLBuildConfig.from_dict(d)) for d in data]
 
-    raise click.UsageError(
-        f"Config must be a JSON object or array, got {type(data).__name__}"
-    )
+    raise click.UsageError(f"Config must be a JSON object or array, got {type(data).__name__}")
 
 
 def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Module:
@@ -120,7 +118,8 @@ def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Mo
     from ..loader.config import resolve_loader_config
 
     _, hf_config, resolved_class = resolve_loader_config(
-        model_type=model_type, task=task,
+        model_type=model_type,
+        task=task,
     )
 
     try:
@@ -174,20 +173,14 @@ def _build_modules(
         class_name = cfg.loader.model_class or "module"
 
         if not model_type:
-            raise click.UsageError(
-                f"Config #{i} missing loader.model_type"
-            )
+            raise click.UsageError(f"Config #{i} missing loader.model_type")
         if not module_path:
-            raise click.UsageError(
-                f"Config #{i} missing loader.module_path"
-            )
+            raise click.UsageError(f"Config #{i} missing loader.module_path")
 
         task = cfg.loader.task
         parent_key = f"{model_type}:{task}"
         if parent_key not in parents:
-            console.print(
-                f"  [dim]Instantiating {model_type} parent (init weights)...[/dim]"
-            )
+            console.print(f"  [dim]Instantiating {model_type} parent (init weights)...[/dim]")
             parents[parent_key] = _instantiate_parent_model(model_type, task=task)
 
         parent = parents[parent_key]
@@ -226,8 +219,22 @@ def _build_modules(
     "-m",
     "--model",
     "model_id",
-    default=None,
-    help="HuggingFace model ID or path to .onnx file. Omit for random-weight build.",
+    required=True,
+    help="HuggingFace model ID or path to .onnx file.",
+    # --model is mandatory because random-weight builds (omitting --model) are
+    # unreliable: AutoConfig.for_model() returns architecture class defaults
+    # which can differ from pretrained configs in ways that cause silent
+    # runtime failures.  E.g. MPNet/Roberta-family models set
+    # max_position_embeddings = usable_length + pad_token_id + 1 (514) in the
+    # pretrained config, but the class default is only 512.  The smaller
+    # embedding table causes "index out of range in self" during ONNX export
+    # tracing — a position-offset OOB that the OnnxConfig-level fix (PR #415)
+    # cannot reach because HTPExporter uses pre-populated input_tensors, not
+    # Optimum's input generation path.  Supporting random-init reliably would
+    # require storing the full pretrained HF config (or at least the model ID)
+    # in the build config so _load_model can call AutoConfig.from_pretrained()
+    # instead of AutoConfig.for_model().  Until that plumbing exists, require
+    # --model to guarantee correct model instantiation.
 )
 @click.option(
     "-o",
@@ -242,6 +249,12 @@ def _build_modules(
     is_flag=True,
     default=False,
     help="Use ModelKit global cache (~/.cache/winml/). Mutually exclusive with -o.",
+)
+@click.option(
+    "--random-init",
+    is_flag=True,
+    default=False,
+    help="Skip weight download; use model config with random weights.",
 )
 @click.option(
     "--rebuild",
@@ -305,6 +318,7 @@ def build(
     model_id: str | None,
     output_dir: str | None,
     use_cache: bool,
+    random_init: bool,
     rebuild: bool,
     no_quant: bool,
     no_compile: bool,
@@ -335,8 +349,8 @@ def build(
         # Export + optimize only
         wmk build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
 
-        # Random-weight build (no download)
-        wmk build -c config.json -o output/
+        # Random-weight build (no weight download)
+        wmk build -c config.json -m microsoft/resnet-50 --random-init -o output/
 
         # Use global cache
         wmk build -c config.json -m microsoft/resnet-50 --use-cache
@@ -353,18 +367,36 @@ def build(
 
     # Validate mutual exclusion
     if output_dir and use_cache:
-        raise click.UsageError(
-            "--output-dir and --use-cache are mutually exclusive."
-        )
+        raise click.UsageError("--output-dir and --use-cache are mutually exclusive.")
     if not output_dir and not use_cache:
-        raise click.UsageError(
-            "One of --output-dir or --use-cache is required."
+        raise click.UsageError("One of --output-dir or --use-cache is required.")
+
+    # If ep unspecified, attempt to auto-select a suitable EP from the registry
+    if ep is None:
+        from ..session.ep_registry import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.get_instance()
+        candidate_eps = [
+            "QNNExecutionProvider",
+            "OpenVINOExecutionProvider",
+            "VitisAIExecutionProvider",
+        ]
+        for candidate_ep in candidate_eps:
+            if registry.is_ep_available(candidate_ep):
+                ep = candidate_ep
+                logger.info("EP unspecified for build, auto-selecting: %s", ep)
+                break
+    if ep is None:
+        logger.warning(
+            "EP unspecified for build, and auto-selection failed. Proceeding without EP hints."
         )
 
     try:
         # Load config first (needed for both output modes)
         config_or_configs = _load_config(
-            config_file, no_quant=no_quant, no_compile=no_compile,
+            config_file,
+            no_quant=no_quant,
+            no_compile=no_compile,
         )
         is_module_mode = isinstance(config_or_configs, list)
 
@@ -385,17 +417,13 @@ def build(
                     "Use --output-dir instead."
                 )
             if not output_dir:
-                raise click.UsageError(
-                    "--output-dir is required for module mode (array config)."
-                )
+                raise click.UsageError("--output-dir is required for module mode (array config).")
 
             resolved_dir = Path(output_dir)
             configs = config_or_configs
 
             if not configs:
-                raise click.UsageError(
-                    "Module config array is empty -- nothing to build."
-                )
+                raise click.UsageError("Module config array is empty -- nothing to build.")
 
             console.print()
             console.print("[bold]wmk build[/bold] (module mode)")
@@ -419,8 +447,7 @@ def build(
                     console.print(f"  [{i}] {module_path}: reused")
                 else:
                     console.print(
-                        f"  [{i}] {module_path}: "
-                        f"{result.elapsed:.1f}s -> {result.final_onnx_path}"
+                        f"  [{i}] {module_path}: {result.elapsed:.1f}s -> {result.final_onnx_path}"
                     )
 
             # Write module summary
@@ -459,7 +486,8 @@ def build(
 
                 task = config.loader.task if config.loader else None
                 resolved_dir = get_model_dir(
-                    model_id or "random-init", cache_dir=get_cache_dir(),
+                    model_id or "random-init",
+                    cache_dir=get_cache_dir(),
                 )
                 if not task:
                     raise click.UsageError(
@@ -467,13 +495,14 @@ def build(
                         "The cache key is prefixed by the task abbreviation."
                     )
                 cache_key = get_cache_key(
-                    get_task_abbrev(task), config.generate_cache_key(),
+                    get_task_abbrev(task),
+                    config.generate_cache_key(),
                 )
             else:
                 resolved_dir = Path(output_dir)
 
             # Report build plan
-            model_label = model_id or "random-init"
+            model_label = f"{model_id} (random-init)" if random_init else model_id
             console.print()
             console.print("[bold]wmk build[/bold]")
             console.print(f"  Config:     {Path(config_file).name}")
@@ -504,6 +533,7 @@ def build(
                     output_dir=resolved_dir,
                     model_id=model_id,
                     rebuild=rebuild,
+                    random_init=random_init,
                     cache_key=cache_key,
                     ep=ep,
                     device=device,

@@ -135,9 +135,12 @@ class ReductionInputGenerator(OpInputGenerator):
             axes = item.get("axes_value")
         if axes is not None:
             item["single_axis"] = len(axes) == 1
+            item["axes_has_zero"] = 0 in axes  # fix for amd qdq conflicts
             item["has_first_axis"] = 0 in axes or -item[f"{input_name}_dim"] in axes
-            # item["has_last_axis"] = (item[f"{input_name}_dim"] - 1) in axes or -1 in axes
-            item["full_reduction"] = (len(axes) == item[f"{input_name}_dim"])
+            item["has_last_axis"] = (
+                item[f"{input_name}_dim"] - 1
+            ) in axes or -1 in axes  # fix for qnn npu ReduceMax conflicts
+            item["full_reduction"] = len(axes) == item[f"{input_name}_dim"]
         return item
 
     def get_infinite_property_names(self) -> list[str]:
@@ -153,9 +156,10 @@ class ReductionInputGenerator(OpInputGenerator):
         )
 
     def get_qdq_config(self):
+        """Return QDQ configuration for reduction operator inputs."""
         return {
             "data": QDQParameterConfig(support_activation=True),
-            "axes": QDQParameterConfig(),
+            "axes": QDQParameterConfig(support_non_qdq=True),
         }
 
 
@@ -330,13 +334,13 @@ class TopKInputGenerator(OpInputGenerator):
             # Choose K to be smaller than both first and last dimension
             min_dim = min(shape[0], shape[-1])
 
-            for k_value in (1, min_dim):
-                combinations.append(
-                    {
-                        "X": InputShapeConstraint(shape),
-                        "K": InputValueConstraint(np.array([k_value], dtype=np.int64)),
-                    }
-                )
+            combinations.extend(
+                {
+                    "X": InputShapeConstraint(shape),
+                    "K": InputValueConstraint(np.array([k_value], dtype=np.int64)),
+                }
+                for k_value in (1, min_dim)
+            )
 
         return combinations
 
@@ -365,3 +369,14 @@ class TopKInputGenerator(OpInputGenerator):
         return [f"{input_name}_value" for input_name in self.op_input_names] + [
             f"{input_name}_shape" for input_name in self.op_input_names
         ]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for TopK operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),  # "X"
+            self.op_input_names[1]: QDQParameterConfig(
+                support_non_qdq=True
+            ),  # "K" should be non-quantized
+            "Values": QDQParameterConfig(support_activation=True),
+            "Indices": QDQParameterConfig(support_non_qdq=True),  # Output can be non-quantized
+        }

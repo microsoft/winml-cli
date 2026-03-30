@@ -129,7 +129,7 @@ class TestEPSupportValidation:
                 SupportLevel.UNSUPPORTED: [],
             },
             has_errors=False,
-                    has_warnings=False,
+            has_warnings=False,
         )
 
         assert support.ihv_type == IHVType.QC
@@ -148,7 +148,7 @@ class TestEPSupportValidation:
                 SupportLevel.UNSUPPORTED: [],
             },
             has_errors=False,
-                    has_warnings=False,
+            has_warnings=False,
         )
         assert support.ep_version is None
         assert support.driver_version is None
@@ -254,7 +254,7 @@ class TestAnalysisOutputValidation:
                             SupportLevel.UNSUPPORTED: [],
                         },
                         has_errors=False,
-                    has_warnings=False,
+                        has_warnings=False,
                     ),
                     EPSupport(
                         ihv_type=IHVType.QC,  # Duplicate
@@ -266,7 +266,7 @@ class TestAnalysisOutputValidation:
                             SupportLevel.UNSUPPORTED: [],
                         },
                         has_errors=False,
-                    has_warnings=False,
+                        has_warnings=False,
                     ),
                 ],
             )
@@ -366,8 +366,8 @@ class TestAnalysisOutputValidation:
 
     def test_comprehensive_output_with_all_fields(self):
         """Test AnalysisOutput with all fields populated."""
-        from winml.modelkit.pattern.models import SubgraphPattern
         from winml.modelkit.analyze.models.information import Information
+        from winml.modelkit.pattern.models import SubgraphPattern
 
         # Create the subgraph pattern
         _subgraph_pattern = SubgraphPattern(

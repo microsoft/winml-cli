@@ -148,16 +148,14 @@ class PatternMatchResult:
         try:
             from winml.modelkit.analyze.models.onnx_op import OnnxOP
 
-            result = []
-            for node in self.skeleton_match_result.matched_nodes:
-                result.append(
-                    OnnxOP(
-                        node_name=node.name if node.name else f"{node.op_type}_node",
-                        op_type=node.op_type,
-                        namespace=node.domain if node.domain else "ai.onnx",
-                    )
+            return [
+                OnnxOP(
+                    node_name=node.name if node.name else f"{node.op_type}_node",
+                    op_type=node.op_type,
+                    namespace=node.domain if node.domain else "ai.onnx",
                 )
-            return result
+                for node in self.skeleton_match_result.matched_nodes
+            ]
         except ImportError:
             # When used outside analyze context, return node info as dicts
             return [

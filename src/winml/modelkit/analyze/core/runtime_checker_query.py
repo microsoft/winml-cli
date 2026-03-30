@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """RuntimeCheckerQuery - Query runtime database for pattern support."""
 
 from __future__ import annotations
@@ -19,8 +20,8 @@ from onnx import numpy_helper, shape_inference
 
 from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.onnx.dtypes import SupportedONNXType, remove_optional_from_type_annotation
+from winml.modelkit.onnx.shape import infer_onnx_shapes
 from winml.modelkit.pattern.base import get_registered_pattern_input_generators
-from winml.modelkit.pattern.match import PatternMatchResult
 from winml.modelkit.pattern.op_input_gen import (
     get_runtime_checker_op,
 )
@@ -43,14 +44,16 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
-from .node_checkers.base import NodeChecker
+from ..utils.table_utils import build_table_df
 from .node_checkers.registry import NodeCheckerRegistry
 
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import onnx
+    from winml.modelkit.pattern.match import PatternMatchResult
+
+    from .node_checkers.base import NodeChecker
 
 # Centralized key for attaching debug details to error/info payloads
 EG_RULE_DEBUG_DETAILS_KEY = "__debug_details"
@@ -90,31 +93,55 @@ def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 class LazyDomainTables:
-    """Lazy-loading wrapper for domain tables that loads DataFrames on-demand."""
+    """Lazy-loading wrapper that reads the table file from a zip on first operator access."""
 
-    def __init__(self, raw_data: dict[str, Any]) -> None:
-        """Initialize with raw JSON data.
+    def __init__(self, zip_path: Path, file_name: str) -> None:
+        """Initialize with zip path and file name — no I/O performed.
 
         Args:
-            raw_data: Dict mapping op_type to raw table data
+            zip_path: Path to the zip archive containing the table file
+            file_name: Name of the JSON table file inside the zip
         """
-        self._raw_data = raw_data
+        self._zip_path = zip_path
+        self._file_name = file_name
+        self._raw_data: dict[str, Any] = {}
         self._loaded_tables: dict[str, pd.DataFrame] = {}
+        self._loaded: bool = False
+
+    def _ensure_loaded(self) -> None:
+        """Load the table file from the zip archive on first access."""
+        if self._loaded:
+            return
+        self._loaded = True
+        import zipfile
+
+        if not self._zip_path.exists():
+            return
+        try:
+            with zipfile.ZipFile(self._zip_path, "r") as zf:
+                if self._file_name in zf.namelist():
+                    self._raw_data = json.loads(zf.read(self._file_name).decode("utf-8"))
+                else:
+                    logger.debug(f"Table file not found in zip: {self._file_name}")
+        except Exception as e:
+            logger.debug(f"Failed to load table file {self._file_name}: {e}")
 
     def __getitem__(self, key: str) -> pd.DataFrame:
-        """Get table for operator, loading it lazily if needed."""
+        """Get table for operator, loading from zip if needed."""
         if key not in self._loaded_tables:
+            self._ensure_loaded()
             if key not in self._raw_data:
                 raise KeyError(f"Operator '{key}' not found in tables")
-            # Load and cache the DataFrame
-            self._loaded_tables[key] = _sanitize_df(pd.DataFrame.from_dict(self._raw_data[key]))
-            # Clean up raw data after loading
+            self._loaded_tables[key] = _sanitize_df(build_table_df(self._raw_data[key]))
             del self._raw_data[key]
         return self._loaded_tables[key]
 
     def __contains__(self, key: str) -> bool:
         """Check if operator exists in tables."""
-        return key in self._loaded_tables or key in self._raw_data
+        if key in self._loaded_tables:
+            return True
+        self._ensure_loaded()
+        return key in self._raw_data
 
     def get(self, key: str, default: pd.DataFrame | None = None) -> pd.DataFrame | None:
         """Get table for operator with default fallback."""
@@ -124,11 +151,110 @@ class LazyDomainTables:
             return default
 
 
+class _LazyNegRules(dict):  # type: ignore[type-arg]
+    """dict[str, Any] subclass that loads negative rules from a zip on first access.
+
+    Filters the loaded JSON to either operator rules or pattern rules.
+    When set_error_on_missing=True and the zip/file is missing, the dict is
+    populated with EG_RULE_ERROR_KEY / EG_RULE_DEBUG_DETAILS_KEY entries so
+    callers can detect and report the missing-rules condition.
+    """
+
+    def __init__(
+        self,
+        zip_path: Path,
+        rule_file: str,
+        registered_patterns: set[str],
+        patterns_only: bool = False,
+        set_error_on_missing: bool = False,
+    ) -> None:
+        super().__init__()
+        self._zip_path = zip_path
+        self._rule_file = rule_file
+        self._registered_patterns = registered_patterns
+        self._patterns_only = patterns_only
+        self._set_error_on_missing = set_error_on_missing
+        self._loaded: bool = False
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        self._load()
+
+    def _load(self) -> None:
+        import zipfile
+
+        if not self._zip_path.exists():
+            if self._set_error_on_missing:
+                self[EG_RULE_ERROR_KEY] = "rules_zip_not_found"
+                self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._zip_path)
+                logger.warning(f"Rule zip file not found: {self._zip_path}")
+            return
+
+        with zipfile.ZipFile(self._zip_path, "r") as zf:
+            if self._rule_file not in zf.namelist():
+                if self._set_error_on_missing:
+                    self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
+                    self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
+                    logger.warning(f"Negative rule file not found: {self._rule_file}")
+                else:
+                    logger.debug(f"Negative rule file not found: {self._rule_file}")
+                return
+
+            raw: dict[str, Any] = json.loads(zf.read(self._rule_file).decode("utf-8"))
+
+        filtered: dict[str, Any] = {
+            key: value
+            for key, value in raw.items()
+            if (key in self._registered_patterns or "Pattern" in key) == self._patterns_only
+        }
+        self.update(_sanitize_domain_neg_rules(filtered))
+
+        if self._patterns_only and filtered:
+            logger.info(
+                f"Loaded {len(filtered)} pattern rules from {self._rule_file}: "
+                f"{list(filtered.keys())}"
+            )
+
+    def __getitem__(self, key: str) -> Any:
+        self._ensure_loaded()
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        self._ensure_loaded()
+        return super().__contains__(key)
+
+    def __iter__(self):
+        self._ensure_loaded()
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        self._ensure_loaded()
+        return super().__len__()
+
+    def get(self, key: Any, default: Any = None) -> Any:  # type: ignore[override]
+        self._ensure_loaded()
+        return super().get(key, default)
+
+    def keys(self):  # type: ignore[override]
+        self._ensure_loaded()
+        return super().keys()
+
+    def values(self):  # type: ignore[override]
+        self._ensure_loaded()
+        return super().values()
+
+    def items(self):  # type: ignore[override]
+        self._ensure_loaded()
+        return super().items()
+
+
 def _sanitize_domain_neg_rules(neg_rules: dict[str, Any]) -> dict[str, Any]:
     """Sanitize negative rules by applying _make_hashable to invalid values."""
-    for _, op_rules in neg_rules.items():
+    for op_rules in neg_rules.values():
         for rule_type in ["compile", "run"]:
-            for _, value_list in op_rules["negative_rules"][rule_type].items():
+            for value_list in op_rules["negative_rules"][rule_type].values():
                 for value_dict in value_list:
                     value_dict["value"] = make_hashable(value_dict["value"])
     return neg_rules
@@ -153,11 +279,53 @@ def _format_list_preview(items: Any, max_items: int = 10) -> list[Any]:
         lst = [items]
 
     if len(lst) > max_items:
-        return lst[:max_items] + ["...more..."]
+        return [*lst[:max_items], "...more..."]
     return lst
 
 
+def _normalize_table_zip_path(path_like: str | Path) -> str:
+    """Normalize table zip path for debug output.
+
+    - Resolve '..' segments when possible.
+    - If the path includes a workspace folder marker (e.g., ModelKit),
+      return a path starting from that marker.
+    """
+    p = Path(path_like)
+    try:
+        p = p.resolve(strict=False)
+    except Exception:
+        pass
+
+    parts = list(p.parts)
+    for marker in ("ModelKit",):
+        if marker in parts:
+            idx = parts.index(marker)
+            return "\\".join(parts[idx:])
+
+    return str(p)
+
+
+def _build_rules_not_found_debug_details(
+    domain_rules: dict[str, Any],
+    default_debug_details: dict[str, Any],
+    table_zip_path: str,
+    table_file: str,
+) -> dict[str, Any]:
+    """Build a normalized debug_details payload for rules-not-found paths."""
+    raw_details = domain_rules.get(EG_RULE_DEBUG_DETAILS_KEY, default_debug_details)
+    if isinstance(raw_details, dict):
+        details = dict(raw_details)
+    else:
+        details = {"raw_debug_details": raw_details}
+
+    details["table_zip_path"] = table_zip_path
+    details["table_file"] = table_file
+    return details
+
+
 class QDQTypeInfo:
+    """Store type annotation and domain information for QDQ nodes."""
+
     def __init__(self, type_annotation: str, domain: ONNXDomain):
         self.type_annotation = type_annotation
         self.domain = domain
@@ -340,7 +508,8 @@ def get_query_conditions_for_node(
 
     # # TODO: add values for optional inputs
     # assert len(node.input) >= len(input_names), (
-    #     f"Node {node.op_type} has fewer inputs ({len(node.input)}) than expected ({len(input_names)})"
+    #     f"Node {node.op_type} has fewer inputs "
+    #     f"({len(node.input)}) than expected ({len(input_names)})"
     # )
 
     def _compute_dynamic_axes(shape: tuple | None, is_constant: bool) -> tuple[int, ...]:
@@ -371,17 +540,20 @@ def get_query_conditions_for_node(
     ):
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
-            cond[f"{input_name}_is_constant"] = cond.get(f"{input_name}_is_constant", ()) + (
+            cond[f"{input_name}_is_constant"] = (
+                *cond.get(f"{input_name}_is_constant", ()),
                 is_constant,
             )
-            cond[f"{input_name}_is_fixed_shape"] = cond.get(f"{input_name}_is_fixed_shape", ()) + (
+            cond[f"{input_name}_is_fixed_shape"] = (
+                *cond.get(f"{input_name}_is_fixed_shape", ()),
                 len(dyn_axes) == 0,
             )
-            cond[f"{input_name}_dynamic_axes"] = cond.get(f"{input_name}_dynamic_axes", ()) + (
+            cond[f"{input_name}_dynamic_axes"] = (
+                *cond.get(f"{input_name}_dynamic_axes", ()),
                 dyn_axes,
             )
-            cond[f"{input_name}_shape"] = cond.get(f"{input_name}_shape", ()) + (shape,)
-            cond[f"{input_name}_value"] = cond.get(f"{input_name}_value", ()) + (value,)
+            cond[f"{input_name}_shape"] = (*cond.get(f"{input_name}_shape", ()), shape)
+            cond[f"{input_name}_value"] = (*cond.get(f"{input_name}_value", ()), value)
         else:
             cond[f"{input_name}_is_constant"] = is_constant
             cond[f"{input_name}_is_fixed_shape"] = len(dyn_axes) == 0
@@ -412,9 +584,11 @@ def get_query_conditions_for_node(
         if not inp_name:
             # Check if this is an optional input using schema
             if input_name in optional_input_names:
-                # Mark as optional/undefined - is_constant is True since the value is known (None/not provided)
+                # Mark as optional/undefined - is_constant is True
+                # since the value is known (None/not provided)
                 logger.warning(
-                    "Node %s (name: %s): input '%s' is optional and not provided, setting value to None",
+                    "Node %s (name: %s): input '%s' is optional"
+                    " and not provided, setting value to None",
                     node.op_type,
                     node.name,
                     input_name,
@@ -443,7 +617,9 @@ def get_query_conditions_for_node(
             dtype = dtype_from_tensorproto_enum(init.data_type)
             if type_annotation in runtime_checker_op.type_var_dtypes_to_test:
                 assert type_annotation not in type_vars or type_vars[type_annotation] == dtype, (
-                    f"Inconsistent dtype for type annotation {type_annotation}: {type_vars[type_annotation]} vs {dtype}"
+                    f"Inconsistent dtype for type annotation "
+                    f"{type_annotation}: "
+                    f"{type_vars[type_annotation]} vs {dtype}"
                 )
                 type_vars[type_annotation] = dtype
         elif inp_name in constants:
@@ -459,7 +635,9 @@ def get_query_conditions_for_node(
             dtype = dtype_from_tensorproto_enum(const_tensor.data_type)
             if type_annotation in runtime_checker_op.type_var_dtypes_to_test:
                 assert type_annotation not in type_vars or type_vars[type_annotation] == dtype, (
-                    f"Inconsistent dtype for type annotation {type_annotation}: {type_vars[type_annotation]} vs {dtype}"
+                    f"Inconsistent dtype for type annotation "
+                    f"{type_annotation}: "
+                    f"{type_vars[type_annotation]} vs {dtype}"
                 )
                 type_vars[type_annotation] = dtype
         else:
@@ -472,21 +650,23 @@ def get_query_conditions_for_node(
                 # This commonly happens in quantized models where DequantizeLinear outputs
                 # are not properly captured by shape inference
                 raise OPLackOfRequiredInformationError(
-                    f"Node {node.op_type} (name: {node.name}): Input '{inp_name}' (parameter '{input_name}') "
-                    f"not found in valueinfo - model may have incomplete shape information (common in quantized models)"
+                    f"Node {node.op_type} (name: "
+                    f"{node.name}): Input '{inp_name}' "
+                    f"(parameter '{input_name}') not found "
+                    f"in valueinfo - model may have "
+                    f"incomplete shape information "
+                    f"(common in quantized models)"
                 )
 
-            # print(f"Input name: {input_name}, Shape: {shape}, Dtype: {dtype}, anno {type_annotations}")
             if type_annotation in runtime_checker_op.type_var_dtypes_to_test:
                 assert type_annotation not in type_vars or type_vars[type_annotation] == dtype, (
-                    f"Inconsistent dtype for type annotation {type_annotation}: {type_vars[type_annotation]} vs {dtype}"
+                    f"Inconsistent dtype for type annotation "
+                    f"{type_annotation}: "
+                    f"{type_vars[type_annotation]} vs {dtype}"
                 )
                 type_vars[type_annotation] = dtype
 
-            if inp_name in input_to_dq:
-                is_constant = False  # QDQ doesn't care
-            else:
-                is_constant = False
+            is_constant = False  # QDQ doesn't care about constant status
             update_conditions_(conditions, input_name, is_variadic, is_constant, shape, None)
             conditions[f"{input_name}_is_none"] = False
 
@@ -498,7 +678,9 @@ def get_query_conditions_for_node(
         # TypeError: invalid property value (e.g., None when expecting iterable)
         # IndexError: accessing empty shape/array (e.g., shape[-1] on empty tuple)
         raise OPLackOfRequiredInformationError(
-            f"Node {node.op_type} (name: {node.name}): Incomplete model information for derive_properties: {e}"
+            f"Node {node.op_type} (name: {node.name}): "
+            f"Incomplete model information for "
+            f"derive_properties: {e}"
         ) from e
 
     for k, v in runtime_checker_op.type_var_dtypes_to_test.items():
@@ -541,7 +723,8 @@ class RuntimeCheckerQuery:
             # First apply standard ONNX shape inference
             self.model_proto = shape_inference.infer_shapes(model_proto)
 
-            # Then try to enhance with symbolic shape inference if available which supports Microsoft domain
+            # Then try to enhance with symbolic shape inference
+            # if available which supports Microsoft domain
             try:
                 from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 
@@ -549,7 +732,9 @@ class RuntimeCheckerQuery:
             except Exception as e:
                 # If symbolic shape inference fails, continue with standard inference result
                 logger.debug(
-                    f"Symbolic shape inference not available or failed: {e}. Using standard ONNX shape inference result."
+                    f"Symbolic shape inference not available or "
+                    f"failed: {e}. Using standard ONNX shape "
+                    f"inference result."
                 )
         except Exception as e:
             # If standard shape inference fails, use original model
@@ -575,12 +760,6 @@ class RuntimeCheckerQuery:
 
         # Alternatives support not yet implemented
         self.alternatives: list[PatternAlternative] = []
-        self.ep_neg_rules: dict[ONNXDomain, dict] = {}
-        self.ep_neg_rules_qdq: dict[ONNXDomain, dict] = {}
-        self.pattern_neg_rules: dict[ONNXDomain, dict] = {}
-        self.pattern_neg_rules_qdq: dict[ONNXDomain, dict] = {}
-        self.df_tables: dict[ONNXDomain, LazyDomainTables] = {}
-        self.df_tables_qdq: dict[ONNXDomain, LazyDomainTables] = {}
 
         # Lazy-initialized EP checker for local fallback
         self._ep_checker: EPChecker | None = None
@@ -596,119 +775,44 @@ class RuntimeCheckerQuery:
         # Cache of nodes that have been run locally for quick lookup
         self._local_run_nodes: dict[Any, RuntimeTestResult] = {}
 
-        import zipfile
-
-        # Get registered pattern names programmatically (computed once before loop)
+        # Register per-domain lazy rule objects — no file I/O occurs here.
         registered_patterns = set(get_registered_pattern_input_generators())
+        self.ep_neg_rules: dict[ONNXDomain, dict] = {}
+        self.ep_neg_rules_qdq: dict[ONNXDomain, dict] = {}
+        self.pattern_neg_rules: dict[ONNXDomain, dict] = {}
+        self.pattern_neg_rules_qdq: dict[ONNXDomain, dict] = {}
+        self.df_tables: dict[ONNXDomain, LazyDomainTables] = {}
+        self.df_tables_qdq: dict[ONNXDomain, LazyDomainTables] = {}
 
-        # Load rule files for multiple domains from domain-specific zip files
         for domain, opset_version in self.opset_versions.items():
             file_prefix = domain.name
-
-            # Each domain/opset has its own zip file
-            rule_zip_path = Path(__file__).parent.joinpath(
-                f"../rules/runtime_check_rules/{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}.zip"
+            rule_zip_path = (
+                Path(__file__)
+                .parent.joinpath(
+                    f"../rules/runtime_check_rules/{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}.zip"
+                )
+                .resolve(strict=False)
             )
+            base = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}"
+            rule_file = f"{base}_negative_rules.json"
+            qdq_rule_file = f"{base}_negative_rules_qdq.json"
+            table_file = f"{base}_tables.json"
+            qdq_table_file = f"{base}_tables_qdq.json"
 
-            if not rule_zip_path.exists():
-                logger.warning(f"Rule zip file not found: {rule_zip_path}")
-                self.ep_neg_rules[domain] = {
-                    EG_RULE_ERROR_KEY: "rules_zip_not_found",
-                    EG_RULE_DEBUG_DETAILS_KEY: str(rule_zip_path),
-                }
-                if domain not in self.df_tables:
-                    self.df_tables[domain] = LazyDomainTables({})
-                continue
-
-            rule_zf = zipfile.ZipFile(rule_zip_path, "r")
-
-            # Load negative rules
-            rule_file = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}_negative_rules.json"
-            if rule_file in rule_zf.namelist():
-                domain_rules = json.loads(rule_zf.read(rule_file).decode("utf-8"))
-
-                # Separate operator rules and pattern rules
-                operator_rules = {}
-                pattern_rules = {}
-
-                for key, value in domain_rules.items():
-                    # Pattern rules are identified by registered pattern names or "Pattern" suffix
-                    if key in registered_patterns or "Pattern" in key:
-                        pattern_rules[key] = value
-                    else:
-                        # Standard operator rules
-                        operator_rules[key] = value
-
-                # Sanitize operator rules and pattern rules
-                self.ep_neg_rules[domain] = _sanitize_domain_neg_rules(operator_rules)
-
-                # Store pattern rules separately (also sanitized)
-                if pattern_rules:
-                    if domain not in self.pattern_neg_rules:
-                        self.pattern_neg_rules[domain] = {}
-                    self.pattern_neg_rules[domain].update(_sanitize_domain_neg_rules(pattern_rules))
-                    logger.info(
-                        f"Loaded {len(pattern_rules)} pattern rules for domain {domain.name}: {list(pattern_rules.keys())}"
-                    )
-            else:
-                logger.warning(f"Negative rule file not found: {rule_file}")
-                self.ep_neg_rules[domain] = {
-                    EG_RULE_ERROR_KEY: "negative_rule_file_not_found",
-                    EG_RULE_DEBUG_DETAILS_KEY: str(rule_file),
-                }
-
-            # Load QDQ negative rules
-            qdq_rule_file = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}_negative_rules_qdq.json"
-            if qdq_rule_file in rule_zf.namelist():
-                qdq_domain_rules = json.loads(rule_zf.read(qdq_rule_file).decode("utf-8"))
-
-                qdq_operator_rules = {}
-                qdq_pattern_rules = {}
-
-                for key, value in qdq_domain_rules.items():
-                    if key in registered_patterns or "Pattern" in key:
-                        qdq_pattern_rules[key] = value
-                    else:
-                        qdq_operator_rules[key] = value
-
-                self.ep_neg_rules_qdq[domain] = _sanitize_domain_neg_rules(qdq_operator_rules)
-
-                if qdq_pattern_rules:
-                    if domain not in self.pattern_neg_rules_qdq:
-                        self.pattern_neg_rules_qdq[domain] = {}
-                    self.pattern_neg_rules_qdq[domain].update(
-                        _sanitize_domain_neg_rules(qdq_pattern_rules)
-                    )
-                    logger.info(
-                        f"Loaded {len(qdq_pattern_rules)} QDQ pattern rules for domain {domain.name}: {list(qdq_pattern_rules.keys())}"
-                    )
-            else:
-                logger.debug(f"QDQ negative rule file not found: {qdq_rule_file}")
-
-            # Load table files
-            table_file = (
-                f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}_tables.json"
+            self.ep_neg_rules[domain] = _LazyNegRules(
+                rule_zip_path, rule_file, registered_patterns, set_error_on_missing=True
             )
-
-            if table_file in rule_zf.namelist():
-                data = json.loads(rule_zf.read(table_file).decode("utf-8"))
-                self.df_tables[domain] = LazyDomainTables(data)
-            else:
-                logger.warning(f"Table file not found: {table_file}")
-                if domain not in self.df_tables:
-                    self.df_tables[domain] = LazyDomainTables({})
-
-            # Load qdq table files
-            qdq_table_file = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}_tables_qdq.json"
-            if qdq_table_file in rule_zf.namelist():
-                data = json.loads(rule_zf.read(qdq_table_file).decode("utf-8"))
-                self.df_tables_qdq[domain] = LazyDomainTables(data)
-            else:
-                logger.warning(f"Table file not found: {qdq_table_file}")
-                if domain not in self.df_tables_qdq:
-                    self.df_tables_qdq[domain] = LazyDomainTables({})
-
-            rule_zf.close()
+            self.pattern_neg_rules[domain] = _LazyNegRules(
+                rule_zip_path, rule_file, registered_patterns, patterns_only=True
+            )
+            self.ep_neg_rules_qdq[domain] = _LazyNegRules(
+                rule_zip_path, qdq_rule_file, registered_patterns
+            )
+            self.pattern_neg_rules_qdq[domain] = _LazyNegRules(
+                rule_zip_path, qdq_rule_file, registered_patterns, patterns_only=True
+            )
+            self.df_tables[domain] = LazyDomainTables(rule_zip_path, table_file)
+            self.df_tables_qdq[domain] = LazyDomainTables(rule_zip_path, qdq_table_file)
 
     def _collect_qdq_types(self) -> None:
         """Collect QDQ types from the model.
@@ -721,49 +825,45 @@ class RuntimeCheckerQuery:
         self.output_to_q_type: dict[str, QDQTypeInfo] = {}
 
         for node in self.model_proto.graph.node:
-            if node.op_type == "DequantizeLinear":
-                # DQ's output becomes another node's input, map output name to QDQTypeInfo
-                if node.output and node.input:
-                    output_name = node.output[0]
-                    x_name = node.input[0]
-                    dtype = None
-                    # Try to get dtype from valueinfo first
-                    vi = self.valueinfo.get(x_name)
-                    if vi is not None:
-                        _, dtype = shape_and_dtype_from_valueinfo(vi)
-                    # Fall back to initializers if not in valueinfo
-                    if dtype is None:
-                        init = self.initializers.get(x_name)
-                        if init is not None:
-                            dtype = dtype_from_tensorproto_enum(init.data_type)
-                    if dtype is not None:
-                        domain = ONNXDomain.from_str(node.domain)
-                        self.input_to_dq_type[output_name] = QDQTypeInfo(
-                            type_annotation=dtype,
-                            domain=domain,
-                        )
+            if node.op_type == "DequantizeLinear" and node.output and node.input:
+                output_name = node.output[0]
+                x_name = node.input[0]
+                dtype = None
+                # Try to get dtype from valueinfo first
+                vi = self.valueinfo.get(x_name)
+                if vi is not None:
+                    _, dtype = shape_and_dtype_from_valueinfo(vi)
+                # Fall back to initializers if not in valueinfo
+                if dtype is None:
+                    init = self.initializers.get(x_name)
+                    if init is not None:
+                        dtype = dtype_from_tensorproto_enum(init.data_type)
+                if dtype is not None:
+                    domain = ONNXDomain.from_str(node.domain)
+                    self.input_to_dq_type[output_name] = QDQTypeInfo(
+                        type_annotation=dtype,
+                        domain=domain,
+                    )
 
-            elif node.op_type == "QuantizeLinear":
-                # Q's input comes from another node's output, map input name to QDQTypeInfo
-                if node.input and node.output:
-                    input_name = node.input[0]
-                    y_name = node.output[0]
-                    dtype = None
-                    # Try to get dtype from valueinfo first
-                    vi = self.valueinfo.get(y_name)
-                    if vi is not None:
-                        _, dtype = shape_and_dtype_from_valueinfo(vi)
-                    # Fall back to initializers if not in valueinfo
-                    if dtype is None:
-                        init = self.initializers.get(y_name)
-                        if init is not None:
-                            dtype = dtype_from_tensorproto_enum(init.data_type)
-                    if dtype is not None:
-                        domain = ONNXDomain.from_str(node.domain)
-                        self.output_to_q_type[input_name] = QDQTypeInfo(
-                            type_annotation=dtype,
-                            domain=domain,
-                        )
+            elif node.op_type == "QuantizeLinear" and node.input and node.output:
+                input_name = node.input[0]
+                y_name = node.output[0]
+                dtype = None
+                # Try to get dtype from valueinfo first
+                vi = self.valueinfo.get(y_name)
+                if vi is not None:
+                    _, dtype = shape_and_dtype_from_valueinfo(vi)
+                # Fall back to initializers if not in valueinfo
+                if dtype is None:
+                    init = self.initializers.get(y_name)
+                    if init is not None:
+                        dtype = dtype_from_tensorproto_enum(init.data_type)
+                if dtype is not None:
+                    domain = ONNXDomain.from_str(node.domain)
+                    self.output_to_q_type[input_name] = QDQTypeInfo(
+                        type_annotation=dtype,
+                        domain=domain,
+                    )
         logger.debug("Collected input_to_dq_type: %s", self.input_to_dq_type)
         logger.debug("Collected output_to_q_type: %s", self.output_to_q_type)
 
@@ -889,7 +989,7 @@ class RuntimeCheckerQuery:
         model = onnx.helper.make_model(graph, opset_imports=opset_imports)
 
         try:
-            model = onnx.shape_inference.infer_shapes(model)
+            model = infer_onnx_shapes(model)
         except Exception as e:
             logger.debug("Shape inference failed for single-node model: %s", e)
 
@@ -1068,7 +1168,10 @@ class RuntimeCheckerQuery:
             is_partial = "partial" in _save_types and run_success
             if is_unsupported or is_partial:
                 self._save_failed_node(
-                    node, model, conditions, name_suffix="unsupported" if is_unsupported else "partial"
+                    node,
+                    model,
+                    conditions,
+                    name_suffix="unsupported" if is_unsupported else "partial",
                 )
 
         result = RuntimeTestResult(
@@ -1084,6 +1187,8 @@ class RuntimeCheckerQuery:
                 "node_name": node.name,
                 "domain": str(op_domain),
                 "opset_version": opset_version,
+                "table_zip_path": "",
+                "table_file": "",
             },
         )
 
@@ -1146,7 +1251,7 @@ class RuntimeCheckerQuery:
 
         # Non-deterministic operators that should never be constant-folded
         # even if all inputs are constant (they produce random/different outputs)
-        NON_DETERMINISTIC_OPS = {
+        non_deterministic_ops = {
             "RandomNormal",
             "RandomNormalLike",
             "RandomUniform",
@@ -1157,7 +1262,7 @@ class RuntimeCheckerQuery:
         # Check if all inputs are constant (excluding non-deterministic ops)
         non_empty_inputs = [inp for inp in node.input if inp]
         if (
-            node.op_type not in NON_DETERMINISTIC_OPS
+            node.op_type not in non_deterministic_ops
             and non_empty_inputs
             and all(inp in self.initializers or inp in self.constants for inp in non_empty_inputs)
         ):
@@ -1189,9 +1294,8 @@ class RuntimeCheckerQuery:
         if conditions is not None:
             self._failed_nodes_logged.add(conditions)
 
-        import os
-
-        os.makedirs("failed_nodes", exist_ok=True)
+        failed_nodes_dir = Path("failed_nodes")
+        failed_nodes_dir.mkdir(parents=True, exist_ok=True)
         safe_name = (
             node.name.replace("/", "_").replace("\\", "_")
             if node.name
@@ -1201,7 +1305,7 @@ class RuntimeCheckerQuery:
         safe_name = "".join([c if c.isalnum() or c in "._- " else "_" for c in safe_name])
         if name_suffix:
             safe_name = f"{safe_name}_{name_suffix}"
-        model_path = os.path.join("failed_nodes", f"{node.op_type}_{safe_name}.onnx")
+        model_path = failed_nodes_dir / f"{node.op_type}_{safe_name}.onnx"
         try:
             import onnx
 
@@ -1254,13 +1358,17 @@ class RuntimeCheckerQuery:
         for k, v in op_neg_rules["negative_rules"][phase].items():
             if k not in conditions:
                 raise OPOptionalInputSupportError(
-                    f"{phase.capitalize()} check for op {node.op_type}: required property '{k}' not found in conditions"
+                    f"{phase.capitalize()} check for op "
+                    f"{node.op_type}: required property "
+                    f"'{k}' not found in conditions"
                 )
             node_values = conditions[k]
             invalid_values = [iv["value"] for iv in v]
             if node_values in invalid_values:
                 logger.warning(
-                    "Node %s matched %s negative rule: property '%s' has value %s which is in invalid values %s",
+                    "Node %s matched %s negative rule: property"
+                    " '%s' has value %s which is in"
+                    " invalid values %s",
                     node.op_type,
                     phase,
                     k,
@@ -1291,7 +1399,8 @@ class RuntimeCheckerQuery:
         """
         pattern_match = node_to_pattern_match(node)
 
-        # Ignore QuantizeLinear and DequantizeLinear ops for now, Q and DQ ops will be tested in quantized ops
+        # Ignore QuantizeLinear and DequantizeLinear ops for now,
+        # Q and DQ ops will be tested in quantized ops
         ignored_ops = {
             "OP/ai.onnx/Constant",
             "OP/ai.onnx/QuantizeLinear",
@@ -1360,11 +1469,15 @@ class RuntimeCheckerQuery:
 
         # Phase 1: Extract conditions to determine if node is QDQ
         is_qdq = False
-        get_pattern_id = lambda is_qdq: (
-            pattern_match.pattern.pattern_id + " (QDQ)"
-            if is_qdq
-            else pattern_match.pattern.pattern_id
-        )
+        table_zip_path = ""
+        table_file = ""
+
+        def get_pattern_id(is_qdq):
+            return (
+                pattern_match.pattern.pattern_id + " (QDQ)"
+                if is_qdq
+                else pattern_match.pattern.pattern_id
+            )
 
         try:
             conditions, infinite_properties, is_qdq = get_query_conditions_for_node(
@@ -1403,6 +1516,8 @@ class RuntimeCheckerQuery:
                         "op_type": node.op_type,
                         "node_name": node.name,
                         "error_message": str(e),
+                        "table_zip_path": table_zip_path,
+                        "table_file": table_file,
                     },
                 ),
                 alternatives=self.alternatives,
@@ -1412,9 +1527,21 @@ class RuntimeCheckerQuery:
         # Phase 2: Select appropriate rules and tables based on QDQ status
         target_neg_rules = self.ep_neg_rules_qdq if is_qdq else self.ep_neg_rules
         target_df_tables = self.df_tables_qdq if is_qdq else self.df_tables
+        if op_domain in target_df_tables:
+            table_zip_path = _normalize_table_zip_path(
+                getattr(target_df_tables[op_domain], "_zip_path", "")
+            )
+            table_file = str(getattr(target_df_tables[op_domain], "_file_name", ""))
 
         # Phase 3: Check if op exists in target rules
         if op_domain not in target_neg_rules or node.op_type not in target_neg_rules[op_domain]:
+            domain_rules = target_neg_rules.get(op_domain, {})
+            default_debug_details = {
+                "op_type": node.op_type,
+                "domain": str(op_domain),
+                "opset_version": opset_version,
+            }
+
             if run_unknown_op:
                 fallback_reason = self._get_domain_fallback_reason(target_neg_rules, op_domain)
                 local_result = self._try_local_ep_check(
@@ -1425,7 +1552,9 @@ class RuntimeCheckerQuery:
                     node_tags,
                     fallback_reason,
                     save_node_types=save_node_types,
-                    conditions=None,  # conditions are not available when domain/op rules are missing
+                    # conditions not available when domain/op
+                    # rules are missing
+                    conditions=None,
                 )
                 if local_result is not None:
                     return local_result
@@ -1436,16 +1565,12 @@ class RuntimeCheckerQuery:
                     run=False,
                     compile=False,
                     no_data=True,
-                    reason=target_neg_rules.get(op_domain, {}).get(
-                        EG_RULE_ERROR_KEY, "rules_not_found"
-                    ),
-                    debug_details=target_neg_rules.get(op_domain, {}).get(
-                        EG_RULE_DEBUG_DETAILS_KEY,
-                        {
-                            "op_type": node.op_type,
-                            "domain": str(op_domain),
-                            "opset_version": opset_version,
-                        },
+                    reason=domain_rules.get(EG_RULE_ERROR_KEY, "rules_not_found"),
+                    debug_details=_build_rules_not_found_debug_details(
+                        domain_rules,
+                        default_debug_details,
+                        table_zip_path,
+                        table_file,
                     ),
                     node_tags=node_tags,
                 ),
@@ -1473,7 +1598,12 @@ class RuntimeCheckerQuery:
                     and op_domain in target_df_tables
                     and node.op_type in target_df_tables[op_domain]
                 ):
-                    table_df = target_df_tables[op_domain][node.op_type]
+                    domain_tables = target_df_tables[op_domain]
+                    table_zip_path = _normalize_table_zip_path(
+                        getattr(domain_tables, "_zip_path", "")
+                    )
+                    table_file = str(getattr(domain_tables, "_file_name", ""))
+                    table_df = domain_tables[node.op_type]
                     match_keys = [
                         item
                         for item in table_df.columns.to_list()
@@ -1485,9 +1615,14 @@ class RuntimeCheckerQuery:
                         if k in conditions:
                             filter_v[k] = conditions[k]
                         else:
+                            avail = _format_list_preview(conditions.keys())
                             raise OPOptionalInputSupportError(
-                                f"Match key '{k}' not found in conditions for op {node.op_type} (domain: {op_domain}). "
-                                f"It should be an optional input. Available keys: {_format_list_preview(conditions.keys())}"
+                                f"Match key '{k}' not found "
+                                f"in conditions for op "
+                                f"{node.op_type} (domain: "
+                                f"{op_domain}). It should be "
+                                f"an optional input. Available"
+                                f" keys: {avail}"
                             )
 
                     ret = query_table_exact_match(table_df, filter_v)
@@ -1515,11 +1650,17 @@ class RuntimeCheckerQuery:
                             debug_details = {
                                 "type": "properties_not_found",
                                 "total_rows": len(table_df),
+                                "table_zip_path": table_zip_path,
+                                "table_file": table_file,
                                 "steps": debug_steps,
                             }
 
+                        pid = get_pattern_id(is_qdq)
                         logger.info(
-                            f"Negative rules check passed, but properties combination not found for op {node.op_type} (domain: {op_domain}): {filter_v}"
+                            f"Negative rules check passed, "
+                            f"but properties combination not "
+                            f"found for {pid} ({node.name}):"
+                            f" {filter_v}"
                         )
 
                         if run_unknown_op:
@@ -1582,6 +1723,18 @@ class RuntimeCheckerQuery:
                         raw_keys = list(getattr(domain_tables, "_raw_data", {}).keys())
                         loaded_keys = list(getattr(domain_tables, "_loaded_tables", {}).keys())
                         available_ops_sample = sorted(set(raw_keys + loaded_keys))[:10]
+                    table_zip_path = (
+                        _normalize_table_zip_path(
+                            getattr(target_df_tables[op_domain], "_zip_path", "")
+                        )
+                        if has_domain_tables
+                        else ""
+                    )
+                    table_file = (
+                        str(getattr(target_df_tables[op_domain], "_file_name", ""))
+                        if has_domain_tables
+                        else ""
+                    )
                     return PatternRuntime(
                         pattern_id=get_pattern_id(is_qdq),
                         result=RuntimeTestResult(
@@ -1600,6 +1753,8 @@ class RuntimeCheckerQuery:
                                 "has_tables_dict": has_tables_dict,
                                 "has_domain_tables": has_domain_tables,
                                 "has_op_table": has_op_table,
+                                "table_zip_path": table_zip_path,
+                                "table_file": table_file,
                                 "available_ops_sample": available_ops_sample,
                             },
                         ),
@@ -1630,6 +1785,8 @@ class RuntimeCheckerQuery:
                         "op_type": node.op_type,
                         "node_name": node.name,
                         "error_message": str(e),
+                        "table_zip_path": table_zip_path,
+                        "table_file": table_file,
                     },
                 ),
                 alternatives=self.alternatives,
@@ -1664,7 +1821,11 @@ class RuntimeCheckerQuery:
             pattern_match=pattern_match,
         )
 
-    def run_for_subgraph(self, pattern_match: PatternMatchResult) -> PatternRuntime:
+    def run_for_subgraph(
+        self,
+        pattern_match: PatternMatchResult,
+        run_unknown_op: bool = True,
+    ) -> PatternRuntime:
         """Run runtime check for subgraph pattern.
 
         Strategy:
@@ -1686,36 +1847,48 @@ class RuntimeCheckerQuery:
             pattern_name = pattern_id
 
         # Step 1: Check if pattern exists in database pattern rules
-        # Pattern rules structure: {"Gelu1": {"op_name": "GeluPattern", "negative_rules": {...}}, ...}
-        for domain, patterns in self.pattern_neg_rules.items():
+        # Pattern rules structure:
+        # {"Gelu1": {"op_name": "GeluPattern", ...}, ...}
+        for patterns in self.pattern_neg_rules.values():
             for pattern_key, pattern_info in patterns.items():
                 # Match by op_name field (e.g., "GeluPattern")
                 if isinstance(pattern_info, dict) and pattern_info.get("op_name") == pattern_name:
                     # Found the pattern in database - use pattern-level result
                     logger.info(
-                        f"Found pattern-level rules for '{pattern_name}' ({pattern_key}) in database"
+                        f"Found pattern-level rules for "
+                        f"'{pattern_name}' ({pattern_key})"
+                        f" in database"
                     )
 
                     if pattern_info.get("negative_rules"):
+                        neg_keys = list(pattern_info.get("negative_rules", {}).keys())
                         return PatternRuntime(
                             pattern_id=pattern_id,
                             result=RuntimeTestResult(
                                 compile=False,
                                 run=True,
                                 no_data=False,
-                                reason=f"Pattern '{pattern_name}' ({pattern_key}) has constraints: {list(pattern_info.get('negative_rules', {}).keys())}",
+                                reason=(
+                                    f"Pattern '{pattern_name}'"
+                                    f" ({pattern_key}) has "
+                                    f"constraints: {neg_keys}"
+                                ),
                             ),
                             alternatives=self.alternatives,
                             pattern_match=pattern_match,
                         )
-                    # Pattern exists but no negative rules - fully supported
+                    # Pattern exists but no negative rules
                     return PatternRuntime(
                         pattern_id=pattern_id,
                         result=RuntimeTestResult(
                             compile=True,
                             run=True,
                             no_data=False,
-                            reason=f"Pattern '{pattern_name}' ({pattern_key}) is supported (no negative rules)",
+                            reason=(
+                                f"Pattern '{pattern_name}'"
+                                f" ({pattern_key}) is "
+                                f"supported (no negative rules)"
+                            ),
                         ),
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
@@ -1732,7 +1905,9 @@ class RuntimeCheckerQuery:
             or pattern_match.skeleton_match_result is None
         ):
             logger.warning(
-                f"Pattern '{pattern_id}' has no skeleton_match_result, cannot check individual nodes"
+                f"Pattern '{pattern_id}' has no "
+                f"skeleton_match_result, cannot check "
+                f"individual nodes"
             )
             return PatternRuntime(
                 pattern_id=pattern_id,
@@ -1740,7 +1915,11 @@ class RuntimeCheckerQuery:
                     compile=False,
                     run=False,
                     no_data=True,
-                    reason=f"Pattern '{pattern_name}' not found in database and has no matched nodes to check",
+                    reason=(
+                        f"Pattern '{pattern_name}' not "
+                        f"found in database and has no "
+                        f"matched nodes to check"
+                    ),
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
@@ -1765,7 +1944,7 @@ class RuntimeCheckerQuery:
         # Check runtime support for each node in the pattern
         node_results: list[PatternRuntime] = []
         for node in matched_nodes:
-            node_result = self.run_for_node(node)
+            node_result = self.run_for_node(node, run_unknown_op=run_unknown_op)
             node_results.append(node_result)
 
         # Aggregate results: pattern is supported only if ALL nodes are supported
@@ -1790,7 +1969,12 @@ class RuntimeCheckerQuery:
                     compile=True,
                     run=True,
                     no_data=False,
-                    reason=f"Pattern '{pattern_name}' fully supported: all {len(node_results)} operators supported",
+                    reason=(
+                        f"Pattern '{pattern_name}' fully "
+                        f"supported: all "
+                        f"{len(node_results)} operators "
+                        f"supported"
+                    ),
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
@@ -1804,7 +1988,12 @@ class RuntimeCheckerQuery:
                     compile=False,
                     run=False,
                     no_data=True,
-                    reason=f"Pattern '{pattern_name}' status unknown: no data for operators {', '.join(no_data_nodes[:3])}{'...' if len(no_data_nodes) > 3 else ''}",
+                    reason=(
+                        f"Pattern '{pattern_name}' status "
+                        f"unknown: no data for operators "
+                        f"{', '.join(no_data_nodes[:3])}"
+                        f"{'...' if len(no_data_nodes) > 3 else ''}"
+                    ),
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,

@@ -59,6 +59,7 @@ def get_label_mapping(dataset_name: str) -> dict[str, Any] | None:
         "imagenet",
         "imagenet2012",
         "timm/imagenet-1k",
+        "timm/mini-imagenet",
         "ILSVRC/imagenet-1k",
     ]
 

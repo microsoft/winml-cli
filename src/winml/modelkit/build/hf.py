@@ -86,6 +86,7 @@ def build_hf_model(
     pytorch_model: nn.Module | None = None,
     rebuild: bool = False,
     trust_remote_code: bool = False,
+    random_init: bool = False,
     cache_key: str | None = None,
     ep: str | None = None,
     device: str | None = None,
@@ -129,7 +130,7 @@ def build_hf_model(
 
     Raises:
         ValueError: If config is invalid or missing required fields.
-        RuntimeError: If a pipeline stage fails, or if black nodes persist
+        RuntimeError: If a pipeline stage fails, or if unsupported nodes persist
             after analyzer convergence.
     """
     # TODO: Move hack_max_optim_iterations to global env config
@@ -200,7 +201,12 @@ def build_hf_model(
     logger.info("Building model: %s (task=%s)", model_label, task)
 
     if pytorch_model is None:
-        pytorch_model = _load_model(config, model_id, trust_remote_code)
+        pytorch_model = _load_model(
+            config,
+            model_id,
+            trust_remote_code,
+            random_init=random_init,
+        )
 
     # =========================================================================
     # [2] EXPORT — PyTorch -> ONNX
@@ -242,7 +248,7 @@ def build_hf_model(
         )
         stages_skipped.append("optimize")
         # Optimize+analyze only, no autoconf re-optimization
-        current_path, _, analyze_iterations, analyze_black_nodes, analyze_details = (
+        current_path, _, analyze_iterations, analyze_unsupported_nodes, analyze_details = (
             run_optimize_analyze_loop(
                 model_path=current_path,
                 optimized_path=optimized_path,
@@ -254,16 +260,20 @@ def build_hf_model(
         )
     else:
         logger.info("Optimizing ONNX model...")
-        current_path, opt_elapsed, analyze_iterations, analyze_black_nodes, analyze_details = (
-            run_optimize_analyze_loop(
-                model_path=current_path,
-                optimized_path=optimized_path,
-                config=config,
-                ep=ep,
-                device=device,
-                max_optim_iterations=hack_max_optim_iterations,
-                **onnx_kwargs,
-            )
+        (
+            current_path,
+            opt_elapsed,
+            analyze_iterations,
+            analyze_unsupported_nodes,
+            analyze_details,
+        ) = run_optimize_analyze_loop(
+            model_path=current_path,
+            optimized_path=optimized_path,
+            config=config,
+            ep=ep,
+            device=device,
+            max_optim_iterations=hack_max_optim_iterations,
+            **onnx_kwargs,
         )
         stage_timings["optimize"] = opt_elapsed
         stages_completed.append("optimize")
@@ -328,10 +338,11 @@ def build_hf_model(
             raise RuntimeError(f"Compilation failed: {errors}")
         if compile_result.output_path and Path(compile_result.output_path) != compiled_path:
             copy_onnx_model(compile_result.output_path, compiled_path)
-        current_path = compiled_path
+        if compiled_path.exists():
+            current_path = compiled_path
         stage_timings["compile"] = time.monotonic() - t0
         stages_completed.append("compile")
-        logger.info("Compile done (%.1fs) -> %s", stage_timings["compile"], compiled_path)
+        logger.info("Compile done (%.1fs) -> %s", stage_timings["compile"], current_path)
     else:
         stages_skipped.append("compile")
         logger.info("Compile skipped (config.compile is None)")
@@ -359,7 +370,7 @@ def build_hf_model(
         "stages": [],
         "final_artifact": final_path.name,
         "analyze_iterations": analyze_iterations,
-        "analyze_black_node_count": analyze_black_nodes,
+        "analyze_unsupported_node_count": analyze_unsupported_nodes,
         "analyze_details": analyze_details,
     }
 
@@ -381,20 +392,20 @@ def build_hf_model(
             if stage_name == "quantize" and quant_result is not None:
                 entry["nodes_quantized"] = quant_result.nodes_quantized
                 entry["nodes_skipped"] = quant_result.nodes_skipped
-                entry["calibration_time_seconds"] = round(
-                    quant_result.calibration_time_seconds, 3
-                )
+                entry["calibration_time_seconds"] = round(quant_result.calibration_time_seconds, 3)
                 entry["qdq_insertion_time_seconds"] = round(
                     quant_result.qdq_insertion_time_seconds, 3
                 )
             manifest["stages"].append(entry)
         elif stage_name in stages_skipped:
-            manifest["stages"].append({
-                "name": stage_name,
-                "status": "skipped",
-                "filename": None,
-                "elapsed_seconds": None,
-            })
+            manifest["stages"].append(
+                {
+                    "name": stage_name,
+                    "status": "skipped",
+                    "filename": None,
+                    "elapsed_seconds": None,
+                }
+            )
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
     logger.debug("Build manifest persisted: %s", manifest_path)
@@ -420,9 +431,56 @@ def _load_model(
     config: WinMLBuildConfig,
     model_id: str | None,
     trust_remote_code: bool,
+    random_init: bool = False,
 ) -> Any:
     """Load PyTorch model — pretrained or random weights."""
     task = config.loader.task
+
+    if random_init:
+        from transformers import AutoConfig
+
+        if model_id is not None:
+            hf_config = AutoConfig.from_pretrained(model_id)
+        else:
+            logger.warning(
+                "--random-init without --model falls back to AutoConfig.for_model() "
+                "class defaults, which may differ from pretrained configs and cause "
+                "export failures. "
+                "Prefer passing model_id when --random-init=True"
+            )
+            model_type = config.loader.model_type
+            if model_type is None:
+                raise ValueError(
+                    "Random-weight build requires 'model_type' in loader config.\n"
+                    "Options:\n"
+                    "  1. Provide --model <model_id> to use pretrained weights\n"
+                    "  2. Ensure config has loader.model_type (e.g., 'bert', 'resnet')\n"
+                    "  3. Regenerate config: wmk config -m <model_id> -o config.json"
+                )
+            hf_config = AutoConfig.for_model(model_type)
+
+        # Prefer explicit model_class from loader config (set by wmk config),
+        # fall back to resolve_task_and_model_class for auto-detection.
+        model_class = None
+        if config.loader.model_class:
+            from ..loader import resolve_hf_model_class
+
+            try:
+                model_class = resolve_hf_model_class(config.loader.model_class)
+            except ImportError:
+                logger.warning(
+                    "Could not resolve model_class '%s', falling back to auto-detect",
+                    config.loader.model_class,
+                )
+
+        if model_class is None:
+            from ..loader import resolve_task_and_model_class
+
+            _, model_class = resolve_task_and_model_class(hf_config, task=task)
+
+        model_label = model_id or config.loader.model_type
+        logger.info("Creating random-weight model: %s (from %s)", model_class.__name__, model_label)
+        return model_class.from_config(hf_config)
 
     if model_id is not None:
         from ..loader import load_hf_model
@@ -435,38 +493,4 @@ def _load_model(
         )
         return pytorch_model
 
-    model_type = config.loader.model_type
-    if model_type is None:
-        raise ValueError(
-            "Random-weight build requires 'model_type' in loader config.\n"
-            "Options:\n"
-            "  1. Provide --model <model_id> to use pretrained weights\n"
-            "  2. Ensure config has loader.model_type (e.g., 'bert', 'resnet')\n"
-            "  3. Regenerate config: wmk config -m <model_id> -o config.json"
-        )
-
-    from transformers import AutoConfig
-
-    hf_config = AutoConfig.for_model(model_type)
-
-    # Prefer explicit model_class from loader config (set by wmk config),
-    # fall back to resolve_task_and_model_class for auto-detection.
-    model_class = None
-    if config.loader.model_class:
-        from ..loader import resolve_hf_model_class
-
-        try:
-            model_class = resolve_hf_model_class(config.loader.model_class)
-        except ImportError:
-            logger.warning(
-                "Could not resolve model_class '%s', falling back to auto-detect",
-                config.loader.model_class,
-            )
-
-    if model_class is None:
-        from ..loader import resolve_task_and_model_class
-
-        _, model_class = resolve_task_and_model_class(hf_config, task=task)
-
-    logger.info("Creating random-weight model: %s (type=%s)", model_class.__name__, model_type)
-    return model_class(hf_config)
+    raise ValueError("Impossible to load model: no model_id provided and random_init=False.")

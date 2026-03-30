@@ -125,13 +125,16 @@ class WinMLQairtSession(WinMLSession):
 
     def _compile_to_qnn_bin(self, venv_python: Path) -> None:
         """Run compile_qairt_bin.py subprocess to produce .bin."""
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [
                 str(venv_python),
                 str(COMPILE_QAIRT_BIN_SCRIPT),
-                "--qairt-root", str(self._qnn_sdk_root),
-                "--model", str(self._onnx_path),
-                "--output-dir", str(self._onnx_path.parent),
+                "--qairt-root",
+                str(self._qnn_sdk_root),
+                "--model",
+                str(self._onnx_path),
+                "--output-dir",
+                str(self._onnx_path.parent),
             ],
             text=True,
             timeout=600,
@@ -165,26 +168,26 @@ class WinMLQairtSession(WinMLSession):
         if not utility_exe.exists():
             raise FileNotFoundError(f"qnn-context-binary-utility.exe not found: {utility_exe}")
 
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [
                 str(utility_exe),
-                "--context_binary", str(self._bin_path),
-                "--json_file", str(self._bin_info_path),
+                "--context_binary",
+                str(self._bin_path),
+                "--json_file",
+                str(self._bin_info_path),
             ],
             text=True,
             timeout=120,
         )
 
         if result.returncode != 0:
-            raise RuntimeError(
-                f"qnn-context-binary-utility failed (exit code {result.returncode})"
-            )
+            raise RuntimeError(f"qnn-context-binary-utility failed (exit code {result.returncode})")
 
     def _wrap_bin_to_onnx(self) -> None:
         """Wrap QNN bin file into ONNX model with EPContext node."""
         from onnxruntime.tools.qnn import gen_qnn_ctx_onnx_model
 
-        with open(self._bin_info_path) as f:
+        with self._bin_info_path.open() as f:
             qnn_json_obj = json.load(f)
 
         if "info" not in qnn_json_obj or "graphs" not in qnn_json_obj["info"]:
@@ -214,13 +217,14 @@ class WinMLQairtSession(WinMLSession):
                 qnn_input_tensor_dic=qnn_input_tensor_dic,
                 qnn_output_tensor_dic=qnn_output_tensor_dic,
                 disable_embed_mode=not self._embed_context,
-                qnn_ctx_file=str(self._bin_path) if self._embed_context else f"./{self._bin_path.name}",
+                qnn_ctx_file=(
+                    str(self._bin_path) if self._embed_context else f"./{self._bin_path.name}"
+                ),
                 quantized_IO=False,
                 qnn_sdk_version=qnn_version,
             )
 
             break  # Only process first graph
-
 
     def _create_inference_session(self) -> None:
         """Create ORT InferenceSession from EPContext model."""

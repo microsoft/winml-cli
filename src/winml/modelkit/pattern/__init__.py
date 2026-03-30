@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Shared pattern matching infrastructure for ModelKit.
 
 This package provides pattern matching, input generation, and graph rewriting
@@ -15,11 +16,11 @@ from winml.modelkit.pattern.attention_patterns import (
     TransposeAttentionPatternInputGenerator,
 )
 from winml.modelkit.pattern.base import (
-    InvalidPatternMatcherModelException,
+    InvalidPatternMatcherModelError,
     Pattern,
     PatternInputGenerator,
     PatternMatcher,
-    PatternMismatchedException,
+    PatternMismatchedError,
     PatternRewriter,
     PatternSchema,
     Skeleton,
@@ -65,10 +66,10 @@ from winml.modelkit.pattern.rmsnorm_patterns import (
     TransposedSingleRMSNormalizationPatternInputGenerator,
 )
 from winml.modelkit.pattern.transpose_patterns import (
-    MergedReshapeTransposeReshapePattern,
-    MergedReshapeTransposeReshapePatternInputGenerator,
-    ReshapeTransposeReshapePattern,
-    ReshapeTransposeReshapePatternInputGenerator,
+    ReshapeTransposeReshapeLowDimPattern,
+    ReshapeTransposeReshapeLowDimPatternInputGenerator,
+    ReshapeTransposeReshapeOverlyHighDimPattern,
+    ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator,
 )
 
 
@@ -84,21 +85,19 @@ __all__ = [
     "Gelu4Pattern",
     "Gelu4PatternInputGenerator",
     "InputInfo",
-    "InvalidPatternMatcherModelException",
+    "InvalidPatternMatcherModelError",
     "LayerNormalizationMulPattern",
     "LayerNormalizationMulPatternInputGenerator",
     "LayerNormalizationPowPattern",
     "LayerNormalizationPowPatternInputGenerator",
     "MatMulAddPattern",
     "MatMulAddPatternInputGenerator",
-    "MergedReshapeTransposeReshapePattern",
-    "MergedReshapeTransposeReshapePatternInputGenerator",
     "OperatorPattern",
     "Pattern",
     "PatternInputGenerator",
     "PatternMatchResult",
     "PatternMatcher",
-    "PatternMismatchedException",
+    "PatternMismatchedError",
     "PatternRewriter",
     "PatternSchema",
     "PatternType",
@@ -108,8 +107,10 @@ __all__ = [
     "RMSNormalizationPowPatternInputGenerator",
     "ReshapeGemmReshapePattern",
     "ReshapeGemmReshapePatternInputGenerator",
-    "ReshapeTransposeReshapePattern",
-    "ReshapeTransposeReshapePatternInputGenerator",
+    "ReshapeTransposeReshapeLowDimPattern",
+    "ReshapeTransposeReshapeLowDimPatternInputGenerator",
+    "ReshapeTransposeReshapeOverlyHighDimPattern",
+    "ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator",
     "SingleGeluPattern",
     "Skeleton",
     "SkeletonMatchResult",

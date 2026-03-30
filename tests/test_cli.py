@@ -16,8 +16,12 @@ Test Categories:
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -119,17 +123,23 @@ class TestExportCommand:
         output_path = tmp_path / "model.onnx"
         mock_export_onnx.return_value = output_path
 
-        runner.invoke(main, [
-            "export",
-            "--model", "test-model",
-            "--output", str(output_path),
-        ])
+        runner.invoke(
+            main,
+            [
+                "export",
+                "--model",
+                "test-model",
+                "--output",
+                str(output_path),
+            ],
+        )
 
         # Verify export_onnx was called correctly
         assert mock_export_onnx.called
         call_kwargs = mock_export_onnx.call_args.kwargs
         assert call_kwargs["model_id"] == "test-model"
         assert call_kwargs["task"] == "image-classification"
+
 
 class TestSysCommand:
     """Test sys command functionality.
@@ -169,6 +179,7 @@ class TestSysCommand:
         assert result.exit_code == 0
         # Should be valid JSON
         import json
+
         data = json.loads(result.output)
         assert "python" in data
         assert "libraries" in data
@@ -191,10 +202,12 @@ class TestModuleExecution:
     def test_module_imports(self) -> None:
         """Test __main__ module can be imported."""
         from winml.modelkit import __main__
+
         assert hasattr(__main__, "main")
 
     def test_cli_imports(self) -> None:
         """Test cli module can be imported."""
         from winml.modelkit import cli
+
         assert hasattr(cli, "main")
         assert callable(cli.main)

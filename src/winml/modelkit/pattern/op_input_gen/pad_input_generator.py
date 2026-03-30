@@ -11,6 +11,7 @@ from .op_input_gen import (
     InputShapeConstraint,
     InputValueConstraint,
     OpInputGenerator,
+    QDQParameterConfig,
     register_runtime_checker_op,
 )
 
@@ -147,3 +148,12 @@ class PadInputGenerator(OpInputGenerator):
     def get_infinite_property_names(self) -> list[str]:
         """Returns names of infinite properties for Pad operator."""
         return ["data_shape", "pads_value", "constant_value_value"]
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for Pad operator inputs."""
+        return {
+            "data": QDQParameterConfig(support_activation=True),  # data
+            "pads": QDQParameterConfig(support_non_qdq=True),  # pads should not be quantized
+            "constant_value": QDQParameterConfig(support_activation=True),  # constant_value
+            "axes": QDQParameterConfig(support_non_qdq=True),  # axes should not be quantized
+        }

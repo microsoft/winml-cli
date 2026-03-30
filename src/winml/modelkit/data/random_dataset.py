@@ -66,7 +66,7 @@ class RandomDataset:
                 self.samples.append(sample)
 
         except Exception as e:
-            raise RuntimeError(f"Failed to load model or generate random data: {e}")
+            raise RuntimeError(f"Failed to load model or generate random data: {e}") from e
 
     def _generate_data(self, shape, dtype):
         """Generate data for a given shape and dtype.

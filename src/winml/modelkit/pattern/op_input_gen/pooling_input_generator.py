@@ -37,17 +37,23 @@ class PoolingInputGenerator(OpInputGenerator):
         ]
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive additional properties from input shapes."""
         item = properties.copy()
         input_name = self.op_input_names[0]
         item[f"{input_name}_dim"] = len(item[f"{input_name}_shape"])
         return item
 
     def get_infinite_property_names(self) -> list[str]:
+        """Return names of properties with infinite value ranges."""
         return (
             [f"{input_name}_value" for input_name in self.op_input_names]
             + [f"{input_name}_shape" for input_name in self.op_input_names]
             + ["attr_kernel_shape", "attr_strides", "attr_pads", "attr_dilations"]
         )
+
+    def get_qdq_config(self):
+        """Return QDQ configuration for pooling operator inputs."""
+        return {self.op_input_names[0]: QDQParameterConfig(support_activation=True)}
 
 
 @register_runtime_checker_op
@@ -57,6 +63,7 @@ class MaxPoolInputGenerator(PoolingInputGenerator):
     op_name = "MaxPool"
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
+        """Return finite attribute sets for MaxPool operator."""
         return {
             "auto_pad": ["NOTSET", "SAME_UPPER"],
             "ceil_mode": [0, 1],
@@ -64,6 +71,7 @@ class MaxPoolInputGenerator(PoolingInputGenerator):
         }
 
     def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+        """Return input and infinite attribute combinations for MaxPool operator."""
         combinations = []
         for x_shape, kernel_shape in self.get_common_shapes_and_kernels():
             spatial_dims = len(x_shape) - 2
@@ -129,6 +137,7 @@ class MaxPoolInputGenerator(PoolingInputGenerator):
         return combinations
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive additional properties including dilation, stride, and pad info."""
         item = super().derive_properties(properties)
         if self.qdq_generator:
             return item
@@ -153,11 +162,6 @@ class MaxPoolInputGenerator(PoolingInputGenerator):
 
         return item
 
-    def get_qdq_config(self):
-        return {
-            "X": QDQParameterConfig(support_activation=True)
-        }
-
 
 @register_runtime_checker_op
 class AveragePoolInputGenerator(PoolingInputGenerator):
@@ -166,6 +170,7 @@ class AveragePoolInputGenerator(PoolingInputGenerator):
     op_name = "AveragePool"
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
+        """Return finite attribute sets for AveragePool operator."""
         return {
             "auto_pad": ["NOTSET", "SAME_UPPER"],
             "ceil_mode": [0, 1],
@@ -173,6 +178,7 @@ class AveragePoolInputGenerator(PoolingInputGenerator):
         }
 
     def derive_properties(self, properties: dict) -> dict:
+        """Derive additional properties including stride and padding info."""
         item = super().derive_properties(properties)
 
         strides = item.get("attr_strides")
@@ -186,6 +192,7 @@ class AveragePoolInputGenerator(PoolingInputGenerator):
         return item
 
     def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+        """Return input and infinite attribute combinations for AveragePool operator."""
         combinations = []
         for x_shape, kernel_shape in self.get_common_shapes_and_kernels():
             spatial_dims = len(x_shape) - 2
@@ -230,12 +237,14 @@ class LpPoolInputGenerator(PoolingInputGenerator):
     op_name = "LpPool"
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
+        """Return finite attribute sets for LpPool operator."""
         return {
             "auto_pad": ["NOTSET", "SAME_UPPER"],
             "p": [1, 2],  # L1 and L2 norm
         }
 
     def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+        """Return input and infinite attribute combinations for LpPool operator."""
         combinations = []
         for x_shape, kernel_shape in self.get_common_shapes_and_kernels():
             spatial_dims = len(x_shape) - 2

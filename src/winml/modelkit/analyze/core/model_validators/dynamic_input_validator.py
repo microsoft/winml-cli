@@ -158,8 +158,16 @@ class DynamicInputValidator(ModelValidator):
                     },
                     {
                         "method": "Freeze input shapes",
-                        "description": "Use ONNX tools to freeze dynamic dimensions to specific values",
-                        "command": "python -m onnxruntime.tools.symbolic_shape_infer --input model.onnx --output model_static.onnx --auto_merge",
+                        "description": (
+                            "Use ONNX tools to freeze dynamic dimensions to specific values"
+                        ),
+                        "command": (
+                            "python -m onnxruntime.tools"
+                            ".symbolic_shape_infer"
+                            " --input model.onnx"
+                            " --output model_static.onnx"
+                            " --auto_merge"
+                        ),
                     },
                 ],
                 indent=2,

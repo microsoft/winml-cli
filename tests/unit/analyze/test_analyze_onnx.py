@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.optim.config import WinMLOptimizationConfig
 from winml.modelkit.analyze.analyzer import (
     AnalysisResult,
     AnalyzeResult,
@@ -21,6 +20,7 @@ from winml.modelkit.analyze.models.ihv_type import IHVType
 from winml.modelkit.analyze.models.information import Action, ActionItem, Information
 from winml.modelkit.analyze.models.output import AnalysisOutput, EPSupport, ModelStats
 from winml.modelkit.analyze.models.support_level import SupportLevel
+from winml.modelkit.optim.config import WinMLOptimizationConfig
 
 
 # =============================================================================
@@ -56,8 +56,8 @@ def _make_mock_output(
     ihv_type: IHVType = IHVType.QC,
     has_errors: bool = False,
     has_warnings: bool = False,
-    black_patterns: list[str] | None = None,
-    gray_patterns: list[str] | None = None,
+    unsupported_patterns: list[str] | None = None,
+    partial_patterns: list[str] | None = None,
     information: list[Information] | None = None,
 ) -> AnalysisOutput:
     """Build a mock AnalysisOutput for testing."""
@@ -77,8 +77,8 @@ def _make_mock_output(
         has_warnings=has_warnings,
         classification={
             SupportLevel.SUPPORTED: ["Conv", "Relu"],
-            SupportLevel.PARTIAL: gray_patterns or [],
-            SupportLevel.UNSUPPORTED: black_patterns or [],
+            SupportLevel.PARTIAL: partial_patterns or [],
+            SupportLevel.UNSUPPORTED: unsupported_patterns or [],
             SupportLevel.UNKNOWN: [],
         },
         information=information or [],
@@ -159,9 +159,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             # Create a dummy model file
             model_file = tmp_path / "test.onnx"
@@ -176,9 +174,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
             model_file.write_bytes(b"dummy")
@@ -195,9 +191,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
             model_file.write_bytes(b"dummy")
@@ -212,16 +206,12 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
             model_file.write_bytes(b"dummy")
 
-            result = analyze_onnx(
-                str(model_file), ep="qnn", device="NPU", autoconf=False
-            )
+            result = analyze_onnx(str(model_file), ep="qnn", device="NPU", autoconf=False)
 
         assert result.optimization_config is None
 
@@ -230,9 +220,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
@@ -249,9 +237,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
@@ -269,9 +255,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
@@ -294,9 +278,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
@@ -312,9 +294,7 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
@@ -331,9 +311,7 @@ class TestAnalyzeOnnx:
         mock_analysis = AnalysisResult(output=mock_output)
 
         with (
-            patch(
-                "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-            ) as mock_cls,
+            patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls,
             patch("winml.modelkit.analyze.analyzer.logger") as mock_logger,
         ):
             mock_cls.return_value.analyze.return_value = mock_analysis
@@ -366,21 +344,17 @@ class TestAnalyzeOnnx:
         )
         mock_output = _make_mock_output(
             has_warnings=True,
-            gray_patterns=["SUBGRAPH/GeluPattern"],
+            partial_patterns=["SUBGRAPH/GeluPattern"],
             information=[info],
         )
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
             model_file.write_bytes(b"dummy")
 
-            result = analyze_onnx(
-                str(model_file), ep="QNNExecutionProvider", device="NPU"
-            )
+            result = analyze_onnx(str(model_file), ep="QNNExecutionProvider", device="NPU")
 
         assert result.autoconf  # truthy — has flags
         assert result.autoconf["gelu_fusion"] is True
@@ -411,7 +385,7 @@ class TestAnalyzeOnnx:
         )
         mock_output = _make_mock_output(
             has_warnings=True,
-            gray_patterns=["SUBGRAPH/GeluPattern", "SUBGRAPH/LayerNormPattern"],
+            partial_patterns=["SUBGRAPH/GeluPattern", "SUBGRAPH/LayerNormPattern"],
             information=[
                 Information(
                     pattern_id="SUBGRAPH/GeluPattern",
@@ -427,16 +401,12 @@ class TestAnalyzeOnnx:
         )
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
             model_file.write_bytes(b"dummy")
 
-            result = analyze_onnx(
-                str(model_file), ep="QNNExecutionProvider", device="NPU"
-            )
+            result = analyze_onnx(str(model_file), ep="QNNExecutionProvider", device="NPU")
 
         assert result.optimization_config["gelu_fusion"] is True
         assert result.optimization_config["layer_norm_fusion"] is True
@@ -447,23 +417,15 @@ class TestAnalyzeOnnx:
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
-            mock_cls.return_value.analyze.return_value = AnalysisResult(
-                output=mock_output
-            )
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
+            mock_cls.return_value.analyze.return_value = AnalysisResult(output=mock_output)
             result_alias = analyze_onnx(str(model_file), ep="qnn", device="NPU")
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = AnalysisResult(
                 output=_make_mock_output(ep="QNNExecutionProvider")
             )
-            result_full = analyze_onnx(
-                str(model_file), ep="QNNExecutionProvider", device="NPU"
-            )
+            result_full = analyze_onnx(str(model_file), ep="QNNExecutionProvider", device="NPU")
 
         assert result_alias.has_errors == result_full.has_errors
         assert result_alias.lint.errors == result_full.lint.errors
@@ -476,16 +438,12 @@ class TestAnalyzeOnnx:
         mock_output = _make_mock_output()
         mock_analysis = AnalysisResult(output=mock_output)
 
-        with patch(
-            "winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer"
-        ) as mock_cls:
+        with patch("winml.modelkit.analyze.analyzer.ONNXStaticAnalyzer") as mock_cls:
             mock_cls.return_value.analyze.return_value = mock_analysis
             model_file = tmp_path / "test.onnx"
             model_file.write_bytes(b"dummy")
 
-            result = analyze_onnx(
-                str(model_file), ep="qnn", device="NPU", autoconf=False
-            )
+            result = analyze_onnx(str(model_file), ep="qnn", device="NPU", autoconf=False)
 
         # Top-level: None signals "autoconf disabled"
         assert result.optimization_config is None

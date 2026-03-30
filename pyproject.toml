@@ -42,11 +42,13 @@ dependencies = [
   "rich>=14",
   "scikit-learn>=1.7",
   "scipy>=1.15,<1.16",
+  "seqeval>=1.2.2",
   "snakemd>=2",
   "timm>=1.0.22",
   "tokenizers>=0.22",
   "torch>=2.9",
   "torchinfo>=1.8",
+  "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
   "transformers>=4.57",
   "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
@@ -259,6 +261,8 @@ lint.per-file-ignores."test_*.py" = [ "ANN", "D", "PLR2004", "PT", "S101", "T20"
 lint.per-file-ignores."tests/**" = [ "ANN", "D", "PLR2004", "PT", "S101", "T20" ]
 # Test assets: Allow loop append pattern for ONNX node construction readability
 lint.per-file-ignores."tests/**/generate_patterns.py" = [ "PERF401" ]
+# Generated opset code: Allow long lines
+lint.per-file-ignores."src/winml/modelkit/analyze/onnx_opset/**" = [ "D", "E501", "N802", "N803", "N806", "TC001", "TC002", "TC003" ]
 # === Import Conventions ===
 lint.flake8-bandit.check-typed-exception = true
 lint.flake8-bandit.hardcoded-tmp-directory = [ "/tmp", "/var/tmp", "C:\\Temp" ]

@@ -51,24 +51,27 @@ class QDQGenerator:
         self.domain = domain
 
         try:
-            self.dequantize_linear_schema = domain.get_op_schema(
-                "DequantizeLinear", opset_version
+            self.dequantize_linear_schema = domain.get_op_schema("DequantizeLinear", opset_version)
+            print(
+                "DequantizeLinear schema since_version:",
+                self.dequantize_linear_schema.since_version,
             )
-            print("DequantizeLinear schema since_version:", self.dequantize_linear_schema.since_version)
             self.opset_version = self.dequantize_linear_schema.since_version
         except SchemaError as e:
             print(f"Failed DequantizeLinear: {e}")
-            raise e
+            raise
 
         try:
-            self.quantize_linear_schema = domain.get_op_schema(
-                "QuantizeLinear", opset_version
+            self.quantize_linear_schema = domain.get_op_schema("QuantizeLinear", opset_version)
+            print(
+                "QuantizeLinear schema since_version:",
+                self.quantize_linear_schema.since_version,
             )
-            print("QuantizeLinear schema since_version:", self.quantize_linear_schema.since_version)
-            self.opset_version = self.opset_version if self.opset_version > self.quantize_linear_schema.since_version else self.quantize_linear_schema.since_version
+            ql_ver = self.quantize_linear_schema.since_version
+            self.opset_version = max(self.opset_version, ql_ver)
         except SchemaError as e:
             print(f"Failed QuantizeLinear: {e}")
-            raise e
+            raise
 
         supported_onnx_types = {x.onnx_type: x for x in dtypes.SupportedONNXType}
         self._build_dq_type_vars(supported_onnx_types)
@@ -104,11 +107,13 @@ class QDQGenerator:
 
         # Intersect with supported types
         self.weight_onnx_types: list[str] = [
-            t for t in schema_weight_types
+            t
+            for t in schema_weight_types
             if t in self.SUPPORTED_WEIGHT_TYPES and t in supported_onnx_types
         ]
         self.dq_output_onnx_types: list[str] = [
-            t for t in schema_output_types
+            t
+            for t in schema_output_types
             if t in self.SUPPORT_DQ_OUTPUT_TYPES and t in supported_onnx_types
         ]
         self.weight_all_onnx_types: list[str] = [
@@ -118,9 +123,7 @@ class QDQGenerator:
         print("DequantizeLinear output types:", self.dq_output_onnx_types)
         print("DequantizeLinear all weight types:", self.weight_all_onnx_types)
 
-    def _build_q_type_vars(
-        self, supported_onnx_types: dict[str, dtypes.SupportedONNXType]
-    ) -> None:
+    def _build_q_type_vars(self, supported_onnx_types: dict[str, dtypes.SupportedONNXType]) -> None:
         """Create the following mappings for QuantizeLinear.
 
         self.activation_onnx_types:
@@ -149,11 +152,13 @@ class QDQGenerator:
 
         # Intersect with supported types
         self.activation_onnx_types: list[str] = [
-            t for t in schema_activation_types
+            t
+            for t in schema_activation_types
             if t in self.SUPPORTED_ACTIVATION_TYPES and t in supported_onnx_types
         ]
         self.q_input_onnx_types: list[str] = [
-            t for t in schema_input_types
+            t
+            for t in schema_input_types
             if t in self.SUPPORTED_Q_INPUT_TYPES and t in supported_onnx_types
         ]
         self.activation_all_onnx_types: list[str] = [

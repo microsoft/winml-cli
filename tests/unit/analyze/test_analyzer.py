@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, Mock, patch
 import onnx
 import pytest
 
-from winml.modelkit.optim.config import WinMLOptimizationConfig
 from winml.modelkit.analyze.analyzer import (
     AnalysisResult,
     AnalyzerConfig,
@@ -22,6 +21,7 @@ from winml.modelkit.analyze.models.information import Action, ActionItem, Inform
 from winml.modelkit.analyze.models.output import AnalysisOutput, EPSupport, ModelStats
 from winml.modelkit.analyze.models.support_level import SupportLevel
 from winml.modelkit.analyze.utils import infer_ihv_from_ep_name
+from winml.modelkit.optim.config import WinMLOptimizationConfig
 
 
 class TestAnalyzerConfig:
@@ -96,13 +96,15 @@ class TestAnalysisResult:
         assert repr(result) == "AnalysisResult(patterns=0)"
 
     def test_is_fully_supported_true(self, mock_output: AnalysisOutput) -> None:
-        """Test is_fully_supported returns True when all ops are WHITE."""
+        """Test is_fully_supported returns True when all ops are supported."""
         result = AnalysisResult(output=mock_output)
         assert result.is_fully_supported() is True
         assert result.is_fully_supported("QNNExecutionProvider") is True
 
-    def test_is_fully_supported_false_with_black_ops(self, mock_output: AnalysisOutput) -> None:
-        """Test is_fully_supported returns False when BLACK ops exist."""
+    def test_is_fully_supported_false_with_unsupported_ops(
+        self, mock_output: AnalysisOutput
+    ) -> None:
+        """Test is_fully_supported returns False when unsupported ops exist."""
         mock_output.results[0].runtime_support = False
         mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
 
@@ -133,13 +135,13 @@ class TestAnalysisResult:
         assert result.is_fully_supported("InvalidEP") is False
 
     def test_has_errors_false(self, mock_output: AnalysisOutput) -> None:
-        """Test has_errors returns False when no BLACK patterns exist."""
+        """Test has_errors returns False when no unsupported patterns exist."""
         result = AnalysisResult(output=mock_output)
         assert result.has_errors() is False
         assert result.has_errors("QNNExecutionProvider") is False
 
-    def test_has_errors_true_with_black(self, mock_output: AnalysisOutput) -> None:
-        """Test has_errors returns True when BLACK patterns exist."""
+    def test_has_errors_true_with_unsupported(self, mock_output: AnalysisOutput) -> None:
+        """Test has_errors returns True when unsupported patterns exist."""
         mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
         mock_output.results[0].has_errors = True
 
@@ -171,13 +173,13 @@ class TestAnalysisResult:
         assert result.has_errors("InvalidEP") is False
 
     def test_has_warnings_false(self, mock_output: AnalysisOutput) -> None:
-        """Test has_warnings returns False when no GRAY patterns exist."""
+        """Test has_warnings returns False when no partial patterns exist."""
         result = AnalysisResult(output=mock_output)
         assert result.has_warnings() is False
         assert result.has_warnings("QNNExecutionProvider") is False
 
-    def test_has_warnings_true_with_gray(self, mock_output: AnalysisOutput) -> None:
-        """Test has_warnings returns True when GRAY patterns exist."""
+    def test_has_warnings_true_with_partial(self, mock_output: AnalysisOutput) -> None:
+        """Test has_warnings returns True when partial patterns exist."""
         mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize"]
         mock_output.results[0].has_warnings = True
 
@@ -208,8 +210,8 @@ class TestAnalysisResult:
         result = AnalysisResult(output=mock_output)
         assert result.has_warnings("InvalidEP") is False
 
-    def test_get_lint_result_all_white(self, mock_output: AnalysisOutput) -> None:
-        """Test get_lint_result with all WHITE patterns (no errors/warnings)."""
+    def test_get_lint_result_all_supported(self, mock_output: AnalysisOutput) -> None:
+        """Test get_lint_result with all supported patterns (no errors/warnings)."""
         result = AnalysisResult(output=mock_output)
         lint = result.get_lint_result()
 
@@ -223,7 +225,7 @@ class TestAnalysisResult:
         assert isinstance(lint.optimization_config, WinMLOptimizationConfig)
 
     def test_get_lint_result_with_errors(self, mock_output: AnalysisOutput) -> None:
-        """Test get_lint_result with BLACK patterns (errors)."""
+        """Test get_lint_result with unsupported patterns (errors)."""
         mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample", "NonZero"]
         mock_output.results[0].has_errors = True
 
@@ -240,7 +242,7 @@ class TestAnalysisResult:
         assert isinstance(lint.optimization_config, WinMLOptimizationConfig)
 
     def test_get_lint_result_with_warnings(self, mock_output: AnalysisOutput) -> None:
-        """Test get_lint_result with GRAY patterns (warnings)."""
+        """Test get_lint_result with partial patterns (warnings)."""
         mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize", "Shape"]
         mock_output.results[0].has_warnings = True
 
@@ -377,15 +379,15 @@ class TestAnalysisResult:
         assert isinstance(lint_all.optimization_config, WinMLOptimizationConfig)
 
     def test_get_unsupported_operators_empty(self, mock_output: AnalysisOutput) -> None:
-        """Test get_unsupported_operators with all WHITE ops."""
+        """Test get_unsupported_operators with all supported ops."""
         result = AnalysisResult(output=mock_output)
         unsupported = result.get_unsupported_operators()
         assert unsupported == []
 
-    def test_get_unsupported_operators_with_black_and_gray(
+    def test_get_unsupported_operators_with_unsupported_and_partial(
         self, mock_output: AnalysisOutput
     ) -> None:
-        """Test get_unsupported_operators returns BLACK and GRAY ops."""
+        """Test get_unsupported_operators returns unsupported and partial ops."""
         mock_output.results[0].classification[SupportLevel.UNSUPPORTED] = ["Upsample"]
         mock_output.results[0].classification[SupportLevel.PARTIAL] = ["Resize"]
 

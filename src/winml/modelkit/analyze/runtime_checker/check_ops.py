@@ -15,10 +15,8 @@ Usage:
         python -m modelkit.analyze.runtime_checker.check_qnn_ops --all_ops
 """
 
+import hashlib
 import json
-import os
-import re
-import time
 from pathlib import Path
 from typing import Any
 
@@ -28,12 +26,7 @@ import onnxruntime as ort
 from google.protobuf import json_format
 from onnx.defs import SchemaError
 
-from ... import winml
-from ...sysinfo import SysInfo
-from ...utils import constants
 from winml.modelkit.onnx.domains import ONNXDomain
-from ..utils.model_utils import get_op_since_version
-from .ep_checker import EPChecker
 from winml.modelkit.pattern.op_input_gen import (
     OpInputGenerator,
     get_registered_operators,
@@ -41,57 +34,24 @@ from winml.modelkit.pattern.op_input_gen import (
 )
 from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
 
+from ... import winml
+from ...sysinfo import SysInfo
+from ...utils import constants
+from ..utils.model_utils import get_op_since_version
+from .ep_checker import EPChecker
+
 
 winml.register_execution_providers(ort=True)
 
-RERUN_ERROR_FILE = "need_rerun_errors.json"
 
-
-def _get_rerun_error_config_path() -> Path | None:
-    """Locate rerun error config file next to this script."""
-
-    config_path = Path(__file__).resolve().parent / RERUN_ERROR_FILE
-    return config_path if config_path.exists() else None
-
-
-def _load_rerun_error_patterns(config_path: Path) -> list[re.Pattern[str]]:
-    """Load regex patterns from rerun error config file.
-
-    Expected format: JSON array of regex strings, e.g. ["Unable to compile", "timeout"].
-    """
-
-    try:
-        with config_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as exc:  # best-effort load
-        print(f"Failed to load rerun error config {config_path}: {exc}")
-        return []
-
-    if not isinstance(data, list):
-        print(f"Rerun error config {config_path} must be a JSON array of regex strings; got {type(data).__name__}.")
-        return []
-
-    raw_patterns = [p for p in data if isinstance(p, str)]
-    if len(raw_patterns) != len(data):
-        print(f"Rerun error config {config_path} contains non-string entries; only string patterns are used.")
-
-    compiled: list[re.Pattern[str]] = []
-    for pattern in raw_patterns:
-        try:
-            compiled.append(re.compile(pattern))
-        except re.error as exc:
-            print(f"Skip invalid rerun error pattern {pattern!r}: {exc}")
-    return compiled
-
-
-def _compute_case_signature(result: dict) -> str:
+def _compute_case_signature(case: dict, *, namespace: str) -> str:
     """Compute a signature for a test case based on its content.
 
     The signature is used to match test cases across different runs,
     allowing delta detection when the input generator changes.
 
     Args:
-        result: Test result dictionary containing type_vars, attrs, input_constraints, etc.
+        case: Test case dictionary containing type_vars, attrs, input_constraints, etc.
 
     Returns:
         A string signature that uniquely identifies the test case.
@@ -99,8 +59,14 @@ def _compute_case_signature(result: dict) -> str:
     # Extract the key fields that define a test case
     sig_parts = []
 
+    if namespace:
+        # Namespacing keeps case_index stable per output file when signatures collide across files
+        sig_parts.append(f"ns:{namespace}")
+
     def _safe_dump(obj: Any) -> str:
         def _default(o: Any):
+            if isinstance(o, onnx.TensorProto):
+                return json.loads(json_format.MessageToJson(o))
             if isinstance(o, np.ndarray):
                 return o.tolist()
             if isinstance(o, np.generic):
@@ -109,27 +75,52 @@ def _compute_case_signature(result: dict) -> str:
 
         return json.dumps(obj, sort_keys=True, default=_default)
 
+    def _is_empty_top_level(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, (dict, list, tuple, set)):
+            return len(value) == 0
+        return False
+
     # Type variables (e.g., T=FLOAT)
-    if "type_vars" in result:
-        type_vars = result["type_vars"]
+    if "type_vars" in case:
+        type_vars = case["type_vars"]
         sig_parts.append(f"types:{_safe_dump(type_vars)}")
 
     # Attributes
-    if "attrs" in result:
-        attrs = result["attrs"]
-        sig_parts.append(f"attrs:{_safe_dump(attrs)}")
+    if "attrs" in case:
+        attrs = case["attrs"]
+        if not _is_empty_top_level(attrs):
+            sig_parts.append(f"attrs:{_safe_dump(attrs)}")
 
     # Input constraints (shapes/values)
-    if "input_constraints" in result:
-        constraints = result["input_constraints"]
+    if "input_constraints" in case:
+        constraints = case["input_constraints"]
         sig_parts.append(f"inputs:{_safe_dump(constraints)}")
 
     # Input is constant flags
-    if "input_is_constant" in result:
-        is_const = result["input_is_constant"]
+    if "input_is_constant" in case:
+        is_const = case["input_is_constant"]
         sig_parts.append(f"const:{_safe_dump(is_const)}")
 
+    # Dynamic axes configuration
+    if "dynamic_axes" in case:
+        dynamic_axes = case["dynamic_axes"]
+        if not _is_empty_top_level(dynamic_axes):
+            sig_parts.append(f"dynamic:{_safe_dump(dynamic_axes)}")
+
+    # QDQ configuration: include only when present to keep non-QDQ signatures stable.
+    if "qdq_types" in case:
+        qdq_types = case["qdq_types"]
+        if not _is_empty_top_level(qdq_types):
+            sig_parts.append(f"qdq:{_safe_dump(qdq_types)}")
+
     return "|".join(sig_parts)
+
+
+def _hash_case_signature(signature: str) -> str:
+    """Return a stable hash value for a case signature."""
+    return hashlib.sha256(signature.encode("utf-8")).hexdigest()
 
 
 class CheckResultWriter:
@@ -139,17 +130,19 @@ class CheckResultWriter:
         self,
         file_path: str | Path,
         sys_info: dict[str, Any],
-        save_per_cases: int = 100,
+        save_per_cases: int | None = 100,
         rerun_failed: bool = False,
-        rerun_failed_with_filter: bool = False,
         delta_only: bool = False,
+        not_run_start_id: int = 1,
+        filter_case_index: str | list[str] | None = None,
     ) -> None:
         """Initialize the writer.
 
         Args:
             file_path: Path to the output JSON file
             sys_info: System information dictionary (constant during run)
-            save_per_cases: Number of results to accumulate before saving to file
+            save_per_cases: Number of results to accumulate before saving to file.
+                If None, disable periodic saves and save only on flush/finalization.
             rerun_failed: If True, rerun failed cases (compile or run failed).
             delta_only: If True, only run new test cases not in existing results.
         """
@@ -159,147 +152,191 @@ class CheckResultWriter:
         self.results = []
         self.pending_count = 0
         self.rerun_failed = rerun_failed
-        self.rerun_failed_with_filter = rerun_failed_with_filter
         self.delta_only = delta_only
-        self.rerun_error_patterns: list[re.Pattern[str]] = []
-        self.rerun_error_config_path: Path | None = None
         self.existing_signatures: dict[str, dict] = {}  # Signature -> existing result
         self.used_signatures: set[str] = set()  # Signatures already added to results
+        self.output_signatures: set[str] = set()  # Signatures already emitted to output
         self.failed_signatures: set[str] = set()  # Signatures of failed cases
-        self.save_count = 0
-        self.save_events: list[dict[str, Any]] = []
-        self.save_log_path = os.getenv("CHECK_OPS_SAVE_LOG")
+        self.duplicate_skipped_count = 0
+        self._next_not_run_id = not_run_start_id
+        self.case_namespace = (
+            self.file_path.stem
+        )  # File name without extension for case_index namespace
+        if filter_case_index is None:
+            self.filter_case_indices: list[str] | None = None
+            self._filter_case_index_set: set[str] | None = None
+        elif isinstance(filter_case_index, str):
+            self.filter_case_indices = [filter_case_index]
+            self._filter_case_index_set = {filter_case_index}
+        else:
+            self.filter_case_indices = list(filter_case_index)
+            self._filter_case_index_set = set(self.filter_case_indices)
 
-        if rerun_failed_with_filter:
-            self.rerun_error_config_path = _get_rerun_error_config_path()
-            if self.rerun_error_config_path:
-                self.rerun_error_patterns = _load_rerun_error_patterns(self.rerun_error_config_path)
-                if self.rerun_error_patterns:
-                    print(
-                        f"Loaded {len(self.rerun_error_patterns)} rerun error pattern(s) from {self.rerun_error_config_path}"
-                    )
-                else:
-                    print(
-                        f"Rerun error config {self.rerun_error_config_path} found but no valid patterns loaded; rerun_failed_with_filter will rerun 0 cases."
-                    )
-            else:
-                print("No need_rerun_errors.json found next to check_ops.py; rerun_failed_with_filter will rerun 0 cases.")
+        # filter_case_index, delta_only, rerun_failed are mutually exclusive
+        mode_count = int(self.filter_case_indices is not None) + int(delta_only) + int(rerun_failed)
+        if mode_count > 1:
+            raise ValueError("filter_case_index, delta_only, rerun_failed cannot be used together")
 
-        # Read existing file if rerun_failed or delta_only is set
-        if (rerun_failed or delta_only) and self.file_path.exists():
+        if self.file_path.exists():
             with self.file_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "check_results" in data:
-                    existing_results = data["check_results"]
-                    # Build signature map for all existing results
-                    for result in existing_results:
-                        sig = _compute_case_signature(result)
-                        self.existing_signatures[sig] = result
+                raw = f.read()
 
-                        # Track failed cases if rerun_failed is set
-                        if rerun_failed:
-                            check_result = result.get("check_result", {})
-                            compile_success = (
-                                check_result.get("compile", {})
-                                .get("result", {})
-                                .get("success", False)
-                            )
-                            run_success = (
-                                check_result.get("run", {}).get("result", {}).get("success", False)
-                            )
-                            if not (compile_success and run_success):
-                                if not self.rerun_failed_with_filter or self._should_rerun_failure(check_result):
-                                    self.failed_signatures.add(sig)
+            # Treat an empty file as "no existing results" instead of failing the run.
+            data = {} if not raw.strip() else json.loads(raw)
+            if "check_results" in data:
+                existing_cases = data["check_results"]
+                # Build signature map for existing results that actually ran
+                for case in existing_cases:
+                    if self._contains_not_run_reason(case):
+                        continue
 
-                    rerun_filter_suffix = ""
-                    if rerun_failed and self.rerun_failed_with_filter:
-                        rerun_filter_suffix = (
-                            f" matching {len(self.rerun_error_patterns)} error pattern(s) from {self.rerun_error_config_path}"
-                            if self.rerun_error_patterns
-                            else " with filter but no valid patterns (0 cases will be rerun)"
-                        )
+                    sig = _compute_case_signature(case, namespace=self.case_namespace)
+                    self.existing_signatures[sig] = case
 
-                    # Print status
-                    if rerun_failed and delta_only:
-                        print(
-                            f"Found existing file with {len(existing_results)} test cases. "
-                            f"Will rerun {len(self.failed_signatures)} failed cases{rerun_filter_suffix} and run new cases only."
-                        )
-                    elif rerun_failed:
-                        print(
-                            f"Found existing file with {len(existing_results)} test cases. "
-                            f"Will rerun {len(self.failed_signatures)} failed cases{rerun_filter_suffix}."
-                        )
-                    elif delta_only:
-                        print(
-                            f"Found existing file with {len(existing_results)} test cases. "
-                            f"Will run new cases only (delta mode)."
-                        )
+                    check_result = case.get("check_result", {})
+                    compile_success = (
+                        check_result.get("compile", {}).get("result", {}).get("success", False)
+                    )
+                    run_success = (
+                        check_result.get("run", {}).get("result", {}).get("success", False)
+                    )
+                    if not (compile_success and run_success):
+                        self.failed_signatures.add(sig)
 
     def has_existing_results(self) -> bool:
         """Check if we have existing results to work with."""
         return len(self.existing_signatures) > 0
 
-    def should_skip_case(self, result: dict) -> bool:
+    def should_skip_case(self, case: dict) -> bool:
         """Check if a case should be skipped based on its signature.
 
-        Logic:
-        - New cases (not in existing): skip unless delta_only is set
-        - Failed cases (in existing): skip unless rerun_failed is set
-        - Passed cases (in existing): always skip (when this method is called)
-
         Args:
-            result: The test case result (before running check_result)
+            case: The test case (before running check_result)
 
         Returns:
             True if the case should be skipped.
         """
-        sig = _compute_case_signature(result)
+        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        if self.filter_case_indices is not None:
+            assert self._filter_case_index_set is not None
+            return _hash_case_signature(sig) not in self._filter_case_index_set
 
-        # New case - only run if delta_only is set
-        if sig not in self.existing_signatures:
-            return not self.delta_only
+        if self.delta_only:
+            # Only run brand-new cases; skip anything we already have
+            return sig in self.existing_signatures
 
-        # Failed case - only run if rerun_failed is set
-        if sig in self.failed_signatures:
-            return not self.rerun_failed
+        if self.rerun_failed:
+            # Only rerun known failed cases; skip successes and any new cases
+            return sig not in self.failed_signatures
 
-        # Passed case - always skip
-        return True
+        # Default: run everything
+        return False
 
-    def append_result(self, result: dict[str, Any]) -> None:
+    def append_result(self, case: dict[str, Any]) -> None:
         """Append a test result and save to file periodically.
 
         Args:
-            result: Test result dictionary
+            case: Test case dictionary
         """
-        self.results.append(result)
+        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        if sig in self.output_signatures:
+            self.duplicate_skipped_count += 1
+            return
+
+        self._assign_not_run_ids(case)
+        self._set_case_index_signature(case)
+        self.results.append(case)
+        self.output_signatures.add(sig)
         self._increment_pending_and_maybe_save()
 
-    def reuse_existing_result(self, result: dict) -> bool:
+    def reuse_existing_result(self, case: dict) -> bool:
         """Reuse an existing result for a skipped case.
 
         This does NOT trigger periodic saves since reused results already exist
         in the file and intermediate saves preserve remaining existing cases.
 
         Args:
-            result: The skipped result (with _skipped marker)
+            case: The skipped case (with _skipped marker)
 
         Returns:
             True if existing result was found and reused, False otherwise.
         """
-        sig = _compute_case_signature(result)
-        existing_result = self.existing_signatures.get(sig)
-        if existing_result:
-            self.results.append(existing_result)
+        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        if self.filter_case_indices is not None:
+            assert self._filter_case_index_set is not None
+            if _hash_case_signature(sig) not in self._filter_case_index_set:
+                return False
+
+        existing_case = self.existing_signatures.get(sig)
+        if existing_case:
             self.used_signatures.add(sig)
+            if sig in self.output_signatures:
+                self.duplicate_skipped_count += 1
+                return False  # duplicate reuse should not count as reused
+            self._set_case_index_signature(existing_case)
+            self.results.append(existing_case)
+            self.output_signatures.add(sig)
             return True
         return False
+
+    def _set_case_index_signature(self, case: dict[str, Any]) -> None:
+        """Set case_index to a stable hash derived from normalized signature."""
+        signature = _compute_case_signature(case, namespace=self.case_namespace)
+        case["case_index"] = _hash_case_signature(signature)
+
+    def _contains_not_run_reason(self, case: dict[str, Any]) -> bool:
+        """Check whether compile/run reason contains a not_run placeholder."""
+        check_result = case.get("check_result")
+        if not isinstance(check_result, dict):
+            return False
+
+        for stage in ("compile", "run"):
+            stage_result = check_result.get(stage)
+            if not isinstance(stage_result, dict):
+                continue
+            payload = stage_result.get("result")
+            if not isinstance(payload, dict):
+                continue
+            reason = payload.get("reason")
+            if isinstance(reason, str) and reason.startswith("not_run"):
+                return True
+        return False
+
+    def _assign_not_run_ids(self, case: dict[str, Any]) -> None:
+        """Assign a single sequential not_run id per case, shared by compile/run reasons.
+
+        If either compile or run has a not_run reason, both stages share the same
+        auto-incremented id. This keeps the pair logically tied together instead
+        of consuming two separate ids for one case.
+        """
+        check_result = case.get("check_result")
+        if not isinstance(check_result, dict):
+            return
+
+        not_run_payloads: list[dict[str, Any]] = []
+        for stage in ("compile", "run"):
+            stage_result = check_result.get(stage)
+            if not isinstance(stage_result, dict):
+                continue
+            payload = stage_result.get("result")
+            if not isinstance(payload, dict):
+                continue
+            reason = payload.get("reason")
+            if isinstance(reason, str) and reason.startswith("not_run"):
+                not_run_payloads.append(payload)
+
+        if not not_run_payloads:
+            return
+
+        new_id = self._next_not_run_id
+        self._next_not_run_id += 1
+        for payload in not_run_payloads:
+            payload["reason"] = f"not_run_{new_id}"
 
     def _increment_pending_and_maybe_save(self) -> None:
         """Increment pending count and save if threshold reached."""
         self.pending_count += 1
-        if self.pending_count >= self.save_per_cases:
+        if self.save_per_cases is not None and self.pending_count >= self.save_per_cases:
             self._save()
             self.pending_count = 0
 
@@ -324,25 +361,9 @@ class CheckResultWriter:
             return 0
         return len(set(self.existing_signatures.keys()) - self.used_signatures)
 
-    def _should_rerun_failure(self, check_result: dict[str, Any]) -> bool:
-        """Decide whether a failed case should be rerun based on error patterns."""
-
-        if not self.rerun_failed_with_filter:
-            return True
-        if not self.rerun_error_patterns:
-            return False
-
-        compile_result = check_result.get("compile", {}).get("result", {})
-        run_result = check_result.get("run", {}).get("result", {})
-        return self._reason_matches(compile_result) or self._reason_matches(run_result)
-
-    def _reason_matches(self, result: dict[str, Any]) -> bool:
-        if result.get("success") is True:
-            return False
-        reason = result.get("reason")
-        if not isinstance(reason, str):
-            return False
-        return any(pattern.search(reason) for pattern in self.rerun_error_patterns)
+    def get_duplicate_skipped_count(self) -> int:
+        """Get the number of duplicate-signature cases skipped from output."""
+        return self.duplicate_skipped_count
 
     def finalize(self) -> None:
         """Finalize the writer after iteration is complete.
@@ -360,8 +381,9 @@ class CheckResultWriter:
         """
         results_to_save = self.results
 
-        # Append remaining existing cases to prevent data loss during iteration
-        if self.existing_signatures:
+        # Append remaining existing cases to prevent data loss during iteration.
+        # When filtering by case_index, avoid re-emitting unrelated cases.
+        if self.existing_signatures and self.filter_case_indices is None:
             remaining_sigs = set(self.existing_signatures.keys()) - self.used_signatures
             if remaining_sigs:
                 remaining_results = [self.existing_signatures[sig] for sig in remaining_sigs]
@@ -369,8 +391,22 @@ class CheckResultWriter:
 
         output_data = {
             "check_results": results_to_save,
-            "sys_info": self.sys_info,
+            # NOTE: Intentionally do not persist sys_info.
+            # This file may be updated across multiple runs, and different cases in
+            # the same output can come from different run environments/sys_info.
+            # Persisting one top-level sys_info would be misleading.
+            # "sys_info": self.sys_info,
         }
+
+        for item in output_data["check_results"]:
+            if isinstance(item, dict):
+                self._set_case_index_signature(item)
+
+        # Sort results by case_index to keep deterministic ordering before writing
+        output_data["check_results"] = sorted(
+            output_data["check_results"],
+            key=lambda x: x.get("case_index", "") if isinstance(x, dict) else "",
+        )
 
         def json_default(obj):
             if isinstance(obj, onnx.TensorProto):
@@ -383,39 +419,20 @@ class CheckResultWriter:
                 return None  # Convert NaN to null
             raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
-        with self.file_path.open("w", encoding="utf-8", newline="\n") as f:
-            start = time.perf_counter()
-            json.dump(output_data, f, indent=2, default=json_default, allow_nan=False)
-            duration = time.perf_counter() - start
-        self.save_count += 1
-        self.save_events.append(
-            {
-                "index": self.save_count,
-                "duration_sec": duration,
-                "results_in_batch": len(self.results),
-                "pending_after_save": self.pending_count,
-                "path": str(self.file_path),
-            }
-        )
-        self._write_save_log(duration)
-        print(
-            f"Saved batch #{self.save_count} ({len(self.results)} results, pending {self.pending_count}) to {self.file_path} in {duration:.2f}s"
-        )
-
-    def _write_save_log(self, duration: float) -> None:
-        if not self.save_log_path:
-            return
-        try:
-            path = Path(self.save_log_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            line = (
-                f"{time.strftime('%Y-%m-%dT%H:%M:%S')},{self.file_path.stem},{self.save_count},{duration:.2f},{len(self.results)},{self.pending_count},{self.file_path}"
+        # Decide final save path: when filtering a single case, write to a _case_ suffixed file
+        save_path = self.file_path
+        if self.filter_case_indices:
+            primary = self.filter_case_indices[0]
+            case_suffix = primary[:12]
+            if len(self.filter_case_indices) > 1:
+                case_suffix = f"{case_suffix}_plus{len(self.filter_case_indices) - 1}"
+            save_path = self.file_path.with_name(
+                f"{self.file_path.stem}_cases_{case_suffix}{self.file_path.suffix}"
             )
-            with path.open("a", encoding="utf-8") as log_file:
-                log_file.write(line + "\n")
-        except Exception:
-            # Best-effort logging; do not break main flow
-            pass
+
+        # Force CRLF in output JSON to align with consumer expectations
+        with save_path.open("w", encoding="utf-8", newline="\r\n") as f:
+            json.dump(output_data, f, indent=2, default=json_default, allow_nan=False)
 
 
 def check_ops(
@@ -431,11 +448,12 @@ def check_ops(
     save_failed_model: bool = False,
     save_model: bool = False,
     rerun_failed: bool = False,
-    rerun_failed_with_filter: bool = False,
     delta_only: bool = False,
     use_qdq: bool = False,
     dry_run: bool = False,
     dynamic_axis_mode: str = "none",
+    not_run_start_id: int = 1,
+    case_index: str | list[str] | None = None,
 ):
     """Run operators on execution provider.
 
@@ -445,14 +463,17 @@ def check_ops(
         opset_domain: ONNX opset domain (e.g., "ai.onnx", "com.microsoft")
         validate_inputs: Whether to validate input combinations before testing
         output_dir: Output directory for test results JSON files (default: current directory)
-        model_output_dir: Directory to save generated ONNX models. Defaults to output_dir/saved_models.
+        model_output_dir: Directory to save generated ONNX models.
+            Defaults to output_dir/saved_models.
         n_cases: If not None, only run the first n_cases test cases for each operator.
                  If n_cases is greater than total cases, run all cases.
         save_failed_model: If True, save the ONNX model when a test case fails.
         rerun_failed: If True, rerun failed cases (compile or run failed).
         delta_only: If True, only run new test cases not in existing results.
-                    Can be combined with rerun_failed.
+        dry_run: If True, skip compile/run execution and emit check_result with reason "not_run".
         dynamic_axis_mode: Dynamic axis testing mode for input generators.
+        not_run_start_id: Initial id used for not_run placeholder reasons (not_run_<id>).
+        case_index: Optional hashed signature(s) to filter to specific test cases.
     """
     sys_info = SysInfo().to_dict()
     domain = ONNXDomain.from_str(opset_domain)
@@ -463,7 +484,8 @@ def check_ops(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Directory to stash saved ONNX models (separate from json outputs); creation is lazy in generators.
+    # Directory to stash saved ONNX models (separate from json
+    # outputs); creation is lazy in generators.
     model_output_dir = (
         Path(model_output_dir) if model_output_dir is not None else output_dir / "saved_models"
     )
@@ -503,81 +525,73 @@ def check_ops(
 
             # Prepare output file
             since_version = get_op_since_version(op_name, current_opset_version, opset_domain)
-            output_filename = f"{op_name}_{ep_checker.ep_name}_{constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]}_{opset_domain}_opset{since_version}{'_qdq' if use_qdq else ''}.json"
+            device = constants.DEVICE_TYPE_TO_DEVICE[ep_checker.device_type]
+            qdq_suffix = "_qdq" if use_qdq else ""
+            output_filename = (
+                f"{op_name}_{ep_checker.ep_name}_{device}"
+                f"_{opset_domain}_opset{since_version}"
+                f"{qdq_suffix}.json"
+            )
             output_path = output_dir / output_filename
 
             # Use writer as context manager (auto-flushes on exit)
             with CheckResultWriter(
                 output_path,
                 sys_info,
-                rerun_failed=rerun_failed or rerun_failed_with_filter,
-                rerun_failed_with_filter=rerun_failed_with_filter,
+                save_per_cases=None if dry_run else 100,
+                rerun_failed=rerun_failed,
                 delta_only=delta_only,
+                not_run_start_id=not_run_start_id,
+                filter_case_index=case_index,
             ) as writer:
                 # Run tests on execution provider
                 print(f"Running {op_name} tests on {ep_checker.ep_name}...")
                 if n_cases is not None:
                     print(f"Limiting to first {n_cases} test cases")
 
-                if writer.has_existing_results():
-                    # We have existing results - use skip logic
-                    check_results_iter = gen.check_on_ep(
-                        ep_checker,
-                        capture_output=True,
-                        n_cases=n_cases,
-                        skip_cases=0,
-                        save_failed_model=save_failed_model,
-                        save_model=save_model,
-                        model_output_dir=model_output_dir,
-                        skip_signature_fn=writer.should_skip_case,
-                        yield_skipped=True,  # Also yield skipped cases (with skip marker) to maintain order
-                        dry_run=dry_run,
-                    )
+                check_results_iter = gen.check_on_ep(
+                    ep_checker,
+                    capture_output=True,
+                    n_cases=n_cases,
+                    skip_cases=0,
+                    save_failed_model=save_failed_model,
+                    save_model=save_model,
+                    model_output_dir=model_output_dir,
+                    skip_signature_fn=writer.should_skip_case,
+                    # Also yield skipped cases (with skip
+                    # marker) to maintain order
+                    yield_skipped=True,
+                    dry_run=dry_run,
+                )
 
-                    # Process results in generator order - reuse existing or run new
-                    run_count = 0
-                    reused_count = 0
-                    for result in check_results_iter:
-                        if result.get("_skipped"):
-                            # This case was skipped - reuse existing result
-                            if writer.reuse_existing_result(result):
-                                reused_count += 1
-                        else:
-                            # Case was actually run (new or rerun)
-                            writer.append_result(result)
-                            run_count += 1
-
-                    dropped_count = writer.get_dropped_count()
-                    print(
-                        f"Ran {run_count} test cases, reused {reused_count} existing cases, dropped {dropped_count} obsolete cases."
-                    )
-
-                    # Finalize to clear unused signatures before final flush
-                    writer.finalize()
-                else:
-                    check_results_iter = gen.check_on_ep(
-                        ep_checker,
-                        capture_output=True,
-                        n_cases=n_cases,
-                        save_failed_model=save_failed_model,
-                        save_model=save_model,
-                        model_output_dir=model_output_dir,
-                        dry_run=dry_run,
-                    )
-
-                    # Process results using writer
-                    for result in check_results_iter:
+                # Process results in generator order - reuse existing or run new
+                run_count = 0
+                reused_count = 0
+                skipped_count = 0
+                for result in check_results_iter:
+                    if result.get("_skipped"):
+                        skipped_count += 1
+                        if writer.reuse_existing_result(result):
+                            reused_count += 1
+                    else:
                         writer.append_result(result)
+                        run_count += 1
+
+                dropped_count = writer.get_dropped_count()
+                duplicate_skipped = writer.get_duplicate_skipped_count()
+                print(
+                    f"Ran {run_count} test cases, reused "
+                    f"{reused_count} existing cases, "
+                    f"dropped {dropped_count} obsolete "
+                    f"cases, duplicates skipped "
+                    f"{duplicate_skipped}, skipped "
+                    f"{skipped_count}."
+                )
+
+                # Finalize to clear unused signatures before final flush
+                writer.finalize()
 
                 check_results = writer.results
-
-                if writer.save_events:
-                    durations = ", ".join(f"{evt['duration_sec']:.2f}s" for evt in writer.save_events)
-                    print(
-                        f"Save stats for {op_name}: {writer.save_count} saves | durations: {durations}"
-                    )
-                else:
-                    print(f"Save stats for {op_name}: 0 saves (no results written)")
 
             print(f"\nResults saved to: {output_path}")
             print(f"Total test cases: {len(check_results)}")
@@ -587,7 +601,10 @@ def check_ops(
                     break
                 if since_version <= version_until:
                     print(
-                        f"opset_version {since_version} is already <= version_until {version_until}, stopping further testing for {op_name}."
+                        f"opset_version {since_version} is "
+                        f"already <= version_until "
+                        f"{version_until}, stopping further"
+                        f" testing for {op_name}."
                     )
                     break
                 current_opset_version = since_version - 1
@@ -668,13 +685,14 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     }
     if ep_name not in ep_name_to_checker:
         raise ValueError(
-            f"Unsupported execution provider: {ep_name}. Available: QNNExecutionProvider, OpenVINOExecutionProvider, VitisAIExecutionProvider, MIGraphXExecutionProvider, NvTensorRTRTXExecutionProvider"
+            f"Unsupported execution provider: {ep_name}. "
+            f"Available: {', '.join(ep_name_to_checker.keys())}"
         )
     return ep_name_to_checker[ep_name](device_type=device_type)
 
 
-def parse_and_check() -> None:
-    """Main entry point for command-line execution."""
+def build_parser():
+    """Build argument parser for check_ops-style commands."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Test ONNX operators on execution provider")
@@ -712,7 +730,11 @@ def parse_and_check() -> None:
         ],
         help=(
             "Execution Provider names to test. "
-            "Available: QNNExecutionProvider, OpenVINOExecutionProvider, VitisAIExecutionProvider, MIGraphXExecutionProvider, NvTensorRTRTXExecutionProvider"
+            "Available: QNNExecutionProvider, "
+            "OpenVINOExecutionProvider, "
+            "VitisAIExecutionProvider, "
+            "MIGraphXExecutionProvider, "
+            "NvTensorRTRTXExecutionProvider"
         ),
     )
     parser.add_argument(
@@ -761,21 +783,32 @@ def parse_and_check() -> None:
         action="store_true",
         help="Save the model for all test cases",
     )
-    rerun_group = parser.add_mutually_exclusive_group()
-    rerun_group.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--rerun_failed",
         action="store_true",
-        help="Rerun all failed cases (compile failed or run failed). Can be combined with --delta_only.",
+        help=(
+            "Rerun only failed cases (compile failed or run failed). "
+            "Mutually exclusive with --delta_only and --case_index."
+        ),
     )
-    rerun_group.add_argument(
-        "--rerun_failed_with_filter",
-        action="store_true",
-        help="Rerun failed cases only when their error reason matches patterns in need_rerun_errors.json.",
-    )
-    parser.add_argument(
+    mode_group.add_argument(
         "--delta_only",
         action="store_true",
-        help="Only run new test cases that don't exist in the existing results file. Can be combined with --rerun_failed.",
+        help=(
+            "Only run new test cases that do not exist in the existing results file. "
+            "Mutually exclusive with --rerun_failed and --case_index."
+        ),
+    )
+    mode_group.add_argument(
+        "--case_index",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "Only process cases matching these case_index hashes. "
+            "Mutually exclusive with --rerun_failed and --delta_only."
+        ),
     )
     parser.add_argument(
         "--use_qdq",
@@ -788,6 +821,12 @@ def parse_and_check() -> None:
         help="Dry run without executing",
     )
     parser.add_argument(
+        "--not_run_start_id",
+        type=int,
+        default=1,
+        help="Initial id for dry-run reason placeholder sequence (not_run_<id>).",
+    )
+    parser.add_argument(
         "--with_dynamic",
         action="store_true",
         help="Also test with first axis as dynamic (axis 0) for non-constant, non-scalar inputs",
@@ -797,14 +836,20 @@ def parse_and_check() -> None:
         type=int,
         default=None,
         # For example, version_until=13, opset_version=20, opset has 11,12,15 will test 12 and 15
-        help="Test each distinct operator schema version down to the first one <= this, up to the specified opset_version.",
+        help=(
+            "Test each distinct operator schema version "
+            "down to the first one <= this, up to the "
+            "specified opset_version."
+        ),
     )
-    args = parser.parse_args()
+    return parser
 
-    # Determine which operators to test
+
+def run_from_args(args: Any) -> None:
+    """Run check_ops from parsed CLI args."""
+    available_ops = get_registered_operators()
     ops_to_check = available_ops if args.all_ops else args.ops
     ep_checker = get_ep_checker(args.ep, device=args.device)
-    # Run the tests
     check_ops(
         ep_checker,
         ops=ops_to_check,
@@ -817,12 +862,20 @@ def parse_and_check() -> None:
         save_failed_model=args.save_failed_model,
         save_model=args.save_model,
         rerun_failed=args.rerun_failed,
-        rerun_failed_with_filter=args.rerun_failed_with_filter,
         delta_only=args.delta_only,
         use_qdq=args.use_qdq,
         dry_run=args.dry_run,
         dynamic_axis_mode="first_axis_dynamic" if args.with_dynamic else "none",
+        not_run_start_id=args.not_run_start_id,
+        case_index=args.case_index,
     )
+
+
+def parse_and_check() -> None:
+    """Main entry point for command-line execution."""
+    parser = build_parser()
+    args = parser.parse_args()
+    run_from_args(args)
 
 
 if __name__ == "__main__":

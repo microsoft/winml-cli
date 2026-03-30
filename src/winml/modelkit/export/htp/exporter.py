@@ -26,7 +26,6 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import onnx
 import torch
 import torch.nn as nn
 from rich.console import Console
@@ -39,6 +38,8 @@ from .monitor import HTPExportMonitor
 
 
 if TYPE_CHECKING:
+    import onnx
+
     from ..config import WinMLExportConfig
 
 
@@ -146,7 +147,6 @@ class HTPExporter:
         # Rich console for tree rendering
         self.console = Console(width=HTPConfig.CONSOLE_WIDTH)
 
-
     def export(
         self,
         model: nn.Module | None = None,
@@ -189,9 +189,7 @@ class HTPExporter:
             # Auto-load model if needed
             if model is None:
                 if model_name_or_path is None:
-                    raise ValueError(
-                        "Either 'model' or 'model_name_or_path' must be provided."
-                    )
+                    raise ValueError("Either 'model' or 'model_name_or_path' must be provided.")
                 from ...loader import load_hf_model
 
                 model, _, _ = load_hf_model(model_name_or_path)
@@ -251,9 +249,7 @@ class HTPExporter:
             traced_outputs = (
                 self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
             )
-            output_names = (
-                infer_output_names(traced_outputs) if traced_outputs is not None else []
-            )
+            output_names = infer_output_names(traced_outputs) if traced_outputs is not None else []
             monitor.update(
                 ExportStep.ONNX_EXPORT,
                 opset_version=export_config.opset_version,
@@ -410,12 +406,8 @@ class HTPExporter:
         input_names = export_config.get_input_names() or list(inputs.keys())
 
         # Output names: infer from traced hierarchy, validate against config
-        traced_outputs = (
-            self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
-        )
-        inferred_names = (
-            infer_output_names(traced_outputs) if traced_outputs is not None else []
-        )
+        traced_outputs = self._hierarchy_builder.get_outputs() if self._hierarchy_builder else None
+        inferred_names = infer_output_names(traced_outputs) if traced_outputs is not None else []
         output_names = export_config.get_output_names()
 
         if output_names and inferred_names and len(output_names) != len(inferred_names):
@@ -449,9 +441,9 @@ class HTPExporter:
         if export_config.dynamic_axes:
             onnx_kwargs["dynamic_axes"] = export_config.dynamic_axes
 
-        export_inputs = tuple(inputs.values())
+        tuple(inputs.values())
         with self._get_optimum_patcher(model, task):
-            torch.onnx.export(model, tuple(), output_path, kwargs=inputs, **onnx_kwargs)
+            torch.onnx.export(model, (), output_path, kwargs=inputs, **onnx_kwargs)
 
     @staticmethod
     def _get_optimum_patcher(model: nn.Module, task: str | None) -> Any:
@@ -486,7 +478,8 @@ class HTPExporter:
             logger.debug(
                 "Model type '%s' (task='%s') not in Optimum registry; "
                 "exporting without Optimum patcher.",
-                model_type, task,
+                model_type,
+                task,
             )
             return contextlib.nullcontext()
         except Exception:
@@ -494,7 +487,8 @@ class HTPExporter:
                 "Optimum model patcher failed for model_type='%s', task='%s'. "
                 "Export may produce incorrect results for models requiring "
                 "Transformers 4.53+ tracing patches.",
-                model_type, task,
+                model_type,
+                task,
                 exc_info=True,
             )
             return contextlib.nullcontext()
@@ -548,9 +542,7 @@ class HTPExporter:
                 key="winml.io.inputs",
                 value=json.dumps(io_inputs),
             )
-            logger.debug(
-                "Embedded winml.io.inputs for %d tensors", len(io_inputs)
-            )
+            logger.debug("Embedded winml.io.inputs for %d tensors", len(io_inputs))
 
         if export_config.output_tensors:
             io_outputs = [spec.to_dict() for spec in export_config.output_tensors]
@@ -560,7 +552,10 @@ class HTPExporter:
             )
 
     def _embed_tags_in_onnx(
-        self, output_path: str, onnx_model: onnx.ModelProto, **kwargs: Any,
+        self,
+        output_path: str,
+        onnx_model: onnx.ModelProto,
+        **kwargs: Any,
     ) -> None:
         """Inject hierarchy tags into ONNX node metadata_props.
 

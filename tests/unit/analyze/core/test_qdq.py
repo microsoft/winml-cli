@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
 """Unit tests for QDQ (Quantize-Dequantize) support functions.
 
 Tests verify:
@@ -15,17 +16,17 @@ Tests verify:
 import pytest
 from onnx import TensorProto, helper
 
+from winml.modelkit.analyze.core.runtime_checker_query import (
+    QDQTypeInfo,
+    RuntimeCheckerQuery,
+    _get_qdq_query_conditions_for_node,
+)
 from winml.modelkit.onnx import dtypes
 from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.op_input_gen.op_input_gen import (
     QDQParameterConfig,
 )
 from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
-from winml.modelkit.analyze.core.runtime_checker_query import (
-    QDQTypeInfo,
-    RuntimeCheckerQuery,
-    _get_qdq_query_conditions_for_node,
-)
 
 
 class TestQDQGenerator:
@@ -87,9 +88,10 @@ class TestQDQParameterConfig:
 
     def test_default_initialization(self) -> None:
         """Test default initialization with all False flags."""
-        config = QDQParameterConfig()
+        config = QDQParameterConfig(support_non_qdq=True)
         assert config.support_weight is False
         assert config.support_activation is False
+        assert config.support_non_qdq is True
         assert config.weight_type is None
         assert config.activation_type is None
 
@@ -348,6 +350,133 @@ class TestCollectQDQTypes:
         assert isinstance(query.input_to_dq_type["dq_out"], QDQTypeInfo)
 
 
+class TestIterShouldQDQCombinations:
+    """Unit tests for _iter_should_qdq_combinations.
+
+    This method generates the cross-product of which inputs/outputs should
+    have QDQ nodes applied, based on QDQParameterConfig flags. The result
+    is a flat dict {schema_name: bool}.
+    """
+
+    @pytest.fixture
+    def tanh_gen(self):
+        """TanhInputGenerator — single input, single output."""
+        from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
+        from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
+
+        schema = ONNXDomain.AI_ONNX.get_op_schema("Tanh", 22)
+        qdq_gen = QDQGenerator(opset_version=17, domain=ONNXDomain.AI_ONNX)
+        return get_runtime_checker_op("Tanh")(schema, qdq_generator=qdq_gen)
+
+    @pytest.fixture
+    def gather_gen(self):
+        """GatherInputGenerator — two inputs (data: activation, indices: pass-through)."""
+        from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
+        from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
+
+        schema = ONNXDomain.AI_ONNX.get_op_schema("Gather", 22)
+        qdq_gen = QDQGenerator(opset_version=1, domain=ONNXDomain.COM_MICROSOFT)
+        return get_runtime_checker_op("Gather")(schema, qdq_generator=qdq_gen)
+
+    def _first_kwargs(self, gen):
+        kwargs, _ = next(iter(gen.iter()))
+        return kwargs
+
+    def test_empty_input_config_output_still_defaults_true(self, tanh_gen) -> None:
+        """Empty qdq_config: no input entries, but the output still gets should_qdq=True."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        output_name = gen.schema.outputs[0].name
+        results = list(gen._iter_should_qdq_combinations(kwargs, {}))
+        assert len(results) == 1
+        assert results[0] == {output_name: True}
+
+    def test_activation_only_input_yields_true(self, tanh_gen) -> None:
+        """support_activation=True → only True is yielded for that input."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        input_name = gen.op_input_names[0]
+        qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        input_vals = [r[input_name] for r in results]
+        assert input_vals == [True]
+
+    def test_non_qdq_only_input_yields_false(self, tanh_gen) -> None:
+        """support_non_qdq=True only → only False is yielded for that input."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        input_name = gen.op_input_names[0]
+        qdq_config = {input_name: QDQParameterConfig(support_non_qdq=True)}
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        input_vals = [r[input_name] for r in results]
+        assert input_vals == [False]
+
+    def test_both_flags_yields_true_and_false(self, tanh_gen) -> None:
+        """support_activation=True + support_non_qdq=True → both True and False yielded."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        input_name = gen.op_input_names[0]
+        qdq_config = {input_name: QDQParameterConfig(support_activation=True, support_non_qdq=True)}
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        input_vals = [r[input_name] for r in results]
+        assert sorted(input_vals) == [False, True]
+
+    def test_output_not_in_config_always_true(self, tanh_gen) -> None:
+        """Output absent from qdq_config always gets should_qdq=True."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        input_name = gen.op_input_names[0]
+        output_name = gen.schema.outputs[0].name
+        qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        assert all(r[output_name] is True for r in results)
+
+    def test_output_with_non_qdq_yields_false_combo(self, tanh_gen) -> None:
+        """Output configured with support_non_qdq=True yields a False combination."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        input_name = gen.op_input_names[0]
+        output_name = gen.schema.outputs[0].name
+        qdq_config = {
+            input_name: QDQParameterConfig(support_activation=True),
+            output_name: QDQParameterConfig(support_non_qdq=True),
+        }
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        output_vals = [r[output_name] for r in results]
+        assert False in output_vals
+
+    def test_cross_product_two_inputs(self, gather_gen) -> None:
+        """Two inputs with independent options produce the full cross-product."""
+        gen = gather_gen
+        kwargs = self._first_kwargs(gen)
+        # Gather: data=activation, indices=pass-through
+        qdq_config = gen.get_qdq_config()
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        # data: only True; indices: only False -> 1 x 1 = 1 input combo
+        # output: only True → total 1
+        assert len(results) >= 1
+        # data (activation-only) must always be True
+        data_vals = {r.get("data") for r in results}
+        assert data_vals == {True}
+
+    def test_output_name_in_config_not_treated_as_input(self, tanh_gen) -> None:
+        """An output name in qdq_config is handled as an output, not duplicated as input."""
+        gen = tanh_gen
+        kwargs = self._first_kwargs(gen)
+        input_name = gen.op_input_names[0]
+        output_name = gen.schema.outputs[0].name
+        qdq_config = {
+            input_name: QDQParameterConfig(support_activation=True),
+            output_name: QDQParameterConfig(support_activation=True),
+        }
+        results = list(gen._iter_should_qdq_combinations(kwargs, qdq_config))
+        # Both input and output appear in each result, each exactly once
+        assert all(input_name in r for r in results)
+        assert all(output_name in r for r in results)
+        # No extra keys beyond input + output
+        assert all(set(r.keys()) == {input_name, output_name} for r in results)
+
+
 class TestIterQDQCombinationsUnit:
     """Unit tests for the iter_qdq_combinations method of OpInputGenerator."""
 
@@ -398,7 +527,9 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert results == []
 
     def test_yields_nothing_when_qdq_config_is_none(self, tanh_gen) -> None:
@@ -407,7 +538,7 @@ class TestIterQDQCombinationsUnit:
         kwargs, tags = self._first_kwargs_tags(gen)
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, None, set()))
+        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, None, set()))
         assert results == []
 
     def test_yields_nothing_when_input_absent_from_config(self, tanh_gen) -> None:
@@ -416,7 +547,7 @@ class TestIterQDQCombinationsUnit:
         kwargs, tags = self._first_kwargs_tags(gen)
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, set()))
+        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, {}, set()))
         assert results == []
 
     def test_yields_nothing_when_constant_input_lacks_weight_support(self, tanh_gen) -> None:
@@ -426,7 +557,9 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: True}  # constant = weight
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}  # activation only
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert results == []
 
     def test_yields_nothing_when_nonconstant_input_lacks_activation_support(self, tanh_gen) -> None:
@@ -436,7 +569,9 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}  # non-constant = activation
         qdq_config = {input_name: QDQParameterConfig(support_weight=True)}  # weight only
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert results == []
 
     def test_activation_input_yields_one_per_activation_type(self, tanh_gen) -> None:
@@ -446,7 +581,9 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) == len(gen.qdq_generator.activation_onnx_types)
 
     def test_weight_input_yields_weight_times_activation_count(self, tanh_gen) -> None:
@@ -456,7 +593,9 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: True}
         qdq_config = {input_name: QDQParameterConfig(support_weight=True)}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         n_weight = len(gen.qdq_generator.weight_onnx_types)
         n_activation = len(gen.qdq_generator.activation_onnx_types)
         assert len(results) == n_weight * n_activation
@@ -468,7 +607,9 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) > 0
         for _, final_tags in results:
             assert "qdq_types" in final_tags
@@ -483,7 +624,9 @@ class TestIterQDQCombinationsUnit:
         output_name = gen.schema.outputs[0].name
         is_constant_map = {input_name: False}
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) > 0
         for _, final_tags in results:
             qdq_types = final_tags["qdq_types"]
@@ -501,10 +644,14 @@ class TestIterQDQCombinationsUnit:
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
         qdq_tested_types: set = set()
         first_pass = list(
-            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, qdq_tested_types)
+            gen.iter_qdq_combinations(
+                kwargs, tags, is_constant_map, {}, qdq_config, qdq_tested_types
+            )
         )
         second_pass = list(
-            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, qdq_tested_types)
+            gen.iter_qdq_combinations(
+                kwargs, tags, is_constant_map, {}, qdq_config, qdq_tested_types
+            )
         )
         assert len(first_pass) > 0
         assert second_pass == []
@@ -516,8 +663,12 @@ class TestIterQDQCombinationsUnit:
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
-        first = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
-        second = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        first = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
+        second = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(first) == len(second) > 0
 
     def test_weight_type_override_skips_weight_iteration(self, tanh_gen) -> None:
@@ -531,7 +682,9 @@ class TestIterQDQCombinationsUnit:
                 support_weight=True, weight_type=dtypes.SupportedONNXType.INT8
             )
         }
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) == len(gen.qdq_generator.activation_onnx_types)
 
     def test_weight_type_override_sets_correct_type_in_tags(self, tanh_gen) -> None:
@@ -545,7 +698,9 @@ class TestIterQDQCombinationsUnit:
                 support_weight=True, weight_type=dtypes.SupportedONNXType.INT8
             )
         }
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) > 0
         for _, final_tags in results:
             assert final_tags["qdq_types"][input_name] == dtypes.SupportedONNXType.INT8.annotation
@@ -561,7 +716,9 @@ class TestIterQDQCombinationsUnit:
                 support_activation=True, activation_type=dtypes.SupportedONNXType.UINT8
             )
         }
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) > 0
         for _, final_tags in results:
             assert final_tags["qdq_types"][input_name] == dtypes.SupportedONNXType.UINT8.annotation
@@ -572,13 +729,82 @@ class TestIterQDQCombinationsUnit:
         kwargs, tags = self._float_kwargs_tags(gen)
         input_name = gen.op_input_names[0]
         is_constant_map = {input_name: False}
-        qdq_config = {
-            input_name: QDQParameterConfig(support_weight=False, support_activation=False)
-        }
-        results = list(gen.iter_qdq_combinations(kwargs, tags, is_constant_map, qdq_config, set()))
+        qdq_config = {input_name: QDQParameterConfig(support_non_qdq=True)}
+        results = list(
+            gen.iter_qdq_combinations(kwargs, tags, is_constant_map, {}, qdq_config, set())
+        )
         assert len(results) > 0
         for _, final_tags in results:
             assert final_tags["qdq_types"][input_name] is None
+
+    def test_output_no_qdq_suppresses_q_node(self, tanh_gen) -> None:
+        """Output with should_qdq=False in should_qdq_map produces no QuantizeLinear node.
+
+        When should_qdq_map[output_name] is False, the generated model must NOT
+        have a QuantizeLinear node wrapping the operator output, and the output qdq_types tag
+        must be None for that output.
+        """
+        gen = tanh_gen
+        kwargs, tags = self._float_kwargs_tags(gen)
+        input_name = gen.op_input_names[0]
+        output_name = gen.schema.outputs[0].name
+        is_constant_map = {input_name: False}
+        qdq_config = {
+            input_name: QDQParameterConfig(support_activation=True),
+        }
+        should_qdq_map = {
+            input_name: True,
+            output_name: False,  # suppress Q on output
+        }
+        results = list(
+            gen.iter_qdq_combinations(
+                kwargs, tags, is_constant_map, should_qdq_map, qdq_config, set()
+            )
+        )
+        assert len(results) > 0
+
+        for model, final_tags in results:
+            # qdq_types tag must record None for the suppressed output
+            assert final_tags["qdq_types"][output_name] is None
+
+            # Model graph must not contain any QuantizeLinear node
+            node_op_types = [node.op_type for node in model.graph.node]
+            assert "QuantizeLinear" not in node_op_types, (
+                f"Expected no QuantizeLinear node, but found nodes: {node_op_types}"
+            )
+
+            # Model must still contain a DequantizeLinear node (input is still quantized)
+            assert "DequantizeLinear" in node_op_types
+
+            # Graph output must be the raw float output of the operator (not a quantized type)
+            import onnx
+
+            assert len(model.graph.output) == 1
+            assert model.graph.output[0].type.tensor_type.elem_type == onnx.TensorProto.FLOAT
+
+    def test_input_suppressed_via_should_qdq_map_records_none_in_qdq_types(self, tanh_gen) -> None:
+        """should_qdq_map[input]=False suppresses DQ and records None in qdq_types tag."""
+        gen = tanh_gen
+        kwargs, tags = self._float_kwargs_tags(gen)
+        input_name = gen.op_input_names[0]
+        output_name = gen.schema.outputs[0].name
+        is_constant_map = {input_name: False}
+        qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
+        should_qdq_map = {
+            input_name: False,  # suppress DQ on input
+            output_name: True,
+        }
+        results = list(
+            gen.iter_qdq_combinations(
+                kwargs, tags, is_constant_map, should_qdq_map, qdq_config, set()
+            )
+        )
+        assert len(results) > 0
+        for model, final_tags in results:
+            assert final_tags["qdq_types"][input_name] is None
+            node_op_types = [node.op_type for node in model.graph.node]
+            assert "DequantizeLinear" not in node_op_types
+            assert "QuantizeLinear" in node_op_types
 
     def test_yields_nothing_when_input_type_not_in_dq_output_types(self, tanh_gen) -> None:
         """iter_qdq_combinations yields nothing when the resolved input type is not float."""
@@ -592,7 +818,7 @@ class TestIterQDQCombinationsUnit:
         is_constant_map = {input_name: False}
         qdq_config = {input_name: QDQParameterConfig(support_activation=True)}
         results = list(
-            gen.iter_qdq_combinations(kwargs, int8_tags, is_constant_map, qdq_config, set())
+            gen.iter_qdq_combinations(kwargs, int8_tags, is_constant_map, {}, qdq_config, set())
         )
         assert results == []
 
@@ -800,6 +1026,10 @@ class TestIterQDQCombinationsTagSchema:
             assert final_tags["qdq_types"][output_name] in valid_anns
 
 
+unary_input_shapes = 8
+binary_input_shapes = 42
+
+
 class TestIterQDQCombinations:
     """Tests for iter_qdq_combinations and iter_const_and_dynamic_models methods."""
 
@@ -807,22 +1037,49 @@ class TestIterQDQCombinations:
         "op_name,expected_count",
         [
             # All binary use this and it is enough
-            ("Add", 41 * (16 * 2 - 4)),  # 1148
-            ("Concat", 60),  # case 15 * type 4
+            ("Add", binary_input_shapes * (16 * 2 - 4)),  # 1176
+            (
+                "AveragePool",
+                1152,
+            ),  # QDQ 4 * shape 3 * combo 3 * finite attributes 2 * 2 * 2 * optional strides, pads 4
+            (
+                "Cast",
+                (1 + 12 * 2) * 4 * unary_input_shapes,
+            ),  # float->float, others (12 types) only 1 direction supported
+            ("Clip", unary_input_shapes * 4 * (4 + 4 + 4 + 1)),  # act 4 * weight 13
+            ("Concat", 240),  # 15 base shapes/axes * 4 variadic counts * 4 activation types
             (
                 "Conv",
                 1536,
             ),  # shape 3 * auto_pad 4 * group_opts 2 * kernel shape 2 * optional b 2 * 16 = 1536
+            (
+                "ConvTranspose",
+                3072,
+            ),  # shape 3 * auto_pad 4 * group_opts 2 * output 4 * optional b 2 * 16
+            (
+                "CumSum",
+                2816,
+            ),  # qdq 4 * is_constant 4 * attributes 4 * (2 + 2 + 4 + 6 + 8 + 10 + 12)
+            # All comparison use this
+            ("Equal", binary_input_shapes * 16),  # 672
+            ("Expand", 328),  # case 41 * QDQ 4 * is_constant shape 2
             ("Flatten", 28 * 4),  # 112
             (
                 "Gather",
                 1184,
-            ),  # (2*7+3*(6+5+4+3+2)) input combos * 2 Tind types * 2 Tind optional * 4 activation types
+            ),  # (2*7+3*(6+5+4+3+2)) input combos
+            # * 2 Tind types * 2 Tind optional * 4 act types
+            (
+                "GatherElements",
+                864,
+            ),  # (7+6+5+4+3+2)*2 input combos * 2 Tind types * 2 Tind optional * 4 activation types
+            ("Gelu", unary_input_shapes * 4 * 2),  # 64
             (
                 "Gemm",
-                512 * 4,
-            ),  # attributes 2 * 2 * C dim 4 * optional C 2 * 16 = 512; generator also enumerates 4 broadcast/shape variants (only 1 is semantically valid), so we expect 512 * 4
+                2304,
+            ),  # attributes 2 * 2 * 3 * 3 * C dim 4 * 16 = 2304
             ("GlobalAveragePool", 3 * 4),  # 12
+            ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
             ("MatMul", 36 * (16 * 2 - 4)),  # 1008
             (
@@ -830,14 +1087,43 @@ class TestIterQDQCombinations:
                 768,
             ),  # shape 3 * finite attributes 2 * 2 * 2 * optional combinations 2 * 2 * 2 * 4
             (
+                "Pad",
+                512,
+            ),  # shape 8 * mode 4 * QDQ 4 * is_constant pads 2 * Tind 2 (actually axes not used)
+            # All Reduce* use this and it is enough
+            (
                 "ReduceSum",
                 1440,
-            ),  # (3 + 3 + 6 * 4) * 4 QDQ types * 4 attributes combinations * 3 (axes none, const, not const)
-            ("Softmax", 7 * 11 * 4),  # 308 actually 172
+            ),  # (3+3+6*4) * 4 QDQ * 4 attr combos
+            # * 3 (axes none, const, not const)
+            ("Reshape", 36 * 4 * 2 * 2),  # allowzero 2 * is_constant 2
+            (
+                "Resize",
+                2880,
+            ),  # shape 4 * T2 3 * QDQ 4 * antialias 2
+            # * attribute 5 * (optional input 4 + 2)
+            (
+                "ScatterND",
+                1680,
+            ),  # qdq 4 * is_constant 2 * reduction 5 * q 2 * (1 + 2 + 3 + 4 + 5 + 6)
+            ("Shape", 37 * 4 * 2),  # optional end
+            (
+                "Slice",
+                4704,
+            ),  # QDQ 4 * starts,ends is_const 4
+            # * Tind type 2 * (3 + 36 * axes,steps is_const 4)
+            ("Softmax", (unary_input_shapes - 1) * 11 * 4),  # 704 actually 172
+            ("Split", 352),  # QDQ 4 * (30 * is_constant 2 + 28)
+            ("Squeeze", 216),  # QDQ 4 * split 3 state * 18 cases
             # All unary use this and it is enough
-            ("Tanh", 7 * 4),  # 28
+            ("Tanh", unary_input_shapes * 4),  # 32
+            ("TopK", 768),  # QDQ 4 * example 12 * k is_constant 2 * parameter 8
             ("Transpose", 11 * 4 * 2),  # 88
-            ("Where", 75 * 4 * 4),  # 1200
+            ("Unsqueeze", 208),  # 26 * 4 QDQ types * 2 is_constant axes
+            (
+                "Where",
+                (42 * 2 - 7) * 4 * (2 + 4 + 4 + 7),
+            ),  # 5236, 7 cases with same shape, different qdq for x,y
         ],
     )
     def test_qdq_total_count(self, op_name: str, expected_count: int) -> None:
@@ -855,4 +1141,5 @@ class TestIterQDQCombinations:
                 assert "qdq_types" in final_tags
                 count += 1
 
+        # For rerun, could track in https://github.com/gim-home/ModelKit/issues/278
         assert count == expected_count, "If changes, either bug or need to rerun"
