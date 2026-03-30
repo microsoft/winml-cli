@@ -276,7 +276,10 @@ class QDQParameterConfig:
             or self.support_weight
             or self.support_non_qdq
             or self.qdq_types is not None
-        ), "At least one of support_weight, support_activation, support_non_qdq, or qdq_types must be set"
+        ), (
+            "At least one of support_weight, support_activation, "
+            "support_non_qdq, or qdq_types must be set"
+        )
 
 
 class OpInputGenerator(ABC):
@@ -1817,10 +1820,13 @@ class OpInputGenerator(ABC):
         weight or activation.
         - as weight: the input is from initializer
         - as activation: the input is not from initializer
-        - if the config has qdq_types, it indicates the input could be quantized as those types. Overwrite the default list
+        - if the config has qdq_types, it indicates the input could be quantized as those types.
+          Overwrite the default list
         If input names are not in the dict
-        - if the input name is optional, then when the value is actually provided, we will not generate the model because we don't know what it is supported
-        - if the input name is required, then we will not generate the model because we don't know what it is supported
+        - if the input name is optional, then when the value is actually provided, we will not
+          generate the model because we don't know what it is supported
+        - if the input name is required, then we will not generate the model because we don't
+          know what it is supported
         """
         return None
 
