@@ -198,6 +198,7 @@ class TestWinMLSessionProviders:
         providers = session._session.get_providers()
         assert "CPUExecutionProvider" in providers
 
+    @pytest.mark.e2e
     def test_winml_registry_ep_discovery(self):
         """Test that WinMLEPRegistry can discover EPs when WinML SDK is present."""
         registry = WinMLEPRegistry.get_instance()
@@ -495,6 +496,7 @@ class TestWinMLSessionErrorState:
         assert "C" in outputs
 
 
+@pytest.mark.e2e
 class TestWinMLSessionEPSpecific:
     """EP-specific tests using @pytest.mark.ep() markers.
 
