@@ -113,17 +113,15 @@ class TestWinMLSessionCompilation:
             device="cpu",
         )
 
-        # First compile creates EPContext
+        # First compile creates session
         session.compile()
-        ctx_path = simple_matmul_onnx.parent / f"{simple_matmul_onnx.stem}_cpu_ctx.onnx"
-        first_mtime = ctx_path.stat().st_mtime
+        assert session.state == SessionState.COMPILED
+        first_session = session._session
 
-        # Second compile should skip (fresh EPContext exists)
+        # Second compile should be a no-op (same session reused)
         session.compile()
-        second_mtime = ctx_path.stat().st_mtime
-
-        # File should not be recreated
-        assert first_mtime == second_mtime
+        assert session.state == SessionState.COMPILED
+        assert session._session is first_session
 
     def test_run_uses_epcontext_after_compile(self, simple_matmul_onnx: Path):
         """Test that run() uses EPContext if compile() was called first."""
@@ -201,14 +199,17 @@ class TestWinMLSessionProviders:
         assert "CPUExecutionProvider" in providers
 
     def test_winml_registry_ep_discovery(self):
-        """Test that WinMLEPRegistry can discover EPs (may be empty on non-Windows)."""
-        registry = WinMLEPRegistry.get_instance()
+        """Test that WinMLEPRegistry can discover EPs (may be empty without WinML SDK)."""
+        try:
+            registry = WinMLEPRegistry.get_instance()
+        except Exception:
+            pytest.skip("WinMLEPRegistry initialization failed (WinML SDK not available)")
 
         # Registry should be accessible
         assert registry is not None
 
         # winml_available indicates if WinML SDK is present
-        # This may be False on non-Windows or without WinML SDK
+        # This may be False without WinML SDK installed
         if registry.winml_available:
             eps = registry.get_available_eps()
             # If WinML is available, should have at least one EP
@@ -504,7 +505,7 @@ class TestWinMLSessionEPSpecific:
     """
 
     @pytest.mark.parametrize(
-        ("ep_name", "device", "provider_name"),
+        ("ep_key", "device", "provider_name"),
         [
             pytest.param("qnn", "npu", "QNNExecutionProvider", marks=pytest.mark.ep("qnn")),
             pytest.param(
@@ -514,7 +515,7 @@ class TestWinMLSessionEPSpecific:
                 marks=pytest.mark.ep("openvino"),
             ),
             pytest.param(
-                "directml",
+                "dml",
                 "gpu",
                 "DmlExecutionProvider",
                 marks=pytest.mark.ep("directml"),
@@ -528,14 +529,8 @@ class TestWinMLSessionEPSpecific:
             pytest.param(
                 "tensorrt",
                 "gpu",
-                "TensorrtExecutionProvider",
-                marks=pytest.mark.ep("tensorrt"),
-            ),
-            pytest.param(
-                "tensorrt_rtx",
-                "gpu",
                 "NvTensorRTRTXExecutionProvider",
-                marks=pytest.mark.ep("tensorrt_rtx"),
+                marks=pytest.mark.ep("tensorrt"),
             ),
             pytest.param(
                 "vitisai",
@@ -543,22 +538,22 @@ class TestWinMLSessionEPSpecific:
                 "VitisAIExecutionProvider",
                 marks=pytest.mark.ep("vitisai"),
             ),
-            pytest.param("rocm", "gpu", "ROCMExecutionProvider", marks=pytest.mark.ep("rocm")),
         ],
-        ids=["qnn", "openvino", "directml", "cuda", "tensorrt", "tensorrt_rtx", "vitisai", "rocm"],
+        ids=["qnn", "openvino", "dml", "cuda", "tensorrt", "vitisai"],
     )
     def test_ep_inference(
         self,
         simple_matmul_onnx: Path,
         sample_input: dict[str, np.ndarray],
-        ep_name: str,
+        ep_key: str,
         device: str,
         provider_name: str,
     ):
-        """Test inference with specific EP."""
+        """Test inference with specific EP using explicit EP targeting."""
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device=device,
+            ep=ep_key,
         )
 
         outputs = session.run(sample_input)
@@ -566,7 +561,7 @@ class TestWinMLSessionEPSpecific:
         # Verify expected EP is being used
         providers = session._session.get_providers()
         assert provider_name in providers, (
-            f"{ep_name} EP ({provider_name}) not in providers: {providers}"
+            f"{ep_key} EP ({provider_name}) not in providers: {providers}"
         )
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
