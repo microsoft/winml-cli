@@ -68,6 +68,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if not items_with_ep_markers:
         return  # No EP markers, skip expensive WinML discovery
 
+    # Quick check: skip EP discovery if WinML SDK packages are not available
+    try:
+        import winui3.microsoft.windows.ai.machinelearning  # noqa: F401
+    except ImportError:
+        for item in items_with_ep_markers:
+            item.add_marker(pytest.mark.skip(reason="WinML SDK not available"))
+        return
+
     import onnxruntime as ort
 
     from winml.modelkit.session.ep_registry import WinMLEPRegistry
