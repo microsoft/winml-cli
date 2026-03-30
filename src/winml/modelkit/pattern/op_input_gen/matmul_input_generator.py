@@ -305,5 +305,5 @@ class GemmInputGenerator(OpInputGenerator):
         return {
             "A": QDQParameterConfig(support_activation=True),
             "B": QDQParameterConfig(support_weight=True),
-            "C": QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT32),
+            "C": QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
         }
