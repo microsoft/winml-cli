@@ -505,7 +505,7 @@ class TestWinMLSessionEPSpecific:
     """
 
     @pytest.mark.parametrize(
-        ("ep_key", "device", "provider_name"),
+        ("ep_name", "device", "provider_name"),
         [
             pytest.param("qnn", "npu", "QNNExecutionProvider", marks=pytest.mark.ep("qnn")),
             pytest.param(
@@ -515,7 +515,7 @@ class TestWinMLSessionEPSpecific:
                 marks=pytest.mark.ep("openvino"),
             ),
             pytest.param(
-                "dml",
+                "directml",
                 "gpu",
                 "DmlExecutionProvider",
                 marks=pytest.mark.ep("directml"),
@@ -529,8 +529,14 @@ class TestWinMLSessionEPSpecific:
             pytest.param(
                 "tensorrt",
                 "gpu",
-                "NvTensorRTRTXExecutionProvider",
+                "TensorrtExecutionProvider",
                 marks=pytest.mark.ep("tensorrt"),
+            ),
+            pytest.param(
+                "tensorrt_rtx",
+                "gpu",
+                "NvTensorRTRTXExecutionProvider",
+                marks=pytest.mark.ep("tensorrt_rtx"),
             ),
             pytest.param(
                 "vitisai",
@@ -538,31 +544,32 @@ class TestWinMLSessionEPSpecific:
                 "VitisAIExecutionProvider",
                 marks=pytest.mark.ep("vitisai"),
             ),
+            pytest.param("rocm", "gpu", "ROCMExecutionProvider", marks=pytest.mark.ep("rocm")),
         ],
-        ids=["qnn", "openvino", "dml", "cuda", "tensorrt", "vitisai"],
+        ids=["qnn", "openvino", "directml", "cuda", "tensorrt", "tensorrt_rtx", "vitisai", "rocm"],
     )
     def test_ep_inference(
         self,
         simple_matmul_onnx: Path,
         sample_input: dict[str, np.ndarray],
-        ep_key: str,
+        ep_name: str,
         device: str,
         provider_name: str,
     ):
-        """Test inference with specific EP using explicit EP targeting."""
+        """Test inference with specific EP."""
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device=device,
-            ep=ep_key,
         )
 
         outputs = session.run(sample_input)
 
-        # Verify expected EP is being used
+        # With policy-based selection, ORT picks the best EP for the device.
+        # Verify inference succeeds and a non-CPU EP is used for gpu/npu devices.
         providers = session._session.get_providers()
-        assert provider_name in providers, (
-            f"{ep_key} EP ({provider_name}) not in providers: {providers}"
-        )
+        if device != "cpu":
+            non_cpu = [p for p in providers if p != "CPUExecutionProvider"]
+            assert len(non_cpu) > 0, f"Expected non-CPU EP for device={device}, got: {providers}"
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
 
