@@ -259,3 +259,4 @@ specs/
 /coverage_output_*/
 /eval_results
 /settings.local.json
+.claude/settings.local.json
