@@ -77,7 +77,7 @@ def _gemm_cap_name() -> str | None:
 class TestRewritePipeRoundTrip:
     """Round-trip: match source patterns, rewrite, verify no source patterns remain."""
 
-    @pytest.mark.parametrize("gelu_variant", ["Gelu1", "Gelu2", "Gelu3"])
+    @pytest.mark.parametrize("gelu_variant", ["Gelu1Pattern", "Gelu2Pattern", "Gelu3Pattern"])
     def test_gelu_rewrite_removes_source_pattern(self, gelu_variant: str) -> None:
         """After rewriting there should be no remaining source pattern matches."""
         cap_name = _gelu_cap_name_for_variant(gelu_variant)
@@ -96,23 +96,23 @@ class TestRewritePipeRoundTrip:
         assert after == 0, f"Expected 0 {gelu_variant} matches after rewriting, got {after}"
 
     def test_matmul_add_rewrite_removes_source_pattern(self) -> None:
-        """After rewriting there should be no remaining MatMulAdd matches."""
+        """After rewriting there should be no remaining MatMulAddPattern matches."""
         cap_name = _gemm_cap_name()
         if cap_name is None:
             pytest.skip("No Gemm/MatMulAdd rewrite group found")
 
-        model, _, _ = generate_self_matching_model("MatMulAdd")
+        model, _, _ = generate_self_matching_model("MatMulAddPattern")
 
-        before = _count_pattern_matches(model, "MatMulAdd")
-        assert before >= 1, f"Expected ≥1 MatMulAdd match before rewriting, got {before}"
+        before = _count_pattern_matches(model, "MatMulAddPattern")
+        assert before >= 1, f"Expected ≥1 MatMulAddPattern match before rewriting, got {before}"
 
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
         result = RewritePipe().process(model, config)
 
-        after = _count_pattern_matches(result, "MatMulAdd")
-        assert after == 0, f"Expected 0 MatMulAdd matches after rewriting, got {after}"
+        after = _count_pattern_matches(result, "MatMulAddPattern")
+        assert after == 0, f"Expected 0 MatMulAddPattern matches after rewriting, got {after}"
 
-    @pytest.mark.parametrize("gelu_variant", ["Gelu1", "Gelu2", "Gelu3"])
+    @pytest.mark.parametrize("gelu_variant", ["Gelu1Pattern", "Gelu2Pattern", "Gelu3Pattern"])
     def test_gelu_rewrite_produces_valid_onnx(self, gelu_variant: str) -> None:
         """Rewritten model must pass onnx.checker.check_model."""
         cap_name = _gelu_cap_name_for_variant(gelu_variant)
@@ -130,7 +130,7 @@ class TestRewritePipeRoundTrip:
         if cap_name is None:
             pytest.skip("No Gemm/MatMulAdd rewrite group found")
 
-        model, _, _ = generate_self_matching_model("MatMulAdd")
+        model, _, _ = generate_self_matching_model("MatMulAddPattern")
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
         result = RewritePipe().process(model, config)
         onnx.checker.check_model(result)
@@ -150,8 +150,8 @@ class TestRewritePipeNoMatchEdgeCases:
         if cap_name is None:
             pytest.skip("No GELU rewrite group found")
 
-        # MatMulAdd model has no GELU patterns
-        model, _, _ = generate_self_matching_model("MatMulAdd")
+        # MatMulAddPattern model has no GELU patterns
+        model, _, _ = generate_self_matching_model("MatMulAddPattern")
         original_node_count = len(model.graph.node)
 
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
@@ -165,7 +165,7 @@ class TestRewritePipeNoMatchEdgeCases:
         if cap_name is None:
             pytest.skip("No Gemm rewrite group found")
 
-        model, _, _ = generate_self_matching_model("Gelu1")
+        model, _, _ = generate_self_matching_model("Gelu1Pattern")
         original_node_count = len(model.graph.node)
 
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
@@ -175,7 +175,7 @@ class TestRewritePipeNoMatchEdgeCases:
 
     def test_all_disabled_returns_same_object(self) -> None:
         """With no rules process() must return the same object."""
-        model, _, _ = generate_self_matching_model("Gelu1")
+        model, _, _ = generate_self_matching_model("Gelu1Pattern")
         config = RewritePipe.build_config()
         result = RewritePipe().process(model, config)
         assert result is model
