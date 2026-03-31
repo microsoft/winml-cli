@@ -118,8 +118,7 @@ class TestMappingConstants:
     def test_ep_device_map_has_required_entries(self) -> None:
         """_EP_DEVICE_MAP has all standard EPs."""
         # NVIDIA
-        assert "CUDAExecutionProvider" in _EP_DEVICE_MAP
-        assert "TensorrtExecutionProvider" in _EP_DEVICE_MAP
+        assert "NvTensorRTRTXExecutionProvider" in _EP_DEVICE_MAP
         # AMD
         assert "MIGraphXExecutionProvider" in _EP_DEVICE_MAP
         assert "VitisAIExecutionProvider" in _EP_DEVICE_MAP
@@ -151,10 +150,10 @@ class TestMappingConstants:
                 )
                 assert _EP_DEVICE_MAP[ep] == device
 
-    def test_tensorrt_is_gpu_ep(self) -> None:
-        """TensorrtExecutionProvider should map to gpu."""
-        assert _EP_DEVICE_MAP["TensorrtExecutionProvider"] == "gpu"
-        assert "TensorrtExecutionProvider" in _DEVICE_EP_MAP["gpu"]
+    def test_nv_tensorrt_rtx_is_gpu_ep(self) -> None:
+        """NvTensorRTRTXExecutionProvider should map to gpu."""
+        assert _EP_DEVICE_MAP["NvTensorRTRTXExecutionProvider"] == "gpu"
+        assert "NvTensorRTRTXExecutionProvider" in _DEVICE_EP_MAP["gpu"]
 
 
 class TestResolveDevice:
