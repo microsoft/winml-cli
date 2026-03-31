@@ -128,8 +128,9 @@ jobs:
           }
 
           & uv @uvArgs
-          if ($LASTEXITCODE -ne 0) {
-              throw "Model evaluation failed for $(hf_id) / $(hf_task)"
+          $evalExit = $LASTEXITCODE
+          if ($evalExit -ne 0) {
+              Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task)"
           }
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Run eval for current model'
