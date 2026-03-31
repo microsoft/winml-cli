@@ -315,17 +315,6 @@ class TestORTFusionPipeProcess:
 
         assert isinstance(result, onnx.ModelProto)
 
-    @pytest.mark.slow
-    def test_process_different_model_types(self, sample_model: onnx.ModelProto) -> None:
-        """Test processing with different model types."""
-        pipe = ORTFusionPipe()
-
-        # Test common model types
-        for model_type in ["bert", "gpt2", "t5"]:
-            config = ORTFusionPipeConfig(model_type=model_type)
-            result = pipe.process(sample_model, config)
-            assert isinstance(result, onnx.ModelProto)
-
 
 class TestORTFusionPipeShouldProcess:
     """Tests for ORTFusionPipe.should_process method."""

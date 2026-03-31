@@ -10,6 +10,7 @@ model-task combination parameters for parametrized tests.
 E2E tests are auto-skipped unless explicitly selected with:
     uv run pytest -m e2e
 """
+
 from __future__ import annotations
 
 import json
@@ -63,6 +64,31 @@ def onnx_fixture_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def onnx_model_path(onnx_fixture_dir: Path) -> Path:
     """Path to a valid minimal ONNX model for testing."""
     return onnx_fixture_dir / "test_model.onnx"
+
+
+@pytest.fixture
+def simple_matmul_onnx(tmp_path: Path) -> Path:
+    """Create simple MatMul ONNX model (A @ B = C) for EP inference tests."""
+    a_input = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+    c_output = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+    np.random.seed(42)
+    b_values = np.random.randn(4, 4).astype(np.float32)
+    b_tensor = helper.make_tensor("B", TensorProto.FLOAT, [4, 4], b_values.flatten().tolist())
+    matmul_node = helper.make_node("MatMul", ["A", "B"], ["C"], name="matmul")
+    graph = helper.make_graph([matmul_node], "test_matmul", [a_input], [c_output], [b_tensor])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model.ir_version = 7
+    onnx.checker.check_model(model)
+    path = tmp_path / "test_matmul.onnx"
+    onnx.save(model, str(path))
+    return path
+
+
+@pytest.fixture
+def sample_input() -> dict[str, np.ndarray]:
+    """Create sample input for MatMul model."""
+    np.random.seed(123)
+    return {"A": np.random.randn(1, 4).astype(np.float32)}
 
 
 @pytest.fixture
