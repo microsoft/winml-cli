@@ -26,7 +26,7 @@ import pytest
 from winml.modelkit.config import WinMLBuildConfig, merge_config
 from winml.modelkit.export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
 from winml.modelkit.optim.config import WinMLOptimizationConfig
-from winml.modelkit.quant.config import WinMLQuantizationConfig
+from winml.modelkit.quant import WinMLQuantizationConfig
 
 
 class TestMergeConfigBasic:

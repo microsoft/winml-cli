@@ -308,7 +308,7 @@ class TestRandomDatasetValueRanges:
 
     def test_value_ranges_from_metadata(self, tmp_path: Path) -> None:
         """RandomDataset auto-reads winml.io.inputs and uses value ranges."""
-        from winml.modelkit.datasets.random_dataset import RandomDataset
+        from winml.modelkit.datasets import RandomDataset
 
         model_path = _create_onnx_with_metadata(
             tmp_path,
@@ -325,7 +325,7 @@ class TestRandomDatasetValueRanges:
 
     def test_fallback_without_metadata(self, tmp_path: Path) -> None:
         """RandomDataset falls back to dtype-based ranges without metadata."""
-        from winml.modelkit.datasets.random_dataset import RandomDataset
+        from winml.modelkit.datasets import RandomDataset
 
         model_path = _create_onnx_with_metadata(
             tmp_path,
@@ -340,7 +340,7 @@ class TestRandomDatasetValueRanges:
 
     def test_partial_metadata(self, tmp_path: Path) -> None:
         """Inputs without value_range in metadata fall back."""
-        from winml.modelkit.datasets.random_dataset import RandomDataset
+        from winml.modelkit.datasets import RandomDataset
 
         model_path = _create_onnx_with_metadata(
             tmp_path,

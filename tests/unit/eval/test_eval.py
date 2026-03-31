@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.datasets.config import DatasetConfig
+from winml.modelkit.datasets import DatasetConfig
 from winml.modelkit.eval.config import WinMLEvaluationConfig
 from winml.modelkit.eval.evaluate import EvalResult
 
