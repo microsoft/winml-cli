@@ -31,11 +31,10 @@ from transformers import (
 # Import models package to trigger ONNX config registration with TasksManager
 # This is required for BERT/CLIP to use max_position_embeddings as sequence_length
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export.io import (
+from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
+from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
     _populate_image_size_from_preprocessor,
-    generate_dummy_inputs,
-    resolve_io_specs,
 )
 
 

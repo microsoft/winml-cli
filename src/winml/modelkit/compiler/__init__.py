@@ -31,18 +31,29 @@ from .configs import (
 )
 from .context import CompileContext
 from .result import CompileResult
-from .utils import QDQ_OP_TYPES
+from .stages.compile import CompileStage
+from .stages.optimize import OptimizeStage
+from .stages.qformat import QFormatConvertStage
+from .transforms import clear_transforms, get_transforms_for_ep, register_transform
+from .utils import QDQ_OP_TYPES, needs_format_conversion
 
 
 __all__ = [
     "QDQ_OP_TYPES",
     "CompileContext",
     "CompileResult",
+    "CompileStage",
     "Compiler",
     "EPConfig",
+    "OptimizeStage",
+    "QFormatConvertStage",
     "WinMLCompileConfig",
+    "clear_transforms",
     "compile_onnx",
+    "get_transforms_for_ep",
     "list_compilers",
+    "needs_format_conversion",
+    "register_transform",
 ]
 
 __version__ = "0.1.0"

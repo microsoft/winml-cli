@@ -199,7 +199,7 @@ class TestExportExportConfig:
     ) -> None:
         """Test export creates ExportConfig dataclass."""
         from winml.modelkit.commands.export import export
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         output_path = tmp_path / "model.onnx"
         runner.invoke(
@@ -473,7 +473,7 @@ class TestExportAutoResolveInputTensors:
     ) -> None:
         """Test export uses resolve_export_config for input_tensors when no --input-specs."""
         from winml.modelkit.commands.export import export
-        from winml.modelkit.export.config import InputTensorSpec, WinMLExportConfig
+        from winml.modelkit.export import InputTensorSpec, WinMLExportConfig
         from winml.modelkit.loader import WinMLLoaderConfig
 
         # Create mock return values for resolve_export_config

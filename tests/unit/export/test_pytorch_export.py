@@ -15,12 +15,12 @@ import pytest
 import torch
 import torch.nn as nn
 
-from winml.modelkit.export.config import (
+from winml.modelkit.export import (
     InputTensorSpec,
     OutputTensorSpec,
     WinMLExportConfig,
+    export_pytorch,
 )
-from winml.modelkit.export.pytorch import export_pytorch
 
 
 # =============================================================================
