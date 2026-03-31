@@ -111,8 +111,8 @@ Finally, validate the input combinations you wrote as in the next subsection.
 Before committing a new OpInputGenerator subclass, use the `validate_inputs()` method to ensure all input combinations are valid:
 
 ```python
-from winml.modelkit.static_analyzer.runtime_checker.op_input_gen import YourOpInputGenerator
-from winml.modelkit.static_analyzer.onnx_opset import ONNXDomain
+from winml.modelkit.analyze.runtime_checker.op_input_gen import YourOpInputGenerator
+from winml.modelkit.analyze.onnx_opset import ONNXDomain
 
 # Get schema for your operator (e.g., opset version 17, default domain)
 schema = ONNXDomain.AI_ONNX.get_op_schema("YourOp", 17)
