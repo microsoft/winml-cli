@@ -31,9 +31,9 @@ from winml.modelkit.pattern.op_input_gen import (
 )
 
 from ..exceptions import (
-    OPLackOfRequiredInformationError,
-    OPOptionalInputSupportError,
-    OPUnsupportedError,
+    OpLackOfRequiredInformationError,
+    OpOptionalInputSupportError,
+    OpUnsupportedError,
 )
 from ..models.runtime_checks import NodeTag, PatternAlternative, PatternRuntime, RuntimeTestResult
 from ..runtime_checker.ep_checker import EPChecker
@@ -522,7 +522,7 @@ def get_query_conditions_for_node(
 
     for a in node.attribute:
         if a is None:
-            raise OPOptionalInputSupportError(
+            raise OpOptionalInputSupportError(
                 f"Node {node.op_type} has optional attribute. "
                 f"Expected attribute names: {_format_list_preview(attribute_names)}"
             )
@@ -536,7 +536,7 @@ def get_query_conditions_for_node(
     try:
         runtime_checker_op = get_runtime_checker_op(node.op_type)(schema)
     except KeyError:
-        raise OPUnsupportedError(f"Node {node.op_type} is not supported") from None
+        raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
     type_vars = {}
 
     # fill missing attrs with default values; set None for optional attrs without defaults
@@ -653,7 +653,7 @@ def get_query_conditions_for_node(
                 conditions[f"{input_name}_value"] = None
                 continue
             # Required input is missing - this is an error
-            raise OPOptionalInputSupportError(
+            raise OpOptionalInputSupportError(
                 f"Node {node.op_type} missing required input {input_name}"
             )
 
@@ -701,7 +701,7 @@ def get_query_conditions_for_node(
                 # Input is provided but valueinfo not found
                 # This commonly happens in quantized models where DequantizeLinear outputs
                 # are not properly captured by shape inference
-                raise OPLackOfRequiredInformationError(
+                raise OpLackOfRequiredInformationError(
                     f"Node {node.op_type} (name: "
                     f"{node.name}): Input '{inp_name}' "
                     f"(parameter '{input_name}') not found "
@@ -729,7 +729,7 @@ def get_query_conditions_for_node(
         # KeyError: missing required property (e.g., 'input_value', 'input_shape')
         # TypeError: invalid property value (e.g., None when expecting iterable)
         # IndexError: accessing empty shape/array (e.g., shape[-1] on empty tuple)
-        raise OPLackOfRequiredInformationError(
+        raise OpLackOfRequiredInformationError(
             f"Node {node.op_type} (name: {node.name}): "
             f"Incomplete model information for "
             f"derive_properties: {e}"
@@ -1477,7 +1477,7 @@ class RuntimeCheckerQuery:
             Tuple of (passed, reason_text). passed is False if the op fails this phase.
 
         Raises:
-            OPOptionalInputSupportError: If a required property is missing from conditions.
+            OpOptionalInputSupportError: If a required property is missing from conditions.
         """
         if op_neg_rules["all_failed"][phase]:
             return False, f"The op {node.op_type} is not supported by {phase}, "
@@ -1486,7 +1486,7 @@ class RuntimeCheckerQuery:
         reason = ""
         for k, v in op_neg_rules["negative_rules"][phase].items():
             if k not in conditions:
-                raise OPOptionalInputSupportError(
+                raise OpOptionalInputSupportError(
                     f"{phase.capitalize()} check for op "
                     f"{node.op_type}: required property "
                     f"'{k}' not found in conditions"
@@ -1621,9 +1621,9 @@ class RuntimeCheckerQuery:
                 dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
             )
         except (
-            OPOptionalInputSupportError,
-            OPLackOfRequiredInformationError,
-            OPUnsupportedError,
+            OpOptionalInputSupportError,
+            OpLackOfRequiredInformationError,
+            OpUnsupportedError,
         ) as e:
             exception_type = type(e).__name__
             logger.error(
@@ -1745,7 +1745,7 @@ class RuntimeCheckerQuery:
                             filter_v[k] = conditions[k]
                         else:
                             avail = _format_list_preview(conditions.keys())
-                            raise OPOptionalInputSupportError(
+                            raise OpOptionalInputSupportError(
                                 f"Match key '{k}' not found "
                                 f"in conditions for op "
                                 f"{node.op_type} (domain: "
@@ -1890,7 +1890,7 @@ class RuntimeCheckerQuery:
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
-        except (OPOptionalInputSupportError, OPLackOfRequiredInformationError) as e:
+        except (OpOptionalInputSupportError, OpLackOfRequiredInformationError) as e:
             exception_type = type(e).__name__
             logger.error(
                 "%s caught for op %s (node: %s): %s",

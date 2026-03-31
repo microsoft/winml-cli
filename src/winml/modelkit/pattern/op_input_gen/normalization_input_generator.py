@@ -335,7 +335,7 @@ class InstanceNormalizationInputGenerator(NormalizationInputGenerator):
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),
             self.op_input_names[1]: QDQParameterConfig(support_weight=True),
-            self.op_input_names[2]: QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT32),
+            self.op_input_names[2]: QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
         }
 
 
@@ -415,7 +415,7 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
         return {
             "X": QDQParameterConfig(support_activation=True),
             "Scale": QDQParameterConfig(support_activation=True, support_weight=True),
-            "B": QDQParameterConfig(weight_type=dtypes.SupportedONNXType.INT32),
+            "B": QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
         }
 
 

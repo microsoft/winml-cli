@@ -5,11 +5,11 @@
 """Exceptions for static analyzer."""
 
 
-class OPOptionalInputSupportError(Exception):
+class OpOptionalInputSupportError(Exception):
     """Raised when optional attributes or inputs are not supported."""
 
 
-class OPLackOfRequiredInformationError(Exception):
+class OpLackOfRequiredInformationError(Exception):
     """Raised when required information (shape, dtype, etc.) is missing from the model.
 
     This commonly occurs in:
@@ -18,5 +18,6 @@ class OPLackOfRequiredInformationError(Exception):
     - Models with dynamic/symbolic dimensions
     """
 
-class OPUnsupportedError(Exception):
+
+class OpUnsupportedError(Exception):
     """Raised when an unsupported operator is encountered."""
