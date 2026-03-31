@@ -21,7 +21,7 @@ class TestGetImageProcessorConfig:
     @pytest.mark.skipif(not _hf_hub_available, reason="HF Hub disabled in offline mode")
     def test_loads_config_from_huggingface(self) -> None:
         """Should load preprocessor config from HuggingFace model."""
-        from winml.modelkit.datasets.processor_utils import get_image_processor_config
+        from winml.modelkit.datasets import get_image_processor_config
 
         # Use a real model to test loading
         config = get_image_processor_config("facebook/detr-resnet-50")
@@ -33,7 +33,7 @@ class TestGetImageProcessorConfig:
     @pytest.mark.skipif(not _hf_hub_available, reason="HF Hub disabled in offline mode")
     def test_merges_kwargs_with_loaded_config(self) -> None:
         """kwargs should override loaded config values."""
-        from winml.modelkit.datasets.processor_utils import get_image_processor_config
+        from winml.modelkit.datasets import get_image_processor_config
 
         config = get_image_processor_config(
             "facebook/detr-resnet-50",
@@ -47,7 +47,7 @@ class TestGetImageProcessorConfig:
     @pytest.mark.skipif(not _hf_hub_available, reason="HF Hub disabled in offline mode")
     def test_kwargs_take_precedence(self) -> None:
         """kwargs should take precedence over loaded config."""
-        from winml.modelkit.datasets.processor_utils import get_image_processor_config
+        from winml.modelkit.datasets import get_image_processor_config
 
         # Override a value that exists in the original config
         config = get_image_processor_config(
@@ -59,7 +59,7 @@ class TestGetImageProcessorConfig:
 
     def test_handles_invalid_model_gracefully(self) -> None:
         """Should return empty dict with kwargs on invalid model."""
-        from winml.modelkit.datasets.processor_utils import get_image_processor_config
+        from winml.modelkit.datasets import get_image_processor_config
 
         config = get_image_processor_config(
             "nonexistent/model-that-does-not-exist-xyz",
@@ -76,7 +76,7 @@ class TestObjectDetectionDatasetDeriveOverrides:
     @pytest.fixture
     def dataset_class(self) -> type:
         """Get ObjectDetectionDataset class without instantiation."""
-        from winml.modelkit.datasets.object_detection import ObjectDetectionDataset
+        from winml.modelkit.datasets import ObjectDetectionDataset
 
         return ObjectDetectionDataset
 
@@ -210,7 +210,7 @@ class TestObjectDetectionDatasetIntegration:
 
     def test_default_size_is_640(self) -> None:
         """Default image size should be 640 for object detection."""
-        from winml.modelkit.datasets.object_detection import DEFAULT_OBJECT_DETECTION_SIZE
+        from winml.modelkit.datasets import DEFAULT_OBJECT_DETECTION_SIZE
 
         assert DEFAULT_OBJECT_DETECTION_SIZE == 640
 
@@ -222,7 +222,7 @@ class TestObjectDetectionDatasetIntegration:
 
     def test_io_config_passed_through_kwargs(self) -> None:
         """io_config should be accessible via self._config."""
-        from winml.modelkit.datasets.object_detection import ObjectDetectionDataset
+        from winml.modelkit.datasets import ObjectDetectionDataset
 
         # Create instance without calling _initialize
         instance = object.__new__(ObjectDetectionDataset)

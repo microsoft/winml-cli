@@ -94,7 +94,7 @@ class TestWinMLQuantizationConfig:
 
     def test_default_values(self):
         """AC-1: Test default quantization config."""
-        from winml.modelkit.quant.config import WinMLQuantizationConfig
+        from winml.modelkit.quant import WinMLQuantizationConfig
 
         config = WinMLQuantizationConfig()
 
@@ -105,7 +105,7 @@ class TestWinMLQuantizationConfig:
 
     def test_qdq_mode_config(self):
         """Test QDQ-specific configuration."""
-        from winml.modelkit.quant.config import WinMLQuantizationConfig
+        from winml.modelkit.quant import WinMLQuantizationConfig
 
         config = WinMLQuantizationConfig(
             mode="qdq",
