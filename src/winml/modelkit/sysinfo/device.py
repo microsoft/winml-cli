@@ -37,8 +37,6 @@ logger = logging.getLogger(__name__)
 # EP name -> target device type (all lowercase values)
 _EP_DEVICE_MAP: dict[str, str] = {
     # NVIDIA
-    "CUDAExecutionProvider": "gpu",
-    "TensorrtExecutionProvider": "gpu",
     "NvTensorRTRTXExecutionProvider": "gpu",
     # AMD
     "MIGraphXExecutionProvider": "gpu",
