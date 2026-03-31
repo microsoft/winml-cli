@@ -71,13 +71,13 @@ class TestArchitectureTaskMapping:
 
     def test_architecture_mapping_exists(self):
         """AC-3: WINML_MODEL_CLASS_MAPPING should exist."""
-        from winml.modelkit.models.winml import WINML_MODEL_CLASS_MAPPING
+        from winml.modelkit.models import WINML_MODEL_CLASS_MAPPING
 
         assert isinstance(WINML_MODEL_CLASS_MAPPING, dict)
 
     def test_image_classification_patterns(self):
         """AC-3: Should detect image classification from architecture suffix."""
-        from winml.modelkit.models.winml import WINML_MODEL_CLASS_MAPPING
+        from winml.modelkit.models import WINML_MODEL_CLASS_MAPPING
 
         # WINML_MODEL_CLASS_MAPPING uses (model_type, task) tuples as keys
         # Check that the mapping structure is correct
@@ -91,7 +91,7 @@ class TestArchitectureTaskMapping:
 
     def test_sequence_classification_patterns(self):
         """AC-3: Should detect sequence classification from architecture suffix."""
-        from winml.modelkit.models.winml import WINML_MODEL_CLASS_MAPPING
+        from winml.modelkit.models import WINML_MODEL_CLASS_MAPPING
 
         seq_class_patterns = [
             k
@@ -112,29 +112,28 @@ class TestTaskDetection:
 
     def test_get_winml_class_image_classification(self):
         """AC-3: Get correct class for image classification task."""
-        from winml.modelkit.models.winml import WinMLModelForImageClassification, get_winml_class
+        from winml.modelkit.models import WinMLModelForImageClassification, get_winml_class
 
         cls = get_winml_class("convnext", "image-classification")
         assert cls == WinMLModelForImageClassification
 
     def test_get_winml_class_sequence_classification(self):
         """AC-3: Get correct class for sequence classification task."""
-        from winml.modelkit.models.winml import WinMLModelForSequenceClassification, get_winml_class
+        from winml.modelkit.models import WinMLModelForSequenceClassification, get_winml_class
 
         cls = get_winml_class("bert", "text-classification")
         assert cls == WinMLModelForSequenceClassification
 
     def test_get_winml_class_image_segmentation(self):
         """AC-3: Get correct class for image segmentation task."""
-        from winml.modelkit.models import WinMLModelForImageSegmentation
-        from winml.modelkit.models.winml import get_winml_class
+        from winml.modelkit.models import WinMLModelForImageSegmentation, get_winml_class
 
         cls = get_winml_class("segformer", "image-segmentation")
         assert cls == WinMLModelForImageSegmentation
 
     def test_get_winml_class_unknown_task_fallback(self):
         """AC-4: Unknown task falls back to generic class."""
-        from winml.modelkit.models.winml import WinMLModelForGenericTask, get_winml_class
+        from winml.modelkit.models import WinMLModelForGenericTask, get_winml_class
 
         cls = get_winml_class("resnet", "unknown-task")
         assert cls == WinMLModelForGenericTask
@@ -145,29 +144,28 @@ class TestWinMLAutoModelFactory:
 
     def test_get_winml_class_image_classification(self):
         """AC-1: Get correct model class for image classification."""
-        from winml.modelkit.models.winml import WinMLModelForImageClassification, get_winml_class
+        from winml.modelkit.models import WinMLModelForImageClassification, get_winml_class
 
         model_class = get_winml_class("convnext", "image-classification")
         assert model_class == WinMLModelForImageClassification
 
     def test_get_winml_class_sequence_classification(self):
         """AC-1: Get correct model class for sequence classification."""
-        from winml.modelkit.models.winml import WinMLModelForSequenceClassification, get_winml_class
+        from winml.modelkit.models import WinMLModelForSequenceClassification, get_winml_class
 
         model_class = get_winml_class("bert", "text-classification")
         assert model_class == WinMLModelForSequenceClassification
 
     def test_get_winml_class_image_segmentation(self):
         """AC-1: Get correct model class for image segmentation."""
-        from winml.modelkit.models import WinMLModelForImageSegmentation
-        from winml.modelkit.models.winml import get_winml_class
+        from winml.modelkit.models import WinMLModelForImageSegmentation, get_winml_class
 
         model_class = get_winml_class("segformer", "image-segmentation")
         assert model_class == WinMLModelForImageSegmentation
 
     def test_get_winml_class_unsupported_task_returns_generic(self):
         """AC-6: Unsupported task returns generic fallback (no error)."""
-        from winml.modelkit.models.winml import WinMLModelForGenericTask, get_winml_class
+        from winml.modelkit.models import WinMLModelForGenericTask, get_winml_class
 
         model_class = get_winml_class("unknown", "unsupported-task-type")
         assert model_class == WinMLModelForGenericTask
@@ -181,7 +179,7 @@ class TestWinMLAutoModelFactory:
     )
     def test_model_class_names(self, task: str, model_type: str, expected_class_name: str):
         """Test model class naming convention."""
-        from winml.modelkit.models.winml import get_winml_class
+        from winml.modelkit.models import get_winml_class
 
         model_class = get_winml_class(model_type, task)
         assert model_class.__name__ == expected_class_name
@@ -192,7 +190,7 @@ class TestExplicitTaskOverride:
 
     def test_explicit_task_returns_correct_class(self):
         """AC-5: Explicit task should map to correct WinML class."""
-        from winml.modelkit.models.winml import WinMLModelForImageClassification, get_winml_class
+        from winml.modelkit.models import WinMLModelForImageClassification, get_winml_class
 
         # When task is explicitly provided, get_winml_class returns the right class
         model_class = get_winml_class("convnext", "image-classification")
