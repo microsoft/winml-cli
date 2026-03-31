@@ -5,7 +5,7 @@
 import re
 
 from .hardware import CPU, GPU, NPU, RAM
-from .software import OS, EpPackage, PipPackage, PythonRuntime
+from .software import OS, EPPackage, PipPackage, PythonRuntime
 
 
 class WindowsAppRuntimeVersion:
@@ -49,7 +49,7 @@ class SysInfo:
         self._os = OS.get()
         self._python_runtime = PythonRuntime.get()
         self._pip_packages = PipPackage.get_all()
-        self._ep_packages = EpPackage.get_all()
+        self._ep_packages = EPPackage.get_all()
         self._windows_app_runtime_version = WindowsAppRuntimeVersion(self._pip_packages)
 
     @property
@@ -88,7 +88,7 @@ class SysInfo:
         return self._pip_packages
 
     @property
-    def ep_packages(self) -> list[EpPackage]:
+    def ep_packages(self) -> list[EPPackage]:
         """List of execution provider packages."""
         return self._ep_packages
 

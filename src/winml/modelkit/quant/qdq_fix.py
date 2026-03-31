@@ -35,7 +35,7 @@ _DEFAULT_ZERO_POINT_TYPE = TensorProto.UINT8
 
 
 @dataclass
-class QdqFixResult:
+class QDQFixResult:
     """Result of QDQ dtype fix operation."""
 
     inputs_fixed: int = 0
@@ -45,7 +45,7 @@ class QdqFixResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def fix_qdq_dtype_info(model: onnx.ModelProto) -> QdqFixResult:
+def fix_qdq_dtype_info(model: onnx.ModelProto) -> QDQFixResult:
     """Fix UNDEFINED dtype on QDQ node scale/zero_point tensors.
 
     Modifies the model **in-place**:
@@ -61,9 +61,9 @@ def fix_qdq_dtype_info(model: onnx.ModelProto) -> QdqFixResult:
         model: ONNX ModelProto to fix (modified in-place).
 
     Returns:
-        QdqFixResult with counts of fixes applied.
+        QDQFixResult with counts of fixes applied.
     """
-    result = QdqFixResult()
+    result = QDQFixResult()
     graph = model.graph
 
     # Step 1: Collect all scale/zp tensor names from QDQ nodes,
