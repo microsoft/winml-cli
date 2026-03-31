@@ -1,0 +1,62 @@
+[
+  {
+    "hf_id": "Helsinki-NLP/opus-mt-en-ru",
+    "task": "translation",
+    "reason": "Build hangs >18000s, marian enc-dec export issue"
+  },
+  {
+    "hf_id": "Helsinki-NLP/opus-mt-fr-en",
+    "task": "translation",
+    "reason": "Build hangs >2000s, marian enc-dec export issue"
+  },
+  {
+    "hf_id": "LiheYoung/depth-anything-base-hf",
+    "task": "depth-estimation",
+    "reason": "Analyzer hangs >17000s, Black nodes ConvTranspose"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-8B",
+    "task": "text-generation",
+    "reason": "Build hangs >3500s, large LLM"
+  },
+  {
+    "hf_id": "facebook/bart-large-mnli",
+    "task": "zero-shot-classification",
+    "reason": "Build hangs >19000s, bart enc-dec index OOB"
+  },
+  {
+    "hf_id": "facebook/nllb-200-distilled-600M",
+    "task": "translation",
+    "reason": "Build hangs >14000s, m2m_100 enc-dec export issue"
+  },
+  {
+    "hf_id": "google-t5/t5-3b",
+    "task": "translation",
+    "reason": "Build hangs >14000s, t5 enc-dec + network download issue"
+  },
+  {
+    "hf_id": "google-t5/t5-base",
+    "task": "summarization",
+    "reason": "Build hangs >2000s, t5 enc-dec export issue"
+  },
+  {
+    "hf_id": "google-t5/t5-small",
+    "task": "translation",
+    "reason": "Build hangs >8000s, t5 enc-dec export issue"
+  },
+  {
+    "hf_id": "knkarthick/MEETING_SUMMARY",
+    "task": "summarization",
+    "reason": "Build hangs >3000s, bart enc-dec export issue"
+  },
+  {
+    "hf_id": "moussaKam/mbarthez",
+    "task": "summarization",
+    "reason": "Build hangs >11000s, mbart enc-dec export issue"
+  },
+  {
+    "hf_id": "philschmid/bart-large-cnn-samsum",
+    "task": "summarization",
+    "reason": "Build hangs >10000s, bart enc-dec export issue"
+  }
+]
