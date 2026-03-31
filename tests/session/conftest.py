@@ -106,23 +106,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 item.add_marker(pytest.mark.skip(reason=f"EP not available: {provider_name}"))
 
 
-@pytest.fixture(autouse=True)
-def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mock WinML EP initialization for non-e2e tests.
-
-    WinMLSession.__init__ calls _init_winml_eps_once() which triggers
-    WinML SDK runtime initialization. This can hang on CI environments
-    without the SDK installed. Mock it for non-e2e tests since they
-    only need basic session functionality (CPU).
-    """
-    if "e2e" in {m.name for m in request.node.iter_markers()}:
-        return  # Let e2e tests use real SDK initialization
-    monkeypatch.setattr(
-        "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
-        classmethod(lambda cls: None),
-    )
-
-
 def create_matmul_onnx(output_path: Path) -> Path:
     """
     Create a simple MatMul ONNX model for testing.
