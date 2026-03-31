@@ -19,21 +19,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - group: unit
-            paths: tests/unit
+          - group: analyze
+            paths: tests/unit/analyze
           - group: models
-            paths: tests/models tests/loader tests/dataset_tests tests/export
+            paths: >-
+              tests/unit/models tests/unit/loader tests/unit/datasets
+              tests/unit/export
           - group: optim
-            paths: tests/optim
+            paths: tests/unit/optim
           - group: commands
             paths: >-
-              tests/commands tests/config tests/build tests/compiler
-              tests/session tests/eval
+              tests/unit/commands tests/unit/config tests/unit/build
+              tests/unit/compiler tests/unit/session tests/unit/eval
           - group: remaining
             paths: >-
-              tests/core tests/onnx tests/cache tests/utils tests/sysinfo
-              tests/inspect tests/regression tests/optracing
-              tests/test_cli.py tests/test_text_classification.py
+              tests/unit/core tests/unit/onnx tests/unit/cache
+              tests/unit/utils tests/unit/sysinfo tests/unit/inspect
+              tests/unit/optracing tests/regression
 
     name: test (${{ matrix.group }})
 

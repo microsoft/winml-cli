@@ -26,7 +26,6 @@ import onnxruntime as ort
 from google.protobuf import json_format
 from onnx.defs import SchemaError
 
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.op_input_gen import (
     OpInputGenerator,
     get_registered_operators,
@@ -36,6 +35,7 @@ from winml.modelkit.pattern.op_input_gen import (
 from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
 
 from ... import winml
+from ...onnx import ONNXDomain
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils.model_utils import get_op_since_version

@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
@@ -17,6 +16,8 @@ from winml.modelkit.pattern.base import (
 )
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.op_input_gen import InputShapeConstraint, InputValueConstraint
+
+from ..onnx import ONNXDomain
 
 
 # Shared schema for MatMulAdd and ReshapeGemmReshape patterns

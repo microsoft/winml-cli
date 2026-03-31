@@ -830,7 +830,14 @@ class SplitInputGenerator(OpInputGenerator):
         Returns:
             List of property names that represent shapes/values with infinite possibilities
         """
-        return ["input_shape", "split_value", "attr_num_outputs", "num_outputs", "attr_axis"]
+        return [
+            "input_shape",
+            "split_value",
+            "attr_num_outputs",
+            "num_outputs",
+            "attr_axis",
+            "attr_split",
+        ]
 
     def infer_output_types(
         self, kwargs: dict[str, Any], tags: dict[str, Any], required_outputs_only: bool = True

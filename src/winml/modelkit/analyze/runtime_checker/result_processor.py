@@ -12,7 +12,6 @@ import pandas as pd
 from colorama import Fore, Style
 from onnx.defs import SchemaError, onnx_opset_version
 
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.base import get_pattern_input_generator
 from winml.modelkit.pattern.op_input_gen import (
     OpInputGenerator,
@@ -20,6 +19,7 @@ from winml.modelkit.pattern.op_input_gen import (
     normalize_constraint_dict,
 )
 
+from ...onnx import ONNXDomain
 from ..utils.model_utils import get_op_since_version, make_hashable
 
 
@@ -225,7 +225,15 @@ def _format_rule_signature(group_cols: list[str], group_key: Any) -> str:
 
 
 def check_df_consistent(
-    df: pd.DataFrame, op_name: str, result_col: str, ignored_cols: list[str]
+    df: pd.DataFrame,
+    op_name: str,
+    result_col: str,
+    ignored_cols: list[str],
+    op_version: int,
+    device: str,
+    ep_name: str,
+    op_domain: str,
+    is_qdq: bool = False,
 ) -> bool:
     """Check if DataFrame has consistent results for same property combinations.
 
@@ -236,6 +244,8 @@ def check_df_consistent(
         df: DataFrame containing test results
         result_col: Column name containing the result to check for consistency
         ignored_cols: Columns to ignore in consistency check (typically infinite properties)
+        op_version: Operator version/opset to include in conflict CSV filename
+        device: Device name to include in conflict CSV filename
 
     Returns:
         True if consistent
@@ -289,7 +299,14 @@ def check_df_consistent(
     )
     ordered_cols.append("rule_signature")
     details_data_frame = details_data_frame.loc[:, ordered_cols]
-    details_data_frame.to_csv(f"{op_name}_conflicts.csv", index=False)
+    domain_str = op_domain if op_domain else "ai.onnx"
+    filename_parts = [op_name, ep_name, device, domain_str, f"opset{op_version}"]
+    if is_qdq:
+        filename_parts.append("qdq")
+    conflict_dir = Path("conflicts")
+    conflict_dir.mkdir(parents=True, exist_ok=True)
+    conflict_filename = conflict_dir / ("_".join(filename_parts) + "_conflicts.csv")
+    details_data_frame.to_csv(conflict_filename, index=False)
 
     raise ValueError(
         f"Found groups with multiple {result_col} values, "
@@ -363,6 +380,10 @@ def build_op_query_negative_rules_and_table(
     check_results: list[dict[str, Any]],
     input_generator: OpInputGenerator,
     use_qdq: bool,
+    op_version: int,
+    device: str,
+    ep_name: str,
+    op_domain: str,
     # schema: OpSchema,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     """Build negative rules from check results for a specific operator.
@@ -418,7 +439,17 @@ def build_op_query_negative_rules_and_table(
         "case_index",
     ]
     consistency_ignored = [*infinite_properties, *internal_reason_cols]
-    assert check_df_consistent(df, op_name, "compile_run_success", consistency_ignored)
+    assert check_df_consistent(
+        df,
+        op_name,
+        "compile_run_success",
+        consistency_ignored,
+        op_version=op_version,
+        device=device,
+        ep_name=ep_name,
+        op_domain=op_domain,
+        is_qdq=use_qdq,
+    )
 
     # Internal reason columns are only for consistency filtering and must not be
     # exported to tables/rules, otherwise downstream matcher treats them as
@@ -517,6 +548,7 @@ def get_opset_version_range(op_name: str, start_opset_version: int, op_domain: s
 
 if __name__ == "__main__":
     import argparse
+    import sys
     import traceback
 
     parser = argparse.ArgumentParser(
@@ -588,11 +620,9 @@ if __name__ == "__main__":
         is_qdq = json_file.stem.endswith("_qdq")
         # Remove opset suffix to get base info
         opset_match = re.search(r"_opset(\d+)(?:_qdq)?$", json_file.stem)
-        print(opset_match, json_file.stem)
         if opset_match:
             filename_without_opset = json_file.stem[: opset_match.start()]
             parts = filename_without_opset.split("_")
-            print(parts)
             if len(parts) == 4:
                 op_name, ep_name, device, file_domain = parts[:4]
                 # Only include operators from the target domain
@@ -695,7 +725,13 @@ if __name__ == "__main__":
                     input_generator = get_pattern_input_generator(op_name)(domain_versions)
 
                 op_negative_rules, df = build_op_query_negative_rules_and_table(
-                    check_results, input_generator, use_qdq=is_qdq
+                    check_results,
+                    input_generator,
+                    use_qdq=is_qdq,
+                    op_version=opset_version,
+                    device=device,
+                    ep_name=ep_name,
+                    op_domain=op_domain,
                 )
 
                 # Group by (EP, domain, current opset_version, is_qdq)
@@ -714,7 +750,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"{Fore.RED}ERROR: {e}{Style.RESET_ALL}")
                 traceback.print_exc()
-                continue
+                sys.exit(1)
 
         zip_group = {}
         # Save negative rules

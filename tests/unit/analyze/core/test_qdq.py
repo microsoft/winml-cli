@@ -21,8 +21,7 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
     RuntimeCheckerQuery,
     _get_qdq_query_conditions_for_node,
 )
-from winml.modelkit.onnx import dtypes
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain, dtypes
 from winml.modelkit.pattern.op_input_gen.op_input_gen import (
     QDQParameterConfig,
 )
@@ -131,7 +130,8 @@ class TestQDQParameterConfig:
             qdq_types=[dtypes.SupportedONNXType.INT8, dtypes.SupportedONNXType.INT32],
         )
         assert config_multi.qdq_types == [
-            dtypes.SupportedONNXType.INT8, dtypes.SupportedONNXType.INT32
+            dtypes.SupportedONNXType.INT8,
+            dtypes.SupportedONNXType.INT32,
         ]
 
 
@@ -1104,9 +1104,8 @@ class TestIterQDQCombinations:
             ("Shape", 37 * 4 * 2),  # optional end
             (
                 "Slice",
-                4704,
-            ),  # QDQ 4 * starts,ends is_const 4
-            # * Tind type 2 * (3 + 36 * axes,steps is_const 4)
+                6240,
+            ),  # QDQ 4 * Tind 2 * (48 with_axes * 16 is_const + 3 without * 4 is_const)
             ("Softmax", (unary_input_shapes - 1) * 11 * 4),  # 704 actually 172
             ("Split", 352),  # QDQ 4 * (30 * is_constant 2 + 28)
             ("Squeeze", 216),  # QDQ 4 * split 3 state * 18 cases

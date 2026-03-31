@@ -14,25 +14,35 @@ are available via ``modelkit.onnx.inspection`` for diagnostic use.
 from __future__ import annotations
 
 from .detection import is_compiled_onnx, is_quantized_onnx
+from .domains import ONNXDomain
+from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
 from .external_data import copy_onnx_model
 from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, get_io_config
 from .metadata import capture_metadata, restore_metadata
 from .persistence import cleanup_onnx, load_onnx, save_onnx
-from .shape import infer_shapes
+from .shape import infer_onnx_shapes, infer_shapes
+from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size
 
 
 __all__ = [
+    "EXTERNAL_DATA_THRESHOLD",
     "InputTensorSpec",
+    "ONNXDomain",
     "OutputTensorSpec",
+    "SupportedONNXType",
     "capture_metadata",
+    "check_onnx_model",
     "cleanup_onnx",
     "copy_onnx_model",
     "generate_inputs_from_onnx",
     "get_io_config",
+    "get_model_size",
+    "infer_onnx_shapes",
     "infer_shapes",
     "is_compiled_onnx",
     "is_quantized_onnx",
     "load_onnx",
+    "remove_optional_from_type_annotation",
     "restore_metadata",
     "save_onnx",
 ]

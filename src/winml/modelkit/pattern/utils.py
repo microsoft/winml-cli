@@ -19,8 +19,7 @@ from google.protobuf import json_format
 from onnx import AttributeProto, ModelProto, TensorProto, ValueInfoProto
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.onnx.dtypes import SupportedONNXType
+from ..onnx import ONNXDomain, SupportedONNXType
 
 
 # ---------------------------------------------------------------------------

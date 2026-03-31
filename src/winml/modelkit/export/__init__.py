@@ -19,7 +19,8 @@ from .config import (
 )
 from .io import (
     MaxLengthTextInputGenerator,
-    OnnxConfigNotFoundError,
+    ONNXConfigNotFoundError,
+    generate_dummy_inputs,
     register_onnx_overwrite,
     resolve_io_specs,
 )
@@ -32,11 +33,12 @@ __version__ = "2.1.0"
 __all__ = [
     "InputTensorSpec",
     "MaxLengthTextInputGenerator",
-    "OnnxConfigNotFoundError",
+    "ONNXConfigNotFoundError",
     "OutputTensorSpec",
     "WinMLExportConfig",
     "export_onnx",
     "export_pytorch",
+    "generate_dummy_inputs",
     "register_onnx_overwrite",
     "resolve_export_config",
     "resolve_io_specs",

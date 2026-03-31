@@ -201,7 +201,7 @@
       "title": "TracingInfo",
       "type": "object"
     },
-    "OnnxModelOutput": {
+    "ONNXModelOutput": {
       "description": "ONNX model output information",
       "properties": {
         "path": {
@@ -235,7 +235,7 @@
         "size_mb",
         "opset_version"
       ],
-      "title": "OnnxModelOutput",
+      "title": "ONNXModelOutput",
       "type": "object"
     },
     "FileInfo": {
@@ -431,7 +431,7 @@
       "type": "object",
       "properties": {
         "onnx_model": {
-          "$ref": "#/$defs/OnnxModelOutput"
+          "$ref": "#/$defs/ONNXModelOutput"
         },
         "metadata": {
           "$ref": "#/$defs/FileInfo"

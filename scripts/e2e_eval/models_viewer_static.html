@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E2E Eval Models Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242734;
+    --border: #2e3142;
+    --text: #e1e4ed;
+    --text2: #8b8fa3;
+    --accent: #6c8aff;
+    --accent2: #4ecdc4;
+    --accent3: #ff6b9d;
+    --accent4: #ffd93d;
+    --shadow: rgba(0,0,0,0.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .header {
+    background: linear-gradient(135deg, #1a1d27 0%, #242840 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header-stats {
+    display: flex;
+    gap: 20px;
+    font-size: 13px;
+    color: var(--text2);
+  }
+  .header-stats span { font-weight: 600; color: var(--accent); }
+
+  .main { display: flex; min-height: calc(100vh - 80px); }
+
+  /* Sidebar */
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(100vh - 80px);
+    position: sticky;
+    top: 0;
+  }
+  .filter-section { margin-bottom: 20px; }
+  .filter-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text2);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .filter-section h3 .count {
+    font-size: 10px;
+    background: var(--surface2);
+    padding: 1px 6px;
+    border-radius: 8px;
+    color: var(--accent);
+  }
+  .search-box {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    margin-bottom: 16px;
+  }
+  .search-box:focus { border-color: var(--accent); }
+  .search-box::placeholder { color: var(--text2); }
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.active {
+    background: rgba(108,138,255,0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .chip .chip-count {
+    font-size: 10px;
+    background: rgba(255,255,255,0.06);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+  .clear-btn {
+    font-size: 11px;
+    color: var(--accent3);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+  }
+  .clear-btn:hover { text-decoration: underline; }
+
+  /* Content */
+  .content {
+    flex: 1;
+    padding: 20px 24px;
+    overflow-y: auto;
+    max-height: calc(100vh - 80px);
+  }
+
+  /* View toggle */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .result-count { font-size: 13px; color: var(--text2); }
+  .result-count span { color: var(--accent); font-weight: 600; }
+  .view-btns {
+    display: flex;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .view-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .view-btn.active { background: var(--accent); color: #fff; }
+  .view-btn:hover:not(.active) { color: var(--text); }
+  .group-by-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+  }
+  .sort-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+  }
+
+  /* Summary cards */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .summary-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text2); margin-bottom: 4px; }
+  .summary-card .value { font-size: 28px; font-weight: 700; }
+  .summary-card .value.c1 { color: var(--accent); }
+  .summary-card .value.c2 { color: var(--accent2); }
+  .summary-card .value.c3 { color: var(--accent3); }
+  .summary-card .value.c4 { color: var(--accent4); }
+
+  /* Bar chart in sidebar */
+  .mini-bar-chart { margin-top: 4px; }
+  .mini-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+    font-size: 11px;
+  }
+  .mini-bar-label {
+    width: 100px;
+    text-align: right;
+    color: var(--text2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .mini-bar-track {
+    flex: 1;
+    height: 14px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .mini-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 4px;
+    font-size: 9px;
+    color: #fff;
+    font-weight: 600;
+    min-width: 20px;
+  }
+
+  /* Table view */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text2);
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  th:hover { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; font-size: 10px; }
+  td {
+    padding: 9px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(108,138,255,0.04); }
+  .hf-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .hf-link:hover { text-decoration: underline; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .badge-task { background: rgba(108,138,255,0.12); color: var(--accent); }
+  .badge-type { background: rgba(78,205,196,0.12); color: var(--accent2); }
+  .badge-p0 { background: rgba(255,107,157,0.15); color: var(--accent3); }
+  .badge-p1 { background: rgba(255,217,61,0.12); color: var(--accent4); }
+  .badge-group { background: rgba(255,255,255,0.06); color: var(--text2); }
+  .downloads { color: var(--text2); font-variant-numeric: tabular-nums; }
+  .badge-opt-yes { background: rgba(78,205,196,0.15); color: var(--accent2); }
+  .badge-opt-no { background: rgba(255,107,157,0.10); color: #ff8a9e; }
+  .date-cell { color: var(--text2); font-size: 12px; white-space: nowrap; }
+
+  /* Grouped view */
+  .group-section { margin-bottom: 20px; }
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px 10px 0 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .group-header:hover { background: var(--surface2); }
+  .group-header .arrow { transition: transform 0.2s; font-size: 12px; color: var(--text2); }
+  .group-header .arrow.open { transform: rotate(90deg); }
+  .group-header .group-name { font-weight: 600; font-size: 14px; }
+  .group-header .group-count {
+    font-size: 11px;
+    background: rgba(108,138,255,0.12);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .group-header .group-downloads {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .group-body {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    overflow: hidden;
+  }
+
+  /* Card view */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .model-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color 0.2s;
+  }
+  .model-card:hover { border-color: var(--accent); }
+  .model-card .card-title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+  .model-card .card-title a { color: var(--accent); text-decoration: none; }
+  .model-card .card-title a:hover { text-decoration: underline; }
+  .model-card .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .model-card .card-downloads {
+    font-size: 12px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+  @media (max-width: 800px) {
+    .main { flex-direction: column; }
+    .sidebar { width: 100%; max-height: none; position: static; }
+    .content { max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>E2E Eval Models Dashboard</h1>
+  <div class="header-stats" id="headerStats"></div>
+</div>
+
+<div class="main">
+  <aside class="sidebar">
+    <input class="search-box" id="searchBox" type="text" placeholder="Search models...">
+
+    <div class="filter-section">
+      <h3>Task <span class="count" id="taskCount"></span> <button class="clear-btn" onclick="clearFilter('task')">clear</button></h3>
+      <div class="filter-chips" id="taskChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Model Type <span class="count" id="typeCount"></span> <button class="clear-btn" onclick="clearFilter('model_type')">clear</button></h3>
+      <div class="filter-chips" id="typeChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Priority <span class="count" id="priorityCount"></span> <button class="clear-btn" onclick="clearFilter('priority')">clear</button></h3>
+      <div class="filter-chips" id="priorityChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Group <span class="count" id="groupCount"></span> <button class="clear-btn" onclick="clearFilter('group')">clear</button></h3>
+      <div class="filter-chips" id="groupChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Optimum <span class="count" id="optimumCount"></span> <button class="clear-btn" onclick="clearFilter('optimum_supported')">clear</button></h3>
+      <div class="filter-chips" id="optimumChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Task Distribution</h3>
+      <div class="mini-bar-chart" id="taskChart"></div>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="summary-row" id="summaryCards"></div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="result-count" id="resultCount"></div>
+        <label style="font-size:12px;color:var(--text2)">Group by:</label>
+        <select class="group-by-select" id="groupBySelect">
+          <option value="none">None</option>
+          <option value="task" selected>Task</option>
+          <option value="model_type">Model Type</option>
+          <option value="group">Group</option>
+          <option value="priority">Priority</option>
+          <option value="optimum_supported">Optimum Supported</option>
+        </select>
+        <label style="font-size:12px;color:var(--text2)">Sort:</label>
+        <select class="sort-select" id="sortSelect">
+          <option value="downloads_desc" selected>Downloads (High → Low)</option>
+          <option value="downloads_asc">Downloads (Low → High)</option>
+          <option value="hf_id_asc">Name (A → Z)</option>
+          <option value="hf_id_desc">Name (Z → A)</option>
+          <option value="updated_desc">Last Updated (Newest)</option>
+          <option value="updated_asc">Last Updated (Oldest)</option>
+        </select>
+      </div>
+      <div class="view-btns">
+        <button class="view-btn active" data-view="table" onclick="setView('table')">Table</button>
+        <button class="view-btn" data-view="card" onclick="setView('card')">Cards</button>
+      </div>
+    </div>
+
+    <div id="output"></div>
+  </div>
+</div>
+
+<script>
+let DATA = [{"hf_id":"cross-encoder/ms-marco-MiniLM-L6-v2","task":"text-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":11509078,"last_update_time":"2025-08-29T14:36:10+00:00","optimum_supported":true},{"hf_id":"ProsusAI/finbert","task":"text-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":5557248,"last_update_time":"2023-05-23T12:43:35+00:00","optimum_supported":true},{"hf_id":"cardiffnlp/twitter-roberta-base-sentiment-latest","task":"text-classification","model_type":"roberta","group":"Top200","priority":"P1","downloads":4665492,"last_update_time":"2025-08-04T07:58:29+00:00","optimum_supported":true},{"hf_id":"distilbert/distilbert-base-uncased-finetuned-sst-2-english","task":"text-classification","model_type":"distilbert","group":"Top200","priority":"P1","downloads":3858636,"last_update_time":"2023-12-19T16:29:37+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-reranker-v2-m3","task":"text-classification","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":3652807,"last_update_time":"2024-06-24T14:08:45+00:00","optimum_supported":true},{"hf_id":"facebook/bart-large-mnli","task":"text-classification","model_type":"bart","group":"Top200","priority":"P1","downloads":3537590,"last_update_time":"2023-09-05T14:49:34+00:00","optimum_supported":true},{"hf_id":"microsoft/deberta-xlarge-mnli","task":"text-classification","model_type":"deberta","group":"Top200","priority":"P1","downloads":2538747,"last_update_time":"2022-06-27T15:47:33+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-reranker-base","task":"text-classification","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":1737344,"last_update_time":"2024-06-24T14:10:03+00:00","optimum_supported":true},{"hf_id":"cross-encoder/ms-marco-MiniLM-L4-v2","task":"text-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":1599843,"last_update_time":"2025-08-29T14:36:22+00:00","optimum_supported":true},{"hf_id":"mixedbread-ai/mxbai-rerank-xsmall-v1","task":"text-classification","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":1163824,"last_update_time":"2025-04-02T14:42:01+00:00","optimum_supported":true},{"hf_id":"w11wo/indonesian-roberta-base-posp-tagger","task":"token-classification","model_type":"roberta","group":"Top200","priority":"P1","downloads":2625922,"last_update_time":"2024-02-19T11:03:26+00:00","optimum_supported":true},{"hf_id":"dslim/bert-base-NER","task":"token-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":1465535,"last_update_time":"2024-10-08T07:51:39+00:00","optimum_supported":true},{"hf_id":"StanfordAIMI/stanford-deidentifier-base","task":"token-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":1128572,"last_update_time":"2024-10-09T17:55:36+00:00","optimum_supported":true},{"hf_id":"dbmdz/bert-large-cased-finetuned-conll03-english","task":"token-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":1055392,"last_update_time":"2023-09-06T22:17:56+00:00","optimum_supported":true},{"hf_id":"oliverguhr/fullstop-punctuation-multilang-large","task":"token-classification","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":975485,"last_update_time":"2023-11-16T09:35:35+00:00","optimum_supported":true},{"hf_id":"Isotonic/distilbert_finetuned_ai4privacy_v2","task":"token-classification","model_type":"distilbert","group":"Top200","priority":"P1","downloads":680745,"last_update_time":"2025-11-14T09:28:25+00:00","optimum_supported":true},{"hf_id":"kredor/punctuate-all","task":"token-classification","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":482916,"last_update_time":"2024-04-26T05:37:58+00:00","optimum_supported":true},{"hf_id":"obi/deid_roberta_i2b2","task":"token-classification","model_type":"roberta","group":"Top200","priority":"P1","downloads":447433,"last_update_time":"2025-02-23T03:36:26+00:00","optimum_supported":true},{"hf_id":"Babelscape/wikineural-multilingual-ner","task":"token-classification","model_type":"bert","group":"Top200","priority":"P1","downloads":409916,"last_update_time":"2023-05-23T08:47:23+00:00","optimum_supported":true},{"hf_id":"Jean-Baptiste/camembert-ner-with-dates","task":"token-classification","model_type":"camembert","group":"Top200","priority":"P1","downloads":295227,"last_update_time":"2023-06-16T01:31:43+00:00","optimum_supported":true},{"hf_id":"ahotrod/electra_large_discriminator_squad2_512","task":"question-answering","model_type":"electra","group":"Top200","priority":"P1","downloads":873227,"last_update_time":"2020-12-11T21:31:42+00:00","optimum_supported":true},{"hf_id":"deepset/roberta-base-squad2","task":"question-answering","model_type":"roberta","group":"Top200","priority":"P1","downloads":744933,"last_update_time":"2024-09-24T15:48:47+00:00","optimum_supported":true},{"hf_id":"google-bert/bert-large-uncased-whole-word-masking-finetuned-squad","task":"question-answering","model_type":"bert","group":"Top200","priority":"P1","downloads":235161,"last_update_time":"2024-02-19T11:08:45+00:00","optimum_supported":true},{"hf_id":"timpal0l/mdeberta-v3-base-squad2","task":"question-answering","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":188751,"last_update_time":"2024-11-26T17:14:50+00:00","optimum_supported":true},{"hf_id":"distilbert/distilbert-base-cased-distilled-squad","task":"question-answering","model_type":"distilbert","group":"Top200","priority":"P1","downloads":182001,"last_update_time":"2024-05-06T13:46:31+00:00","optimum_supported":true},{"hf_id":"deepset/bert-large-uncased-whole-word-masking-squad2","task":"question-answering","model_type":"bert","group":"Top200","priority":"P1","downloads":177893,"last_update_time":"2024-09-24T15:54:10+00:00","optimum_supported":true},{"hf_id":"monologg/koelectra-small-v2-distilled-korquad-384","task":"question-answering","model_type":"electra","group":"Top200","priority":"P1","downloads":146325,"last_update_time":"2023-06-12T12:30:35+00:00","optimum_supported":true},{"hf_id":"tau/splinter-base","task":"question-answering","model_type":"splinter","group":"Top200","priority":"P1","downloads":96200,"last_update_time":"2021-08-17T14:09:19+00:00","optimum_supported":true},{"hf_id":"deepset/tinyroberta-squad2","task":"question-answering","model_type":"roberta","group":"Top200","priority":"P1","downloads":83067,"last_update_time":"2024-09-26T09:12:41+00:00","optimum_supported":true},{"hf_id":"distilbert/distilbert-base-uncased-distilled-squad","task":"question-answering","model_type":"distilbert","group":"Top200","priority":"P1","downloads":52098,"last_update_time":"2024-05-06T13:46:39+00:00","optimum_supported":true},{"hf_id":"google-bert/bert-base-uncased","task":"fill-mask","model_type":"bert","group":"Top200","priority":"P1","downloads":54254868,"last_update_time":"2024-02-19T11:06:12+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/all-mpnet-base-v2","task":"fill-mask","model_type":"mpnet","group":"Top200","priority":"P1","downloads":24738314,"last_update_time":"2025-08-19T10:14:25+00:00","optimum_supported":true},{"hf_id":"FacebookAI/xlm-roberta-base","task":"fill-mask","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":23055328,"last_update_time":"2024-02-19T12:48:21+00:00","optimum_supported":true},{"hf_id":"FacebookAI/roberta-large","task":"fill-mask","model_type":"roberta","group":"Top200","priority":"P1","downloads":19917580,"last_update_time":"2024-02-19T12:47:04+00:00","optimum_supported":true},{"hf_id":"FacebookAI/roberta-base","task":"fill-mask","model_type":"roberta","group":"Top200","priority":"P1","downloads":8760799,"last_update_time":"2024-02-19T12:39:28+00:00","optimum_supported":true},{"hf_id":"distilbert/distilbert-base-uncased","task":"fill-mask","model_type":"distilbert","group":"Top200","priority":"P1","downloads":7663501,"last_update_time":"2024-05-06T13:44:53+00:00","optimum_supported":true},{"hf_id":"FacebookAI/xlm-roberta-large","task":"fill-mask","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":6304291,"last_update_time":"2024-02-19T12:48:30+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/multi-qa-mpnet-base-dot-v1","task":"fill-mask","model_type":"mpnet","group":"Top200","priority":"P1","downloads":4475402,"last_update_time":"2025-08-19T10:21:26+00:00","optimum_supported":true},{"hf_id":"google-bert/bert-base-multilingual-uncased","task":"fill-mask","model_type":"bert","group":"Top200","priority":"P1","downloads":4165150,"last_update_time":"2024-02-19T11:06:00+00:00","optimum_supported":true},{"hf_id":"google-bert/bert-base-multilingual-cased","task":"fill-mask","model_type":"bert","group":"AITK","priority":"P0","downloads":3378746,"last_update_time":"2024-02-19T11:05:41+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen2.5-7B-Instruct","task":"text-generation","model_type":"qwen2","group":"Top200","priority":"P1","downloads":16620493,"last_update_time":"2025-01-12T02:10:10+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen3-0.6B","task":"text-generation","model_type":"qwen3","group":"Top200","priority":"P1","downloads":10036447,"last_update_time":"2025-07-26T03:46:27+00:00","optimum_supported":true},{"hf_id":"openai-community/gpt2","task":"text-generation","model_type":"gpt2","group":"Top200","priority":"P1","downloads":8528938,"last_update_time":"2024-02-19T10:57:45+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen2.5-1.5B-Instruct","task":"text-generation","model_type":"qwen2","group":"Top200","priority":"P1","downloads":6529214,"last_update_time":"2024-09-25T12:32:50+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen2.5-0.5B-Instruct","task":"text-generation","model_type":"qwen2","group":"Top200","priority":"P1","downloads":6033454,"last_update_time":"2024-09-25T12:32:56+00:00","optimum_supported":true},{"hf_id":"openai/gpt-oss-20b","task":"text-generation","model_type":"gpt_oss","group":"Top200","priority":"P1","downloads":5717889,"last_update_time":"2025-08-26T17:25:47+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen2.5-3B-Instruct","task":"text-generation","model_type":"qwen2","group":"Top200","priority":"P1","downloads":5207812,"last_update_time":"2024-09-25T12:33:00+00:00","optimum_supported":true},{"hf_id":"trl-internal-testing/tiny-Qwen2ForCausalLM-2.5","task":"text-generation","model_type":"qwen2","group":"Top200","priority":"P1","downloads":5093358,"last_update_time":"2025-12-19T19:10:57+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen3-1.7B","task":"text-generation","model_type":"qwen3","group":"Top200","priority":"P1","downloads":4985151,"last_update_time":"2025-07-26T03:46:32+00:00","optimum_supported":true},{"hf_id":"Qwen/Qwen3-8B","task":"text-generation","model_type":"qwen3","group":"Top200","priority":"P1","downloads":4955892,"last_update_time":"2025-07-26T03:49:13+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/all-MiniLM-L6-v2","task":"feature-extraction","model_type":"bert","group":"Top200","priority":"P1","downloads":171219924,"last_update_time":"2025-03-06T13:37:44+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/all-mpnet-base-v2","task":"feature-extraction","model_type":"mpnet","group":"Top200","priority":"P1","downloads":24738314,"last_update_time":"2025-08-19T10:14:25+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2","task":"feature-extraction","model_type":"bert","group":"Top200","priority":"P1","downloads":19151020,"last_update_time":"2026-01-28T10:02:26+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-m3","task":"feature-extraction","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":16573109,"last_update_time":"2024-07-03T14:50:10+00:00","optimum_supported":true},{"hf_id":"Xenova/paraphrase-multilingual-MiniLM-L12-v2","task":"feature-extraction","model_type":"bert","group":"Top200","priority":"P1","downloads":12214201,"last_update_time":"2025-07-22T00:07:45+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/paraphrase-multilingual-mpnet-base-v2","task":"feature-extraction","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":5684776,"last_update_time":"2025-08-19T10:29:38+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-small-en-v1.5","task":"feature-extraction","model_type":"bert","group":"Top200","priority":"P1","downloads":5466706,"last_update_time":"2024-02-22T03:36:23+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-large-en-v1.5","task":"feature-extraction","model_type":"bert","group":"Top200","priority":"P1","downloads":5387120,"last_update_time":"2024-02-21T02:51:44+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-base-en-v1.5","task":"feature-extraction","model_type":"bert","group":"Top200","priority":"P1","downloads":4709619,"last_update_time":"2024-02-21T03:00:19+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/multi-qa-mpnet-base-dot-v1","task":"feature-extraction","model_type":"mpnet","group":"Top200","priority":"P1","downloads":4475402,"last_update_time":"2025-08-19T10:21:26+00:00","optimum_supported":true},{"hf_id":"facebook/bart-large-cnn","task":"summarization","model_type":"bart","group":"Top200","priority":"P1","downloads":2434935,"last_update_time":"2024-02-13T18:02:05+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-base","task":"summarization","model_type":"t5","group":"Top200","priority":"P1","downloads":2326954,"last_update_time":"2024-02-14T17:21:55+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-small","task":"summarization","model_type":"t5","group":"Top200","priority":"P1","downloads":1770498,"last_update_time":"2023-06-30T02:31:26+00:00","optimum_supported":true},{"hf_id":"sshleifer/distilbart-cnn-12-6","task":"summarization","model_type":"bart","group":"Top200","priority":"P1","downloads":821377,"last_update_time":"2021-06-14T07:51:12+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-3b","task":"summarization","model_type":"t5","group":"Top200","priority":"P1","downloads":746786,"last_update_time":"2024-01-29T15:44:49+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-large","task":"summarization","model_type":"t5","group":"Top200","priority":"P1","downloads":355708,"last_update_time":"2023-04-06T13:42:27+00:00","optimum_supported":true},{"hf_id":"google/pegasus-xsum","task":"summarization","model_type":"pegasus","group":"Top200","priority":"P1","downloads":285435,"last_update_time":"2023-01-24T16:42:49+00:00","optimum_supported":true},{"hf_id":"philschmid/bart-large-cnn-samsum","task":"summarization","model_type":"bart","group":"Top200","priority":"P1","downloads":147025,"last_update_time":"2022-12-23T19:48:57+00:00","optimum_supported":true},{"hf_id":"moussaKam/mbarthez","task":"summarization","model_type":"mbart","group":"Top200","priority":"P1","downloads":94613,"last_update_time":"2024-02-20T14:35:26+00:00","optimum_supported":true},{"hf_id":"knkarthick/MEETING_SUMMARY","task":"summarization","model_type":"bart","group":"Top200","priority":"P1","downloads":47465,"last_update_time":"2023-03-27T15:08:14+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-base","task":"translation","model_type":"t5","group":"Top200","priority":"P1","downloads":2326954,"last_update_time":"2024-02-14T17:21:55+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-small","task":"translation","model_type":"t5","group":"Top200","priority":"P1","downloads":1770498,"last_update_time":"2023-06-30T02:31:26+00:00","optimum_supported":true},{"hf_id":"Helsinki-NLP/opus-mt-nl-en","task":"translation","model_type":"marian","group":"Top200","priority":"P1","downloads":915844,"last_update_time":"2023-08-16T12:01:39+00:00","optimum_supported":true},{"hf_id":"Helsinki-NLP/opus-mt-en-ru","task":"translation","model_type":"marian","group":"Top200","priority":"P1","downloads":903369,"last_update_time":"2023-08-16T11:30:58+00:00","optimum_supported":true},{"hf_id":"facebook/nllb-200-distilled-600M","task":"translation","model_type":"m2m_100","group":"Top200","priority":"P1","downloads":880169,"last_update_time":"2024-02-14T17:18:36+00:00","optimum_supported":true},{"hf_id":"google-t5/t5-3b","task":"translation","model_type":"t5","group":"Top200","priority":"P1","downloads":746786,"last_update_time":"2024-01-29T15:44:49+00:00","optimum_supported":true},{"hf_id":"Helsinki-NLP/opus-mt-fr-en","task":"translation","model_type":"marian","group":"Top200","priority":"P1","downloads":716938,"last_update_time":"2025-11-15T22:57:50+00:00","optimum_supported":true},{"hf_id":"Helsinki-NLP/opus-mt-tr-en","task":"translation","model_type":"marian","group":"Top200","priority":"P1","downloads":653928,"last_update_time":"2023-08-16T12:07:23+00:00","optimum_supported":true},{"hf_id":"Helsinki-NLP/opus-mt-es-en","task":"translation","model_type":"marian","group":"Top200","priority":"P1","downloads":465856,"last_update_time":"2023-08-16T11:32:34+00:00","optimum_supported":true},{"hf_id":"google/madlad400-3b-mt","task":"translation","model_type":"t5","group":"Top200","priority":"P1","downloads":356428,"last_update_time":"2023-11-27T15:58:35+00:00","optimum_supported":true},{"hf_id":"facebook/bart-large-mnli","task":"zero-shot-classification","model_type":"bart","group":"Top200","priority":"P1","downloads":3537590,"last_update_time":"2023-09-05T14:49:34+00:00","optimum_supported":true},{"hf_id":"lxyuan/distilbert-base-multilingual-cased-sentiments-student","task":"zero-shot-classification","model_type":"distilbert","group":"Top200","priority":"P1","downloads":718236,"last_update_time":"2025-03-03T02:06:53+00:00","optimum_supported":true},{"hf_id":"MoritzLaurer/deberta-v3-large-zeroshot-v2.0","task":"zero-shot-classification","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":607634,"last_update_time":"2024-04-11T13:42:28+00:00","optimum_supported":true},{"hf_id":"MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli","task":"zero-shot-classification","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":266767,"last_update_time":"2024-04-11T13:49:10+00:00","optimum_supported":true},{"hf_id":"valhalla/distilbart-mnli-12-3","task":"zero-shot-classification","model_type":"bart","group":"Top200","priority":"P1","downloads":166299,"last_update_time":"2021-06-14T10:29:48+00:00","optimum_supported":true},{"hf_id":"MoritzLaurer/mDeBERTa-v3-base-mnli-xnli","task":"zero-shot-classification","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":136671,"last_update_time":"2024-01-08T12:37:16+00:00","optimum_supported":true},{"hf_id":"joeddav/xlm-roberta-large-xnli","task":"zero-shot-classification","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":98082,"last_update_time":"2024-10-16T21:59:20+00:00","optimum_supported":true},{"hf_id":"joeddav/bart-large-mnli-yahoo-answers","task":"zero-shot-classification","model_type":"bart","group":"Top200","priority":"P1","downloads":95714,"last_update_time":"2025-09-15T16:35:19+00:00","optimum_supported":true},{"hf_id":"MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7","task":"zero-shot-classification","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":92475,"last_update_time":"2024-04-11T13:49:19+00:00","optimum_supported":true},{"hf_id":"cross-encoder/nli-deberta-v3-small","task":"zero-shot-classification","model_type":"deberta-v2","group":"Top200","priority":"P1","downloads":76762,"last_update_time":"2025-04-15T08:18:25+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/all-MiniLM-L6-v2","task":"sentence-similarity","model_type":"bert","group":"Top200","priority":"P1","downloads":171219924,"last_update_time":"2025-03-06T13:37:44+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/all-mpnet-base-v2","task":"sentence-similarity","model_type":"mpnet","group":"Top200","priority":"P1","downloads":24738314,"last_update_time":"2025-08-19T10:14:25+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2","task":"sentence-similarity","model_type":"bert","group":"Top200","priority":"P1","downloads":19151020,"last_update_time":"2026-01-28T10:02:26+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-m3","task":"sentence-similarity","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":16573109,"last_update_time":"2024-07-03T14:50:10+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/paraphrase-multilingual-mpnet-base-v2","task":"sentence-similarity","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":5684776,"last_update_time":"2025-08-19T10:29:38+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-small-en-v1.5","task":"sentence-similarity","model_type":"bert","group":"Top200","priority":"P1","downloads":5466706,"last_update_time":"2024-02-22T03:36:23+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-large-en-v1.5","task":"sentence-similarity","model_type":"bert","group":"Top200","priority":"P1","downloads":5387120,"last_update_time":"2024-02-21T02:51:44+00:00","optimum_supported":true},{"hf_id":"BAAI/bge-base-en-v1.5","task":"sentence-similarity","model_type":"bert","group":"Top200","priority":"P1","downloads":4709619,"last_update_time":"2024-02-21T03:00:19+00:00","optimum_supported":true},{"hf_id":"sentence-transformers/multi-qa-mpnet-base-dot-v1","task":"sentence-similarity","model_type":"mpnet","group":"Top200","priority":"P1","downloads":4475402,"last_update_time":"2025-08-19T10:21:26+00:00","optimum_supported":true},{"hf_id":"intfloat/multilingual-e5-large","task":"sentence-similarity","model_type":"xlm-roberta","group":"Top200","priority":"P1","downloads":4372595,"last_update_time":"2025-02-17T03:50:15+00:00","optimum_supported":true},{"hf_id":"Falconsai/nsfw_image_detection","task":"image-classification","model_type":"vit","group":"Top200","priority":"P1","downloads":37147963,"last_update_time":"2025-04-06T13:42:07+00:00","optimum_supported":true},{"hf_id":"dima806/fairface_age_image_detection","task":"image-classification","model_type":"vit","group":"Top200","priority":"P1","downloads":7026563,"last_update_time":"2024-12-15T19:54:53+00:00","optimum_supported":true},{"hf_id":"google/vit-base-patch16-224","task":"image-classification","model_type":"vit","group":"AITK","priority":"P0","downloads":3970349,"last_update_time":"2023-09-05T15:27:12+00:00","optimum_supported":true},{"hf_id":"apple/mobilevit-small","task":"image-classification","model_type":"mobilevit","group":"Top200","priority":"P1","downloads":2634566,"last_update_time":"2025-02-24T21:25:21+00:00","optimum_supported":true},{"hf_id":"rizvandwiki/gender-classification","task":"image-classification","model_type":"vit","group":"Top200","priority":"P1","downloads":864793,"last_update_time":"2023-05-18T11:16:33+00:00","optimum_supported":true},{"hf_id":"microsoft/beit-base-patch16-224-pt22k-ft22k","task":"image-classification","model_type":"beit","group":"Top200","priority":"P1","downloads":754339,"last_update_time":"2023-02-27T15:08:16+00:00","optimum_supported":true},{"hf_id":"amunchet/rorshark-vit-base","task":"image-classification","model_type":"vit","group":"Top200","priority":"P1","downloads":588340,"last_update_time":"2023-11-18T20:58:42+00:00","optimum_supported":true},{"hf_id":"microsoft/swin-large-patch4-window7-224","task":"image-classification","model_type":"swin","group":"Top200","priority":"P1","downloads":536088,"last_update_time":"2022-05-16T19:58:33+00:00","optimum_supported":true},{"hf_id":"buildborderless/CommunityForensics-DeepfakeDet-ViT","task":"image-classification","model_type":"vit","group":"Top200","priority":"P1","downloads":535133,"last_update_time":"2025-06-11T17:19:56+00:00","optimum_supported":true},{"hf_id":"AdamCodd/vit-base-nsfw-detector","task":"image-classification","model_type":"vit","group":"Top200","priority":"P1","downloads":380961,"last_update_time":"2024-12-03T14:14:31+00:00","optimum_supported":true},{"hf_id":"microsoft/table-transformer-detection","task":"object-detection","model_type":"table-transformer","group":"Top200","priority":"P1","downloads":2543594,"last_update_time":"2023-09-06T14:49:09+00:00","optimum_supported":true},{"hf_id":"microsoft/table-transformer-structure-recognition","task":"object-detection","model_type":"table-transformer","group":"Top200","priority":"P1","downloads":1598402,"last_update_time":"2023-09-06T14:50:49+00:00","optimum_supported":true},{"hf_id":"PekingU/rtdetr_r101vd_coco_o365","task":"object-detection","model_type":"rt_detr","group":"Top200","priority":"P1","downloads":812111,"last_update_time":"2024-07-01T14:17:49+00:00","optimum_supported":true},{"hf_id":"hustvl/yolos-small","task":"object-detection","model_type":"yolos","group":"Top200","priority":"P1","downloads":621366,"last_update_time":"2024-05-08T07:49:12+00:00","optimum_supported":true},{"hf_id":"facebook/detr-resnet-50","task":"object-detection","model_type":"detr","group":"Benchmark","priority":"P0","downloads":438618,"last_update_time":"2024-04-10T13:56:31+00:00","optimum_supported":true},{"hf_id":"valentinafeve/yolos-fashionpedia","task":"object-detection","model_type":"yolos","group":"Top200","priority":"P1","downloads":392080,"last_update_time":"2026-02-04T13:52:23+00:00","optimum_supported":true},{"hf_id":"microsoft/table-transformer-structure-recognition-v1.1-all","task":"object-detection","model_type":"table-transformer","group":"Top200","priority":"P1","downloads":357149,"last_update_time":"2023-11-18T21:58:10+00:00","optimum_supported":true},{"hf_id":"TahaDouaji/detr-doc-table-detection","task":"object-detection","model_type":"detr","group":"Top200","priority":"P1","downloads":151080,"last_update_time":"2025-11-10T05:52:21+00:00","optimum_supported":true},{"hf_id":"PekingU/rtdetr_v2_r18vd","task":"object-detection","model_type":"rt_detr_v2","group":"Top200","priority":"P1","downloads":89941,"last_update_time":"2025-02-06T18:21:53+00:00","optimum_supported":true},{"hf_id":"PekingU/rtdetr_r50vd_coco_o365","task":"object-detection","model_type":"rt_detr","group":"Top200","priority":"P1","downloads":79477,"last_update_time":"2024-07-01T14:17:52+00:00","optimum_supported":true},{"hf_id":"jonathandinu/face-parsing","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":666776,"last_update_time":"2026-02-18T22:38:54+00:00","optimum_supported":true},{"hf_id":"nvidia/segformer-b0-finetuned-ade-512-512","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":600025,"last_update_time":"2024-01-14T10:46:46+00:00","optimum_supported":true},{"hf_id":"Xenova/segformer-b0-finetuned-ade-512-512","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":462050,"last_update_time":"2025-07-01T15:39:50+00:00","optimum_supported":true},{"hf_id":"mattmdjaga/segformer_b2_clothes","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":290987,"last_update_time":"2025-09-19T07:21:11+00:00","optimum_supported":true},{"hf_id":"fashn-ai/fashn-human-parser","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":188295,"last_update_time":"2026-01-10T20:50:06+00:00","optimum_supported":true},{"hf_id":"nvidia/segformer-b5-finetuned-ade-640-640","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":164651,"last_update_time":"2022-08-06T10:25:55+00:00","optimum_supported":true},{"hf_id":"nvidia/segformer-b1-finetuned-ade-512-512","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":142449,"last_update_time":"2022-08-06T10:08:05+00:00","optimum_supported":true},{"hf_id":"nvidia/segformer-b5-finetuned-cityscapes-1024-1024","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":61883,"last_update_time":"2022-08-09T11:29:37+00:00","optimum_supported":true},{"hf_id":"nvidia/segformer-b2-finetuned-ade-512-512","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":41766,"last_update_time":"2022-08-06T10:07:54+00:00","optimum_supported":true},{"hf_id":"nvidia/segformer-b0-finetuned-cityscapes-1024-1024","task":"image-segmentation","model_type":"segformer","group":"Top200","priority":"P1","downloads":26587,"last_update_time":"2022-08-08T13:43:30+00:00","optimum_supported":true},{"hf_id":"facebook/dinov2-small","task":"image-feature-extraction","model_type":"dinov2","group":"Top200","priority":"P1","downloads":2729692,"last_update_time":"2023-09-06T11:24:10+00:00","optimum_supported":true},{"hf_id":"facebook/dinov2-base","task":"image-feature-extraction","model_type":"dinov2","group":"Top200","priority":"P1","downloads":1318542,"last_update_time":"2024-01-17T08:27:01+00:00","optimum_supported":true},{"hf_id":"google/vit-base-patch16-224-in21k","task":"image-feature-extraction","model_type":"vit","group":"Top200","priority":"P1","downloads":1215150,"last_update_time":"2024-02-05T16:37:39+00:00","optimum_supported":true},{"hf_id":"facebook/dinov2-large","task":"image-feature-extraction","model_type":"dinov2","group":"Top200","priority":"P1","downloads":719261,"last_update_time":"2023-09-06T11:23:50+00:00","optimum_supported":true},{"hf_id":"facebook/dino-vitb16","task":"image-feature-extraction","model_type":"vit","group":"Top200","priority":"P1","downloads":281317,"last_update_time":"2023-05-22T07:04:00+00:00","optimum_supported":true},{"hf_id":"facebook/dinov2-giant","task":"image-feature-extraction","model_type":"dinov2","group":"Top200","priority":"P1","downloads":140781,"last_update_time":"2023-09-06T11:23:25+00:00","optimum_supported":true},{"hf_id":"facebook/dino-vits16","task":"image-feature-extraction","model_type":"vit","group":"Top200","priority":"P1","downloads":86562,"last_update_time":"2023-05-22T07:05:10+00:00","optimum_supported":true},{"hf_id":"StanfordAIMI/dinov2-base-xray-224","task":"image-feature-extraction","model_type":"dinov2","group":"Top200","priority":"P1","downloads":70123,"last_update_time":"2024-02-11T07:53:39+00:00","optimum_supported":true},{"hf_id":"hi-wesley/gemma3-vision-encoder","task":"image-feature-extraction","model_type":"siglip_vision_model","group":"Top200","priority":"P1","downloads":69143,"last_update_time":"2025-08-17T21:52:26+00:00","optimum_supported":true},{"hf_id":"microsoft/rad-dino","task":"image-feature-extraction","model_type":"dinov2","group":"Top200","priority":"P1","downloads":65986,"last_update_time":"2025-10-09T14:04:39+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-base-patch32","task":"zero-shot-image-classification","model_type":"clip","group":"AITK","priority":"P0","downloads":18079802,"last_update_time":"2024-02-29T09:45:55+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-large-patch14","task":"zero-shot-image-classification","model_type":"clip","group":"Top200","priority":"P1","downloads":6677102,"last_update_time":"2023-09-15T15:49:35+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-large-patch14-336","task":"zero-shot-image-classification","model_type":"clip","group":"Top200","priority":"P1","downloads":4829219,"last_update_time":"2022-10-04T09:41:39+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-base-patch16","task":"zero-shot-image-classification","model_type":"clip","group":"AITK","priority":"P0","downloads":2664007,"last_update_time":"2022-10-04T09:42:28+00:00","optimum_supported":true},{"hf_id":"laion/CLIP-ViT-B-32-laion2B-s34B-b79K","task":"zero-shot-image-classification","model_type":"clip","group":"AITK","priority":"P0","downloads":2663202,"last_update_time":"2025-01-22T04:41:33+00:00","optimum_supported":true},{"hf_id":"patrickjohncyh/fashion-clip","task":"zero-shot-image-classification","model_type":"clip","group":"Top200","priority":"P1","downloads":2455656,"last_update_time":"2024-09-17T15:19:43+00:00","optimum_supported":true},{"hf_id":"google/siglip-so400m-patch14-384","task":"zero-shot-image-classification","model_type":"siglip","group":"Top200","priority":"P1","downloads":1990836,"last_update_time":"2024-09-26T08:21:46+00:00","optimum_supported":true},{"hf_id":"google/siglip-base-patch16-224","task":"zero-shot-image-classification","model_type":"siglip","group":"Top200","priority":"P1","downloads":954521,"last_update_time":"2024-09-26T08:20:18+00:00","optimum_supported":true},{"hf_id":"Marqo/marqo-fashionSigLIP","task":"zero-shot-image-classification","model_type":"siglip","group":"Top200","priority":"P1","downloads":701267,"last_update_time":"2026-02-18T03:34:31+00:00","optimum_supported":true},{"hf_id":"laion/CLIP-ViT-H-14-laion2B-s32B-b79K","task":"zero-shot-image-classification","model_type":"clip","group":"Top200","priority":"P1","downloads":669367,"last_update_time":"2025-01-22T04:38:44+00:00","optimum_supported":true},{"hf_id":"Intel/dpt-hybrid-midas","task":"depth-estimation","model_type":"dpt","group":"Top200","priority":"P1","downloads":473588,"last_update_time":"2024-02-09T08:58:56+00:00","optimum_supported":true},{"hf_id":"Intel/dpt-large","task":"depth-estimation","model_type":"dpt","group":"Top200","priority":"P1","downloads":98287,"last_update_time":"2024-02-24T11:22:17+00:00","optimum_supported":true},{"hf_id":"Intel/zoedepth-nyu-kitti","task":"depth-estimation","model_type":"zoedepth","group":"Top200","priority":"P1","downloads":1774920,"last_update_time":"2024-05-20T15:06:27+00:00","optimum_supported":false},{"hf_id":"depth-anything/Depth-Anything-V2-Small-hf","task":"depth-estimation","model_type":"depth_anything","group":"Top200","priority":"P1","downloads":1155147,"last_update_time":"2024-07-05T11:38:31+00:00","optimum_supported":false},{"hf_id":"LiheYoung/depth-anything-large-hf","task":"depth-estimation","model_type":"depth_anything","group":"Top200","priority":"P1","downloads":540183,"last_update_time":"2024-01-25T08:13:11+00:00","optimum_supported":false},{"hf_id":"depth-anything/Depth-Anything-V2-Base-hf","task":"depth-estimation","model_type":"depth_anything","group":"Top200","priority":"P1","downloads":461038,"last_update_time":"2024-07-05T11:29:09+00:00","optimum_supported":false},{"hf_id":"depth-anything/Depth-Anything-V2-Large-hf","task":"depth-estimation","model_type":"depth_anything","group":"Top200","priority":"P1","downloads":153071,"last_update_time":"2024-07-05T11:30:29+00:00","optimum_supported":false},{"hf_id":"LiheYoung/depth-anything-small-hf","task":"depth-estimation","model_type":"depth_anything","group":"Top200","priority":"P1","downloads":53782,"last_update_time":"2024-01-25T08:12:14+00:00","optimum_supported":false},{"hf_id":"LiheYoung/depth-anything-base-hf","task":"depth-estimation","model_type":"depth_anything","group":"Top200","priority":"P1","downloads":41990,"last_update_time":"2024-01-25T08:13:34+00:00","optimum_supported":false},{"hf_id":"apple/DepthPro-hf","task":"depth-estimation","model_type":"depth_pro","group":"Top200","priority":"P1","downloads":17693,"last_update_time":"2025-02-28T18:31:40+00:00","optimum_supported":false},{"hf_id":"microsoft/trocr-large-printed","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":691592,"last_update_time":"2024-05-27T20:09:18+00:00","optimum_supported":true},{"hf_id":"naver-clova-ix/donut-base","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":450310,"last_update_time":"2022-08-13T08:27:12+00:00","optimum_supported":true},{"hf_id":"microsoft/trocr-base-printed","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":433260,"last_update_time":"2024-05-27T20:11:53+00:00","optimum_supported":true},{"hf_id":"nlpconnect/vit-gpt2-image-captioning","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":274372,"last_update_time":"2023-02-27T15:00:09+00:00","optimum_supported":true},{"hf_id":"microsoft/trocr-base-handwritten","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":270295,"last_update_time":"2025-02-11T04:26:58+00:00","optimum_supported":true},{"hf_id":"kha-white/manga-ocr-base","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":223726,"last_update_time":"2022-06-22T15:34:05+00:00","optimum_supported":true},{"hf_id":"microsoft/trocr-large-handwritten","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":153852,"last_update_time":"2024-05-27T20:10:58+00:00","optimum_supported":true},{"hf_id":"facebook/nougat-base","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":139434,"last_update_time":"2023-11-20T09:26:49+00:00","optimum_supported":true},{"hf_id":"breezedeus/pix2text-mfr","task":"image-to-text","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":101573,"last_update_time":"2024-05-05T14:23:13+00:00","optimum_supported":true},{"hf_id":"alibaba-damo/mgp-str-base","task":"image-to-text","model_type":"mgp-str","group":"Top200","priority":"P1","downloads":98025,"last_update_time":"2023-12-11T14:31:20+00:00","optimum_supported":true},{"hf_id":"google/deplot","task":"visual-question-answering","model_type":"pix2struct","group":"Top200","priority":"P1","downloads":12305,"last_update_time":"2023-09-06T19:53:17+00:00","optimum_supported":true},{"hf_id":"google/pix2struct-docvqa-base","task":"visual-question-answering","model_type":"pix2struct","group":"Top200","priority":"P1","downloads":2108,"last_update_time":"2023-12-24T21:14:26+00:00","optimum_supported":true},{"hf_id":"internlm/internlm-xcomposer2d5-7b","task":"visual-question-answering","model_type":"internlm2","group":"Top200","priority":"P1","downloads":1857,"last_update_time":"2024-07-22T06:01:33+00:00","optimum_supported":true},{"hf_id":"google/pix2struct-ai2d-base","task":"visual-question-answering","model_type":"pix2struct","group":"Top200","priority":"P1","downloads":1197,"last_update_time":"2023-12-24T21:14:49+00:00","optimum_supported":true},{"hf_id":"Salesforce/blip-vqa-base","task":"visual-question-answering","model_type":"blip","group":"Top200","priority":"P1","downloads":668600,"last_update_time":"2025-02-03T06:44:34+00:00","optimum_supported":false},{"hf_id":"Salesforce/blip2-opt-2.7b","task":"visual-question-answering","model_type":"blip-2","group":"Top200","priority":"P1","downloads":453918,"last_update_time":"2025-02-03T06:27:50+00:00","optimum_supported":false},{"hf_id":"microsoft/Phi-4-multimodal-instruct","task":"visual-question-answering","model_type":"phi4mm","group":"Top200","priority":"P1","downloads":334764,"last_update_time":"2025-12-10T20:18:10+00:00","optimum_supported":false},{"hf_id":"Salesforce/blip2-opt-2.7b-coco","task":"visual-question-answering","model_type":"blip-2","group":"Top200","priority":"P1","downloads":327040,"last_update_time":"2025-02-03T06:40:11+00:00","optimum_supported":false},{"hf_id":"Salesforce/blip2-flan-t5-xl","task":"visual-question-answering","model_type":"blip-2","group":"Top200","priority":"P1","downloads":81399,"last_update_time":"2025-02-03T06:36:28+00:00","optimum_supported":false},{"hf_id":"dandelin/vilt-b32-finetuned-vqa","task":"visual-question-answering","model_type":"vilt","group":"Top200","priority":"P1","downloads":66856,"last_update_time":"2022-08-02T13:03:04+00:00","optimum_supported":false},{"hf_id":"naver-clova-ix/donut-base-finetuned-docvqa","task":"document-question-answering","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":13141,"last_update_time":"2024-03-09T13:01:37+00:00","optimum_supported":true},{"hf_id":"impira/layoutlm-document-qa","task":"document-question-answering","model_type":"layoutlm","group":"Top200","priority":"P1","downloads":12253,"last_update_time":"2023-03-18T00:54:24+00:00","optimum_supported":true},{"hf_id":"impira/layoutlm-invoices","task":"document-question-answering","model_type":"layoutlm","group":"Top200","priority":"P1","downloads":1537,"last_update_time":"2023-03-25T20:21:25+00:00","optimum_supported":true},{"hf_id":"fxmarty/tiny-doc-qa-vision-encoder-decoder","task":"document-question-answering","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":1309,"last_update_time":"2023-10-17T09:09:37+00:00","optimum_supported":true},{"hf_id":"zpm/Llama-3.1-PersianQA","task":"document-question-answering","model_type":"llama","group":"Top200","priority":"P1","downloads":579,"last_update_time":"2024-08-16T10:14:52+00:00","optimum_supported":true},{"hf_id":"rubentito/layoutlmv3-base-mpdocvqa","task":"document-question-answering","model_type":"layoutlmv3","group":"Top200","priority":"P1","downloads":355,"last_update_time":"2024-06-06T08:35:37+00:00","optimum_supported":true},{"hf_id":"jinhybr/OCR-DocVQA-Donut","task":"document-question-answering","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":124,"last_update_time":"2022-11-04T22:23:22+00:00","optimum_supported":true},{"hf_id":"Xenova/donut-base-finetuned-docvqa","task":"document-question-answering","model_type":"vision-encoder-decoder","group":"Top200","priority":"P1","downloads":107,"last_update_time":"2025-04-25T01:11:30+00:00","optimum_supported":true},{"hf_id":"xhyi/layoutlmv3_docvqa_t11c5000","task":"document-question-answering","model_type":"layoutlmv3","group":"Top200","priority":"P1","downloads":85,"last_update_time":"2023-03-20T17:51:02+00:00","optimum_supported":true},{"hf_id":"pardeepSF/layoutlm-vqa","task":"document-question-answering","model_type":"bert","group":"Top200","priority":"P1","downloads":19,"last_update_time":"2022-10-18T06:26:06+00:00","optimum_supported":true},{"hf_id":"facebook/sam-vit-huge","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":138029,"last_update_time":"2024-01-11T19:23:32+00:00","optimum_supported":true},{"hf_id":"facebook/sam-vit-base","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":90715,"last_update_time":"2024-01-11T19:23:17+00:00","optimum_supported":true},{"hf_id":"facebook/sam-vit-large","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":20030,"last_update_time":"2024-01-11T19:23:46+00:00","optimum_supported":true},{"hf_id":"Xenova/slimsam-77-uniform","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":9389,"last_update_time":"2024-12-12T22:29:52+00:00","optimum_supported":true},{"hf_id":"Zigeng/SlimSAM-uniform-77","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":3654,"last_update_time":"2024-11-08T07:55:33+00:00","optimum_supported":true},{"hf_id":"flaviagiammarino/medsam-vit-base","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":2608,"last_update_time":"2023-07-13T15:43:56+00:00","optimum_supported":true},{"hf_id":"wanglab/medsam-vit-base","task":"mask-generation","model_type":"sam","group":"Top200","priority":"P1","downloads":1912,"last_update_time":"2023-05-03T07:03:04+00:00","optimum_supported":true},{"hf_id":"facebook/sam2.1-hiera-large","task":"mask-generation","model_type":"sam2_video","group":"Top200","priority":"P1","downloads":221968,"last_update_time":"2025-08-15T21:19:57+00:00","optimum_supported":false},{"hf_id":"facebook/sam2.1-hiera-tiny","task":"mask-generation","model_type":"sam2_video","group":"Top200","priority":"P1","downloads":23533,"last_update_time":"2025-08-15T21:18:13+00:00","optimum_supported":false},{"hf_id":"facebook/sam2-hiera-large","task":"mask-generation","model_type":"sam2_video","group":"Top200","priority":"P1","downloads":8715,"last_update_time":"2025-08-15T21:22:23+00:00","optimum_supported":false},{"hf_id":"microsoft/resnet-50","task":"image-classification","model_type":"resnet","group":"AITK","priority":"P0","downloads":184810,"last_update_time":"2024-02-13T21:24:05+00:00","optimum_supported":true},{"hf_id":"google-bert/bert-base-multilingual-cased","task":"feature-extraction","model_type":"bert","group":"AITK","priority":"P0","downloads":3378746,"last_update_time":"2024-02-19T11:05:41+00:00","optimum_supported":true},{"hf_id":"google-bert/bert-base-multilingual-cased","task":"masked-lm","model_type":"bert","group":"AITK","priority":"P0","downloads":3378746,"last_update_time":"2024-02-19T11:05:41+00:00","optimum_supported":true},{"hf_id":"Intel/bert-base-uncased-mrpc","task":"feature-extraction","model_type":"bert","group":"AITK","priority":"P0","downloads":3598,"last_update_time":"2024-06-21T19:49:09+00:00","optimum_supported":true},{"hf_id":"Intel/bert-base-uncased-mrpc","task":"text-classification","model_type":"bert","group":"AITK","priority":"P0","downloads":3598,"last_update_time":"2024-06-21T19:49:09+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-base-patch16","task":"zero-shot-classification","model_type":"clip","group":"AITK","priority":"P0","downloads":2664007,"last_update_time":"2022-10-04T09:42:28+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-base-patch16","task":"feature-extraction","model_type":"clip","group":"AITK","priority":"P0","downloads":2664007,"last_update_time":"2022-10-04T09:42:28+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-base-patch32","task":"zero-shot-classification","model_type":"clip","group":"AITK","priority":"P0","downloads":18079802,"last_update_time":"2024-02-29T09:45:55+00:00","optimum_supported":true},{"hf_id":"openai/clip-vit-base-patch32","task":"feature-extraction","model_type":"clip","group":"AITK","priority":"P0","downloads":18079802,"last_update_time":"2024-02-29T09:45:55+00:00","optimum_supported":true},{"hf_id":"laion/CLIP-ViT-B-32-laion2B-s34B-b79K","task":"zero-shot-classification","model_type":"clip","group":"AITK","priority":"P0","downloads":2663202,"last_update_time":"2025-01-22T04:41:33+00:00","optimum_supported":true},{"hf_id":"laion/CLIP-ViT-B-32-laion2B-s34B-b79K","task":"feature-extraction","model_type":"clip","group":"AITK","priority":"P0","downloads":2663202,"last_update_time":"2025-01-22T04:41:33+00:00","optimum_supported":true},{"hf_id":"facebook/convnext-tiny-224","task":"image-classification","model_type":"convnext","group":"Benchmark","priority":"P0","downloads":14868,"last_update_time":"2023-06-13T19:40:31+00:00","optimum_supported":true},{"hf_id":"facebook/detr-resnet-50","task":"feature-extraction","model_type":"detr","group":"Benchmark","priority":"P0","downloads":438618,"last_update_time":"2024-04-10T13:56:31+00:00","optimum_supported":true},{"hf_id":"facebook/sam2.1-hiera-small","task":"mask-generation","model_type":"sam2_video","group":"Benchmark","priority":"P0","downloads":5032,"last_update_time":"2025-08-15T21:18:57+00:00","optimum_supported":false},{"hf_id":"Salesforce/blip-image-captioning-base","task":"image-to-text","model_type":"blip","group":"Benchmark","priority":"P0","downloads":2488150,"last_update_time":"2025-02-03T06:45:16+00:00","optimum_supported":false},{"hf_id":"ai-forever/Real-ESRGAN","task":"","model_type":"unknown","group":"Benchmark","priority":"P0","downloads":0,"last_update_time":"2022-09-25T13:17:44+00:00","optimum_supported":false}];
+
+// State
+let filters = { task: new Set(), model_type: new Set(), priority: new Set(), group: new Set(), optimum_supported: new Set() };
+let searchQuery = '';
+let currentView = 'table';
+let groupBy = 'task';
+let sortKey = 'downloads_desc';
+
+// Color palette for charts
+const COLORS = ['#6c8aff','#4ecdc4','#ff6b9d','#ffd93d','#a78bfa','#f97316','#10b981','#f472b6','#38bdf8','#e879f9',
+                '#84cc16','#fb923c','#22d3ee','#c084fc','#facc15','#2dd4bf','#f87171','#818cf8','#34d399','#fbbf24'];
+
+function getUnique(key) {
+  const counts = {};
+  DATA.forEach(d => {
+    const v = d[key] || '(empty)';
+    counts[v] = (counts[v] || 0) + 1;
+  });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+}
+
+function formatNum(n) {
+  if (n == null) return '-';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-CA'); // YYYY-MM-DD
+}
+
+function optimumLabel(val) {
+  return val ? 'Yes' : 'No';
+}
+
+function buildChips(containerId, key, entries) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = entries.map(([val, cnt]) =>
+    `<div class="chip ${filters[key].has(val) ? 'active' : ''}" data-key="${key}" data-val="${val}" onclick="toggleFilter('${key}','${val.replace(/'/g, "\\'")}')">
+      ${val} <span class="chip-count">${cnt}</span>
+    </div>`
+  ).join('');
+}
+
+function buildAllChips() {
+  const tasks = getUnique('task');
+  const types = getUnique('model_type');
+  const priorities = getUnique('priority');
+  const groups = getUnique('group');
+  // Build optimum chips from boolean field
+  const optCounts = {};
+  DATA.forEach(d => { const v = optimumLabel(d.optimum_supported); optCounts[v] = (optCounts[v]||0)+1; });
+  const optimumEntries = Object.entries(optCounts).sort((a,b) => b[1]-a[1]);
+  buildChips('taskChips', 'task', tasks);
+  buildChips('typeChips', 'model_type', types);
+  buildChips('priorityChips', 'priority', priorities);
+  buildChips('groupChips', 'group', groups);
+  buildChips('optimumChips', 'optimum_supported', optimumEntries);
+  document.getElementById('taskCount').textContent = tasks.length;
+  document.getElementById('typeCount').textContent = types.length;
+  document.getElementById('priorityCount').textContent = priorities.length;
+  document.getElementById('groupCount').textContent = groups.length;
+  document.getElementById('optimumCount').textContent = optimumEntries.length;
+}
+
+function toggleFilter(key, val) {
+  if (filters[key].has(val)) filters[key].delete(val);
+  else filters[key].add(val);
+  render();
+}
+
+function clearFilter(key) {
+  filters[key].clear();
+  render();
+}
+
+function getFiltered() {
+  return DATA.filter(d => {
+    if (searchQuery && !d.hf_id.toLowerCase().includes(searchQuery) && !(d.model_type||'').toLowerCase().includes(searchQuery) && !(d.task||'').toLowerCase().includes(searchQuery))
+      return false;
+    for (const key of ['task','model_type','priority','group']) {
+      if (filters[key].size > 0 && !filters[key].has(d[key] || '(empty)'))
+        return false;
+    }
+    if (filters.optimum_supported.size > 0 && !filters.optimum_supported.has(optimumLabel(d.optimum_supported)))
+      return false;
+    return true;
+  });
+}
+
+function sortData(arr) {
+  const sorted = [...arr];
+  switch(sortKey) {
+    case 'downloads_desc': return sorted.sort((a,b) => (b.downloads||0) - (a.downloads||0));
+    case 'downloads_asc': return sorted.sort((a,b) => (a.downloads||0) - (b.downloads||0));
+    case 'hf_id_asc': return sorted.sort((a,b) => a.hf_id.localeCompare(b.hf_id));
+    case 'hf_id_desc': return sorted.sort((a,b) => b.hf_id.localeCompare(a.hf_id));
+    case 'updated_desc': return sorted.sort((a,b) => (b.last_update_time||'').localeCompare(a.last_update_time||''));
+    case 'updated_asc': return sorted.sort((a,b) => (a.last_update_time||'').localeCompare(b.last_update_time||''));
+  }
+  return sorted;
+}
+
+function renderSummary(filtered) {
+  const uniqueModels = new Set(filtered.map(d => d.hf_id)).size;
+  const uniqueTypes = new Set(filtered.map(d => d.model_type)).size;
+  const uniqueTasks = new Set(filtered.map(d => d.task)).size;
+  const totalDL = filtered.reduce((s, d) => s + (d.downloads || 0), 0);
+  const optimumYes = filtered.filter(d => d.optimum_supported).length;
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="summary-card"><div class="label">Models (rows)</div><div class="value c1">${filtered.length}</div></div>
+    <div class="summary-card"><div class="label">Unique HF IDs</div><div class="value c2">${uniqueModels}</div></div>
+    <div class="summary-card"><div class="label">Model Types</div><div class="value c3">${uniqueTypes}</div></div>
+    <div class="summary-card"><div class="label">Optimum Supported</div><div class="value c4">${optimumYes}/${filtered.length}</div></div>
+  `;
+  document.getElementById('headerStats').innerHTML =
+    `<div>Total Entries: <span>${DATA.length}</span></div>
+     <div>Showing: <span>${filtered.length}</span></div>
+     <div>Total Downloads: <span>${formatNum(totalDL)}</span></div>`;
+}
+
+function renderTaskChart(filtered) {
+  const counts = {};
+  filtered.forEach(d => { counts[d.task || '(empty)'] = (counts[d.task || '(empty)'] || 0) + 1; });
+  const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]);
+  const max = sorted[0]?.[1] || 1;
+  document.getElementById('taskChart').innerHTML = sorted.map(([t, c], i) =>
+    `<div class="mini-bar-row">
+      <div class="mini-bar-label" title="${t}">${t}</div>
+      <div class="mini-bar-track">
+        <div class="mini-bar-fill" style="width:${(c/max*100).toFixed(1)}%;background:${COLORS[i % COLORS.length]}">${c}</div>
+      </div>
+    </div>`
+  ).join('');
+}
+
+function badgeClass(key) {
+  if (key === 'task') return 'badge-task';
+  if (key === 'model_type') return 'badge-type';
+  return '';
+}
+
+function priorityBadge(p) {
+  return p === 'P0' ? 'badge-p0' : 'badge-p1';
+}
+
+function sortArrow(col) {
+  if (sortKey === col + '_asc') return ' ↑';
+  if (sortKey === col + '_desc') return ' ↓';
+  return '';
+}
+
+function toggleSort(col) {
+  if (sortKey === col + '_desc') sortKey = col + '_asc';
+  else sortKey = col + '_desc';
+  document.getElementById('sortSelect').value = sortKey;
+  render();
+}
+
+function renderTable(items) {
+  return `<div class="table-wrap"><table>
+    <thead><tr>
+      <th onclick="toggleSort('hf_id')">Model ID${sortArrow('hf_id')}</th>
+      <th>Task</th><th>Type</th><th>Group</th><th>Priority</th><th>Optimum</th>
+      <th onclick="toggleSort('updated')">Last Updated${sortArrow('updated')}</th>
+      <th onclick="toggleSort('downloads')">Downloads${sortArrow('downloads')}</th>
+    </tr></thead>
+    <tbody>${items.map(d => `<tr>
+      <td><a class="hf-link" href="https://huggingface.co/${d.hf_id}" target="_blank">${d.hf_id}</a></td>
+      <td><span class="badge badge-task">${d.task || '-'}</span></td>
+      <td><span class="badge badge-type">${d.model_type || '-'}</span></td>
+      <td><span class="badge badge-group">${d.group || '-'}</span></td>
+      <td><span class="badge ${priorityBadge(d.priority)}">${d.priority || '-'}</span></td>
+      <td><span class="badge ${d.optimum_supported ? 'badge-opt-yes' : 'badge-opt-no'}">${d.optimum_supported ? 'Yes' : 'No'}</span></td>
+      <td class="date-cell">${formatDate(d.last_update_time)}</td>
+      <td class="downloads">${formatNum(d.downloads)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderCards(items) {
+  return `<div class="card-grid">${items.map(d => `
+    <div class="model-card">
+      <div class="card-title"><a href="https://huggingface.co/${d.hf_id}" target="_blank">${d.hf_id}</a></div>
+      <div class="card-meta">
+        <span class="badge badge-task">${d.task || '-'}</span>
+        <span class="badge badge-type">${d.model_type || '-'}</span>
+        <span class="badge ${priorityBadge(d.priority)}">${d.priority || '-'}</span>
+        <span class="badge badge-group">${d.group || '-'}</span>
+        <span class="badge ${d.optimum_supported ? 'badge-opt-yes' : 'badge-opt-no'}">${d.optimum_supported ? 'Optimum' : 'No Optimum'}</span>
+      </div>
+      <div class="card-downloads">
+        ${d.downloads != null ? formatNum(d.downloads) + ' downloads' : 'No download data'}
+        ${d.last_update_time ? ' · Updated ' + formatDate(d.last_update_time) : ''}
+      </div>
+    </div>
+  `).join('')}</div>`;
+}
+
+function renderGrouped(items, key) {
+  const groups = {};
+  items.forEach(d => {
+    let g;
+    if (key === 'optimum_supported') g = d[key] ? 'Optimum Supported' : 'Not Supported';
+    else g = d[key] || '(empty)';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(d);
+  });
+  const sortedGroups = Object.entries(groups).sort((a,b) => b[1].length - a[1].length);
+  return sortedGroups.map(([name, models]) => {
+    const totalDl = models.reduce((s,d) => s + (d.downloads||0), 0);
+    return `<div class="group-section">
+      <div class="group-header" onclick="this.querySelector('.arrow').classList.toggle('open');this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+        <span class="arrow open">&#9654;</span>
+        <span class="group-name">${name}</span>
+        <span class="group-count">${models.length}</span>
+        <span class="group-downloads">${formatNum(totalDl)} downloads</span>
+      </div>
+      <div class="group-body">${currentView === 'table' ? renderTable(models) : renderCards(models)}</div>
+    </div>`;
+  }).join('');
+}
+
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  render();
+}
+
+function render() {
+  buildAllChips();
+  const filtered = getFiltered();
+  const sorted = sortData(filtered);
+  renderSummary(filtered);
+  renderTaskChart(filtered);
+  document.getElementById('resultCount').innerHTML = `Showing <span>${filtered.length}</span> of <span>${DATA.length}</span> entries`;
+
+  const out = document.getElementById('output');
+  if (groupBy === 'none') {
+    out.innerHTML = currentView === 'table' ? renderTable(sorted) : renderCards(sorted);
+  } else {
+    out.innerHTML = renderGrouped(sorted, groupBy);
+  }
+}
+
+// Events
+document.getElementById('searchBox').addEventListener('input', e => {
+  searchQuery = e.target.value.toLowerCase();
+  render();
+});
+document.getElementById('groupBySelect').addEventListener('change', e => {
+  groupBy = e.target.value;
+  render();
+});
+document.getElementById('sortSelect').addEventListener('change', e => {
+  sortKey = e.target.value;
+  render();
+});
+
+// Init (static build - data embedded above)
+render();
+</script>
+</body>
+</html>
