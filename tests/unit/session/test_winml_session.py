@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 import pytest
 
-from winml.modelkit.compiler.configs import EPConfig
+from winml.modelkit.compiler import EPConfig
 from winml.modelkit.session import WinMLSession
 from winml.modelkit.session.ep_registry import WinMLEPRegistry
 from winml.modelkit.session.session import SessionState
