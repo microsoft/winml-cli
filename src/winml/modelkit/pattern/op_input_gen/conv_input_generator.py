@@ -16,8 +16,7 @@ import itertools
 
 import numpy as np
 
-import winml.modelkit.onnx.dtypes as dtypes
-
+from ...onnx import SupportedONNXType
 from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
@@ -132,7 +131,7 @@ class ConvInputGenerator(OpInputGenerator):
         return {
             "X": QDQParameterConfig(support_activation=True),
             "W": QDQParameterConfig(support_weight=True),
-            "B": QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
+            "B": QDQParameterConfig(qdq_types=[SupportedONNXType.INT32]),
         }
 
 

@@ -21,8 +21,7 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
     RuntimeCheckerQuery,
     _get_qdq_query_conditions_for_node,
 )
-from winml.modelkit.onnx import dtypes
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain, dtypes
 from winml.modelkit.pattern.op_input_gen.op_input_gen import (
     QDQParameterConfig,
 )
@@ -131,7 +130,8 @@ class TestQDQParameterConfig:
             qdq_types=[dtypes.SupportedONNXType.INT8, dtypes.SupportedONNXType.INT32],
         )
         assert config_multi.qdq_types == [
-            dtypes.SupportedONNXType.INT8, dtypes.SupportedONNXType.INT32
+            dtypes.SupportedONNXType.INT8,
+            dtypes.SupportedONNXType.INT32,
         ]
 
 

@@ -19,12 +19,12 @@ import pytest
 from onnx import TensorProto, helper, numpy_helper
 from onnx.external_data_helper import _get_all_tensors, uses_external_data
 
+from winml.modelkit.onnx import EXTERNAL_DATA_THRESHOLD
 from winml.modelkit.onnx.persistence import (
     cleanup_onnx,
     load_onnx,
     save_onnx,
 )
-from winml.modelkit.onnx.utils import EXTERNAL_DATA_THRESHOLD
 
 
 if TYPE_CHECKING:

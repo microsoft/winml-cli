@@ -21,7 +21,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern import (
     LayerNormalizationMulPattern,
     LayerNormalizationPowPattern,
@@ -51,9 +51,7 @@ def _make_rmsnorm_model(
         if axis == -1 or normalized_axis == rank - 1:
             scale_shape = (normalized_dim,)
         else:
-            scale_shape = tuple(
-                normalized_dim if i == normalized_axis else 1 for i in range(rank)
-            )
+            scale_shape = tuple(normalized_dim if i == normalized_axis else 1 for i in range(rank))
 
     inputs = {
         "X": np.random.randn(*x_shape).astype(dtype),
@@ -76,9 +74,7 @@ def _make_rmsnorm_model(
     )
 
 
-def _numpy_rmsnorm(
-    x: np.ndarray, scale: np.ndarray, axis: int, epsilon: float
-) -> np.ndarray:
+def _numpy_rmsnorm(x: np.ndarray, scale: np.ndarray, axis: int, epsilon: float) -> np.ndarray:
     """Compute RMSNorm using numpy for reference."""
     rms = np.sqrt(np.mean(x**2, axis=axis, keepdims=True) + epsilon)
     return x / rms * scale
@@ -101,15 +97,11 @@ class TestRMSNormPatternSpecifics:
 
     def test_rmsnorm_pow_has_correct_constants(self) -> None:
         """Pow pattern has exponent=2.0 and epsilon constant."""
-        model = _make_rmsnorm_model(
-            RMSNormalizationPowPattern(), (2, 4, 6), epsilon=1e-5
-        )
+        model = _make_rmsnorm_model(RMSNormalizationPowPattern(), (2, 4, 6), epsilon=1e-5)
 
         pow_node = model.graph.node[0]
         exponent_name = pow_node.input[1]
-        exponent_init = next(
-            i for i in model.graph.initializer if i.name == exponent_name
-        )
+        exponent_init = next(i for i in model.graph.initializer if i.name == exponent_name)
         np.testing.assert_allclose(onnx.numpy_helper.to_array(exponent_init), 2.0)
 
         add_node = model.graph.node[2]
@@ -214,9 +206,7 @@ class TestRMSNormNumericalEquivalence:
             "Mul-axis-1",
         ],
     )
-    def test_numerical_equivalence(
-        self, pattern_class, axis, x_shape, scale_shape
-    ) -> None:
+    def test_numerical_equivalence(self, pattern_class, axis, x_shape, scale_shape) -> None:
         pattern = pattern_class()
         x_data = np.random.randn(*x_shape).astype(np.float32)
         scale_data = np.ones(scale_shape, dtype=np.float32) * 1.5
@@ -337,8 +327,6 @@ class TestRMSNormOpsetCompatibility:
         onnx.checker.check_model(model)
 
         reducemean_node = model.graph.node[1]
-        axes_attr = next(
-            (a for a in reducemean_node.attribute if a.name == "axes"), None
-        )
+        axes_attr = next((a for a in reducemean_node.attribute if a.name == "axes"), None)
         assert axes_attr is not None
         assert list(axes_attr.ints) == [-1]
