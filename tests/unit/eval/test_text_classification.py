@@ -32,20 +32,20 @@ class TestTextDatasetBasic:
 
     def test_class_exists(self):
         """Test that the class exists and is importable."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         assert TextDataset is not None
 
     def test_default_seq_len_constant(self):
         """Test DEFAULT_SEQ_LEN class constant exists."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         assert hasattr(TextDataset, "DEFAULT_SEQ_LEN")
         assert TextDataset.DEFAULT_SEQ_LEN == 128
 
     def test_default_dataset_glue_mrpc(self):
         """Test default dataset is glue/mrpc when none specified."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -57,7 +57,7 @@ class TestTextDatasetBasic:
 
     def test_explicit_dataset_name(self):
         """Test explicit dataset name is used."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -72,7 +72,7 @@ class TestTextDatasetBasic:
 
     def test_max_samples_limits_dataset_size(self):
         """Test max_samples parameter limits dataset size."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -87,7 +87,7 @@ class TestMaxLengthPriority:
 
     def test_default_max_length(self):
         """Test max_length defaults to DEFAULT_SEQ_LEN (128)."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -98,7 +98,7 @@ class TestMaxLengthPriority:
 
     def test_explicit_max_length_overrides_default(self):
         """Test explicit max_length overrides default."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -110,7 +110,7 @@ class TestMaxLengthPriority:
 
     def test_io_config_overrides_explicit(self):
         """Test io_config max_length overrides explicit param."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         io_config = {
             "input_ids": {"shape": [1, 64], "dtype": "int64"},
@@ -129,7 +129,7 @@ class TestMaxLengthPriority:
 
     def test_io_config_overrides_default(self):
         """Test io_config max_length overrides default."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         io_config = {
             "input_ids": {"shape": [1, 512], "dtype": "int64"},
@@ -145,7 +145,7 @@ class TestMaxLengthPriority:
 
     def test_io_config_with_remapped_input_name(self):
         """Test io_config with remapped input name via io_mapping."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         # Custom ONNX with different input name
         io_config = {
@@ -171,7 +171,7 @@ class TestIoMapping:
 
     def test_no_io_mapping_keeps_standard_names(self):
         """Test standard HF names are preserved without io_mapping."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -185,7 +185,7 @@ class TestIoMapping:
 
     def test_io_mapping_renames_columns(self):
         """Test io_mapping renames columns to ONNX input names."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         io_mapping = {
             "input_ids": "custom_ids",
@@ -208,7 +208,7 @@ class TestIoMapping:
 
     def test_partial_io_mapping(self):
         """Test partial io_mapping only renames specified columns."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         io_mapping = {
             "input_ids": "custom_ids",
@@ -231,7 +231,7 @@ class TestColumnDetection:
 
     def test_detects_text_columns(self):
         """Test detection of text columns by Value dtype=string."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         # GLUE/MRPC has sentence1 and sentence2 text columns
         dataset = TextDataset(
@@ -244,7 +244,7 @@ class TestColumnDetection:
 
     def test_detects_label_column(self):
         """Test detection of label column by ClassLabel type."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -256,7 +256,7 @@ class TestColumnDetection:
 
     def test_sentence_pair_detection_mrpc(self):
         """Test sentence pair detection for MRPC (2 text columns)."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         # GLUE/MRPC is a sentence pair task
         dataset = TextDataset(
@@ -269,7 +269,7 @@ class TestColumnDetection:
 
     def test_single_sentence_detection_sst2(self):
         """Test single sentence detection for SST2 (1 text column)."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         # GLUE/SST2 is a single sentence task
         dataset = TextDataset(
@@ -289,7 +289,7 @@ class TestTokenization:
 
     def test_tokenized_output_has_correct_keys(self):
         """Test tokenized output contains expected keys."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -304,7 +304,7 @@ class TestTokenization:
 
     def test_tokenized_tensors_have_correct_shape(self):
         """Test tokenized tensors have correct shape [batch, seq_len]."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -320,7 +320,7 @@ class TestTokenization:
 
     def test_tokenized_tensors_are_torch_tensors(self):
         """Test tokenized output is torch tensors."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -334,7 +334,7 @@ class TestTokenization:
 
     def test_max_length_applied_to_tokenization(self):
         """Test max_length is applied during tokenization."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -353,7 +353,7 @@ class TestReadonlyProperties:
 
     def test_max_length_property(self):
         """Test max_length property is accessible."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -365,7 +365,7 @@ class TestReadonlyProperties:
 
     def test_label_col_property(self):
         """Test label_col property is accessible."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -376,7 +376,7 @@ class TestReadonlyProperties:
 
     def test_label_names_property(self):
         """Test label_names property returns class names."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -388,7 +388,7 @@ class TestReadonlyProperties:
 
     def test_is_sentence_pair_property(self):
         """Test is_sentence_pair property."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -399,7 +399,7 @@ class TestReadonlyProperties:
 
     def test_text_columns_property(self):
         """Test text_columns property returns column names."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -415,7 +415,7 @@ class TestSamplingBehavior:
 
     def test_sequential_sampling_without_shuffle(self):
         """Test sequential sampling when shuffle=False."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -427,7 +427,7 @@ class TestSamplingBehavior:
 
     def test_random_sampling_with_shuffle(self):
         """Test random sampling when shuffle=True."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -440,7 +440,7 @@ class TestSamplingBehavior:
 
     def test_seed_reproducibility(self):
         """Test same seed produces same samples."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset1 = TextDataset(
             model_name="bert-base-uncased",
@@ -467,7 +467,7 @@ class TestEdgeCases:
 
     def test_getitem_returns_dict(self):
         """Test __getitem__ returns dict."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -479,7 +479,7 @@ class TestEdgeCases:
 
     def test_len_returns_int(self):
         """Test __len__ returns int."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -491,7 +491,7 @@ class TestEdgeCases:
 
     def test_io_config_missing_input_ids_uses_default(self):
         """Test io_config without input_ids falls back to explicit/default."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         # io_config without input_ids
         io_config = {
@@ -510,7 +510,7 @@ class TestEdgeCases:
 
     def test_empty_io_mapping(self):
         """Test empty io_mapping dict."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -528,7 +528,7 @@ class TestIntegration:
 
     def test_full_pipeline_glue_mrpc(self):
         """Test full pipeline with GLUE/MRPC."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         dataset = TextDataset(
             model_name="bert-base-uncased",
@@ -551,7 +551,7 @@ class TestIntegration:
 
     def test_full_pipeline_with_io_config(self):
         """Test full pipeline with io_config override."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         io_config = {
             "input_ids": {"shape": [1, 64], "dtype": "int64"},
@@ -571,7 +571,7 @@ class TestIntegration:
 
     def test_full_pipeline_with_io_mapping(self):
         """Test full pipeline with io_mapping renaming."""
-        from winml.modelkit.datasets.text import TextDataset
+        from winml.modelkit.datasets import TextDataset
 
         io_mapping = {
             "input_ids": "ids",
