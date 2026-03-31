@@ -21,7 +21,7 @@ Usage:
     model = WinMLAutoModel.from_pretrained("microsoft/resnet-50")
 
     # With custom config
-    from winml.modelkit.optim.config import WinMLOptimizationConfig
+    from .optim import WinMLOptimizationConfig
     config = WinMLBuildConfig(
         optim=WinMLOptimizationConfig(gelu_fusion=True),
     )

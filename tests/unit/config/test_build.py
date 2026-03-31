@@ -41,7 +41,7 @@ from winml.modelkit.export import (
     resolve_io_specs,
 )
 from winml.modelkit.loader.config import WinMLLoaderConfig
-from winml.modelkit.optim.config import WinMLOptimizationConfig
+from winml.modelkit.optim import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.utils.config_utils import merge_config
 
@@ -709,7 +709,7 @@ class TestBuildSubmoduleConfig:
     def parent_config(self) -> WinMLBuildConfig:
         """Create a parent config with non-default optim/compile for inheritance tests."""
         from winml.modelkit.compiler import WinMLCompileConfig
-        from winml.modelkit.optim.config import WinMLOptimizationConfig
+        from winml.modelkit.optim import WinMLOptimizationConfig
 
         return WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True, matmul_add_fusion=True),

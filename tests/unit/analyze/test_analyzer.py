@@ -21,7 +21,7 @@ from winml.modelkit.analyze.models.information import Action, ActionItem, Inform
 from winml.modelkit.analyze.models.output import AnalysisOutput, EPSupport, ModelStats
 from winml.modelkit.analyze.models.support_level import SupportLevel
 from winml.modelkit.analyze.utils import infer_ihv_from_ep_name
-from winml.modelkit.optim.config import WinMLOptimizationConfig
+from winml.modelkit.optim import WinMLOptimizationConfig
 
 
 class TestAnalyzerConfig:

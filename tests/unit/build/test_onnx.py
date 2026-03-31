@@ -91,7 +91,7 @@ def _create_file_side_effect(output_kwarg_name: str, return_value: object = None
 def _default_analyze_result():
     """Build a default AnalyzeResult with no opportunities (analyzer converges)."""
     from winml.modelkit.analyze.analyzer import AnalyzeResult, LintResult
-    from winml.modelkit.optim.config import WinMLOptimizationConfig
+    from winml.modelkit.optim import WinMLOptimizationConfig
 
     config = WinMLOptimizationConfig()
     lint = LintResult(
