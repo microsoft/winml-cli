@@ -566,7 +566,7 @@ class RMSNormalizationPowPatternInputGenerator(RMSNormalizationPatternInputGener
     """PatternInputGenerator for RMSNormalization pattern (Pow variant)."""
 
     pattern = RMSNormalizationPowPattern()
-    registration_name = "RMSNormalizationPow"
+    registration_name = "RMSNormalizationPowPattern"
 
 
 @register_pattern_input_generator
@@ -574,7 +574,7 @@ class RMSNormalizationMulPatternInputGenerator(RMSNormalizationPatternInputGener
     """PatternInputGenerator for RMSNormalization pattern (Mul variant)."""
 
     pattern = RMSNormalizationMulPattern()
-    registration_name = "RMSNormalizationMul"
+    registration_name = "RMSNormalizationMulPattern"
 
 
 @register_pattern_input_generator
@@ -582,4 +582,4 @@ class TransposedSingleRMSNormalizationPatternInputGenerator(RMSNormalizationPatt
     """PatternInputGenerator for TransposedSingleRMSNormalizationPattern."""
 
     pattern = TransposedSingleRMSNormalizationPattern()
-    registration_name = "TransposedSingleRMSNormalization"
+    registration_name = "TransposedSingleRMSNormalizationPattern"

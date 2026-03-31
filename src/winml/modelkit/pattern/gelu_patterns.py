@@ -129,7 +129,7 @@ class Gelu1PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("
     """Input generator for GELU activation pattern variant 1."""
 
     pattern = Gelu1Pattern()
-    registration_name = "Gelu1"
+    registration_name = "Gelu1Pattern"
 
 
 class Gelu2Pattern(Pattern):
@@ -229,7 +229,7 @@ class Gelu2PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("
     """Input generator for GELU activation pattern variant 2."""
 
     pattern = Gelu2Pattern()
-    registration_name = "Gelu2"
+    registration_name = "Gelu2Pattern"
 
 
 class Gelu3Pattern(Pattern):
@@ -336,7 +336,7 @@ class Gelu3PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("
     """Input generator for GELU activation pattern variant 3."""
 
     pattern = Gelu3Pattern()
-    registration_name = "Gelu3"
+    registration_name = "Gelu3Pattern"
 
 
 class Gelu4Pattern(Pattern):
@@ -444,4 +444,4 @@ class Gelu4PatternInputGenerator(PatternInputGenerator, get_runtime_checker_op("
     """Input generator for GELU activation pattern variant 4."""
 
     pattern = Gelu4Pattern()
-    registration_name = "Gelu4"
+    registration_name = "Gelu4Pattern"

@@ -527,7 +527,7 @@ class ExpandedAttentionPatternInputGenerator(PatternInputGenerator):
     """
 
     pattern = ExpandedAttentionPattern()
-    registration_name = "ExpandedAttention"
+    registration_name = "ExpandedAttentionPattern"
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Returns finite attribute sets for expanded attention with mask pattern.
@@ -586,7 +586,7 @@ class TransposeAttentionPatternInputGenerator(PatternInputGenerator):
     """
 
     pattern = TransposeAttentionPattern()
-    registration_name = "TransposeAttention"
+    registration_name = "TransposeAttentionPattern"
 
     def get_finite_attribute_sets(self) -> dict[str, list]:
         """Returns finite attribute sets for Transpose+Attention pattern.
