@@ -6,7 +6,7 @@
 
 import json
 
-from winml.modelkit.optracing.result import OperatorMetrics, OpTraceResult
+from winml.modelkit.optracing import OperatorMetrics, OpTraceResult
 
 
 def test_operator_metrics_to_dict():
