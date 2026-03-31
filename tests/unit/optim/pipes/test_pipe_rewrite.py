@@ -280,7 +280,7 @@ class TestRewritePipePassthrough:
     """Verify that the pipe is a no-op when nothing is enabled."""
 
     def test_returns_same_model_when_no_rules(self) -> None:
-        model, _, _ = _build_self_matching_model("Gelu1")
+        model, _, _ = _build_self_matching_model("Gelu1Pattern")
         config = RewritePipe.build_config()
         result = RewritePipe().process(model, config)
         assert result is model
@@ -311,7 +311,7 @@ class TestGeluRewrite:
         source_name = f"{gelu_variant}Pattern"
         if source_name not in gelu_group.sources:
             pytest.skip(f"{source_name} not in GELU group")
-        model, _, _ = _build_self_matching_model(gelu_variant)
+        model, _, _ = _build_self_matching_model(source_name)
         cap_name = gelu_group.flag_name
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
         result = RewritePipe().process(model, config)
@@ -324,7 +324,7 @@ class TestGeluRewrite:
         source_name = f"{gelu_variant}Pattern"
         if source_name not in gelu_group.sources:
             pytest.skip(f"{source_name} not in GELU group")
-        model, _, _ = _build_self_matching_model(gelu_variant)
+        model, _, _ = _build_self_matching_model(source_name)
         original_in = [inp.name for inp in model.graph.input]
         original_out = [out.name for out in model.graph.output]
         cap_name = gelu_group.flag_name
@@ -340,7 +340,7 @@ class TestGeluRewrite:
         source_name = f"{gelu_variant}Pattern"
         if source_name not in gelu_group.sources:
             pytest.skip(f"{source_name} not in GELU group")
-        model, _, _ = _build_self_matching_model(gelu_variant)
+        model, _, _ = _build_self_matching_model(source_name)
         original_count = len(model.graph.node)
         cap_name = gelu_group.flag_name
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
@@ -354,9 +354,9 @@ class TestGeluRewrite:
         source_name = f"{gelu_variant}Pattern"
         if source_name not in gelu_group.sources:
             pytest.skip(f"{source_name} not in GELU group")
-        model, _, _ = _build_self_matching_model(gelu_variant)
+        model, _, _ = _build_self_matching_model(source_name)
 
-        gen_class = get_pattern_input_generator(gelu_variant)
+        gen_class = get_pattern_input_generator(source_name)
         gen = gen_class(domain_versions=TEST_DOMAIN_VERSIONS)
         before_matcher = PatternMatcher(model)
         before_matcher.register_pattern(gen.pattern)
@@ -370,7 +370,7 @@ class TestGeluRewrite:
         after_matcher = PatternMatcher(result)
         after_matcher.register_pattern(gen.pattern)
         after = len(after_matcher.match())
-        assert after == 0, f"Expected 0 {gelu_variant} matches after rewrite, got {after}"
+        assert after == 0, f"Expected 0 {source_name} matches after rewrite, got {after}"
 
 
 # ---------------------------------------------------------------------------
@@ -392,14 +392,14 @@ class TestMatMulAddRewrite:
         return group
 
     def test_matmul_add_rewrite_produces_valid_model(self, gemm_group: RewriteGroup) -> None:
-        model, _, _ = _build_self_matching_model("MatMulAdd")
+        model, _, _ = _build_self_matching_model("MatMulAddPattern")
         cap_name = gemm_group.flag_name
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
         result = RewritePipe().process(model, config)
         onnx.checker.check_model(result)
 
     def test_matmul_add_rewrite_preserves_graph_io(self, gemm_group: RewriteGroup) -> None:
-        model, _, _ = _build_self_matching_model("MatMulAdd")
+        model, _, _ = _build_self_matching_model("MatMulAddPattern")
         original_in = [inp.name for inp in model.graph.input]
         original_out = [out.name for out in model.graph.output]
         cap_name = gemm_group.flag_name
@@ -409,9 +409,9 @@ class TestMatMulAddRewrite:
         assert [o.name for o in result.graph.output] == original_out
 
     def test_matmul_add_rewrite_removes_source_pattern(self, gemm_group: RewriteGroup) -> None:
-        model, _, _ = _build_self_matching_model("MatMulAdd")
+        model, _, _ = _build_self_matching_model("MatMulAddPattern")
 
-        gen_class = get_pattern_input_generator("MatMulAdd")
+        gen_class = get_pattern_input_generator("MatMulAddPattern")
         gen = gen_class(domain_versions=TEST_DOMAIN_VERSIONS)
         before_matcher = PatternMatcher(model)
         before_matcher.register_pattern(gen.pattern)
@@ -479,7 +479,7 @@ class TestConflictDetection:
         if gelu_group is None:
             pytest.skip("No GELU group found")
 
-        model, _, _ = _build_self_matching_model("Gelu1")
+        model, _, _ = _build_self_matching_model("Gelu1Pattern")
         cap_name = gelu_group.flag_name
         # Build config with ALL gelu rules so we get multiple source patterns
         config = RewritePipe.build_config(**{cap_name.replace("-", "_"): True})
