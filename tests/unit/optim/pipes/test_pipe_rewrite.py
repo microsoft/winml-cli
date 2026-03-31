@@ -36,12 +36,13 @@ from winml.modelkit.optim.pipes.rewrite_rules import (
     get_rewrite_rules_for_capability,
     list_rewrite_families,
 )
-from winml.modelkit.pattern.base import (
+from winml.modelkit.pattern import (
     InvalidPatternMatcherModelError,
     PatternMatcher,
+    PatternMatchResult,
+    SkeletonMatchResult,
     get_pattern_input_generator,
 )
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 
 
 # ---------------------------------------------------------------------------

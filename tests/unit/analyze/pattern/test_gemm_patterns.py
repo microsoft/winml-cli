@@ -12,8 +12,8 @@ import numpy as np
 from winml.modelkit.pattern import (
     MatMulAddPattern,
     PatternMatcher,
+    ReshapeGemmReshapePattern,
 )
-from winml.modelkit.pattern.gemm_patterns import ReshapeGemmReshapePattern
 
 from .conftest import TEST_DOMAIN_VERSIONS
 
@@ -30,9 +30,7 @@ def _create_gemm_family_model(pattern, *, with_constants=False):
         "C": with_constants,
     }
     output_dtypes = ["tensor(float)"]
-    return pattern.get_onnx_model(
-        inputs, {}, is_constant_map, output_dtypes, TEST_DOMAIN_VERSIONS
-    )
+    return pattern.get_onnx_model(inputs, {}, is_constant_map, output_dtypes, TEST_DOMAIN_VERSIONS)
 
 
 class TestGemmFamilyCrossMatching:
@@ -53,11 +51,13 @@ class TestGemmFamilyCrossMatching:
         results1 = matcher1.match()
 
         matmuladd_matches = [
-            r for r in results1
+            r
+            for r in results1
             if type(r.skeleton_match_result.pattern).__name__ == "MatMulAddPattern"
         ]
         reshape_matches = [
-            r for r in results1
+            r
+            for r in results1
             if type(r.skeleton_match_result.pattern).__name__ == "ReshapeGemmReshapePattern"
         ]
         assert len(matmuladd_matches) == 1
@@ -70,11 +70,13 @@ class TestGemmFamilyCrossMatching:
         results2 = matcher2.match()
 
         matmuladd_matches2 = [
-            r for r in results2
+            r
+            for r in results2
             if type(r.skeleton_match_result.pattern).__name__ == "MatMulAddPattern"
         ]
         reshape_matches2 = [
-            r for r in results2
+            r
+            for r in results2
             if type(r.skeleton_match_result.pattern).__name__ == "ReshapeGemmReshapePattern"
         ]
         assert len(matmuladd_matches2) == 0

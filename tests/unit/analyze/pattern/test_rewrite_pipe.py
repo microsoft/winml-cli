@@ -26,7 +26,7 @@ import pytest
 from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.optim.pipes.rewrite import RewritePipe
 from winml.modelkit.optim.pipes.rewrite_rules import REWRITE_GROUPS
-from winml.modelkit.pattern.base import PatternMatcher
+from winml.modelkit.pattern import PatternMatcher
 
 # Reuse the conftest helpers (available as module-level functions)
 from .conftest import generate_self_matching_model
@@ -41,7 +41,7 @@ TEST_DOMAIN_VERSIONS: dict[ONNXDomain, int] = {ONNXDomain.AI_ONNX: 17}
 
 def _count_pattern_matches(model: onnx.ModelProto, pattern_name: str) -> int:
     """Return number of times a named pattern matches in the model."""
-    from winml.modelkit.pattern.base import get_pattern_input_generator
+    from winml.modelkit.pattern import get_pattern_input_generator
 
     gen_class = get_pattern_input_generator(pattern_name)
     gen = gen_class(domain_versions=TEST_DOMAIN_VERSIONS)

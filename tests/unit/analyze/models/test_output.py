@@ -367,7 +367,7 @@ class TestAnalysisOutputValidation:
     def test_comprehensive_output_with_all_fields(self):
         """Test AnalysisOutput with all fields populated."""
         from winml.modelkit.analyze import Information
-        from winml.modelkit.pattern.models import SubgraphPattern
+        from winml.modelkit.pattern import SubgraphPattern
 
         # Create the subgraph pattern
         _subgraph_pattern = SubgraphPattern(
