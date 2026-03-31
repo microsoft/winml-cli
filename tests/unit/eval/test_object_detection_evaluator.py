@@ -9,7 +9,7 @@ import pytest
 from datasets import ClassLabel, Dataset, Features, Sequence, Value
 
 from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval.object_detection_evaluator import WinMLObjectDetectionEvaluator
+from winml.modelkit.eval import WinMLObjectDetectionEvaluator
 
 
 # ---------------------------------------------------------------------------

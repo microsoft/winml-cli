@@ -32,12 +32,16 @@ from .hf import MODEL_CLASS_MAPPING as HF_MODEL_CLASS_MAPPING
 
 # Re-export from winml/ subpackage (WinML inference class mappings)
 # These have no circular dependencies with loader/
-# TODO: Review if task-specific classes (WinMLModelForImageClassification) should be
-# exported directly or only accessed via WinMLAutoModel factory
 from .winml import (
     TASK_TO_WINML_CLASS,
     WINML_MODEL_CLASS_MAPPING,
+    ImageSegmentationOutput,
+    WinMLModelForGenericTask,
     WinMLModelForImageClassification,
+    WinMLModelForImageSegmentation,
+    WinMLModelForObjectDetection,
+    WinMLModelForSemanticSegmentation,
+    WinMLModelForSequenceClassification,
     WinMLPreTrainedModel,
     get_supported_tasks,
     get_winml_class,
@@ -65,8 +69,14 @@ __all__ = [
     "MODEL_BUILD_CONFIGS",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
+    "ImageSegmentationOutput",
     "WinMLAutoModel",
+    "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
+    "WinMLModelForImageSegmentation",
+    "WinMLModelForObjectDetection",
+    "WinMLModelForSemanticSegmentation",
+    "WinMLModelForSequenceClassification",
     "WinMLPreTrainedModel",
     "get_supported_tasks",
     "get_winml_class",

@@ -10,12 +10,13 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from winml.modelkit.optracing.report import (
-    _format_bytes,
+from winml.modelkit.optracing import (
+    OperatorMetrics,
+    OpTraceResult,
     display_op_trace_report,
     write_op_trace_json,
 )
-from winml.modelkit.optracing.result import OperatorMetrics, OpTraceResult
+from winml.modelkit.optracing.report import _format_bytes  # Testing internal implementation
 
 
 # ---------------------------------------------------------------------------
