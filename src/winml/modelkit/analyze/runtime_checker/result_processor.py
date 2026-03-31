@@ -262,7 +262,7 @@ def check_df_consistent(
     for group_key, group_df in grouped:
         eval_df = group_df
         if placeholder_col in group_df.columns:
-            eval_df = group_df[not group_df[placeholder_col]]
+            eval_df = group_df[group_df[placeholder_col].isna() | (group_df[placeholder_col] == "")]
 
         # If all rows are placeholders, this group should not trigger conflicts.
         if eval_df.empty:

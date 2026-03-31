@@ -131,7 +131,8 @@ class ConvInputGenerator(OpInputGenerator):
         return {
             "X": QDQParameterConfig(support_activation=True),
             "W": QDQParameterConfig(support_weight=True),
-            "B": QDQParameterConfig(qdq_types=[SupportedONNXType.INT32]),
+            "B": QDQParameterConfig(support_non_qdq=True, qdq_types=[SupportedONNXType.INT32]),
+            "Y": QDQParameterConfig(support_non_qdq=True, support_activation=True),
         }
 
 
