@@ -12,13 +12,11 @@ require network access. Use `pytest -m "not slow"` to skip them.
 
 import pytest
 
-from winml.modelkit.loader.config import (
+from winml.modelkit.loader import load_hf_model
+from winml.modelkit.loader.config import (  # Testing internal implementation
     _create_hf_config_from_model_class as create_hf_config_from_model_class,
 )
-from winml.modelkit.loader.hf import (
-    _load_class_from_script,
-    load_hf_model,
-)
+from winml.modelkit.loader.hf import _load_class_from_script  # Testing internal implementation
 
 
 class TestLoadClassFromScript:
@@ -457,7 +455,7 @@ class TestCreateHfConfigFromModelClass:
         """Config can be passed to resolve_task_and_model_class."""
         from transformers import ResNetForImageClassification
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         hf_config = create_hf_config_from_model_class(ResNetForImageClassification)
         task, resolved_class = resolve_task_and_model_class(
