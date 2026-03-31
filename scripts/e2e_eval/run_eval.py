@@ -840,6 +840,17 @@ def parse_args() -> argparse.Namespace:
         help="Delete HuggingFace hub cache for each model after evaluation (saves disk space)",
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
+    parser.add_argument(
+        "--list-json",
+        type=Path,
+        metavar="PATH",
+        help="Write filtered model list as JSON to PATH and exit (for pipeline orchestration)",
+    )
+    parser.add_argument(
+        "--no-report",
+        action="store_true",
+        help="Skip report generation (useful when running per-model in a pipeline loop)",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument(
         "--continue",
@@ -927,6 +938,23 @@ def main() -> None:
             safe_print(
                 f"  [{e.priority}] {e.hf_id} / {e.task}  ({e.model_type}, {e.group}){skip_acc}"
             )
+        sys.exit(0)
+
+    # --list-json mode: write machine-readable JSON and exit
+    if args.list_json:
+        model_list = [
+            {
+                "hf_id": e.hf_id,
+                "task": e.task,
+                "model_type": e.model_type,
+                "group": e.group,
+                "priority": e.priority,
+            }
+            for e in entries
+        ]
+        args.list_json.parent.mkdir(parents=True, exist_ok=True)
+        args.list_json.write_text(json.dumps(model_list, indent=2), encoding="utf-8")
+        safe_print(f"Wrote {len(model_list)} models to {args.list_json}")
         sys.exit(0)
 
     # 2. Setup output directory
@@ -1154,46 +1182,47 @@ def main() -> None:
     if args.eval_type != "perf":
         derive_verdicts(results)
 
-    summary = generate_summary(results, run_duration)
-    timestamp_slug = time.strftime("%Y%m%d_%H%M%S")
+    if not args.no_report:
+        summary = generate_summary(results, run_duration)
+        timestamp_slug = time.strftime("%Y%m%d_%H%M%S")
 
-    # JSON report
-    report_json_path = output_dir / f"eval_report_{timestamp_slug}.json"
-    write_summary_json(summary, report_json_path)
+        # JSON report
+        report_json_path = output_dir / f"eval_report_{timestamp_slug}.json"
+        write_summary_json(summary, report_json_path)
 
-    # Text summary (perf-focused)
-    text_report = format_text_summary(results)
-    safe_print(text_report)
-    report_txt_path = output_dir / f"eval_report_{timestamp_slug}.txt"
-    report_txt_path.write_text(text_report, encoding="utf-8")
+        # Text summary (perf-focused)
+        text_report = format_text_summary(results)
+        safe_print(text_report)
+        report_txt_path = output_dir / f"eval_report_{timestamp_slug}.txt"
+        report_txt_path.write_text(text_report, encoding="utf-8")
 
-    # Markdown summary
-    write_summary_md(results, summary, output_dir / "summary.md")
+        # Markdown summary
+        write_summary_md(results, summary, output_dir / "summary.md")
 
-    # HTML report
-    generate_html_report(summary, output_dir / "eval_report.html", args.registry)
+        # HTML report
+        generate_html_report(summary, output_dir / "eval_report.html", args.registry)
 
-    safe_print(f"\nResults saved to: {output_dir}")
-    safe_print(f"  report: {report_json_path.name}")
-    safe_print("  summary: summary.md")
-    safe_print("  html: eval_report.html")
+        safe_print(f"\nResults saved to: {output_dir}")
+        safe_print(f"  report: {report_json_path.name}")
+        safe_print("  summary: summary.md")
+        safe_print("  html: eval_report.html")
 
-    ps = summary["perf_summary"]
-    total = ps["total"]
-    rate = (ps["passed"] / total * 100) if total else 0
-    safe_print(f"\nPerf pass rate: {ps['passed']}/{total} ({rate:.1f}%)")
+        ps = summary["perf_summary"]
+        total = ps["total"]
+        rate = (ps["passed"] / total * 100) if total else 0
+        safe_print(f"\nPerf pass rate: {ps['passed']}/{total} ({rate:.1f}%)")
 
-    if args.eval_type != "perf":
-        acc_s = summary.get("accuracy_summary", {})
-        evaluated = acc_s.get("evaluated", 0)
-        acc_pass = acc_s.get("accuracy_pass", 0)
-        acc_rate = acc_s.get("pass_rate", 0)
-        safe_print(
-            f"Accuracy pass rate: {acc_pass}/{evaluated} ({acc_rate:.1%})  "
-            f"[at-risk={acc_s.get('accuracy_at_risk', 0)} "
-            f"regression={acc_s.get('accuracy_regression', 0)} "
-            f"error={acc_s.get('eval_error', 0)}]"
-        )
+        if args.eval_type != "perf":
+            acc_s = summary.get("accuracy_summary", {})
+            evaluated = acc_s.get("evaluated", 0)
+            acc_pass = acc_s.get("accuracy_pass", 0)
+            acc_rate = acc_s.get("pass_rate", 0)
+            safe_print(
+                f"Accuracy pass rate: {acc_pass}/{evaluated} ({acc_rate:.1%})  "
+                f"[at-risk={acc_s.get('accuracy_at_risk', 0)} "
+                f"regression={acc_s.get('accuracy_regression', 0)} "
+                f"error={acc_s.get('eval_error', 0)}]"
+            )
 
     if skipped:
         safe_print(f"  ({skipped} cached from previous run)")
