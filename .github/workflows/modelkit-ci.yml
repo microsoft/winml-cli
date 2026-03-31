@@ -57,5 +57,5 @@ jobs:
       - name: Run tests (${{ matrix.group }})
         shell: pwsh
         run: |
-          uv run pytest ${{ matrix.paths }} --tb=short --no-cov `
+          uv run pytest ${{ matrix.paths }} --tb=short --no-cov -vv`
             -m "not e2e and not npu and not gpu"
