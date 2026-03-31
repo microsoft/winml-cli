@@ -133,17 +133,15 @@ class TestDevicePolicySelection:
     """Test device policy selection."""
 
     def test_device_property(self):
-        """AC-6: device property returns current device."""
+        """AC-6: device property returns torch.device for HF compatibility."""
         model = _make_mock_model()
 
-        assert model.device == "cpu"
+        assert model.device == torch.device("cpu")
 
-    def test_device_policy_not_ep_names(self):
-        """AC-6: Uses policy names not EP names."""
-        # Valid device names: auto, npu, gpu, cpu
-        # Not execution provider names
+    def test_ort_device_property(self):
+        """AC-6: ort_device returns the ORT EP target string."""
         model = _make_mock_model()
-        assert model.device in ("auto", "npu", "gpu", "cpu")
+        assert model.ort_device in ("auto", "npu", "gpu", "cpu")
 
 
 class TestONNXPipeline:

@@ -199,8 +199,18 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         return self._session.perf(warmup=warmup)
 
     @property
-    def device(self) -> str:
-        """Current device."""
+    def device(self) -> torch.device:
+        """Torch device for HF pipeline compatibility.
+
+        Always returns ``torch.device("cpu")`` because WinML models run
+        through ORT, not PyTorch — tensors passed to/from the model live
+        on CPU.  Use :pyattr:`ort_device` for the actual ORT EP target.
+        """
+        return torch.device("cpu")
+
+    @property
+    def ort_device(self) -> str:
+        """ORT execution provider target (e.g. "npu", "gpu", "cpu", "auto")."""
         return self._device
 
     @property

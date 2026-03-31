@@ -153,10 +153,10 @@ class TestProperties:
         assert model.num_labels == 2
 
     def test_device_property(self):
-        """device property returns current device."""
+        """device property returns torch.device for HF compatibility."""
         model = create_mock_model()
 
-        assert model.device == "cpu"
+        assert model.device == torch.device("cpu")
 
     def test_dtype_property(self):
         """dtype property returns float32."""
