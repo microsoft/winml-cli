@@ -41,9 +41,7 @@ class TestOptimizeStage:
 
     def test_should_not_run_when_no_transforms(self, tmp_path):
         """Stage should skip when no transforms are registered for the EP."""
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.optimize import OptimizeStage
-        from winml.modelkit.compiler.transforms import clear_transforms
+        from winml.modelkit.compiler import CompileContext, OptimizeStage, clear_transforms
 
         clear_transforms()
 
@@ -59,9 +57,12 @@ class TestOptimizeStage:
 
     def test_should_run_when_transforms_registered(self, tmp_path):
         """Stage should run when transforms are registered for the EP."""
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.optimize import OptimizeStage
-        from winml.modelkit.compiler.transforms import clear_transforms, register_transform
+        from winml.modelkit.compiler import (
+            CompileContext,
+            OptimizeStage,
+            clear_transforms,
+            register_transform,
+        )
 
         clear_transforms()
 
@@ -87,9 +88,12 @@ class TestOptimizeStage:
 
     def test_process_applies_transforms(self, tmp_path):
         """Stage should apply transforms and save output model."""
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.optimize import OptimizeStage
-        from winml.modelkit.compiler.transforms import clear_transforms, register_transform
+        from winml.modelkit.compiler import (
+            CompileContext,
+            OptimizeStage,
+            clear_transforms,
+            register_transform,
+        )
 
         clear_transforms()
 
@@ -127,8 +131,7 @@ class TestQFormatConvertStage:
 
     def test_should_not_run_for_plain_model(self, tmp_path):
         """Stage should skip for models without QLinear ops."""
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.qformat import QFormatConvertStage
+        from winml.modelkit.compiler import CompileContext, QFormatConvertStage
 
         model_path = tmp_path / "model.onnx"
         create_simple_model(model_path)
@@ -142,8 +145,7 @@ class TestQFormatConvertStage:
 
     def test_should_run_for_qlinear_model_on_qnn(self, tmp_path):
         """Stage should run when model has QLinear ops targeting QNN."""
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.qformat import QFormatConvertStage
+        from winml.modelkit.compiler import CompileContext, QFormatConvertStage
 
         model_path = tmp_path / "model.onnx"
         create_qlinear_model(model_path)
@@ -157,8 +159,7 @@ class TestQFormatConvertStage:
 
     def test_process_adds_warning(self, tmp_path):
         """Stage should add warning since conversion is not yet implemented."""
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.qformat import QFormatConvertStage
+        from winml.modelkit.compiler import CompileContext, QFormatConvertStage
 
         model_path = tmp_path / "model.onnx"
         create_qlinear_model(model_path)
@@ -180,7 +181,7 @@ class TestCompileContext:
 
     def test_context_properties(self, tmp_path):
         """Test context property accessors."""
-        from winml.modelkit.compiler.context import CompileContext
+        from winml.modelkit.compiler import CompileContext
 
         model_path = tmp_path / "model.onnx"
         create_simple_model(model_path)
@@ -200,7 +201,7 @@ class TestCompileContext:
 
     def test_error_handling(self, tmp_path):
         """Test error and warning handling."""
-        from winml.modelkit.compiler.context import CompileContext
+        from winml.modelkit.compiler import CompileContext
 
         context = CompileContext(
             model_path=tmp_path / "model.onnx",
@@ -219,7 +220,7 @@ class TestCompileContext:
 
     def test_logging(self, tmp_path):
         """Test logging."""
-        from winml.modelkit.compiler.context import CompileContext
+        from winml.modelkit.compiler import CompileContext
 
         context = CompileContext(
             model_path=tmp_path / "model.onnx",
@@ -233,7 +234,7 @@ class TestCompileContext:
 
     def test_no_quant_fields(self, tmp_path):
         """Verify quant-related fields have been removed from context."""
-        from winml.modelkit.compiler.context import CompileContext
+        from winml.modelkit.compiler import CompileContext
 
         context = CompileContext(
             model_path=tmp_path / "model.onnx",
@@ -252,7 +253,7 @@ class TestCompileResult:
 
     def test_no_quant_fields(self):
         """Verify quant-related fields have been removed from result."""
-        from winml.modelkit.compiler.result import CompileResult
+        from winml.modelkit.compiler import CompileResult
 
         result = CompileResult(success=True)
         assert not hasattr(result, "calibration_time")
@@ -261,7 +262,7 @@ class TestCompileResult:
 
     def test_to_dict(self):
         """Test serialization."""
-        from winml.modelkit.compiler.result import CompileResult
+        from winml.modelkit.compiler import CompileResult
 
         result = CompileResult(
             success=True,
@@ -279,7 +280,7 @@ class TestCompileResult:
 
     def test_str(self):
         """Test string representation."""
-        from winml.modelkit.compiler.result import CompileResult
+        from winml.modelkit.compiler import CompileResult
 
         result = CompileResult(
             success=True,
@@ -344,8 +345,7 @@ class TestCompileStageFinalizeOutput:
 
         Key branch: embed_mode == 0 (external), update ep_cache_context to new filename
         """
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.compile import CompileStage
+        from winml.modelkit.compiler import CompileContext, CompileStage
 
         # Setup: work_dir with EPContext pointing to old bin name
         work_dir = tmp_path / "work"
@@ -399,8 +399,7 @@ class TestCompileStageFinalizeOutput:
 
         Key branch: attrs["embed_mode"].i != 0 -> skip update
         """
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.compile import CompileStage
+        from winml.modelkit.compiler import CompileContext, CompileStage
 
         # Setup: work_dir with embedded EPContext
         work_dir = tmp_path / "work"
@@ -445,8 +444,7 @@ class TestCompileStageFinalizeOutput:
 
         Key branch: if src_ctx_path is None: add_warning
         """
-        from winml.modelkit.compiler.context import CompileContext
-        from winml.modelkit.compiler.stages.compile import CompileStage
+        from winml.modelkit.compiler import CompileContext, CompileStage
 
         work_dir = tmp_path / "work"
         output_dir = tmp_path / "output"
@@ -481,10 +479,12 @@ class TestCompilerPipeline:
 
     def test_new_pipeline_stages(self):
         """Verify the pipeline uses the new stages."""
-        from winml.modelkit.compiler.compiler import Compiler
-        from winml.modelkit.compiler.stages.compile import CompileStage
-        from winml.modelkit.compiler.stages.optimize import OptimizeStage
-        from winml.modelkit.compiler.stages.qformat import QFormatConvertStage
+        from winml.modelkit.compiler import (
+            Compiler,
+            CompileStage,
+            OptimizeStage,
+            QFormatConvertStage,
+        )
 
         # Reset cached stages
         Compiler._stages = None
@@ -500,7 +500,7 @@ class TestCompilerPipeline:
 
     def test_passthrough_when_no_config(self, tmp_path):
         """Compile with no config returns passthrough result."""
-        from winml.modelkit.compiler.compiler import Compiler
+        from winml.modelkit.compiler import Compiler
 
         model_path = tmp_path / "model.onnx"
         create_simple_model(model_path)

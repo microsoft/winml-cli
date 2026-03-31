@@ -20,7 +20,8 @@ from transformers import SegformerConfig, SegformerForSemanticSegmentation
 
 # Import triggers ONNX config registration
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export.io import _get_onnx_config, generate_dummy_inputs
+from winml.modelkit.export import generate_dummy_inputs
+from winml.modelkit.export.io import _get_onnx_config  # Testing internal implementation
 from winml.modelkit.models.hf.segformer import (
     MODEL_CLASS_MAPPING,
     SegformerIOConfig,

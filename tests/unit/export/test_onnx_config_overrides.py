@@ -28,10 +28,9 @@ from optimum.exporters.tasks import TasksManager
 
 # Trigger OnnxConfig registration with TasksManager
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export.io import (
+from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
+from winml.modelkit.export.io import (  # Testing internal implementation
     _populate_image_size_from_preprocessor,
-    generate_dummy_inputs,
-    resolve_io_specs,
 )
 from winml.modelkit.models.hf.roberta import _adjust_position_embeddings
 
