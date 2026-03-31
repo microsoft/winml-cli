@@ -195,7 +195,9 @@ def normalize_constraint_dict(c: dict) -> dict:
     """
     if "same_value" in c and "same_value_shape" in c:
         normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
-        normalized["value"] = np.full(c["same_value_shape"], c["same_value"]).tolist()
+        dtype = np.dtype(c["dtype"]) if "dtype" in c else None
+        normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype).tolist()
+
         return normalized
     return c
 
