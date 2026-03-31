@@ -1104,8 +1104,9 @@ class TestIterQDQCombinations:
             ("Shape", 37 * 4 * 2),  # optional end
             (
                 "Slice",
-                6240,
-            ),  # QDQ 4 * Tind 2 * (48 with_axes * 16 is_const + 3 without * 4 is_const)
+                4704,
+            ),  # QDQ 4 * starts,ends is_const 4
+            # * Tind type 2 * (3 + 36 * axes,steps is_const 4)
             ("Softmax", (unary_input_shapes - 1) * 11 * 4),  # 704 actually 172
             ("Split", 352),  # QDQ 4 * (30 * is_constant 2 + 28)
             ("Squeeze", 216),  # QDQ 4 * split 3 state * 18 cases
