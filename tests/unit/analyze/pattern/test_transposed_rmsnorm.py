@@ -19,7 +19,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern import (
     PatternMatcher,
     PatternRewriter,
@@ -34,9 +34,7 @@ _pattern_instance = TransposedSingleRMSNormalizationPattern()
 _compute_transpose_permutation = _pattern_instance._compute_transpose_permutation
 
 
-def _numpy_rmsnorm(
-    x: np.ndarray, scale: np.ndarray, axis: int, epsilon: float
-) -> np.ndarray:
+def _numpy_rmsnorm(x: np.ndarray, scale: np.ndarray, axis: int, epsilon: float) -> np.ndarray:
     """Compute RMSNorm using numpy for reference."""
     rms = np.sqrt(np.mean(x**2, axis=axis, keepdims=True) + epsilon)
     return x / rms * scale
@@ -144,9 +142,7 @@ class TestTransposedRMSNormPattern:
 
         # Verify RMSNormalization has axis=-1
         rmsnorm_node = model.graph.node[2]
-        axis_attr = next(
-            (attr for attr in rmsnorm_node.attribute if attr.name == "axis"), None
-        )
+        axis_attr = next((attr for attr in rmsnorm_node.attribute if attr.name == "axis"), None)
         assert axis_attr is not None
         assert axis_attr.i == -1
 
@@ -239,12 +235,8 @@ class TestTransposedRMSNormPattern:
         # Verify Transpose nodes have identity permutation for axis=-1
         transpose1 = model.graph.node[0]
         transpose2 = model.graph.node[3]
-        perm1 = next(
-            (attr.ints for attr in transpose1.attribute if attr.name == "perm"), None
-        )
-        perm2 = next(
-            (attr.ints for attr in transpose2.attribute if attr.name == "perm"), None
-        )
+        perm1 = next((attr.ints for attr in transpose1.attribute if attr.name == "perm"), None)
+        perm2 = next((attr.ints for attr in transpose2.attribute if attr.name == "perm"), None)
         assert list(perm1) == [0, 1, 2]
         assert list(perm2) == [0, 1, 2]
 
@@ -283,9 +275,7 @@ class TestTransposedRMSNormPattern:
 
         # Verify Transpose permutation moves axis 0 to the end
         transpose1 = model.graph.node[0]
-        perm1 = list(
-            next(attr.ints for attr in transpose1.attribute if attr.name == "perm")
-        )
+        perm1 = list(next(attr.ints for attr in transpose1.attribute if attr.name == "perm"))
         assert perm1 == [1, 2, 0]
 
         # Self-match should recover axis=0
@@ -366,9 +356,7 @@ class TestRMSNormalizationPatternRewriting:
         assert len(pow_results) == 1
 
         rewriter = PatternRewriter(model)
-        new_model = rewriter.rewrite(
-            [(pow_results, TransposedSingleRMSNormalizationPattern)]
-        )
+        new_model = rewriter.rewrite([(pow_results, TransposedSingleRMSNormalizationPattern)])
 
         onnx.checker.check_model(new_model)
 
@@ -382,9 +370,7 @@ class TestRMSNormalizationPatternRewriting:
         assert len(new_matcher.match()) == 0
 
         # Verify RMSNormalization node exists
-        rmsnorm_nodes = [
-            n for n in new_model.graph.node if n.op_type == "RMSNormalization"
-        ]
+        rmsnorm_nodes = [n for n in new_model.graph.node if n.op_type == "RMSNormalization"]
         assert len(rmsnorm_nodes) == 1
 
     def test_rewrite_rmsnorm_mul_to_transposed(self):
@@ -418,9 +404,7 @@ class TestRMSNormalizationPatternRewriting:
         assert len(mul_results) == 1
 
         rewriter = PatternRewriter(model)
-        new_model = rewriter.rewrite(
-            [(mul_results, TransposedSingleRMSNormalizationPattern)]
-        )
+        new_model = rewriter.rewrite([(mul_results, TransposedSingleRMSNormalizationPattern)])
 
         onnx.checker.check_model(new_model)
 
@@ -431,9 +415,7 @@ class TestRMSNormalizationPatternRewriting:
         new_matcher.register_pattern(mul_pattern)
         assert len(new_matcher.match()) == 0
 
-        rmsnorm_nodes = [
-            n for n in new_model.graph.node if n.op_type == "RMSNormalization"
-        ]
+        rmsnorm_nodes = [n for n in new_model.graph.node if n.op_type == "RMSNormalization"]
         assert len(rmsnorm_nodes) == 1
 
     def test_rewrite_preserves_rmsnorm_semantics(self):
@@ -465,9 +447,7 @@ class TestRMSNormalizationPatternRewriting:
         pow_results = matcher.match()
 
         rewriter = PatternRewriter(model)
-        new_model = rewriter.rewrite(
-            [(pow_results, TransposedSingleRMSNormalizationPattern)]
-        )
+        new_model = rewriter.rewrite([(pow_results, TransposedSingleRMSNormalizationPattern)])
 
         # Run rewritten model
         new_sess = ort.InferenceSession(new_model.SerializeToString())
@@ -515,15 +495,11 @@ class TestRMSNormalizationPatternRewriting:
         assert pow_results[0].attributes["axis"] == 1
 
         rewriter = PatternRewriter(model)
-        new_model = rewriter.rewrite(
-            [(pow_results, TransposedSingleRMSNormalizationPattern)]
-        )
+        new_model = rewriter.rewrite([(pow_results, TransposedSingleRMSNormalizationPattern)])
 
         onnx.checker.check_model(new_model)
 
-        rmsnorm_nodes = [
-            n for n in new_model.graph.node if n.op_type == "RMSNormalization"
-        ]
+        rmsnorm_nodes = [n for n in new_model.graph.node if n.op_type == "RMSNormalization"]
         assert len(rmsnorm_nodes) == 1
 
         new_sess = ort.InferenceSession(new_model.SerializeToString())
@@ -570,15 +546,11 @@ class TestRMSNormalizationPatternRewriting:
         assert mul_results[0].attributes["axis"] == 0
 
         rewriter = PatternRewriter(model)
-        new_model = rewriter.rewrite(
-            [(mul_results, TransposedSingleRMSNormalizationPattern)]
-        )
+        new_model = rewriter.rewrite([(mul_results, TransposedSingleRMSNormalizationPattern)])
 
         onnx.checker.check_model(new_model)
 
-        rmsnorm_nodes = [
-            n for n in new_model.graph.node if n.op_type == "RMSNormalization"
-        ]
+        rmsnorm_nodes = [n for n in new_model.graph.node if n.op_type == "RMSNormalization"]
         assert len(rmsnorm_nodes) == 1
 
         new_sess = ort.InferenceSession(new_model.SerializeToString())

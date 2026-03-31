@@ -23,7 +23,7 @@ from click.testing import CliRunner
 # Import models package to trigger ONNX config registration with TasksManager
 import winml.modelkit.models  # noqa: F401
 from winml.modelkit.commands.config import config as config_command
-from winml.modelkit.compiler.configs import WinMLCompileConfig
+from winml.modelkit.compiler import WinMLCompileConfig
 from winml.modelkit.config import (
     WinMLBuildConfig,
     generate_onnx_build_config,
@@ -31,10 +31,10 @@ from winml.modelkit.config import (
 from winml.modelkit.config.build import (
     resolve_quant_compile_config,
 )
-from winml.modelkit.export.config import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
-from winml.modelkit.loader.config import WinMLLoaderConfig
-from winml.modelkit.optim.config import WinMLOptimizationConfig
-from winml.modelkit.quant.config import WinMLQuantizationConfig
+from winml.modelkit.export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
+from winml.modelkit.loader import WinMLLoaderConfig
+from winml.modelkit.optim import WinMLOptimizationConfig
+from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.utils.config_utils import merge_config
 
 

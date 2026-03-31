@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 import pytest
 from onnx import TensorProto, checker, helper
 
+from winml.modelkit.analyze import ONNXModel
 from winml.modelkit.analyze.core.onnx_loader import (
     ONNXLoader,
     ONNXLoadError,
     load_onnx_model,
 )
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
 
 
 @pytest.fixture

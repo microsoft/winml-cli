@@ -26,10 +26,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 import pytest
 
-from winml.modelkit.compiler.configs import EPConfig
-from winml.modelkit.session import WinMLSession
-from winml.modelkit.session.ep_registry import WinMLEPRegistry
-from winml.modelkit.session.session import SessionState
+from winml.modelkit.compiler import EPConfig
+from winml.modelkit.session import SessionState, WinMLEPRegistry, WinMLSession
 
 
 class TestWinMLSessionInstantiation:
@@ -435,7 +433,7 @@ class TestWinMLSessionReBatching:
         ORT with static batch models requires exact batch size match.
         Sending batch=1 to a batch=2 model raises INVALID_ARGUMENT.
         """
-        from winml.modelkit.session.session import InferenceError
+        from winml.modelkit.session import InferenceError
 
         session = WinMLSession(
             onnx_path=static_batch2_onnx,
@@ -454,7 +452,7 @@ class TestWinMLSessionErrorState:
 
     def test_run_in_error_state_raises(self, simple_matmul_onnx: Path):
         """Test that run() raises InferenceError when session is in error state."""
-        from winml.modelkit.session.session import InferenceError
+        from winml.modelkit.session import InferenceError
 
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,

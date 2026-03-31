@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from onnx.defs import SchemaError
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern.op_input_gen.op_input_gen import (
     get_registered_operators,
     get_runtime_checker_op,

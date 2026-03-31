@@ -175,14 +175,12 @@ import onnx
 from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.onnx.dtypes import SupportedONNXType
-from winml.modelkit.onnx.shape import infer_onnx_shapes
-from winml.modelkit.onnx.utils import check_onnx_model
 from winml.modelkit.pattern.match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
 from winml.modelkit.pattern.op_input_gen.op_input_gen import OpInputGenerator
 from winml.modelkit.pattern.utils import get_attribute_proto_value, make_hashable
+
+from ..onnx import ONNXDomain, SupportedONNXType, check_onnx_model, infer_onnx_shapes
 
 
 logger = logging.getLogger(__name__)

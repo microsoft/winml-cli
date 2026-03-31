@@ -22,7 +22,7 @@ from optimum.exporters.tasks import TasksManager
 
 # Trigger OnnxConfig registration with TasksManager
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export.io import generate_dummy_inputs, resolve_io_specs
+from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
 
 
 @pytest.fixture(scope="module")

@@ -14,7 +14,7 @@ import logging
 
 import pytest
 
-from winml.modelkit.export.config import (
+from winml.modelkit.export import (
     InputTensorSpec,
     OutputTensorSpec,
     WinMLExportConfig,

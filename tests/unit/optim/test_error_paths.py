@@ -22,12 +22,12 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.optim.errors import (
+from winml.modelkit.optim import (
     ConfigurationError,
     ModelValidationError,
     OptimizationError,
+    Optimizer,
 )
-from winml.modelkit.optim.optimizer import Optimizer
 
 
 # =============================================================================
@@ -320,7 +320,7 @@ class TestShapeInferenceFallback:
 
     def test_symbolic_failure_falls_back_to_onnx(self, simple_model: onnx.ModelProto) -> None:
         """Test that symbolic failure falls back to ONNX shape inference."""
-        from winml.modelkit.onnx.shape import infer_shapes
+        from winml.modelkit.onnx import infer_shapes
 
         with (
             patch(
@@ -337,7 +337,7 @@ class TestShapeInferenceFallback:
 
     def test_both_inference_failures_returns_original(self, simple_model: onnx.ModelProto) -> None:
         """Test that both failures return original model."""
-        from winml.modelkit.onnx.shape import infer_shapes
+        from winml.modelkit.onnx import infer_shapes
 
         with (
             patch(
@@ -354,7 +354,7 @@ class TestShapeInferenceFallback:
 
     def test_symbolic_success_skips_onnx(self, simple_model: onnx.ModelProto) -> None:
         """Test that symbolic success skips ONNX inference."""
-        from winml.modelkit.onnx.shape import infer_shapes
+        from winml.modelkit.onnx import infer_shapes
 
         mock_onnx = MagicMock()
 

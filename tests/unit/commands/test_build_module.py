@@ -136,9 +136,9 @@ class TestBuildModuleOrchestration:
         """_build_modules calls build_hf_model for each config."""
         from winml.modelkit.commands.build import _build_modules
         from winml.modelkit.config import WinMLBuildConfig
-        from winml.modelkit.export.config import WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
-        from winml.modelkit.optim.config import WinMLOptimizationConfig
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+        from winml.modelkit.optim import WinMLOptimizationConfig
 
         configs = [
             WinMLBuildConfig(
@@ -202,9 +202,9 @@ class TestBuildModuleOrchestration:
         """_build_modules raises if model_type is missing."""
         from winml.modelkit.commands.build import _build_modules
         from winml.modelkit.config import WinMLBuildConfig
-        from winml.modelkit.export.config import WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
-        from winml.modelkit.optim.config import WinMLOptimizationConfig
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+        from winml.modelkit.optim import WinMLOptimizationConfig
 
         configs = [
             WinMLBuildConfig(
@@ -228,9 +228,9 @@ class TestBuildModuleOrchestration:
         """_build_modules raises if module_path is missing."""
         from winml.modelkit.commands.build import _build_modules
         from winml.modelkit.config import WinMLBuildConfig
-        from winml.modelkit.export.config import WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
-        from winml.modelkit.optim.config import WinMLOptimizationConfig
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+        from winml.modelkit.optim import WinMLOptimizationConfig
 
         configs = [
             WinMLBuildConfig(

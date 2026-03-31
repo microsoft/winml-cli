@@ -4,8 +4,7 @@
 # --------------------------------------------------------------------------
 from typing import TYPE_CHECKING, Any
 
-from winml.modelkit.onnx.domains import ONNXDomain
-
+from ....onnx import ONNXDomain
 from ...models.runtime_checks import PatternAlternative, PatternRuntime, RuntimeTestResult
 from .base import NodeChecker
 from .registry import NodeCheckerRegistry

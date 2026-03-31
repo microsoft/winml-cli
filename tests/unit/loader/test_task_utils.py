@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Tests for normalize_task and get_task_abbrev utility functions."""
 
-from winml.modelkit.loader.task import get_task_abbrev, normalize_task
+from winml.modelkit.loader import get_task_abbrev, normalize_task
 
 
 class TestNormalizeTask:

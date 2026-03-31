@@ -30,7 +30,7 @@ class TestWinMLExportConfig:
 
     def test_default_values(self):
         """AC-1: Test default configuration values."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         config = WinMLExportConfig()
 
@@ -40,7 +40,7 @@ class TestWinMLExportConfig:
 
     def test_custom_values(self):
         """AC-1: Test custom configuration values."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         config = WinMLExportConfig(
             opset_version=14,
@@ -54,7 +54,7 @@ class TestWinMLExportConfig:
 
     def test_to_dict(self):
         """AC-2: Test serialization to dict."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         config = WinMLExportConfig(opset_version=15, batch_size=2)
         config_dict = config.to_dict()
@@ -65,7 +65,7 @@ class TestWinMLExportConfig:
 
     def test_from_dict(self):
         """AC-2: Test deserialization from dict."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         config_dict = {"opset_version": 16, "batch_size": 8}
         config = WinMLExportConfig.from_dict(config_dict)
@@ -75,7 +75,7 @@ class TestWinMLExportConfig:
 
     def test_from_dict_ignores_unknown_fields(self):
         """AC-6: Forward compatibility - ignore unknown fields."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         config_dict = {
             "opset_version": 17,
@@ -94,7 +94,7 @@ class TestWinMLQuantizationConfig:
 
     def test_default_values(self):
         """AC-1: Test default quantization config."""
-        from winml.modelkit.quant.config import WinMLQuantizationConfig
+        from winml.modelkit.quant import WinMLQuantizationConfig
 
         config = WinMLQuantizationConfig()
 
@@ -105,7 +105,7 @@ class TestWinMLQuantizationConfig:
 
     def test_qdq_mode_config(self):
         """Test QDQ-specific configuration."""
-        from winml.modelkit.quant.config import WinMLQuantizationConfig
+        from winml.modelkit.quant import WinMLQuantizationConfig
 
         config = WinMLQuantizationConfig(
             mode="qdq",
@@ -146,7 +146,7 @@ class TestWinMLCompileConfig:
 
     def test_default_values(self):
         """AC-1: Test default compile config."""
-        from winml.modelkit.compiler.configs import WinMLCompileConfig
+        from winml.modelkit.compiler import WinMLCompileConfig
 
         config = WinMLCompileConfig()
 
@@ -156,7 +156,7 @@ class TestWinMLCompileConfig:
 
     def test_device_via_ep_config(self):
         """Test device via ep_config.provider."""
-        from winml.modelkit.compiler.configs import EPConfig, WinMLCompileConfig
+        from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
 
         for provider in ["qnn", "cpu", "cuda", "dml"]:
             config = WinMLCompileConfig(ep_config=EPConfig(provider=provider))
@@ -164,7 +164,7 @@ class TestWinMLCompileConfig:
 
     def test_factory_methods(self):
         """Test factory methods for common providers."""
-        from winml.modelkit.compiler.configs import WinMLCompileConfig
+        from winml.modelkit.compiler import WinMLCompileConfig
 
         qnn_config = WinMLCompileConfig.for_qnn()
         assert qnn_config.device == "qnn"
@@ -264,7 +264,7 @@ class TestConfigValidation:
 
     def test_opset_version_range(self):
         """Test opset version validation."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         # Valid opset versions
         for version in [11, 14, 17, 20]:
@@ -273,7 +273,7 @@ class TestConfigValidation:
 
     def test_batch_size_positive(self):
         """Test batch size must be positive."""
-        from winml.modelkit.export.config import WinMLExportConfig
+        from winml.modelkit.export import WinMLExportConfig
 
         config = WinMLExportConfig(batch_size=1)
         assert config.batch_size == 1

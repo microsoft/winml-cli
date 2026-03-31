@@ -8,19 +8,21 @@ from datetime import datetime
 
 import pytest
 
-from winml.modelkit.analyze.core.output_aggregator import OutputAggregator
-from winml.modelkit.analyze.models.ihv_type import IHVType
-from winml.modelkit.analyze.models.information import Action, ActionLevel, Information
-from winml.modelkit.analyze.models.output import (
+from winml.modelkit.analyze import (
+    Action,
+    ActionLevel,
     AnalysisOutput,
     EPSupport,
+    IHVType,
+    Information,
     ModelStats,
+    OutputAggregator,
+    RuntimeTestResult,
+    SupportLevel,
 )
 from winml.modelkit.analyze.models.runtime_checks import (
-    PatternRuntime,
-    RuntimeTestResult,
+    PatternRuntime,  # Testing internal implementation
 )
-from winml.modelkit.analyze.models.support_level import SupportLevel
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import OperatorPattern, PatternType
 

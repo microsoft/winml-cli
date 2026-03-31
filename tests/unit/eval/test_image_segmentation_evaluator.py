@@ -11,8 +11,7 @@ import pytest
 from datasets import Dataset, Features, Image, Value
 from PIL import Image as PILImage
 
-from winml.modelkit.eval.image_segmentation_evaluator import WinMLImageSegmentationEvaluator
-from winml.modelkit.eval.metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
+from winml.modelkit.eval import IGNORE_INDEX, MeanIoUMetric, WinMLImageSegmentationEvaluator
 
 
 # ---------------------------------------------------------------------------

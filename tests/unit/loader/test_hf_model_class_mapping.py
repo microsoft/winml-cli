@@ -170,7 +170,7 @@ class TestHFModelClassMappingRegistry:
 
     def test_task_defaults_registry_exists(self):
         """HF_TASK_DEFAULTS registry should exist."""
-        from winml.modelkit.loader.task import HF_TASK_DEFAULTS
+        from winml.modelkit.loader import HF_TASK_DEFAULTS
 
         assert isinstance(HF_TASK_DEFAULTS, dict)
 
@@ -210,7 +210,7 @@ class TestHFModelClassMappingRegistry:
 
     def test_nsp_task_default_registered(self):
         """NSP task default should be in the registry."""
-        from winml.modelkit.loader.task import HF_TASK_DEFAULTS
+        from winml.modelkit.loader import HF_TASK_DEFAULTS
 
         assert "next-sentence-prediction" in HF_TASK_DEFAULTS
 
@@ -242,7 +242,7 @@ class TestResolveTaskAndModelClass:
         """Case 1: task=None, model_class=None → auto-detect both."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
         task, resolved_class = resolve_task_and_model_class(config)
@@ -254,7 +254,7 @@ class TestResolveTaskAndModelClass:
         """Case 2: task specified, model_class=None → resolve for task."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
         task, resolved_class = resolve_task_and_model_class(config, task="image-classification")
@@ -266,7 +266,7 @@ class TestResolveTaskAndModelClass:
         """Case 2: task specified triggers specialization (CLIP)."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
@@ -284,7 +284,7 @@ class TestResolveTaskAndModelClass:
         """Case 2: task specified triggers specialization (Segformer)."""
         from transformers import SegformerConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = SegformerConfig()
 
@@ -296,7 +296,7 @@ class TestResolveTaskAndModelClass:
         """Case 2: NSP task uses HF_TASK_DEFAULTS."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("prajjwal1/bert-tiny")
         task, resolved_class = resolve_task_and_model_class(config, task="next-sentence-prediction")
@@ -309,7 +309,7 @@ class TestResolveTaskAndModelClass:
         """Case 3: model_class specified → honor it."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
@@ -327,7 +327,7 @@ class TestResolveTaskAndModelClass:
         """Case 3: model_class with task=None → detect task."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
 
@@ -344,7 +344,7 @@ class TestResolveTaskAndModelClass:
         """Invalid task should raise ValueError."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
 
@@ -355,7 +355,7 @@ class TestResolveTaskAndModelClass:
         """Invalid model_class should raise ValueError."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
 
@@ -373,7 +373,7 @@ class TestHFModelClassMappingE2E:
 
     def test_clip_image_feature_extraction_e2e(self):
         """E2E: Load CLIP with image-feature-extraction task."""
-        from winml.modelkit.loader.hf import load_hf_model
+        from winml.modelkit.loader import load_hf_model
 
         model, _config, _task = load_hf_model(
             "openai/clip-vit-base-patch32",
@@ -384,7 +384,7 @@ class TestHFModelClassMappingE2E:
 
     def test_clip_feature_extraction_e2e(self):
         """E2E: Load CLIP with feature-extraction resolves to text model."""
-        from winml.modelkit.loader.hf import load_hf_model
+        from winml.modelkit.loader import load_hf_model
 
         model, _config, task = load_hf_model(
             "openai/clip-vit-base-patch32",
@@ -395,7 +395,7 @@ class TestHFModelClassMappingE2E:
 
     def test_nsp_e2e(self):
         """E2E: Load BERT with next-sentence-prediction task."""
-        from winml.modelkit.loader.hf import load_hf_model
+        from winml.modelkit.loader import load_hf_model
 
         model, _config, _task = load_hf_model(
             "prajjwal1/bert-tiny",
@@ -424,7 +424,7 @@ class TestConflictScenarios:
         """
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
@@ -448,7 +448,7 @@ class TestConflictScenarios:
         """
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
 
@@ -471,7 +471,7 @@ class TestConflictScenarios:
         """
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
 
@@ -504,7 +504,7 @@ class TestConflictScenarios:
         """model_class with task=None should auto-detect task."""
         from transformers import AutoConfig
 
-        from winml.modelkit.loader.task import resolve_task_and_model_class
+        from winml.modelkit.loader import resolve_task_and_model_class
 
         config = AutoConfig.from_pretrained("microsoft/resnet-18")
 
@@ -542,7 +542,7 @@ class TestCLIIntegration:
 
     def test_loader_config_supports_task_and_model_class(self):
         """WinMLLoaderConfig should support task and model_class fields."""
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
 
         config = WinMLLoaderConfig(
             task="image-classification",
@@ -554,7 +554,7 @@ class TestCLIIntegration:
 
     def test_loader_config_serializes_task_and_model_class(self):
         """WinMLLoaderConfig should serialize task and model_class."""
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
 
         config = WinMLLoaderConfig(
             task="feature-extraction",
@@ -568,7 +568,7 @@ class TestCLIIntegration:
 
     def test_loader_config_deserializes_task_and_model_class(self):
         """WinMLLoaderConfig should deserialize task and model_class."""
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
 
         config = WinMLLoaderConfig.from_dict(
             {

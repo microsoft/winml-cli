@@ -10,13 +10,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from winml.modelkit.optracing.base import OpTracer
-from winml.modelkit.optracing.registry import (
-    _TRACERS,
-    get_tracer,
-    register_tracer,
-)
-from winml.modelkit.optracing.result import OpTraceResult
+from winml.modelkit.optracing import OpTracer, OpTraceResult, get_tracer, register_tracer
+from winml.modelkit.optracing.registry import _TRACERS  # Testing internal implementation
 
 
 if TYPE_CHECKING:

@@ -25,8 +25,6 @@ Exports:
 
 from __future__ import annotations
 
-from winml.modelkit.models.hf.vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
-
 # Import configs - importing triggers ONNX config registration with TasksManager
 # ConvNeXT and SAM2 modules also register PATCHING_SPECS / _MODEL_PATCHER
 # on their OnnxConfig classes at import time.
@@ -43,6 +41,7 @@ from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registratio
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
 from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
 from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
+from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 

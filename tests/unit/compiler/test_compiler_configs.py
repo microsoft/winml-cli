@@ -8,7 +8,7 @@ import warnings
 
 import pytest
 
-from winml.modelkit.compiler.configs import (
+from winml.modelkit.compiler import (
     EPConfig,
     WinMLCompileConfig,
 )

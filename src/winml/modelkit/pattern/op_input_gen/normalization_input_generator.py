@@ -15,8 +15,7 @@ subclasses for each normalization operator's specific requirements.
 
 import numpy as np
 
-import winml.modelkit.onnx.dtypes as dtypes
-
+from ...onnx import SupportedONNXType
 from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
@@ -335,7 +334,7 @@ class InstanceNormalizationInputGenerator(NormalizationInputGenerator):
         return {
             self.op_input_names[0]: QDQParameterConfig(support_activation=True),
             self.op_input_names[1]: QDQParameterConfig(support_weight=True),
-            self.op_input_names[2]: QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
+            self.op_input_names[2]: QDQParameterConfig(qdq_types=[SupportedONNXType.INT32]),
         }
 
 
@@ -415,7 +414,7 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
         return {
             "X": QDQParameterConfig(support_activation=True),
             "Scale": QDQParameterConfig(support_activation=True, support_weight=True),
-            "B": QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
+            "B": QDQParameterConfig(qdq_types=[SupportedONNXType.INT32]),
         }
 
 
