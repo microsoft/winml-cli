@@ -11,7 +11,7 @@ from enum import Enum
 import onnx
 from pydantic import BaseModel, Field, field_validator
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from ...onnx import ONNXDomain
 
 
 class ModelTag(str, Enum):

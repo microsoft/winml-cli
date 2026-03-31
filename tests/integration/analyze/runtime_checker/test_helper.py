@@ -12,7 +12,7 @@ import pytest
 from winml.modelkit.analyze.runtime_checker.ep_checker import (
     EPChecker,
 )
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern.op_input_gen import (
     ExampleReshapeInputGenerator,
     get_runtime_checker_op,

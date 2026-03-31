@@ -18,7 +18,7 @@ import numpy as np
 import onnx
 import pytest
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern import (
     LayerNormalizationMulPattern,
     LayerNormalizationPowPattern,

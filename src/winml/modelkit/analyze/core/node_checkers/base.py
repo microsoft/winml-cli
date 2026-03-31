@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import onnx
 
-    from winml.modelkit.onnx.domains import ONNXDomain
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ....onnx import ONNXDomain
     from ...models.runtime_checks import PatternAlternative, PatternRuntime
 
 
