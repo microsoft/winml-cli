@@ -27,7 +27,7 @@ import torch
 
 def _make_mock_model(num_labels: int = 1000):
     """Create an image classification model with mocked session."""
-    from winml.modelkit.models.winml import WinMLModelForImageClassification
+    from winml.modelkit.models import WinMLModelForImageClassification
 
     model = WinMLModelForImageClassification.__new__(WinMLModelForImageClassification)
 
@@ -177,19 +177,19 @@ class TestMultiTaskSupport:
 
     def test_image_classification_importable(self):
         """Test image classification model is importable."""
-        from winml.modelkit.models.winml import WinMLModelForImageClassification
+        from winml.modelkit.models import WinMLModelForImageClassification
 
         assert WinMLModelForImageClassification is not None
 
     def test_sequence_classification_importable(self):
         """Test sequence classification model is importable."""
-        from winml.modelkit.models.winml import WinMLModelForSequenceClassification
+        from winml.modelkit.models import WinMLModelForSequenceClassification
 
         assert WinMLModelForSequenceClassification is not None
 
     def test_image_segmentation_importable(self):
         """Test image segmentation model is importable."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForImageSegmentation,
         )
 
@@ -197,12 +197,10 @@ class TestMultiTaskSupport:
 
     def test_all_models_have_forward(self):
         """Test all models have forward method."""
-        from winml.modelkit.models.winml import (
+        from winml.modelkit.models import (
             WinMLModelForImageClassification,
-            WinMLModelForSequenceClassification,
-        )
-        from winml.modelkit.models.winml.image_segmentation import (
             WinMLModelForImageSegmentation,
+            WinMLModelForSequenceClassification,
         )
 
         for model_class in [
@@ -214,12 +212,10 @@ class TestMultiTaskSupport:
 
     def test_all_models_have_to(self):
         """Test all models have to() method."""
-        from winml.modelkit.models.winml import (
+        from winml.modelkit.models import (
             WinMLModelForImageClassification,
-            WinMLModelForSequenceClassification,
-        )
-        from winml.modelkit.models.winml.image_segmentation import (
             WinMLModelForImageSegmentation,
+            WinMLModelForSequenceClassification,
         )
 
         for model_class in [
@@ -235,20 +231,20 @@ class TestBaseModelContract:
 
     def test_base_model_exists(self):
         """Test WinMLPreTrainedModel base class exists."""
-        from winml.modelkit.models.winml import WinMLPreTrainedModel
+        from winml.modelkit.models import WinMLPreTrainedModel
 
         assert WinMLPreTrainedModel is not None
 
     def test_base_model_defines_interface(self):
         """Test base model defines required interface."""
-        from winml.modelkit.models.winml import WinMLPreTrainedModel
+        from winml.modelkit.models import WinMLPreTrainedModel
 
         assert hasattr(WinMLPreTrainedModel, "forward")
         assert hasattr(WinMLPreTrainedModel, "to")
 
     def test_task_models_inherit_from_base(self):
         """Test task-specific models inherit from base."""
-        from winml.modelkit.models.winml import (
+        from winml.modelkit.models import (
             WinMLModelForImageClassification,
             WinMLPreTrainedModel,
         )
