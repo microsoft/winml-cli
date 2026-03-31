@@ -53,7 +53,7 @@ class EPSupport(BaseModel):
         ...,
         description=(
             "Operator classification by support level, "
-            "the list[str] will contain OnnxOP's display name"
+            "the list[str] will contain ONNXOp's display name"
         ),
     )
     information: list[Information] = Field(

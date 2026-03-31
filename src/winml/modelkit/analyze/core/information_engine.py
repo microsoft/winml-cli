@@ -460,7 +460,7 @@ class InformationEngine:
 
             pattern_match = runtime_result.pattern_match
 
-            # PatternMatch has matched_node_names (list[OnnxOP]), not matched_nodes
+            # PatternMatch has matched_node_names (list[ONNXOp]), not matched_nodes
             if (
                 not hasattr(pattern_match, "matched_node_names")
                 or not pattern_match.matched_node_names

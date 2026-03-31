@@ -21,7 +21,6 @@ from winml.modelkit.analyze.core.model_validators import (
     ModelValidatorManager,
 )
 from winml.modelkit.analyze.models.onnx_model import ONNXModel
-from winml.modelkit.analyze.models.onnx_op import OnnxOP
 from winml.modelkit.analyze.models.runtime_checks import (
     NodeTag,
     PatternRuntime,
@@ -47,9 +46,6 @@ def create_runtime_result_with_tags(
         namespace="ai.onnx",
         op_type=op_type,
     )
-
-    # Create OnnxOP for matched node
-    _matched_node = OnnxOP(node_name=node_name, op_type=op_type)
 
     # Create a mock node proto for testing
     from onnx import helper
