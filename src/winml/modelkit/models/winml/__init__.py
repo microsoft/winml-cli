@@ -44,6 +44,8 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
+    "image-to-text": "WinMLModelForImageToText",
+    "image-text-to-text": "WinMLModelForImageToText",
     "feature-extraction": "WinMLModelForFeatureExtraction",
 }
 
@@ -75,6 +77,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         WinMLModelForImageSegmentation,
         WinMLModelForSemanticSegmentation,
     )
+    from .image_to_text import WinMLModelForImageToText
     from .object_detection import WinMLModelForObjectDetection
     from .sequence_classification import WinMLModelForSequenceClassification
 
@@ -82,6 +85,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
     class_map: dict[str, type] = {
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
+        "WinMLModelForImageToText": WinMLModelForImageToText,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
         "WinMLModelForSequenceClassification": WinMLModelForSequenceClassification,
