@@ -327,7 +327,43 @@ class RuntimeChecker:
         pattern_results = self.subgraph_support(patterns, run_unknown_op=run_unknown_op)
         summary_dict["subgraph_runtime_check_result"] = pattern_results
 
+        # Build node_name -> PatternRuntime from pattern_results
+        node_to_pattern_runtime: dict[str, PatternRuntime] = {}
+        for pr in pattern_results:
+            if pr.pattern_match and hasattr(pr.pattern_match, "skeleton_match_result"):
+                smr = pr.pattern_match.skeleton_match_result
+                if smr and smr.matched_nodes:
+                    for node in smr.matched_nodes:
+                        node_to_pattern_runtime[node.name] = pr
+
+        # Override matching op_results
+        merged = []
+        for op_r in summary_dict["op_runtime_check_result"]:
+            node_name = self._get_node_name(op_r)
+            if node_name in node_to_pattern_runtime:
+                # Replace with pattern-level result, keeping original pattern_match for traceability
+                pr = node_to_pattern_runtime[node_name]
+                merged.append(PatternRuntime(
+                    pattern_id=op_r.pattern_id,  # keep original op pattern_id
+                    result=pr.result,            # use subgraph-level result
+                    alternatives=pr.alternatives,
+                    pattern_match=op_r.pattern_match,
+                ))
+            else:
+                merged.append(op_r)
+
+        summary_dict["op_runtime_check_result"] = merged
+
         return summary_dict
+
+    def _get_node_name(self, op_runtime: PatternRuntime) -> str:
+        """Extract the original node name from an op-level PatternRuntime."""
+        pm = op_runtime.pattern_match
+        if pm and hasattr(pm, "skeleton_match_result"):
+            nodes = pm.skeleton_match_result.matched_nodes
+            if nodes:
+                return nodes[0].name
+        return ""
 
     def _make_op_key(self, node: onnx.NodeProto) -> str:
         """Generate operator key from node.

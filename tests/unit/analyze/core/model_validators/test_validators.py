@@ -25,8 +25,12 @@ from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal i
     NodeTag,
     PatternRuntime,
 )
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
+from winml.modelkit.pattern import (
+    OperatorPattern,
+    PatternMatchResult,
+    PatternType,
+    SkeletonMatchResult,
+)
 
 
 def create_onnx_model_wrapper(model_proto):

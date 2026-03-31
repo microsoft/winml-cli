@@ -13,7 +13,7 @@ Tests verify:
 
 import pytest
 
-from winml.modelkit.pattern.base import (
+from winml.modelkit.pattern import (
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
 )
@@ -54,14 +54,10 @@ class TestPatternInputGeneratorValidation:
     def test_pattern_validation(self, pattern_name: str) -> None:
         """Test that each pattern's input generator validates successfully."""
         if pattern_name in SKIP_VALIDATION_PATTERNS:
-            pytest.skip(
-                f"Skipping validation for {pattern_name} (known runtime limitation)"
-            )
+            pytest.skip(f"Skipping validation for {pattern_name} (known runtime limitation)")
 
         generator_class = get_pattern_input_generator(pattern_name)
-        domain_versions = PATTERNS_REQUIRING_NEWER_OPSET.get(
-            pattern_name, TEST_DOMAIN_VERSIONS
-        )
+        domain_versions = PATTERNS_REQUIRING_NEWER_OPSET.get(pattern_name, TEST_DOMAIN_VERSIONS)
         gen = generator_class(domain_versions=domain_versions)
         gen.validate_inputs()
 
@@ -69,8 +65,6 @@ class TestPatternInputGeneratorValidation:
     def test_pattern_instantiation(self, pattern_name: str) -> None:
         """Test that each pattern's input generator can be instantiated."""
         generator_class = get_pattern_input_generator(pattern_name)
-        domain_versions = PATTERNS_REQUIRING_NEWER_OPSET.get(
-            pattern_name, TEST_DOMAIN_VERSIONS
-        )
+        domain_versions = PATTERNS_REQUIRING_NEWER_OPSET.get(pattern_name, TEST_DOMAIN_VERSIONS)
         gen = generator_class(domain_versions=domain_versions)
         assert gen.registration_name == pattern_name

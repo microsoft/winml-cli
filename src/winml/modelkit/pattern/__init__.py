@@ -9,13 +9,13 @@ This package provides pattern matching, input generation, and graph rewriting
 infrastructure used by both the static analyzer and the optimizer.
 """
 
-from winml.modelkit.pattern.attention_patterns import (
+from .attention_patterns import (
     ExpandedAttentionPattern,
     ExpandedAttentionPatternInputGenerator,
     TransposeAttentionPattern,
     TransposeAttentionPatternInputGenerator,
 )
-from winml.modelkit.pattern.base import (
+from .base import (
     InvalidPatternMatcherModelError,
     Pattern,
     PatternInputGenerator,
@@ -30,7 +30,7 @@ from winml.modelkit.pattern.base import (
     opschema_to_pattern_schema,
     register_pattern_input_generator,
 )
-from winml.modelkit.pattern.gelu_patterns import (
+from .gelu_patterns import (
     Gelu1Pattern,
     Gelu1PatternInputGenerator,
     Gelu2Pattern,
@@ -41,13 +41,13 @@ from winml.modelkit.pattern.gelu_patterns import (
     Gelu4PatternInputGenerator,
     SingleGeluPattern,
 )
-from winml.modelkit.pattern.gemm_patterns import (
+from .gemm_patterns import (
     MatMulAddPattern,
     MatMulAddPatternInputGenerator,
     ReshapeGemmReshapePattern,
     ReshapeGemmReshapePatternInputGenerator,
 )
-from winml.modelkit.pattern.layernorm_patterns import (
+from .layernorm_patterns import (
     LayerNormalizationMulPattern,
     LayerNormalizationMulPatternInputGenerator,
     LayerNormalizationPowPattern,
@@ -55,9 +55,9 @@ from winml.modelkit.pattern.layernorm_patterns import (
     TransposedSingleLayerNormalizationPattern,
     TransposedSingleLayerNormalizationPatternInputGenerator,
 )
-from winml.modelkit.pattern.match import InputInfo, PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType, SubgraphPattern
-from winml.modelkit.pattern.rmsnorm_patterns import (
+from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
+from .models import OperatorPattern, PatternType, SubgraphPattern
+from .rmsnorm_patterns import (
     RMSNormalizationMulPattern,
     RMSNormalizationMulPatternInputGenerator,
     RMSNormalizationPowPattern,
@@ -65,7 +65,7 @@ from winml.modelkit.pattern.rmsnorm_patterns import (
     TransposedSingleRMSNormalizationPattern,
     TransposedSingleRMSNormalizationPatternInputGenerator,
 )
-from winml.modelkit.pattern.transpose_patterns import (
+from .transpose_patterns import (
     ReshapeTransposeReshapeLowDimPattern,
     ReshapeTransposeReshapeLowDimPatternInputGenerator,
     ReshapeTransposeReshapeOverlyHighDimPattern,

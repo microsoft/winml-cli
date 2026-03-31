@@ -596,7 +596,7 @@ class LayerNormalizationPowPatternInputGenerator(LayerNormalizationPatternInputG
     """PatternInputGenerator for LayerNormalization pattern (Pow variant)."""
 
     pattern = LayerNormalizationPowPattern()
-    registration_name = "LayerNormalizationPow"
+    registration_name = "LayerNormalizationPowPattern"
 
 
 @register_pattern_input_generator
@@ -604,7 +604,7 @@ class LayerNormalizationMulPatternInputGenerator(LayerNormalizationPatternInputG
     """PatternInputGenerator for LayerNormalization pattern (Mul variant)."""
 
     pattern = LayerNormalizationMulPattern()
-    registration_name = "LayerNormalizationMul"
+    registration_name = "LayerNormalizationMulPattern"
 
 
 @register_pattern_input_generator
@@ -614,4 +614,4 @@ class TransposedSingleLayerNormalizationPatternInputGenerator(
     """PatternInputGenerator for TransposedSingleLayerNormalizationPattern."""
 
     pattern = TransposedSingleLayerNormalizationPattern()
-    registration_name = "TransposedSingleLayerNormalization"
+    registration_name = "TransposedSingleLayerNormalizationPattern"

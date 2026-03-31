@@ -17,8 +17,16 @@ Tests verify:
 import pytest
 from pydantic import ValidationError
 
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, Pattern, PatternType, SubgraphPattern
+from winml.modelkit.pattern import (
+    OperatorPattern,
+    PatternMatchResult,
+    PatternType,
+    SkeletonMatchResult,
+)
+from winml.modelkit.pattern.models import (  # Pattern name collision with pattern.base.Pattern
+    Pattern,
+    SubgraphPattern,
+)
 
 
 def create_pattern_match_for_testing(pattern, node_protos):
