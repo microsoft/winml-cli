@@ -18,8 +18,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from winml.modelkit.analyze.models.information import Action, ActionItem, ActionLevel, Information
-from winml.modelkit.analyze.models.support_level import SupportLevel
+from winml.modelkit.analyze import Action, ActionItem, ActionLevel, Information, SupportLevel
 
 
 class TestActionValidation:

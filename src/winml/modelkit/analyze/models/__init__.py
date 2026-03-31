@@ -4,11 +4,10 @@
 # --------------------------------------------------------------------------
 """Pydantic data models for ONNX Static Analyzer."""
 
-from winml.modelkit.pattern.match import InputInfo, PatternMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, Pattern, PatternType, SubgraphPattern
-
+from ...pattern.match import InputInfo, PatternMatchResult
+from ...pattern.models import OperatorPattern, Pattern, PatternType, SubgraphPattern
 from .ihv_type import IHVType
-from .information import Action, ActionLevel, Information
+from .information import Action, ActionItem, ActionLevel, Information
 from .onnx_model import ModelTag, ONNXModel
 from .onnx_op import ONNXOp
 from .output import AnalysisOutput, EPSupport, ModelStats, extract_model_stats
@@ -18,6 +17,7 @@ from .support_level import SupportLevel
 
 __all__ = [
     "Action",
+    "ActionItem",
     "ActionLevel",
     "AlternativeType",
     "AnalysisOutput",
