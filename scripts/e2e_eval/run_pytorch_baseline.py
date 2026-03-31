@@ -257,15 +257,14 @@ def main() -> None:
         metrics = task_evaluator.compute()
 
         metric_name, value = _extract_metric(metrics, task, metric_label)
+        # Emit result as last stdout line (parsed by run_eval.py accuracy phase)
+        _emit_result(metric_name, value, num_samples)
     except Exception as exc:
         _out(f"ERROR: evaluation failed: {exc}")
         import traceback
 
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
-
-    # Emit result as last stdout line (parsed by run_eval.py accuracy phase)
-    _emit_result(metric_name, value, num_samples)
 
 
 if __name__ == "__main__":

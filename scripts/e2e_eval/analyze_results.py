@@ -34,7 +34,7 @@ def load_results(results_dir: Path) -> list[dict]:
         try:
             results.append(json.loads(f.read_text(encoding="utf-8", errors="replace")))
         except Exception:
-            pass
+            pass  # Skip malformed or unreadable result files
 
     if not results:
         safe_print("No results found")
@@ -104,7 +104,7 @@ def compare_runs(current_dir: Path) -> None:
                 key = f"{r['model']} / {r.get('task', '')}"
                 results[key] = r
             except Exception:
-                pass
+                pass  # Skip malformed or unreadable result files
         return results
 
     old, new = _load(prev_dir), _load(current_dir)

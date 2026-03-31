@@ -175,7 +175,7 @@ def _kill_process_tree(pid: int) -> None:
             try:
                 os.killpg(os.getpgid(pid), signal.SIGKILL)
             except ProcessLookupError:
-                pass
+                pass  # Process already exited; nothing to kill
 
 
 def _run_subprocess(args: list[str], timeout: int) -> dict:
@@ -219,7 +219,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                     break
                 dest.append(chunk)
         except (OSError, ValueError):
-            pass
+            pass  # Pipe closed or broken; stop reading
 
     stdout_thread = threading.Thread(target=_reader, args=(proc.stdout, stdout_chunks), daemon=True)
     stderr_thread = threading.Thread(target=_reader, args=(proc.stderr, stderr_chunks), daemon=True)
@@ -235,9 +235,9 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                     try:
                         pipe.close()
                     except OSError:
-                        pass
+                        pass  # Pipe already closed
         except Exception:
-            pass
+            pass  # Best-effort cleanup; ignore all errors in watchdog
 
     watchdog = threading.Timer(timeout + 30, _watchdog)
     watchdog.daemon = True
@@ -263,8 +263,6 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         proc.kill()
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
-        exit_code = -1
-        timed_out = True
         raise
     finally:
         watchdog.cancel()
@@ -274,7 +272,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                 try:
                     pipe.close()
                 except OSError:
-                    pass
+                    pass  # Pipe already closed
         # Final attempt: if reader threads are still alive after pipe close,
         # don't block forever — just proceed with whatever was collected.
         if stdout_thread.is_alive():
@@ -769,7 +767,7 @@ def save_environment_info(path: Path) -> None:
             info["git_commit_message"] = lines[1] if len(lines) > 1 else ""
             info["git_commit_date"] = lines[2] if len(lines) > 2 else ""
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+        pass  # git not available or timed out; commit info stays empty
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
@@ -882,7 +880,7 @@ def main() -> None:
                     matched_entry = e
                     break
         except Exception:
-            pass
+            pass  # Registry is optional for single-model mode; proceed without enrichment
         if matched_entry is not None:
             # Override task if explicitly provided on CLI
             if args.task and args.task != matched_entry.task:
