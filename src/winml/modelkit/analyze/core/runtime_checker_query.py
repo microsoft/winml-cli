@@ -2085,56 +2085,16 @@ class RuntimeCheckerQuery:
                             filter_v,
                         )
 
-                        if run_unknown_op:
-                            # Fallback to per-node check
-                            local_result = self._run_for_subgraph_per_node(
-                                pattern_match, pattern_name, run_unknown_op
-                            )
-                            if local_result is not None:
-                                return local_result
-
-                        return PatternRuntime(
-                            pattern_id=pattern_id,
-                            result=RuntimeTestResult(
-                                compile=False,
-                                run=False,
-                                no_data=True,
-                                reason="properties_not_found",
-                                filter=str(filter_v),
-                                debug_details={
-                                    "table_zip_path": table_zip_path,
-                                    "table_file": table_file,
-                                },
-                            ),
-                            alternatives=self.alternatives,
-                            pattern_match=pattern_match,
-                        )
-                else:
-                    # No table data — fallback to per-node check if allowed
-                    if run_unknown_op:
-                        local_result = self._run_for_subgraph_per_node(
+                        # Fallback to per-node check
+                        return self._run_for_subgraph_per_node(
                             pattern_match, pattern_name, run_unknown_op
                         )
-                        if local_result is not None:
-                            return local_result
-
-                    return PatternRuntime(
-                        pattern_id=pattern_id,
-                        result=RuntimeTestResult(
-                            compile=False,
-                            run=False,
-                            no_data=True,
-                            reason="no_table_data",
-                            debug_details={
-                                "pattern_name": pattern_name,
-                                "domain": str(found_domain),
-                                "table_zip_path": table_zip_path,
-                                "table_file": table_file,
-                            },
-                        ),
-                        alternatives=self.alternatives,
-                        pattern_match=pattern_match,
+                else:
+                    # No table data — fallback to per-node check
+                    return self._run_for_subgraph_per_node(
+                        pattern_match, pattern_name, run_unknown_op
                     )
+
         except OpOptionalInputSupportError as e:
             logger.error("OpOptionalInputSupportError for pattern '%s': %s", pattern_name, e)
             return PatternRuntime(
