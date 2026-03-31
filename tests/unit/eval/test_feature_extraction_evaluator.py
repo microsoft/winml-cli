@@ -47,8 +47,7 @@ def make_evaluator(columns_mapping=None):
 
     with patch("datasets.load_dataset", return_value=mock_ds), \
          patch("transformers.pipeline", return_value=mock_pipe):
-        ev = WinMLFeatureExtractionEvaluator(config, model)
-    return ev
+        return WinMLFeatureExtractionEvaluator(config, model)
 
 
 # ---------------------------------------------------------------------------
