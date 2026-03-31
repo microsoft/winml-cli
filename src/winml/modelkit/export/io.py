@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class OnnxConfigNotFoundError(ValueError):
+class ONNXConfigNotFoundError(ValueError):
     """Raised when no OnnxConfig is registered for a model_type/task combination."""
 
 
@@ -198,7 +198,7 @@ def _get_onnx_config(
             library_name=library_name,
         )
     except KeyError as e:
-        raise OnnxConfigNotFoundError(
+        raise ONNXConfigNotFoundError(
             f"No OnnxConfig registered for model_type='{model_type}' with task='{task}'. "
             f"Ensure the model's ONNX config is registered with TasksManager. "
             f"Original error: {e}"
@@ -288,7 +288,9 @@ def _populate_sequence_length_from_config(
         shape_kwargs["sequence_length"] = seq_len
         logger.debug(
             "Set sequence_length=%d from max_position_embeddings=%d (cap=%d)",
-            seq_len, max_pos, _MAX_EXPORT_SEQ_LEN,
+            seq_len,
+            max_pos,
+            _MAX_EXPORT_SEQ_LEN,
         )
 
 
