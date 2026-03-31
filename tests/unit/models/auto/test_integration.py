@@ -189,7 +189,7 @@ class TestMultiTaskSupport:
 
     def test_image_segmentation_importable(self):
         """Test image segmentation model is importable."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForImageSegmentation,
         )
 
@@ -197,12 +197,12 @@ class TestMultiTaskSupport:
 
     def test_all_models_have_forward(self):
         """Test all models have forward method."""
+        from winml.modelkit.models import (
+            WinMLModelForImageSegmentation,
+        )
         from winml.modelkit.models.winml import (
             WinMLModelForImageClassification,
             WinMLModelForSequenceClassification,
-        )
-        from winml.modelkit.models.winml.image_segmentation import (
-            WinMLModelForImageSegmentation,
         )
 
         for model_class in [
@@ -214,12 +214,12 @@ class TestMultiTaskSupport:
 
     def test_all_models_have_to(self):
         """Test all models have to() method."""
+        from winml.modelkit.models import (
+            WinMLModelForImageSegmentation,
+        )
         from winml.modelkit.models.winml import (
             WinMLModelForImageClassification,
             WinMLModelForSequenceClassification,
-        )
-        from winml.modelkit.models.winml.image_segmentation import (
-            WinMLModelForImageSegmentation,
         )
 
         for model_class in [

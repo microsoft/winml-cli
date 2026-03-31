@@ -41,7 +41,7 @@ def create_mock_model(
                   pred_boxes [B, num_queries, 4],
                   pred_masks [B, num_queries, H, W]
     """
-    from winml.modelkit.models.winml.image_segmentation import (
+    from winml.modelkit.models import (
         WinMLModelForImageSegmentation,
     )
 
@@ -69,7 +69,7 @@ class TestWinMLModelForImageSegmentationBasic:
 
     def test_class_exists(self):
         """Test that the class exists and is importable."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForImageSegmentation,
         )
 
@@ -77,9 +77,9 @@ class TestWinMLModelForImageSegmentationBasic:
 
     def test_inherits_from_base(self):
         """Test class inherits from WinMLPreTrainedModel."""
-        from winml.modelkit.models.winml import WinMLPreTrainedModel
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForImageSegmentation,
+            WinMLPreTrainedModel,
         )
 
         assert issubclass(WinMLModelForImageSegmentation, WinMLPreTrainedModel)
@@ -91,7 +91,7 @@ class TestWinMLModelForImageSegmentationBasic:
         AutoModelForSemanticSegmentation (pixel-level/SegFormer) are distinct
         classes with zero model overlap. WinML should mirror this distinction.
         """
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForImageSegmentation,
             WinMLModelForSemanticSegmentation,
         )
@@ -127,7 +127,7 @@ class TestForwardMethod:
 
     def test_forward_returns_image_segmentation_output(self):
         """AC-3: forward() returns ImageSegmentationOutput."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             ImageSegmentationOutput,
         )
 
@@ -179,7 +179,7 @@ class TestForwardMethod:
 
     def test_forward_missing_outputs_are_none(self):
         """When ONNX model lacks pred_masks/pred_boxes, those fields are None."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForImageSegmentation,
         )
 
@@ -213,7 +213,7 @@ class TestImageSegmentationOutputType:
         """ImageSegmentationOutput inherits from ModelOutput."""
         from transformers.utils import ModelOutput
 
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             ImageSegmentationOutput,
         )
 
@@ -221,7 +221,7 @@ class TestImageSegmentationOutputType:
 
     def test_output_supports_dict_access(self):
         """ImageSegmentationOutput supports dict-style access (pipeline compat)."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             ImageSegmentationOutput,
         )
 
@@ -235,7 +235,7 @@ class TestImageSegmentationOutputType:
 
     def test_output_supports_attribute_access(self):
         """ImageSegmentationOutput supports attribute access (used by post-processors)."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             ImageSegmentationOutput,
         )
 
@@ -280,7 +280,7 @@ class TestSupportedModels:
 
     def test_registered_in_task_mapping(self):
         """Test image-segmentation is registered in TASK_TO_WINML_CLASS."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         assert "image-segmentation" in TASK_TO_WINML_CLASS
 
@@ -295,7 +295,7 @@ def create_mock_semantic_model(num_labels: int = 150, output_h: int = 128, outpu
 
     Semantic segmentation outputs: logits [B, num_labels, H, W]
     """
-    from winml.modelkit.models.winml.image_segmentation import (
+    from winml.modelkit.models import (
         WinMLModelForSemanticSegmentation,
     )
 
@@ -321,7 +321,7 @@ class TestWinMLModelForSemanticSegmentationBasic:
 
     def test_class_exists(self):
         """Test that the class exists and is importable."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForSemanticSegmentation,
         )
 
@@ -329,9 +329,9 @@ class TestWinMLModelForSemanticSegmentationBasic:
 
     def test_inherits_from_base(self):
         """Test class inherits from WinMLPreTrainedModel."""
-        from winml.modelkit.models.winml import WinMLPreTrainedModel
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             WinMLModelForSemanticSegmentation,
+            WinMLPreTrainedModel,
         )
 
         assert issubclass(WinMLModelForSemanticSegmentation, WinMLPreTrainedModel)
@@ -380,7 +380,7 @@ class TestWinMLModelForSemanticSegmentationBasic:
 
     def test_registered_in_task_mapping(self):
         """semantic-segmentation is registered in TASK_TO_WINML_CLASS."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         assert "semantic-segmentation" in TASK_TO_WINML_CLASS
         assert TASK_TO_WINML_CLASS["semantic-segmentation"] == "WinMLModelForSemanticSegmentation"
@@ -391,7 +391,7 @@ class TestOutputTypeDistinction:
 
     def test_image_seg_returns_image_segmentation_output(self):
         """ImageSegmentation returns ImageSegmentationOutput."""
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             ImageSegmentationOutput,
         )
 
@@ -411,7 +411,7 @@ class TestOutputTypeDistinction:
         """The two classes return different output types."""
         from transformers.modeling_outputs import SemanticSegmenterOutput
 
-        from winml.modelkit.models.winml.image_segmentation import (
+        from winml.modelkit.models import (
             ImageSegmentationOutput,
         )
 

@@ -27,20 +27,20 @@ class TestModelMapping:
 
     def test_model_mapping_exists(self):
         """AC-1: MODEL_MAPPING dict should exist."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         assert isinstance(TASK_TO_WINML_CLASS, dict)
         assert len(TASK_TO_WINML_CLASS) > 0
 
     def test_model_mapping_has_image_classification(self):
         """AC-1: Should have image-classification mapping."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         assert "image-classification" in TASK_TO_WINML_CLASS
 
     def test_model_mapping_has_sequence_classification(self):
         """AC-1: Should have sequence/text classification mapping."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         # Design supports multiple aliases
         assert (
@@ -50,7 +50,7 @@ class TestModelMapping:
 
     def test_model_mapping_has_image_segmentation(self):
         """AC-1: Should have image segmentation mapping."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         assert (
             "image-segmentation" in TASK_TO_WINML_CLASS
@@ -59,7 +59,7 @@ class TestModelMapping:
 
     def test_model_mapping_values_are_classes(self):
         """AC-1: Mapping values should be model classes or class name strings."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         for model_class_or_name in TASK_TO_WINML_CLASS.values():
             # Can be class or string (lazy loading)
@@ -126,8 +126,8 @@ class TestTaskDetection:
 
     def test_get_winml_class_image_segmentation(self):
         """AC-3: Get correct class for image segmentation task."""
+        from winml.modelkit.models import WinMLModelForImageSegmentation
         from winml.modelkit.models.winml import get_winml_class
-        from winml.modelkit.models.winml.image_segmentation import WinMLModelForImageSegmentation
 
         cls = get_winml_class("segformer", "image-segmentation")
         assert cls == WinMLModelForImageSegmentation
@@ -159,8 +159,8 @@ class TestWinMLAutoModelFactory:
 
     def test_get_winml_class_image_segmentation(self):
         """AC-1: Get correct model class for image segmentation."""
+        from winml.modelkit.models import WinMLModelForImageSegmentation
         from winml.modelkit.models.winml import get_winml_class
-        from winml.modelkit.models.winml.image_segmentation import WinMLModelForImageSegmentation
 
         model_class = get_winml_class("segformer", "image-segmentation")
         assert model_class == WinMLModelForImageSegmentation
@@ -204,7 +204,7 @@ class TestTaskAliases:
 
     def test_text_classification_aliases(self):
         """Test text/sequence classification aliases."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         # Both should map to same class
         text_class = TASK_TO_WINML_CLASS.get("text-classification")
@@ -215,14 +215,14 @@ class TestTaskAliases:
 
     def test_sentiment_analysis_alias(self):
         """Test sentiment-analysis as alias for text classification."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         if "sentiment-analysis" in TASK_TO_WINML_CLASS:
             assert TASK_TO_WINML_CLASS["sentiment-analysis"] is not None
 
     def test_semantic_segmentation_alias(self):
         """Test semantic-segmentation as alias for image segmentation."""
-        from winml.modelkit.models.winml import TASK_TO_WINML_CLASS
+        from winml.modelkit.models import TASK_TO_WINML_CLASS
 
         img_seg = TASK_TO_WINML_CLASS.get("image-segmentation")
         sem_seg = TASK_TO_WINML_CLASS.get("semantic-segmentation")

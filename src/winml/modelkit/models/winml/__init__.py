@@ -170,6 +170,7 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
 from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
+    ImageSegmentationOutput,
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
@@ -180,6 +181,7 @@ from .sequence_classification import WinMLModelForSequenceClassification
 __all__ = [
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
+    "ImageSegmentationOutput",
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
