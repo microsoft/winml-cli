@@ -462,7 +462,7 @@ class ReshapeGemmReshapePatternInputGenerator(GemmPatternInputGenerator):
     """PatternInputGenerator for ReshapeGemmReshape pattern."""
 
     pattern = ReshapeGemmReshapePattern()
-    registration_name = "ReshapeGemmReshape"
+    registration_name = "ReshapeGemmReshapePattern"
 
 
 @register_pattern_input_generator
@@ -470,4 +470,4 @@ class MatMulAddPatternInputGenerator(GemmPatternInputGenerator):
     """PatternInputGenerator for MatMulAdd pattern."""
 
     pattern = MatMulAddPattern()
-    registration_name = "MatMulAdd"
+    registration_name = "MatMulAddPattern"
