@@ -24,21 +24,55 @@ from .core.onnx_loader import ONNXLoader
 from .core.output_aggregator import OutputAggregator
 from .core.pattern_extractor import PatternExtractor
 from .core.runtime_checker import RuntimeChecker
-from .models.output import AnalysisOutput
+from .models import (
+    Action,
+    ActionItem,
+    ActionLevel,
+    AlternativeType,
+    AnalysisOutput,
+    EPSupport,
+    IHVType,
+    Information,
+    ModelStats,
+    ModelTag,
+    ONNXModel,
+    ONNXOp,
+    RuntimeCheckRule,
+    RuntimeTestResult,
+    SupportLevel,
+)
+from .utils import infer_ihv_from_ep_name
+from .utils.rule_loader import RuleLoader
 
 
 __all__ = [
+    "Action",
+    "ActionItem",
+    "ActionLevel",
+    "AlternativeType",
     "AnalysisOutput",
     "AnalysisResult",
     "AnalyzeResult",
     "AnalyzerConfig",
+    "EPSupport",
+    "IHVType",
+    "Information",
     "InformationEngine",
     "LintResult",
+    "ModelStats",
+    "ModelTag",
     "ONNXLoader",
+    "ONNXModel",
+    "ONNXOp",
     "ONNXStaticAnalyzer",
     "OutputAggregator",
     "PatternExtractor",
+    "RuleLoader",
+    "RuntimeCheckRule",
     "RuntimeChecker",
+    "RuntimeTestResult",
+    "SupportLevel",
     "__version__",
     "analyze_onnx",
+    "infer_ihv_from_ep_name",
 ]

@@ -20,8 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from winml.modelkit.analyze.models.ihv_type import IHVType
-from winml.modelkit.analyze.utils.rule_loader import RuleLoader
+from winml.modelkit.analyze import IHVType, RuleLoader
 
 
 class TestRuleLoaderBasicLoading:

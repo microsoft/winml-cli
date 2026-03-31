@@ -20,7 +20,7 @@ import onnx
 from onnx import helper
 
 from winml.modelkit.onnx import ONNXDomain
-from winml.modelkit.pattern.base import (
+from winml.modelkit.pattern import (
     InvalidPatternMatcherModelError,
     PatternMatcher,
     get_pattern_input_generator,
@@ -34,21 +34,13 @@ from winml.modelkit.pattern.base import (
 TEST_DOMAIN_VERSIONS: dict[ONNXDomain, int] = {ONNXDomain.AI_ONNX: 17}
 
 PATTERNS_REQUIRING_NEWER_OPSET: dict[str, dict[ONNXDomain, int]] = {
-    "TransposeAttention": {ONNXDomain.AI_ONNX: 23},
-    "TransposedSingleRMSNormalization": {ONNXDomain.AI_ONNX: 23},
+    "TransposeAttentionPattern": {ONNXDomain.AI_ONNX: 23},
+    "TransposedSingleRMSNormalizationPattern": {ONNXDomain.AI_ONNX: 23},
 }
 
 # Patterns to skip for validation/self-matching (runtime limitations)
-#
-# ReshapeTransposeReshapeLowDim is a one-directional transform: it consumes
-# an UNMERGED >=6D Reshape-Transpose-Reshape and emits a MERGED <=5D variant.
-# The generated (merged) model is intentionally NOT re-matchable by this pattern,
-# so the standard "generate model → self-match" assumption does not hold.
-# See TestReshapeTransposeReshapeLowDimPattern.test_already_merged_4d_rtr_is_not_matched
-# for targeted coverage of the no-self-match behaviour.
 SKIP_VALIDATION_PATTERNS: set[str] = {
-    "TransposeAttention",
-    "ReshapeTransposeReshapeLowDim",
+    "TransposeAttentionPattern",
 }
 
 

@@ -14,17 +14,20 @@ Tests verify:
 import pytest
 from onnx import helper
 
+from winml.modelkit.analyze import AlternativeType, RuntimeTestResult
 from winml.modelkit.analyze.core.node_checkers.ep_context_node_checker import (
-    EPContextNodeChecker,
+    EPContextNodeChecker,  # Testing internal implementation
 )
 from winml.modelkit.analyze.models.runtime_checks import (
-    AlternativeType,
-    PatternAlternative,
-    RuntimeTestResult,
+    PatternAlternative,  # Testing internal implementation
 )
 from winml.modelkit.onnx import ONNXDomain
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
+from winml.modelkit.pattern import (
+    OperatorPattern,
+    PatternMatchResult,
+    PatternType,
+    SkeletonMatchResult,
+)
 
 
 class TestEPContextNodeChecker:

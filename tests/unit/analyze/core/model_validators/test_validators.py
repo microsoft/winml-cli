@@ -16,18 +16,21 @@ from __future__ import annotations
 import pytest
 from onnx import TensorProto, helper
 
+from winml.modelkit.analyze import ONNXModel, RuntimeTestResult
 from winml.modelkit.analyze.core.model_validators import (
     ConstantFoldingValidator,
     ModelValidatorManager,
 )
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
-from winml.modelkit.analyze.models.runtime_checks import (
+from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
     NodeTag,
     PatternRuntime,
-    RuntimeTestResult,
 )
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
+from winml.modelkit.pattern import (
+    OperatorPattern,
+    PatternMatchResult,
+    PatternType,
+    SkeletonMatchResult,
+)
 
 
 def create_onnx_model_wrapper(model_proto):

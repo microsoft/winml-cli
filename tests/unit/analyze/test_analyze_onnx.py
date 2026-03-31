@@ -10,17 +10,21 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.analyze.analyzer import (
+from winml.modelkit.analyze import (
+    Action,
+    ActionItem,
+    AnalysisOutput,
     AnalysisResult,
     AnalyzeResult,
+    EPSupport,
+    IHVType,
+    Information,
     LintResult,
+    ModelStats,
+    SupportLevel,
     analyze_onnx,
 )
-from winml.modelkit.analyze.models.ihv_type import IHVType
-from winml.modelkit.analyze.models.information import Action, ActionItem, Information
-from winml.modelkit.analyze.models.output import AnalysisOutput, EPSupport, ModelStats
-from winml.modelkit.analyze.models.support_level import SupportLevel
-from winml.modelkit.optim.config import WinMLOptimizationConfig
+from winml.modelkit.optim import WinMLOptimizationConfig
 
 
 # =============================================================================

@@ -243,7 +243,7 @@ def register_pattern_input_generator(
     Usage:
         @register_pattern_input_generator
         class GeluPatternInputGenerator(PatternInputGenerator):
-            registration_name = "Gelu1"
+            registration_name = "Gelu1Pattern"
             ...
     """
     if not hasattr(cls, "registration_name"):
