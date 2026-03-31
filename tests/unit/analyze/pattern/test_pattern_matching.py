@@ -15,8 +15,8 @@ from winml.modelkit.pattern import (
     Gelu2Pattern,
     MatMulAddPattern,
     PatternMatcher,
+    ReshapeGemmReshapePattern,
 )
-from winml.modelkit.pattern.gemm_patterns import ReshapeGemmReshapePattern
 
 
 # Path to test fixtures

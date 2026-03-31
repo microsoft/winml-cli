@@ -22,8 +22,12 @@ from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal i
     PatternAlternative,
     PatternRuntime,
 )
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
+from winml.modelkit.pattern import (
+    OperatorPattern,
+    PatternMatchResult,
+    PatternType,
+    SkeletonMatchResult,
+)
 
 
 @pytest.fixture

@@ -24,6 +24,26 @@ Investigate root cause and fix the underlying issue. Never use `pytest.mark.skip
 - **Temp files**: Use `temp/` folder in project root.
 - **Node.js**: Available via fnm. Use `eval "$(fnm env)"` before npm/npx commands.
 
+## Import Rules
+
+### Source code (`src/`)
+
+- **Relative imports** through `__init__.py`: `from ..onnx import ONNXDomain` (not `from winml.modelkit.onnx.domains import ONNXDomain`)
+- **Within the same package**, sibling-relative is fine: `from .utils import EXTERNAL_DATA_THRESHOLD`
+- Never use absolute `from winml.modelkit.*` paths in source code
+
+### Test code (`tests/`)
+
+- **Absolute imports** from package level: `from winml.modelkit.onnx import ONNXDomain`
+- Never reach into internal submodules for symbols exported by `__init__.py`
+- **Exception**: private `_`-prefixed functions may use internal imports for testing implementation details
+
+### `__init__.py` public API
+
+- Every symbol that external code needs must be exported in the package's `__init__.py`
+- When adding new public classes/functions, add them to both the import and `__all__`
+- Private (`_`-prefixed) symbols are never added to `__init__.py`
+
 ## Code Quality
 
 - Run `uv run ruff check --fix` after revising Python code

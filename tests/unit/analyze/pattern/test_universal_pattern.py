@@ -12,7 +12,7 @@ for ONNX generation, self-matching, removability, schema, and match structure.
 import onnx
 import pytest
 
-from winml.modelkit.pattern.base import (
+from winml.modelkit.pattern import (
     PatternMatcher,
     get_registered_pattern_input_generators,
 )
@@ -55,9 +55,7 @@ class TestUniversalPatternONNXGeneration:
         _model, _pattern, result = generate_self_matching_model(pattern_name)
         assert result.skeleton_match_result.removable is True
 
-    def test_self_match_not_removable_with_intermediate_output(
-        self, pattern_name: str
-    ) -> None:
+    def test_self_match_not_removable_with_intermediate_output(self, pattern_name: str) -> None:
         """Pattern becomes non-removable when an intermediate output is a graph output."""
         _skip_if_unsupported(pattern_name)
         model, pattern, _result = generate_self_matching_model(pattern_name)
@@ -134,8 +132,6 @@ class TestUniversalPatternMatchStructure:
 
         # Input infos present for each schema input
         for inp in schema.inputs:
-            assert inp.name in result.input_infos, (
-                f"Missing input info for '{inp.name}'"
-            )
+            assert inp.name in result.input_infos, f"Missing input info for '{inp.name}'"
             info = result.input_infos[inp.name]
             assert isinstance(info.is_constant, bool)

@@ -17,10 +17,10 @@ import onnxruntime as ort
 from winml.modelkit.pattern import (
     MatMulAddPattern,
     PatternMatcher,
+    ReshapeGemmReshapePattern,
     ReshapeTransposeReshapeLowDimPattern,
     ReshapeTransposeReshapeOverlyHighDimPattern,
 )
-from winml.modelkit.pattern.gemm_patterns import ReshapeGemmReshapePattern
 
 from .conftest import TEST_DOMAIN_VERSIONS
 
@@ -144,7 +144,7 @@ class TestReshapeTransposeReshapeLowDimPattern:
 
     def test_no_merging_with_fully_reversed_perm(self) -> None:
         """Fully reversed perm has no consecutive axes, so no merging."""
-        from winml.modelkit.pattern.transpose_patterns import (
+        from winml.modelkit.pattern.transpose_patterns import (  # Testing internal implementation
             _compute_merged_transpose,
         )
 
