@@ -8,7 +8,7 @@ Test specifications from docs/design/loader/hf.md section 9.5.
 """
 
 from winml.modelkit.config import WinMLBuildConfig
-from winml.modelkit.loader.config import WinMLLoaderConfig
+from winml.modelkit.loader import WinMLLoaderConfig
 
 
 class TestWinMLLoaderConfigDefaults:

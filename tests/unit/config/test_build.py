@@ -40,7 +40,7 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     resolve_io_specs,
 )
-from winml.modelkit.loader.config import WinMLLoaderConfig
+from winml.modelkit.loader import WinMLLoaderConfig
 from winml.modelkit.optim.config import WinMLOptimizationConfig
 from winml.modelkit.quant import WinMLQuantizationConfig
 from winml.modelkit.utils.config_utils import merge_config

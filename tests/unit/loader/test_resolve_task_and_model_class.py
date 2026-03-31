@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from winml.modelkit.loader.task import resolve_task_and_model_class
+from winml.modelkit.loader import resolve_task_and_model_class
 
 
 class TestCase2ModelTypeNone:

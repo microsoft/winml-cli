@@ -137,7 +137,7 @@ class TestBuildModuleOrchestration:
         from winml.modelkit.commands.build import _build_modules
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.export import WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
         from winml.modelkit.optim.config import WinMLOptimizationConfig
 
         configs = [
@@ -203,7 +203,7 @@ class TestBuildModuleOrchestration:
         from winml.modelkit.commands.build import _build_modules
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.export import WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
         from winml.modelkit.optim.config import WinMLOptimizationConfig
 
         configs = [
@@ -229,7 +229,7 @@ class TestBuildModuleOrchestration:
         from winml.modelkit.commands.build import _build_modules
         from winml.modelkit.config import WinMLBuildConfig
         from winml.modelkit.export import WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
         from winml.modelkit.optim.config import WinMLOptimizationConfig
 
         configs = [

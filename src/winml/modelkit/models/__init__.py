@@ -32,8 +32,6 @@ from .hf import MODEL_CLASS_MAPPING as HF_MODEL_CLASS_MAPPING
 
 # Re-export from winml/ subpackage (WinML inference class mappings)
 # These have no circular dependencies with loader/
-# TODO: Review if task-specific classes (WinMLModelForImageClassification) should be
-# exported directly or only accessed via WinMLAutoModel factory
 from .winml import (
     TASK_TO_WINML_CLASS,
     WINML_MODEL_CLASS_MAPPING,

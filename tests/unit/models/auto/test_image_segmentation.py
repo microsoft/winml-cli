@@ -41,9 +41,7 @@ def create_mock_model(
                   pred_boxes [B, num_queries, 4],
                   pred_masks [B, num_queries, H, W]
     """
-    from winml.modelkit.models import (
-        WinMLModelForImageSegmentation,
-    )
+    from winml.modelkit.models import WinMLModelForImageSegmentation
 
     model = WinMLModelForImageSegmentation.__new__(WinMLModelForImageSegmentation)
     mock_session = MagicMock()
@@ -69,9 +67,7 @@ class TestWinMLModelForImageSegmentationBasic:
 
     def test_class_exists(self):
         """Test that the class exists and is importable."""
-        from winml.modelkit.models import (
-            WinMLModelForImageSegmentation,
-        )
+        from winml.modelkit.models import WinMLModelForImageSegmentation
 
         assert WinMLModelForImageSegmentation is not None
 
@@ -127,9 +123,7 @@ class TestForwardMethod:
 
     def test_forward_returns_image_segmentation_output(self):
         """AC-3: forward() returns ImageSegmentationOutput."""
-        from winml.modelkit.models import (
-            ImageSegmentationOutput,
-        )
+        from winml.modelkit.models import ImageSegmentationOutput
 
         model = create_mock_model()
 
@@ -179,9 +173,7 @@ class TestForwardMethod:
 
     def test_forward_missing_outputs_are_none(self):
         """When ONNX model lacks pred_masks/pred_boxes, those fields are None."""
-        from winml.modelkit.models import (
-            WinMLModelForImageSegmentation,
-        )
+        from winml.modelkit.models import WinMLModelForImageSegmentation
 
         model = WinMLModelForImageSegmentation.__new__(WinMLModelForImageSegmentation)
         mock_session = MagicMock()
@@ -213,17 +205,13 @@ class TestImageSegmentationOutputType:
         """ImageSegmentationOutput inherits from ModelOutput."""
         from transformers.utils import ModelOutput
 
-        from winml.modelkit.models import (
-            ImageSegmentationOutput,
-        )
+        from winml.modelkit.models import ImageSegmentationOutput
 
         assert issubclass(ImageSegmentationOutput, ModelOutput)
 
     def test_output_supports_dict_access(self):
         """ImageSegmentationOutput supports dict-style access (pipeline compat)."""
-        from winml.modelkit.models import (
-            ImageSegmentationOutput,
-        )
+        from winml.modelkit.models import ImageSegmentationOutput
 
         logits = torch.randn(1, 100, 151)
         pred_masks = torch.randn(1, 100, 128, 128)
@@ -235,9 +223,7 @@ class TestImageSegmentationOutputType:
 
     def test_output_supports_attribute_access(self):
         """ImageSegmentationOutput supports attribute access (used by post-processors)."""
-        from winml.modelkit.models import (
-            ImageSegmentationOutput,
-        )
+        from winml.modelkit.models import ImageSegmentationOutput
 
         logits = torch.randn(1, 100, 151)
         pred_masks = torch.randn(1, 100, 128, 128)
@@ -295,9 +281,7 @@ def create_mock_semantic_model(num_labels: int = 150, output_h: int = 128, outpu
 
     Semantic segmentation outputs: logits [B, num_labels, H, W]
     """
-    from winml.modelkit.models import (
-        WinMLModelForSemanticSegmentation,
-    )
+    from winml.modelkit.models import WinMLModelForSemanticSegmentation
 
     model = WinMLModelForSemanticSegmentation.__new__(WinMLModelForSemanticSegmentation)
     mock_session = MagicMock()
@@ -321,9 +305,7 @@ class TestWinMLModelForSemanticSegmentationBasic:
 
     def test_class_exists(self):
         """Test that the class exists and is importable."""
-        from winml.modelkit.models import (
-            WinMLModelForSemanticSegmentation,
-        )
+        from winml.modelkit.models import WinMLModelForSemanticSegmentation
 
         assert WinMLModelForSemanticSegmentation is not None
 
@@ -391,9 +373,7 @@ class TestOutputTypeDistinction:
 
     def test_image_seg_returns_image_segmentation_output(self):
         """ImageSegmentation returns ImageSegmentationOutput."""
-        from winml.modelkit.models import (
-            ImageSegmentationOutput,
-        )
+        from winml.modelkit.models import ImageSegmentationOutput
 
         model = create_mock_model()
         output = model.forward(pixel_values=torch.randn(1, 3, 512, 512))
@@ -411,8 +391,6 @@ class TestOutputTypeDistinction:
         """The two classes return different output types."""
         from transformers.modeling_outputs import SemanticSegmenterOutput
 
-        from winml.modelkit.models import (
-            ImageSegmentationOutput,
-        )
+        from winml.modelkit.models import ImageSegmentationOutput
 
         assert ImageSegmentationOutput is not SemanticSegmenterOutput

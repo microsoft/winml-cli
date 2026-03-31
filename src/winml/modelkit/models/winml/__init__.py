@@ -7,8 +7,8 @@
 Contains task mapping system and inference wrappers for WinML models.
 
 Components:
-- TASK_TO_WINML_CLASS: Task → Class name mapping (Level 1)
-- WINML_MODEL_CLASS_MAPPING: (model_type, task) → Specialized class (Level 2)
+- TASK_TO_WINML_CLASS: Task -> Class name mapping (Level 1)
+- WINML_MODEL_CLASS_MAPPING: (model_type, task) -> Specialized class (Level 2)
 - get_winml_class(): Two-level class lookup function
 - WinMLPreTrainedModel: Base class for all inference models
 - WinMLModelFor*: Task-specific inference wrappers
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Two-Level Task Mapping System
 # =============================================================================
 
-# Level 1: Task → Universal WinML class name (lazy import)
+# Level 1: Task -> Universal WinML class name (lazy import)
 TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-classification": "WinMLModelForImageClassification",
     "text-classification": "WinMLModelForSequenceClassification",
@@ -47,7 +47,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "feature-extraction": "WinMLModelForFeatureExtraction",
 }
 
-# Level 2: (model_type, task) → Specialized class (exceptions only)
+# Level 2: (model_type, task) -> Specialized class (exceptions only)
 WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {
     # Only add entries for models that need:
     # - Custom export logic (broken ONNX export)
@@ -100,7 +100,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
 def get_winml_class(model_type: str | None, task: str) -> type[WinMLPreTrainedModel]:
     """Get appropriate WinML class using three-level mapping.
 
-    Level 1: Check class mapping (model_type, task) → specialized class
+    Level 1: Check class mapping (model_type, task) -> specialized class
     Level 2: Fallback to universal class by task
     Level 3: Fallback to WinMLModelForGenericTask for unknown tasks
 
@@ -160,7 +160,7 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
     """
     key = (model_type.lower().replace("_", "-"), task)
     WINML_MODEL_CLASS_MAPPING[key] = class_name
-    logger.info("Registered class mapping: %s → %s", key, class_name)
+    logger.info("Registered class mapping: %s -> %s", key, class_name)
 
 
 # =============================================================================
