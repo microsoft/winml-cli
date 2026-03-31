@@ -126,5 +126,5 @@ class TransposeInputGenerator(OpInputGenerator):
     def get_qdq_config(self):
         """Return QDQ configuration for Transpose operator inputs."""
         return {
-            "data": QDQParameterConfig(support_activation=True),
+            "data": QDQParameterConfig(support_non_qdq=True, support_activation=True),
         }
