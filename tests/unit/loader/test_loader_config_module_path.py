@@ -8,7 +8,7 @@ Validates that module_path can identify specific submodule instances
 for per-module build/perf support.
 """
 
-from winml.modelkit.loader.config import WinMLLoaderConfig
+from winml.modelkit.loader import WinMLLoaderConfig
 
 
 class TestModulePathField:

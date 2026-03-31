@@ -7,7 +7,7 @@
 import pytest
 
 import winml.modelkit.models  # noqa: F401 - trigger registrations
-from winml.modelkit.loader.task import get_supported_tasks
+from winml.modelkit.loader import get_supported_tasks
 
 
 class TestGetSupportedTasks:

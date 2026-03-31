@@ -474,7 +474,7 @@ class TestExportAutoResolveInputTensors:
         """Test export uses resolve_export_config for input_tensors when no --input-specs."""
         from winml.modelkit.commands.export import export
         from winml.modelkit.export.config import InputTensorSpec, WinMLExportConfig
-        from winml.modelkit.loader.config import WinMLLoaderConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
 
         # Create mock return values for resolve_export_config
         mock_export_cfg = WinMLExportConfig(
