@@ -19,7 +19,7 @@ import pytest
 
 # Trigger ONNX config registrations and MODEL_CLASS_MAPPING population
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.loader.task import resolve_task_and_model_class
+from winml.modelkit.loader import resolve_task_and_model_class
 
 
 class TestResolveAutoDetectNewArchitectures:

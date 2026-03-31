@@ -27,12 +27,14 @@ from __future__ import annotations
 from .api import optimize_onnx
 from .config import WinMLOptimizationConfig
 from .errors import ConfigurationError, ModelValidationError, OptimizationError
+from .optimizer import Optimizer
 
 
 __all__ = [
     "ConfigurationError",
     "ModelValidationError",
     "OptimizationError",
+    "Optimizer",
     "WinMLOptimizationConfig",
     "optimize_onnx",
 ]

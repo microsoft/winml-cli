@@ -10,8 +10,8 @@ from unittest.mock import patch
 import pytest
 from datasets import ClassLabel, Dataset, Features, Sequence, Value
 
-from winml.modelkit.datasets.config import DatasetConfig
-from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+from winml.modelkit.datasets import DatasetConfig
+from winml.modelkit.eval import WinMLEvaluator
 
 
 # ---------------------------------------------------------------------------
