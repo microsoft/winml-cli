@@ -114,13 +114,6 @@ _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
     },
 )
 
-_RESHAPE_TRANSPOSE_RESHAPE_OVERLY_HIGH_DIM_SCHEMA = replace(
-    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeOverlyHighDimPattern"
-)
-_RESHAPE_TRANSPOSE_RESHAPE_LOW_DIM_SCHEMA = replace(
-    _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA, name="ReshapeTransposeReshapeLowDimPattern"
-)
-
 
 class ReshapeTransposeReshapeOverlyHighDimPattern(Pattern):
     """Pattern for Reshape -> Transpose -> Reshape with overly high intermediate dimensionality.
@@ -326,7 +319,7 @@ class ReshapeTransposeReshapeOverlyHighDimPattern(Pattern):
         Returns:
             PatternSchema defining the pattern's input/output types and attributes.
         """
-        return _RESHAPE_TRANSPOSE_RESHAPE_OVERLY_HIGH_DIM_SCHEMA
+        return _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA
 
 
 class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
@@ -619,7 +612,7 @@ class ReshapeTransposeReshapeLowDimPattern(ReshapeTransposeReshapeOverlyHighDimP
 
     def get_schema(self) -> PatternSchema:
         """Return the schema definition for ReshapeTransposeReshapeLowDim pattern."""
-        return _RESHAPE_TRANSPOSE_RESHAPE_LOW_DIM_SCHEMA
+        return _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA
 
 
 @register_pattern_input_generator
