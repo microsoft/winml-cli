@@ -15,8 +15,9 @@ from pathlib import Path
 import onnx
 import pytest
 
-from winml.modelkit.pattern import PatternMatcher, PatternRewriter
-from winml.modelkit.pattern.transpose_patterns import (
+from winml.modelkit.pattern import (
+    PatternMatcher,
+    PatternRewriter,
     ReshapeTransposeReshapeLowDimPattern,
     ReshapeTransposeReshapeOverlyHighDimPattern,
 )

@@ -12,8 +12,7 @@ import pytest
 from onnx import TensorProto, helper
 
 from winml.modelkit.analyze import ONNXModel, PatternExtractor
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.models import SubgraphPattern
+from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, SubgraphPattern
 
 
 @pytest.fixture

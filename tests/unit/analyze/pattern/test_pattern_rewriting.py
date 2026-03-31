@@ -16,10 +16,10 @@ from winml.modelkit.pattern import (
     MatMulAddPattern,
     PatternMatcher,
     PatternRewriter,
+    ReshapeGemmReshapePattern,
     SingleGeluPattern,
     TransposeAttentionPattern,
 )
-from winml.modelkit.pattern.gemm_patterns import ReshapeGemmReshapePattern
 
 
 # Path to test fixtures
@@ -145,7 +145,8 @@ class TestPatternRewriting:
 
         # Check that new nodes have the expected naming pattern
         rewrite_nodes = [
-            node for node in new_model.graph.node
+            node
+            for node in new_model.graph.node
             if node.name.startswith("Rewrite_ReshapeGemmReshapePattern_")
         ]
 
@@ -245,8 +246,7 @@ class TestPatternRewriterWarnings:
 
         # 36 - 1 = 35 patterns should be rewritten
         assert len(reshape_gemm_results) == 35, (
-            f"Expected 35 ReshapeGemmReshape matches (1 skipped), "
-            f"found {len(reshape_gemm_results)}"
+            f"Expected 35 ReshapeGemmReshape matches (1 skipped), found {len(reshape_gemm_results)}"
         )
 
 
@@ -284,14 +284,10 @@ class TestComprehensivePatternRewriting:
 
         # Categorize results
         gelu_results = [
-            r
-            for r in all_results
-            if isinstance(r.skeleton_match_result.pattern, Gelu2Pattern)
+            r for r in all_results if isinstance(r.skeleton_match_result.pattern, Gelu2Pattern)
         ]
         matmuladd_results = [
-            r
-            for r in all_results
-            if isinstance(r.skeleton_match_result.pattern, MatMulAddPattern)
+            r for r in all_results if isinstance(r.skeleton_match_result.pattern, MatMulAddPattern)
         ]
 
         # Verify expected counts before rewriting
@@ -302,10 +298,12 @@ class TestComprehensivePatternRewriting:
 
         # Rewrite all patterns
         rewriter = PatternRewriter(erf_convnext_model)
-        new_model = rewriter.rewrite([
-            (gelu_results, SingleGeluPattern),
-            (matmuladd_results, ReshapeGemmReshapePattern),
-        ])
+        new_model = rewriter.rewrite(
+            [
+                (gelu_results, SingleGeluPattern),
+                (matmuladd_results, ReshapeGemmReshapePattern),
+            ]
+        )
 
         # Verify model validity
         onnx.checker.check_model(new_model)
@@ -355,9 +353,7 @@ class TestComprehensivePatternRewriting:
         new_results = new_matcher2.match()
 
         new_msft_gelu = [
-            r
-            for r in new_results
-            if isinstance(r.skeleton_match_result.pattern, SingleGeluPattern)
+            r for r in new_results if isinstance(r.skeleton_match_result.pattern, SingleGeluPattern)
         ]
         new_reshape_gemm = [
             r
@@ -369,8 +365,7 @@ class TestComprehensivePatternRewriting:
             f"Expected 18 SingleGelu matches after rewriting, found {len(new_msft_gelu)}"
         )
         assert len(new_reshape_gemm) == 36, (
-            f"Expected 36 ReshapeGemmReshape matches after rewriting, "
-            f"found {len(new_reshape_gemm)}"
+            f"Expected 36 ReshapeGemmReshape matches after rewriting, found {len(new_reshape_gemm)}"
         )
 
 
@@ -493,7 +488,8 @@ class TestAttentionPatternRewriting:
 
         # Check that new nodes have the expected naming pattern
         rewrite_nodes = [
-            node for node in new_model.graph.node
+            node
+            for node in new_model.graph.node
             if node.name.startswith("Rewrite_TransposeAttentionPattern_")
         ]
 
@@ -527,12 +523,12 @@ class TestAttentionPatternRewriting:
                     break
 
             if original_scales[i] is not None:
-                assert scale_attr is not None, (
-                    f"Attention node {i} should have scale attribute"
-                )
+                assert scale_attr is not None, f"Attention node {i} should have scale attribute"
                 np.testing.assert_allclose(
-                    scale_attr, original_scales[i], rtol=1e-5,
-                    err_msg=f"Attention node {i} scale should match original"
+                    scale_attr,
+                    original_scales[i],
+                    rtol=1e-5,
+                    err_msg=f"Attention node {i} scale should match original",
                 )
 
     def test_rewrite_original_model_unchanged(self, bert_tiny_model):
