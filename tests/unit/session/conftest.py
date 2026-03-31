@@ -76,7 +76,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     import onnxruntime as ort
 
-    from winml.modelkit.session.ep_registry import WinMLEPRegistry
+    from winml.modelkit.session import WinMLEPRegistry
 
     # Register WinML EPs so ort.get_ep_devices() includes them
     registry = WinMLEPRegistry.get_instance()
