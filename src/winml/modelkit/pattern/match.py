@@ -136,20 +136,20 @@ class PatternMatchResult:
 
     @property
     def matched_node_names(self):
-        """Get matched nodes as OnnxOP objects.
+        """Get matched nodes as ONNXOp objects.
 
-        Note: Despite the name, this returns OnnxOP objects, not strings.
+        Note: Despite the name, this returns ONNXOp objects, not strings.
         This is for backward compatibility. Use matched_nodes for string names.
 
         Returns:
-            List of OnnxOP instances containing node metadata (when used from analyze).
-            Falls back to dicts when OnnxOP is not available.
+            List of ONNXOp instances containing node metadata (when used from analyze).
+            Falls back to dicts when ONNXOp is not available.
         """
         try:
-            from winml.modelkit.analyze.models.onnx_op import OnnxOP
+            from winml.modelkit.analyze.models.onnx_op import ONNXOp
 
             return [
-                OnnxOP(
+                ONNXOp(
                     node_name=node.name if node.name else f"{node.op_type}_node",
                     op_type=node.op_type,
                     namespace=node.domain if node.domain else "ai.onnx",

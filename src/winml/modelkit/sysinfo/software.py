@@ -195,7 +195,7 @@ def calculate_folder_hash(folder_path: str) -> str | None:
     return hash_obj.hexdigest()
 
 
-class EpPackage:
+class EPPackage:
     """Represents an Execution Provider (EP) package."""
 
     class SignatureKind(Enum):
@@ -208,7 +208,7 @@ class EpPackage:
         System = 4  # pylint: disable=invalid-name
 
     @staticmethod
-    def get_all() -> list["EpPackage"]:
+    def get_all() -> list["EPPackage"]:
         """Get all installed WinML Execution Provider packages."""
         packages = []
         for package in AppxPackage.get_by_hint("*WinML*EP*"):
@@ -216,7 +216,7 @@ class EpPackage:
             if re.match(r"^Microsoft\.WindowsMLRuntime\.\d+\.\d+$", name):
                 # skip the deprecated WinML runtime package
                 continue
-            packages.append(EpPackage(package))
+            packages.append(EPPackage(package))
         return packages
 
     def __init__(self, appx_package: AppxPackage) -> None:
@@ -226,7 +226,7 @@ class EpPackage:
         self._publisher = appx_package.get_property("Publisher", str)
         self._architecture = appx_package.get_property("Architecture", int)
         signature_kind = appx_package.get_property("SignatureKind", int)
-        self._signature_kind = EpPackage.SignatureKind(signature_kind)
+        self._signature_kind = EPPackage.SignatureKind(signature_kind)
         self._install_location = appx_package.get_property("InstallLocation", str)
         self._status = appx_package.get_property("Status", int)
         try:

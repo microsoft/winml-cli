@@ -56,7 +56,7 @@ from ..export.config import (
     WinMLExportConfig,
     _resolve_export_config_from_specs,
 )
-from ..export.io import OnnxConfigNotFoundError
+from ..export.io import ONNXConfigNotFoundError
 from ..loader import resolve_loader_config
 from ..loader.config import WinMLLoaderConfig
 from ..optim.config import WinMLOptimizationConfig
@@ -534,7 +534,7 @@ def generate_hf_build_config(
             batch_size=WinMLExportConfig().batch_size,
             **(shape_config or {}),
         )
-    except OnnxConfigNotFoundError:
+    except ONNXConfigNotFoundError:
         logger.info(
             "Optimum has no OnnxConfig for '%s'; using empty export config",
             _registry_key,

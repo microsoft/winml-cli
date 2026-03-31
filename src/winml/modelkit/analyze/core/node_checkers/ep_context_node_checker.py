@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @NodeCheckerRegistry.register_checker()
-class EpContextNodeChecker(NodeChecker):
+class EPContextNodeChecker(NodeChecker):
     """Checker for validating EPContext nodes based on their attributes.
 
     This checker applies to EPContext nodes in the com.microsoft domain and
