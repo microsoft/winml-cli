@@ -7,10 +7,11 @@
 import json
 from pathlib import Path
 
-from winml.modelkit.optracing.qnn.csv_parser import parse_qnn_profiling_csv
-from winml.modelkit.optracing.qnn.qhas_parser import parse_qhas
-from winml.modelkit.optracing.report import write_op_trace_json
-from winml.modelkit.optracing.result import OperatorMetrics, OpTraceResult
+from winml.modelkit.optracing import OperatorMetrics, OpTraceResult, write_op_trace_json
+from winml.modelkit.optracing.qnn.csv_parser import (
+    parse_qnn_profiling_csv,  # Testing internal implementation
+)
+from winml.modelkit.optracing.qnn.qhas_parser import parse_qhas  # Testing internal implementation
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
