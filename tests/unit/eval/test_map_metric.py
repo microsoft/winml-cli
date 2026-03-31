@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from winml.modelkit.eval.metrics.mean_average_precision import MAPMetric
+from winml.modelkit.eval import MAPMetric
 
 
 class TestMAPMetricPerfectMatch:
