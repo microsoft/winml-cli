@@ -26,8 +26,8 @@ from .qdq_gen import QDQGenerator
 
 
 if TYPE_CHECKING:
-    from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
-    from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
+    from ...analyze.runtime_checker.ep_checker import EPChecker
+    from ...analyze.runtime_checker.runner import ResilientRunner
 
 
 def model_bytes_to_b64(model_bytes: bytes) -> str:
@@ -1443,7 +1443,7 @@ class OpInputGenerator(ABC):
 
         # TODO: parallel and/or distributed execution of `check_compile`/`check_run`
         cases_skipped = 0
-        from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
+        from ...analyze.runtime_checker.runner import ResilientRunner
 
         with ResilientRunner(capture_output=capture_output, timeout_sec=60) as runner:
             for case_idx, (kwargs, tags) in enumerate(self.iter()):

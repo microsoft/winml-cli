@@ -11,8 +11,7 @@ Priority: HTP metadata > hierarchy_tag > PatternMatcher
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.analyze.core.pattern_extractor import PatternExtractor
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
+from winml.modelkit.analyze import ONNXModel, PatternExtractor
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import SubgraphPattern
 
@@ -221,7 +220,7 @@ class TestPatternMatchNodeAccess:
 
     def test_matched_node_names_returns_onnx_ops(self):
         """Test that matched_node_names returns ONNXOp objects."""
-        from winml.modelkit.analyze.models.onnx_op import ONNXOp
+        from winml.modelkit.analyze import ONNXOp
 
         pattern = SubgraphPattern(
             pattern_id="SUBGRAPH/Test",

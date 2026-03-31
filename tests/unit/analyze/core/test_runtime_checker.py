@@ -17,12 +17,10 @@ import time
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.analyze.core.runtime_checker import RuntimeChecker
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
-from winml.modelkit.analyze.models.runtime_checks import (
+from winml.modelkit.analyze import ONNXModel, RuntimeChecker, RuntimeTestResult
+from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
     PatternAlternative,
     PatternRuntime,
-    RuntimeTestResult,
 )
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import OperatorPattern, PatternType
