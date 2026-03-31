@@ -101,7 +101,7 @@ class WinMLBuildConfig:
 
     Example:
         from winml.modelkit.config import WinMLBuildConfig
-        from winml.modelkit.optim.config import WinMLOptimizationConfig
+        from ..optim import WinMLOptimizationConfig
 
         # Default config
         config = WinMLBuildConfig()

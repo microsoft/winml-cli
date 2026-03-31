@@ -27,7 +27,7 @@ from typing import Any, ClassVar
 import onnx
 import pytest
 
-from winml.modelkit.optim.optimizer import Optimizer
+from winml.modelkit.optim import Optimizer
 from winml.modelkit.optim.pipes import PIPES, get_all_capabilities
 from winml.modelkit.optim.pipes.base import BasePipe, PipeConfig
 from winml.modelkit.optim.pipes.fusion import ORTFusionPipe, ORTFusionPipeConfig

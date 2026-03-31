@@ -22,12 +22,12 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.optim.errors import (
+from winml.modelkit.optim import (
     ConfigurationError,
     ModelValidationError,
     OptimizationError,
+    Optimizer,
 )
-from winml.modelkit.optim.optimizer import Optimizer
 
 
 # =============================================================================
