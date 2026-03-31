@@ -120,7 +120,8 @@ jobs:
               "--continue",
               "--verbose",
               "--timeout", "1800",
-              "--no-report"
+              "--no-report",
+              "--clean-hf-cache"
           )
           if ("$(hf_task)") {
               $uvArgs += @("--task", "$(hf_task)")
