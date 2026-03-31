@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E2E Eval Models Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242734;
+    --border: #2e3142;
+    --text: #e1e4ed;
+    --text2: #8b8fa3;
+    --accent: #6c8aff;
+    --accent2: #4ecdc4;
+    --accent3: #ff6b9d;
+    --accent4: #ffd93d;
+    --shadow: rgba(0,0,0,0.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .header {
+    background: linear-gradient(135deg, #1a1d27 0%, #242840 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header-stats {
+    display: flex;
+    gap: 20px;
+    font-size: 13px;
+    color: var(--text2);
+  }
+  .header-stats span { font-weight: 600; color: var(--accent); }
+
+  .main { display: flex; min-height: calc(100vh - 80px); }
+
+  /* Sidebar */
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(100vh - 80px);
+    position: sticky;
+    top: 0;
+  }
+  .filter-section { margin-bottom: 20px; }
+  .filter-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text2);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .filter-section h3 .count {
+    font-size: 10px;
+    background: var(--surface2);
+    padding: 1px 6px;
+    border-radius: 8px;
+    color: var(--accent);
+  }
+  .search-box {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    margin-bottom: 16px;
+  }
+  .search-box:focus { border-color: var(--accent); }
+  .search-box::placeholder { color: var(--text2); }
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.active {
+    background: rgba(108,138,255,0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .chip .chip-count {
+    font-size: 10px;
+    background: rgba(255,255,255,0.06);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+  .clear-btn {
+    font-size: 11px;
+    color: var(--accent3);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+  }
+  .clear-btn:hover { text-decoration: underline; }
+
+  /* Content */
+  .content {
+    flex: 1;
+    padding: 20px 24px;
+    overflow-y: auto;
+    max-height: calc(100vh - 80px);
+  }
+
+  /* View toggle */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .result-count { font-size: 13px; color: var(--text2); }
+  .result-count span { color: var(--accent); font-weight: 600; }
+  .view-btns {
+    display: flex;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .view-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .view-btn.active { background: var(--accent); color: #fff; }
+  .view-btn:hover:not(.active) { color: var(--text); }
+  .group-by-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+  }
+  .sort-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+  }
+
+  /* Summary cards */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .summary-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text2); margin-bottom: 4px; }
+  .summary-card .value { font-size: 28px; font-weight: 700; }
+  .summary-card .value.c1 { color: var(--accent); }
+  .summary-card .value.c2 { color: var(--accent2); }
+  .summary-card .value.c3 { color: var(--accent3); }
+  .summary-card .value.c4 { color: var(--accent4); }
+
+  /* Bar chart in sidebar */
+  .mini-bar-chart { margin-top: 4px; }
+  .mini-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+    font-size: 11px;
+  }
+  .mini-bar-label {
+    width: 100px;
+    text-align: right;
+    color: var(--text2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .mini-bar-track {
+    flex: 1;
+    height: 14px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .mini-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 4px;
+    font-size: 9px;
+    color: #fff;
+    font-weight: 600;
+    min-width: 20px;
+  }
+
+  /* Table view */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text2);
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  th:hover { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; font-size: 10px; }
+  td {
+    padding: 9px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(108,138,255,0.04); }
+  .hf-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .hf-link:hover { text-decoration: underline; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .badge-task { background: rgba(108,138,255,0.12); color: var(--accent); }
+  .badge-type { background: rgba(78,205,196,0.12); color: var(--accent2); }
+  .badge-p0 { background: rgba(255,107,157,0.15); color: var(--accent3); }
+  .badge-p1 { background: rgba(255,217,61,0.12); color: var(--accent4); }
+  .badge-group { background: rgba(255,255,255,0.06); color: var(--text2); }
+  .downloads { color: var(--text2); font-variant-numeric: tabular-nums; }
+  .badge-opt-yes { background: rgba(78,205,196,0.15); color: var(--accent2); }
+  .badge-opt-no { background: rgba(255,107,157,0.10); color: #ff8a9e; }
+  .date-cell { color: var(--text2); font-size: 12px; white-space: nowrap; }
+
+  /* Grouped view */
+  .group-section { margin-bottom: 20px; }
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px 10px 0 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .group-header:hover { background: var(--surface2); }
+  .group-header .arrow { transition: transform 0.2s; font-size: 12px; color: var(--text2); }
+  .group-header .arrow.open { transform: rotate(90deg); }
+  .group-header .group-name { font-weight: 600; font-size: 14px; }
+  .group-header .group-count {
+    font-size: 11px;
+    background: rgba(108,138,255,0.12);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .group-header .group-downloads {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .group-body {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    overflow: hidden;
+  }
+
+  /* Card view */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .model-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color 0.2s;
+  }
+  .model-card:hover { border-color: var(--accent); }
+  .model-card .card-title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+  .model-card .card-title a { color: var(--accent); text-decoration: none; }
+  .model-card .card-title a:hover { text-decoration: underline; }
+  .model-card .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .model-card .card-downloads {
+    font-size: 12px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+  @media (max-width: 800px) {
+    .main { flex-direction: column; }
+    .sidebar { width: 100%; max-height: none; position: static; }
+    .content { max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>E2E Eval Models Dashboard</h1>
+  <div class="header-stats" id="headerStats"></div>
+</div>
+
+<div class="main">
+  <aside class="sidebar">
+    <input class="search-box" id="searchBox" type="text" placeholder="Search models...">
+
+    <div class="filter-section">
+      <h3>Task <span class="count" id="taskCount"></span> <button class="clear-btn" data-clear="task">clear</button></h3>
+      <div class="filter-chips" id="taskChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Model Type <span class="count" id="typeCount"></span> <button class="clear-btn" data-clear="model_type">clear</button></h3>
+      <div class="filter-chips" id="typeChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Priority <span class="count" id="priorityCount"></span> <button class="clear-btn" data-clear="priority">clear</button></h3>
+      <div class="filter-chips" id="priorityChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Group <span class="count" id="groupCount"></span> <button class="clear-btn" data-clear="group">clear</button></h3>
+      <div class="filter-chips" id="groupChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Optimum <span class="count" id="optimumCount"></span> <button class="clear-btn" data-clear="optimum_supported">clear</button></h3>
+      <div class="filter-chips" id="optimumChips"></div>
+    </div>
+
+    <div class="filter-section">
+      <h3>Task Distribution</h3>
+      <div class="mini-bar-chart" id="taskChart"></div>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="summary-row" id="summaryCards"></div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="result-count" id="resultCount"></div>
+        <label style="font-size:12px;color:var(--text2)">Group by:</label>
+        <select class="group-by-select" id="groupBySelect">
+          <option value="none">None</option>
+          <option value="task" selected>Task</option>
+          <option value="model_type">Model Type</option>
+          <option value="group">Group</option>
+          <option value="priority">Priority</option>
+          <option value="optimum_supported">Optimum Supported</option>
+        </select>
+        <label style="font-size:12px;color:var(--text2)">Sort:</label>
+        <select class="sort-select" id="sortSelect">
+          <option value="downloads_desc" selected>Downloads (High → Low)</option>
+          <option value="downloads_asc">Downloads (Low → High)</option>
+          <option value="hf_id_asc">Name (A → Z)</option>
+          <option value="hf_id_desc">Name (Z → A)</option>
+          <option value="updated_desc">Last Updated (Newest)</option>
+          <option value="updated_asc">Last Updated (Oldest)</option>
+        </select>
+      </div>
+      <div class="view-btns">
+        <button class="view-btn active" data-view="table" onclick="setView('table')">Table</button>
+        <button class="view-btn" data-view="card" onclick="setView('card')">Cards</button>
+      </div>
+    </div>
+
+    <div id="output"></div>
+  </div>
+</div>
+
+<script>
+let DATA = [];
+
+// State
+let filters = { task: new Set(), model_type: new Set(), priority: new Set(), group: new Set(), optimum_supported: new Set() };
+let searchQuery = '';
+let currentView = 'table';
+let groupBy = 'task';
+let sortKey = 'downloads_desc';
+
+// Color palette for charts
+const COLORS = ['#6c8aff','#4ecdc4','#ff6b9d','#ffd93d','#a78bfa','#f97316','#10b981','#f472b6','#38bdf8','#e879f9',
+                '#84cc16','#fb923c','#22d3ee','#c084fc','#facc15','#2dd4bf','#f87171','#818cf8','#34d399','#fbbf24'];
+
+function getUnique(key) {
+  const counts = {};
+  DATA.forEach(d => {
+    const v = d[key] || '(empty)';
+    counts[v] = (counts[v] || 0) + 1;
+  });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+}
+
+function formatNum(n) {
+  if (n == null) return '-';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-CA'); // YYYY-MM-DD
+}
+
+function optimumLabel(val) {
+  return val ? 'Yes' : 'No';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function buildChips(containerId, key, entries) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = entries.map(([val, cnt]) =>
+    `<div class="chip ${filters[key].has(val) ? 'active' : ''}" data-key="${key}" data-val="${esc(val)}">
+      ${esc(val)} <span class="chip-count">${cnt}</span>
+    </div>`
+  ).join('');
+}
+
+function buildAllChips() {
+  const tasks = getUnique('task');
+  const types = getUnique('model_type');
+  const priorities = getUnique('priority');
+  const groups = getUnique('group');
+  // Build optimum chips from boolean field
+  const optCounts = {};
+  DATA.forEach(d => { const v = optimumLabel(d.optimum_supported); optCounts[v] = (optCounts[v]||0)+1; });
+  const optimumEntries = Object.entries(optCounts).sort((a,b) => b[1]-a[1]);
+  buildChips('taskChips', 'task', tasks);
+  buildChips('typeChips', 'model_type', types);
+  buildChips('priorityChips', 'priority', priorities);
+  buildChips('groupChips', 'group', groups);
+  buildChips('optimumChips', 'optimum_supported', optimumEntries);
+  document.getElementById('taskCount').textContent = tasks.length;
+  document.getElementById('typeCount').textContent = types.length;
+  document.getElementById('priorityCount').textContent = priorities.length;
+  document.getElementById('groupCount').textContent = groups.length;
+  document.getElementById('optimumCount').textContent = optimumEntries.length;
+}
+
+function toggleFilter(key, val) {
+  if (filters[key].has(val)) filters[key].delete(val);
+  else filters[key].add(val);
+  render();
+}
+
+function clearFilter(key) {
+  filters[key].clear();
+  render();
+}
+
+function getFiltered() {
+  return DATA.filter(d => {
+    if (searchQuery && !d.hf_id.toLowerCase().includes(searchQuery) && !(d.model_type||'').toLowerCase().includes(searchQuery) && !(d.task||'').toLowerCase().includes(searchQuery))
+      return false;
+    for (const key of ['task','model_type','priority','group']) {
+      if (filters[key].size > 0 && !filters[key].has(d[key] || '(empty)'))
+        return false;
+    }
+    if (filters.optimum_supported.size > 0 && !filters.optimum_supported.has(optimumLabel(d.optimum_supported)))
+      return false;
+    return true;
+  });
+}
+
+function sortData(arr) {
+  const sorted = [...arr];
+  switch(sortKey) {
+    case 'downloads_desc': return sorted.sort((a,b) => (b.downloads||0) - (a.downloads||0));
+    case 'downloads_asc': return sorted.sort((a,b) => (a.downloads||0) - (b.downloads||0));
+    case 'hf_id_asc': return sorted.sort((a,b) => a.hf_id.localeCompare(b.hf_id));
+    case 'hf_id_desc': return sorted.sort((a,b) => b.hf_id.localeCompare(a.hf_id));
+    case 'updated_desc': return sorted.sort((a,b) => (b.last_update_time||'').localeCompare(a.last_update_time||''));
+    case 'updated_asc': return sorted.sort((a,b) => (a.last_update_time||'').localeCompare(b.last_update_time||''));
+  }
+  return sorted;
+}
+
+function renderSummary(filtered) {
+  const uniqueModels = new Set(filtered.map(d => d.hf_id)).size;
+  const uniqueTypes = new Set(filtered.map(d => d.model_type)).size;
+  const uniqueTasks = new Set(filtered.map(d => d.task)).size;
+  const totalDL = filtered.reduce((s, d) => s + (d.downloads || 0), 0);
+  const optimumYes = filtered.filter(d => d.optimum_supported).length;
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="summary-card"><div class="label">Models (rows)</div><div class="value c1">${filtered.length}</div></div>
+    <div class="summary-card"><div class="label">Unique HF IDs</div><div class="value c2">${uniqueModels}</div></div>
+    <div class="summary-card"><div class="label">Model Types</div><div class="value c3">${uniqueTypes}</div></div>
+    <div class="summary-card"><div class="label">Optimum Supported</div><div class="value c4">${optimumYes}/${filtered.length}</div></div>
+  `;
+  document.getElementById('headerStats').innerHTML =
+    `<div>Total Entries: <span>${DATA.length}</span></div>
+     <div>Showing: <span>${filtered.length}</span></div>
+     <div>Total Downloads: <span>${formatNum(totalDL)}</span></div>`;
+}
+
+function renderTaskChart(filtered) {
+  const counts = {};
+  filtered.forEach(d => { counts[d.task || '(empty)'] = (counts[d.task || '(empty)'] || 0) + 1; });
+  const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]);
+  const max = sorted[0]?.[1] || 1;
+  document.getElementById('taskChart').innerHTML = sorted.map(([t, c], i) =>
+    `<div class="mini-bar-row">
+      <div class="mini-bar-label" title="${t}">${t}</div>
+      <div class="mini-bar-track">
+        <div class="mini-bar-fill" style="width:${(c/max*100).toFixed(1)}%;background:${COLORS[i % COLORS.length]}">${c}</div>
+      </div>
+    </div>`
+  ).join('');
+}
+
+function badgeClass(key) {
+  if (key === 'task') return 'badge-task';
+  if (key === 'model_type') return 'badge-type';
+  return '';
+}
+
+function priorityBadge(p) {
+  return p === 'P0' ? 'badge-p0' : 'badge-p1';
+}
+
+function sortArrow(col) {
+  if (sortKey === col + '_asc') return ' ↑';
+  if (sortKey === col + '_desc') return ' ↓';
+  return '';
+}
+
+function toggleSort(col) {
+  if (sortKey === col + '_desc') sortKey = col + '_asc';
+  else sortKey = col + '_desc';
+  document.getElementById('sortSelect').value = sortKey;
+  render();
+}
+
+function renderTable(items) {
+  return `<div class="table-wrap"><table>
+    <thead><tr>
+      <th onclick="toggleSort('hf_id')">Model ID${sortArrow('hf_id')}</th>
+      <th>Task</th><th>Type</th><th>Group</th><th>Priority</th><th>Optimum</th>
+      <th onclick="toggleSort('updated')">Last Updated${sortArrow('updated')}</th>
+      <th onclick="toggleSort('downloads')">Downloads${sortArrow('downloads')}</th>
+    </tr></thead>
+    <tbody>${items.map(d => `<tr>
+      <td><a class="hf-link" href="https://huggingface.co/${d.hf_id}" target="_blank">${d.hf_id}</a></td>
+      <td><span class="badge badge-task">${d.task || '-'}</span></td>
+      <td><span class="badge badge-type">${d.model_type || '-'}</span></td>
+      <td><span class="badge badge-group">${d.group || '-'}</span></td>
+      <td><span class="badge ${priorityBadge(d.priority)}">${d.priority || '-'}</span></td>
+      <td><span class="badge ${d.optimum_supported ? 'badge-opt-yes' : 'badge-opt-no'}">${d.optimum_supported ? 'Yes' : 'No'}</span></td>
+      <td class="date-cell">${formatDate(d.last_update_time)}</td>
+      <td class="downloads">${formatNum(d.downloads)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderCards(items) {
+  return `<div class="card-grid">${items.map(d => `
+    <div class="model-card">
+      <div class="card-title"><a href="https://huggingface.co/${d.hf_id}" target="_blank">${d.hf_id}</a></div>
+      <div class="card-meta">
+        <span class="badge badge-task">${d.task || '-'}</span>
+        <span class="badge badge-type">${d.model_type || '-'}</span>
+        <span class="badge ${priorityBadge(d.priority)}">${d.priority || '-'}</span>
+        <span class="badge badge-group">${d.group || '-'}</span>
+        <span class="badge ${d.optimum_supported ? 'badge-opt-yes' : 'badge-opt-no'}">${d.optimum_supported ? 'Optimum' : 'No Optimum'}</span>
+      </div>
+      <div class="card-downloads">
+        ${d.downloads != null ? formatNum(d.downloads) + ' downloads' : 'No download data'}
+        ${d.last_update_time ? ' · Updated ' + formatDate(d.last_update_time) : ''}
+      </div>
+    </div>
+  `).join('')}</div>`;
+}
+
+function renderGrouped(items, key) {
+  const groups = {};
+  items.forEach(d => {
+    let g;
+    if (key === 'optimum_supported') g = d[key] ? 'Optimum Supported' : 'Not Supported';
+    else g = d[key] || '(empty)';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(d);
+  });
+  const sortedGroups = Object.entries(groups).sort((a,b) => b[1].length - a[1].length);
+  return sortedGroups.map(([name, models]) => {
+    const totalDl = models.reduce((s,d) => s + (d.downloads||0), 0);
+    return `<div class="group-section">
+      <div class="group-header" onclick="this.querySelector('.arrow').classList.toggle('open');this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+        <span class="arrow open">&#9654;</span>
+        <span class="group-name">${name}</span>
+        <span class="group-count">${models.length}</span>
+        <span class="group-downloads">${formatNum(totalDl)} downloads</span>
+      </div>
+      <div class="group-body">${currentView === 'table' ? renderTable(models) : renderCards(models)}</div>
+    </div>`;
+  }).join('');
+}
+
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  render();
+}
+
+function render() {
+  buildAllChips();
+  const filtered = getFiltered();
+  const sorted = sortData(filtered);
+  renderSummary(filtered);
+  renderTaskChart(filtered);
+  document.getElementById('resultCount').innerHTML = `Showing <span>${filtered.length}</span> of <span>${DATA.length}</span> entries`;
+
+  const out = document.getElementById('output');
+  if (groupBy === 'none') {
+    out.innerHTML = currentView === 'table' ? renderTable(sorted) : renderCards(sorted);
+  } else {
+    out.innerHTML = renderGrouped(sorted, groupBy);
+  }
+}
+
+// Chip click delegation (safe — no inline onclick with unescaped values)
+document.querySelector('.sidebar').addEventListener('click', e => {
+  const chip = e.target.closest('.chip[data-key][data-val]');
+  if (chip) { toggleFilter(chip.dataset.key, chip.dataset.val); return; }
+  const clearBtn = e.target.closest('[data-clear]');
+  if (clearBtn) clearFilter(clearBtn.dataset.clear);
+});
+
+// Events
+document.getElementById('searchBox').addEventListener('input', e => {
+  searchQuery = e.target.value.toLowerCase();
+  render();
+});
+document.getElementById('groupBySelect').addEventListener('change', e => {
+  groupBy = e.target.value;
+  render();
+});
+document.getElementById('sortSelect').addEventListener('change', e => {
+  sortKey = e.target.value;
+  render();
+});
+
+// Init: load data from external models.json (no manual sync needed)
+async function init() {
+  try {
+    const resp = await fetch('./models.json');
+    if (!resp.ok) throw new Error(resp.statusText);
+    DATA = await resp.json();
+  } catch (e) {
+    document.getElementById('output').innerHTML =
+      '<div style="padding:40px;text-align:center;color:var(--accent3)">' +
+      '<h2>Failed to load models.json</h2>' +
+      '<p>Make sure models.json is in the same directory and open this file via a local HTTP server:</p>' +
+      '<code style="color:var(--accent)">python -m http.server 8080</code><br>' +
+      '<code style="color:var(--accent)">npx serve .</code>' +
+      '<p style="margin-top:12px;color:var(--text2)">Error: ' + e.message + '</p></div>';
+    return;
+  }
+  render();
+}
+init();
+</script>
+</body>
+</html>

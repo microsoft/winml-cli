@@ -133,13 +133,8 @@ class SqueezeInputGenerator(OpInputGenerator):
         item = properties.copy()
         item["data_dim"] = len(item["data_shape"])
 
-        # axes may come from input (axes_value) in newer opsets or attr_axes in older ones
-        axes_value = None
-        if "axes_value" in item and item["axes_value"] is not None:
-            axes_value = item["axes_value"]
-        elif "attr_axes" in item and item["attr_axes"] is not None:
-            axes_value = item["attr_axes"]
-
+        # Get axes value
+        axes_value = item["axes_value"]
         if isinstance(axes_value, np.ndarray):
             axes_list = axes_value.tolist()
         else:

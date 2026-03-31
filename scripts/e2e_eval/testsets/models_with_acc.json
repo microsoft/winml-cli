@@ -1,0 +1,541 @@
+[
+  {
+    "hf_id": "ProsusAI/finbert",
+    "task": "text-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "privet1mir/finbert_dataset",
+      "split": "val",
+      "metric": "accuracy"
+    }
+  },
+  {
+    "hf_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "task": "text-classification",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "tweet_eval",
+      "name": "sentiment",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+    "task": "text-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/glue",
+      "name": "sst2",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "sentence"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/deberta-xlarge-mnli",
+    "task": "text-classification",
+    "model_type": "deberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/glue",
+      "name": "mnli",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "second_input_column": "hypothesis"
+      }
+    }
+  },
+  {
+    "hf_id": "facebook/bart-large-mnli",
+    "task": "text-classification",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/glue",
+      "name": "mnli",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "second_input_column": "hypothesis"
+      }
+    }
+  },
+  {
+    "hf_id": "dslim/bert-base-NER",
+    "task": "token-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "BramVanroy/conll2003",
+      "metric": "overall_f1",
+      "columns_mapping": {
+        "label_column": "ner_tags"
+      }
+    }
+  },
+  {
+    "hf_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+    "task": "token-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "BramVanroy/conll2003",
+      "metric": "overall_f1",
+      "columns_mapping": {
+        "label_column": "ner_tags"
+      }
+    }
+  },
+  {
+    "hf_id": "Babelscape/wikineural-multilingual-ner",
+    "task": "token-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "BramVanroy/conll2003",
+      "metric": "overall_f1",
+      "columns_mapping": {
+        "label_column": "ner_tags"
+      }
+    }
+  },
+  {
+    "hf_id": "w11wo/indonesian-roberta-base-posp-tagger",
+    "task": "token-classification",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_indonlu_posp.py",
+      "path": "~/.cache/winml/eval_datasets/build_indonlu_posp",
+      "metric": "overall_f1",
+      "columns_mapping": {
+        "label_column": "pos_tags"
+      }
+    }
+  },
+  {
+    "hf_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
+    "task": "token-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_ai4privacy.py",
+      "path": "~/.cache/winml/eval_datasets/build_ai4privacy",
+      "metric": "overall_f1",
+      "columns_mapping": {
+        "label_column": "ner_tags"
+      }
+    }
+  },
+  {
+    "hf_id": "google/vit-base-patch16-224",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy"
+    }
+  },
+  {
+    "hf_id": "apple/mobilevit-small",
+    "task": "image-classification",
+    "model_type": "mobilevit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy"
+    }
+  },
+  {
+    "hf_id": "rizvandwiki/gender-classification",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_fairface.py",
+      "path": "~/.cache/winml/eval_datasets/build_fairface",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy",
+      "columns_mapping": {
+        "label_column": "gender"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/swin-large-patch4-window7-224",
+    "task": "image-classification",
+    "model_type": "swin",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy"
+    }
+  },
+  {
+    "hf_id": "microsoft/resnet-50",
+    "task": "image-classification",
+    "model_type": "resnet",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy"
+    }
+  },
+  {
+    "hf_id": "Intel/bert-base-uncased-mrpc",
+    "task": "text-classification",
+    "model_type": "bert",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "nyu-mll/glue",
+      "name": "mrpc",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "sentence1",
+        "second_input_column": "sentence2"
+      }
+    }
+  },
+  {
+    "hf_id": "facebook/convnext-tiny-224",
+    "task": "image-classification",
+    "model_type": "convnext",
+    "group": "Benchmark",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy"
+    }
+  },
+  {
+    "hf_id": "dima806/fairface_age_image_detection",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_fairface.py",
+      "path": "~/.cache/winml/eval_datasets/build_fairface",
+      "metric": "top1_accuracy",
+      "wmk_metric_key": "accuracy",
+      "columns_mapping": {
+        "label_column": "age"
+      }
+    }
+  },
+  {
+    "hf_id": "facebook/detr-resnet-50",
+    "task": "object-detection",
+    "model_type": "detr",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "detection-datasets/coco",
+      "split": "val",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "hustvl/yolos-small",
+    "task": "object-detection",
+    "model_type": "yolos",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "detection-datasets/coco",
+      "split": "val",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "PekingU/rtdetr_r50vd_coco_o365",
+    "task": "object-detection",
+    "model_type": "rt_detr",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "detection-datasets/coco",
+      "split": "val",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "label_mapping_file": "scripts/e2e_eval/datasets/coco_to_rtdetr_labels.json",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "PekingU/rtdetr_r101vd_coco_o365",
+    "task": "object-detection",
+    "model_type": "rt_detr",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "detection-datasets/coco",
+      "split": "val",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "label_mapping_file": "scripts/e2e_eval/datasets/coco_to_rtdetr_labels.json",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "PekingU/rtdetr_v2_r18vd",
+    "task": "object-detection",
+    "model_type": "rt_detr_v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "detection-datasets/coco",
+      "split": "val",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "label_mapping_file": "scripts/e2e_eval/datasets/coco_to_rtdetr_labels.json",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "valentinafeve/yolos-fashionpedia",
+    "task": "object-detection",
+    "model_type": "yolos",
+    "group": "Top200",
+    "priority": "P2",
+    "dataset_config": {
+      "path": "detection-datasets/fashionpedia",
+      "split": "val",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/table-transformer-detection",
+    "task": "object-detection",
+    "model_type": "table_transformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_detection.py",
+      "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
+      "split": "validation",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "TahaDouaji/detr-doc-table-detection",
+    "task": "object-detection",
+    "model_type": "detr",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_detection.py",
+      "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
+      "split": "validation",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "label_mapping_file": "scripts/e2e_eval/datasets/pubtables_to_table_labels.json",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/table-transformer-structure-recognition",
+    "task": "object-detection",
+    "model_type": "table_transformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "build_script": "scripts/e2e_eval/datasets/build_pubtables1m_structure.py",
+      "path": "~/.cache/winml/eval_datasets/build_pubtables1m_structure",
+      "split": "validation",
+      "metric": "map",
+      "wmk_metric_key": "map",
+      "columns_mapping": {
+        "annotation_column": "objects",
+        "bbox_key": "bbox",
+        "category_key": "category",
+        "box_format": "xyxy"
+      }
+    }
+  },
+  {
+    "hf_id": "nvidia/segformer-b0-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "danjacobellis/scene_parse_150",
+      "split": "validation",
+      "metric": "mean_iou",
+      "wmk_metric_key": "mean_iou",
+      "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
+      "columns_mapping": {
+        "annotation_column": "annotation"
+      }
+    }
+  },
+  {
+    "hf_id": "nvidia/segformer-b1-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "danjacobellis/scene_parse_150",
+      "split": "validation",
+      "metric": "mean_iou",
+      "wmk_metric_key": "mean_iou",
+      "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
+      "columns_mapping": {
+        "annotation_column": "annotation"
+      }
+    }
+  },
+  {
+    "hf_id": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "danjacobellis/scene_parse_150",
+      "split": "validation",
+      "metric": "mean_iou",
+      "wmk_metric_key": "mean_iou",
+      "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
+      "columns_mapping": {
+        "annotation_column": "annotation"
+      }
+    }
+  },
+  {
+    "hf_id": "nvidia/segformer-b5-finetuned-ade-640-640",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "danjacobellis/scene_parse_150",
+      "split": "validation",
+      "metric": "mean_iou",
+      "wmk_metric_key": "mean_iou",
+      "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
+      "columns_mapping": {
+        "annotation_column": "annotation"
+      }
+    }
+  },
+  {
+    "hf_id": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mattmdjaga/human_parsing_dataset",
+      "split": "train",
+      "metric": "mean_iou",
+      "wmk_metric_key": "mean_iou",
+      "columns_mapping": {
+        "annotation_column": "mask"
+      }
+    }
+  },
+  {
+    "hf_id": "nvidia/segformer-b0-finetuned-cityscapes-1024-1024",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Chris1/cityscapes",
+      "split": "validation",
+      "samples": 500,
+      "metric": "mean_iou",
+      "wmk_metric_key": "mean_iou",
+      "label_mapping_file": "scripts/e2e_eval/datasets/cityscapes_label_to_train_id.json",
+      "columns_mapping": {
+        "annotation_column": "semantic_segmentation"
+      }
+    }
+  }
+]

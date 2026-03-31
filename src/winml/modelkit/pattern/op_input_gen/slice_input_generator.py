@@ -130,14 +130,6 @@ class SliceInputGenerator(OpInputGenerator):
                                     np.array([d - 1 for d in axis_dims], dtype=np.int64),
                                 )
                             )
-                        # Forward slice from last element
-                        # covers starts_equal_shape=True + steps_all_ones=True
-                        starts_ends_patterns.append(
-                            (
-                                np.array([d - 1 for d in axis_dims], dtype=np.int64),
-                                np.array(list(axis_dims), dtype=np.int64),
-                            )
-                        )
                     elif is_all_backward:
                         # Backward slicing patterns
                         starts_ends_patterns.append(

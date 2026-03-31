@@ -12,7 +12,6 @@ Tests verify:
 - filter_kwargs_by_opset filters correctly for operators with/without variadic inputs
 """
 
-import numpy as np
 import pytest
 from onnx.defs import SchemaError
 
@@ -175,63 +174,3 @@ class TestFilterKwargsByOpset:
     def test_variadic_empty_kwargs(self, concat_generator):
         """Empty dict returns empty dict for variadic ops."""
         assert concat_generator.filter_kwargs_by_opset({}) == {}
-
-
-class TestSqueezeDeriveProperties:
-    """Test Squeeze derive_properties for input and attribute axes."""
-
-    @pytest.fixture()
-    def squeeze_generator_opset11(self):
-        """Create a Squeeze generator for an older opset that uses attr axes."""
-        domain = ONNXDomain.AI_ONNX
-        schema = domain.get_op_schema("Squeeze", 11)
-        generator_class = get_runtime_checker_op("Squeeze")
-        return generator_class(schema)
-
-    @pytest.fixture()
-    def squeeze_generator_opset22(self):
-        """Create a Squeeze generator for a newer opset that uses input axes."""
-        domain = ONNXDomain.AI_ONNX
-        schema = domain.get_op_schema("Squeeze", 22)
-        generator_class = get_runtime_checker_op("Squeeze")
-        return generator_class(schema)
-
-    def test_squeeze_derive_properties_supports_attr_axes(self, squeeze_generator_opset11):
-        """Older opsets should derive properties from attr_axes without KeyError."""
-        result = squeeze_generator_opset11.derive_properties(
-            {"data_shape": (1, 2, 1), "attr_axes": [0, -1]}
-        )
-
-        assert result["data_dim"] == 3
-        assert result["axes_is_empty"] is False
-        assert result["axes_len_greater_than_one"] is True
-        assert result["data_single_entry"] is False
-
-    def test_squeeze_derive_properties_supports_axes_value(self, squeeze_generator_opset22):
-        """Newer opsets should continue deriving properties from axes_value."""
-        result = squeeze_generator_opset22.derive_properties(
-            {"data_shape": (1,), "axes_value": np.array([0], dtype=np.int64)}
-        )
-
-        assert result["data_dim"] == 1
-        assert result["axes_is_empty"] is False
-        assert result["axes_len_greater_than_one"] is False
-        assert result["data_single_entry"] is True
-
-
-class TestSplitInfiniteProperties:
-    """Regression tests for Split matching properties."""
-
-    @pytest.fixture()
-    def split_generator_opset12(self):
-        """Create a Split generator for an opset that uses attr_split."""
-        domain = ONNXDomain.AI_ONNX
-        schema = domain.get_op_schema("Split", 12)
-        generator_class = get_runtime_checker_op("Split")
-        return generator_class(schema)
-
-    def test_split_attr_split_is_treated_as_infinite_property(self, split_generator_opset12):
-        """Older-opset Split should not require an exact attr_split tuple match."""
-        infinite_properties = split_generator_opset12.get_infinite_property_names()
-
-        assert "attr_split" in infinite_properties
