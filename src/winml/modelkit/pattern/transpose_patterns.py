@@ -31,7 +31,7 @@ from ..onnx import ONNXDomain
 
 # Schema for ReshapeTransposeReshape pattern
 _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA = PatternSchema(
-    name="ReshapeTransposeReshapeOverlyHighDimPattern",
+    name="ReshapeTransposeReshapePattern",
     doc=(
         "Reshape followed by Transpose followed by Reshape pattern.\n"
         "This pattern is common in attention mechanisms where tensors are reshaped "
@@ -364,7 +364,7 @@ class _ReshapeTransposeReshapeInputGeneratorBase(PatternInputGenerator):
 
     def get_infinite_property_names(self) -> list[str]:
         """Return names of properties with infinite possible values."""
-        return ["attr_transpose_shape", "attr_output_shape"]
+        return ["attr_transpose_shape", "attr_output_shape", "attr_perm", "data_shape"]
 
 
 @register_pattern_input_generator
@@ -374,7 +374,7 @@ class ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator(
     """PatternInputGenerator for ReshapeTransposeReshapeOverlyHighDim pattern."""
 
     pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
-    registration_name = "ReshapeTransposeReshapeOverlyHighDim"
+    registration_name = "ReshapeTransposeReshapeOverlyHighDimPattern"
 
 
 def _resolve_negative_dims(shape: tuple[int, ...], total_size: int) -> tuple[int, ...]:
@@ -610,6 +610,10 @@ class ReshapeTransposeReshapeLowDimPattern(ReshapeTransposeReshapeOverlyHighDimP
 
         return internal_constants, internal_attributes
 
+    def get_schema(self) -> PatternSchema:
+        """Return the schema definition for ReshapeTransposeReshapeLowDim pattern."""
+        return _RESHAPE_TRANSPOSE_RESHAPE_SCHEMA
+
 
 @register_pattern_input_generator
 class ReshapeTransposeReshapeLowDimPatternInputGenerator(
@@ -618,4 +622,4 @@ class ReshapeTransposeReshapeLowDimPatternInputGenerator(
     """PatternInputGenerator for ReshapeTransposeReshapeLowDim pattern."""
 
     pattern = ReshapeTransposeReshapeLowDimPattern()
-    registration_name = "ReshapeTransposeReshapeLowDim"
+    registration_name = "ReshapeTransposeReshapeLowDimPattern"
