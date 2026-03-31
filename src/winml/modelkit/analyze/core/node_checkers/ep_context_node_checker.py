@@ -4,8 +4,7 @@
 # --------------------------------------------------------------------------
 from typing import TYPE_CHECKING, Any
 
-from winml.modelkit.onnx.domains import ONNXDomain
-
+from ....onnx import ONNXDomain
 from ...models.runtime_checks import PatternAlternative, PatternRuntime, RuntimeTestResult
 from .base import NodeChecker
 from .registry import NodeCheckerRegistry
@@ -18,7 +17,7 @@ if TYPE_CHECKING:
 
 
 @NodeCheckerRegistry.register_checker()
-class EpContextNodeChecker(NodeChecker):
+class EPContextNodeChecker(NodeChecker):
     """Checker for validating EPContext nodes based on their attributes.
 
     This checker applies to EPContext nodes in the com.microsoft domain and

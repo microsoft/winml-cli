@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 """
-Unit tests for EpContextNodeChecker.
+Unit tests for EPContextNodeChecker.
 
 Tests verify:
 - can_check() method correctly identifies EPContext nodes
@@ -14,26 +14,25 @@ Tests verify:
 import pytest
 from onnx import helper
 
+from winml.modelkit.analyze import AlternativeType, RuntimeTestResult
 from winml.modelkit.analyze.core.node_checkers.ep_context_node_checker import (
-    EpContextNodeChecker,
+    EPContextNodeChecker,  # Testing internal implementation
 )
 from winml.modelkit.analyze.models.runtime_checks import (
-    AlternativeType,
-    PatternAlternative,
-    RuntimeTestResult,
+    PatternAlternative,  # Testing internal implementation
 )
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import OperatorPattern, PatternType
 
 
-class TestEpContextNodeChecker:
-    """Test EpContextNodeChecker implementation."""
+class TestEPContextNodeChecker:
+    """Test EPContextNodeChecker implementation."""
 
     @pytest.fixture
     def ep_context_checker(self):
-        """Create EpContextNodeChecker instance."""
-        return EpContextNodeChecker()
+        """Create EPContextNodeChecker instance."""
+        return EPContextNodeChecker()
 
     @pytest.fixture
     def sample_pattern_match(self):

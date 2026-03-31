@@ -5,7 +5,7 @@
 from pydantic import BaseModel, Field
 
 
-class OnnxOP(BaseModel):
+class ONNXOp(BaseModel):
     """Represents an ONNX operator node for output.
 
     Attributes:

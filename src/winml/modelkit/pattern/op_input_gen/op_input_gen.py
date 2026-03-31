@@ -19,16 +19,15 @@ import onnx
 from colorama import Fore, Style
 from onnx.defs import OpSchema
 
-import winml.modelkit.onnx.dtypes as dtypes
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.utils import get_op_input_properties
 
+from ...onnx import ONNXDomain, SupportedONNXType
 from .qdq_gen import QDQGenerator
 
 
 if TYPE_CHECKING:
-    from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
-    from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
+    from ...analyze.runtime_checker.ep_checker import EPChecker
+    from ...analyze.runtime_checker.runner import ResilientRunner
 
 
 def model_bytes_to_b64(model_bytes: bytes) -> str:
@@ -150,7 +149,7 @@ class InputValueConstraint(InputConstraint):
         # based on type_annotation; maybe use covariant typing for InputValueConstraint
         # to handle this cleanly
         if isinstance(self.value, np.ndarray):
-            np_dtype = dtypes.SupportedONNXType.from_annotation(type_annotation).np_type
+            np_dtype = SupportedONNXType.from_annotation(type_annotation).np_type
             return self.value.astype(np_dtype)
         return self.value
 
@@ -195,7 +194,7 @@ class InputShapeConstraint(InputConstraint):
     def get_value(self, type_annotation: str) -> Any:
         """Generate a tensor with the specified shape and type."""
         # random values may cause runtime errors when running an op
-        np_dtype = dtypes.SupportedONNXType.from_annotation(type_annotation).np_type
+        np_dtype = SupportedONNXType.from_annotation(type_annotation).np_type
         seed_material = json.dumps(
             {
                 "shape": list(self.shape),
@@ -260,7 +259,7 @@ class QDQParameterConfig:
         support_weight: bool = False,
         support_activation: bool = False,
         support_non_qdq: bool = False,
-        qdq_types: list[dtypes.SupportedONNXType] | None = None,
+        qdq_types: list[SupportedONNXType] | None = None,
     ):
         """Initialize QDQParameterConfig.
 
@@ -348,9 +347,9 @@ class OpInputGenerator(ABC):
             )
 
         self.onnx_types_to_check = (
-            {dtypes.SupportedONNXType.from_annotation(t).onnx_type for t in onnx_types_to_check}
+            {SupportedONNXType.from_annotation(t).onnx_type for t in onnx_types_to_check}
             if onnx_types_to_check is not None
-            else {x.onnx_type for x in dtypes.SupportedONNXType}
+            else {x.onnx_type for x in SupportedONNXType}
         )
 
         output_only_type_vars = {x.type_str for x in self.schema.outputs} - {
@@ -361,7 +360,7 @@ class OpInputGenerator(ABC):
             # legacy compatibility: adding _op_name suffix
             f"{constraint.type_param_str}_{self.op_name}": list(
                 map(
-                    dtypes.SupportedONNXType.from_onnx_type,
+                    SupportedONNXType.from_onnx_type,
                     filter(lambda x: x in self.onnx_types_to_check, constraint.allowed_type_strs),
                 )
             )
@@ -370,7 +369,7 @@ class OpInputGenerator(ABC):
         }
 
         self.type_vars_with_unique_dtypes = {
-            f"{constraint.type_param_str}_{self.op_name}": dtypes.SupportedONNXType.from_onnx_type(
+            f"{constraint.type_param_str}_{self.op_name}": SupportedONNXType.from_onnx_type(
                 constraint.allowed_type_strs[0]
             )
             for constraint in self.schema.type_constraints
@@ -647,11 +646,11 @@ class OpInputGenerator(ABC):
 
         # For each input in the config, collect the possible should_qdq values.
         input_names: list[str] = []
-        input_option_lists: list[list[bool | dtypes.SupportedONNXType]] = []
+        input_option_lists: list[list[bool | SupportedONNXType]] = []
         for input_name, config in expanded_config.items():
             if input_name not in schema_input_names:
                 continue  # output name present in qdq_config; handled below
-            options: list[bool | dtypes.SupportedONNXType] = []
+            options: list[bool | SupportedONNXType] = []
             if config.support_activation or config.support_weight:
                 options.append(True)
             if config.qdq_types is not None:
@@ -690,7 +689,7 @@ class OpInputGenerator(ABC):
         kwargs: dict[str, Any],
         is_constant_map: dict[str, bool],
         output_dtypes: list[str],
-        qdq_types: dict[str, dtypes.SupportedONNXType | None] | None = None,
+        qdq_types: dict[str, SupportedONNXType | None] | None = None,
         dynamic_axes: dict[str, tuple[int, ...]] | None = None,
     ) -> onnx.ModelProto:
         """Create ONNX model with specified constant/non-constant configuration.
@@ -800,7 +799,7 @@ class OpInputGenerator(ABC):
                 else:
                     tensor = onnx.helper.make_tensor(
                         name=input_name,
-                        data_type=dtypes.SupportedONNXType.from_np_type(
+                        data_type=SupportedONNXType.from_np_type(
                             input_value.dtype
                         ).tensor_proto_type,
                         dims=input_shape,
@@ -862,7 +861,7 @@ class OpInputGenerator(ABC):
                 else:
                     input_info = onnx.helper.make_tensor_value_info(
                         input_name,
-                        dtypes.SupportedONNXType.from_np_type(input_value.dtype).tensor_proto_type,
+                        SupportedONNXType.from_np_type(input_value.dtype).tensor_proto_type,
                         input_shape,
                     )
                     graph_inputs.append(input_info)
@@ -878,7 +877,7 @@ class OpInputGenerator(ABC):
         op_output_names = []  # Actual outputs from the operator node
 
         for idx, dtype in enumerate(output_dtypes):
-            output_dtype = dtypes.SupportedONNXType.from_annotation(dtype).tensor_proto_type
+            output_dtype = SupportedONNXType.from_annotation(dtype).tensor_proto_type
             # Get schema output name for this index
             schema_output_name = (
                 self.schema.outputs[idx].name if idx < len(self.schema.outputs) else None
@@ -1151,7 +1150,7 @@ class OpInputGenerator(ABC):
             config = qdq_config[input_name]
             should_val = should_qdq_map.get(input_name)
 
-            if isinstance(should_val, dtypes.SupportedONNXType):
+            if isinstance(should_val, SupportedONNXType):
                 # Specific type from qdq_types — always quantize with this type, skip
                 # weight/activation mode checks since the type is fully determined.
                 pass
@@ -1194,13 +1193,13 @@ class OpInputGenerator(ABC):
             if (
                 not config.support_activation
                 and not config.support_weight
-                and not isinstance(should_val, dtypes.SupportedONNXType)
+                and not isinstance(should_val, SupportedONNXType)
             ):
                 continue  # This input is not quantized, skip type check
             type_template = self.type_annotations[ta_key]
             annotation = self._apply_type_var_combination(type_template, tags[self.type_vars_key])
             try:
-                onnx_type = dtypes.SupportedONNXType.from_annotation(annotation).onnx_type
+                onnx_type = SupportedONNXType.from_annotation(annotation).onnx_type
             except ValueError:
                 return
             if onnx_type not in self.qdq_generator.SUPPORT_DQ_OUTPUT_TYPES:
@@ -1223,7 +1222,7 @@ class OpInputGenerator(ABC):
                     # (support_non_qdq only), skip validation
                     continue
             try:
-                onnx_type = dtypes.SupportedONNXType.from_annotation(output_annotation).onnx_type
+                onnx_type = SupportedONNXType.from_annotation(output_annotation).onnx_type
             except ValueError:
                 return
             if onnx_type not in self.qdq_generator.SUPPORTED_Q_INPUT_TYPES:
@@ -1241,7 +1240,7 @@ class OpInputGenerator(ABC):
         for weight_onnx_type in weight_types_to_iterate:
             for activation_onnx_type in self.qdq_generator.activation_onnx_types:
                 # Build qdq_types mapping for each input
-                qdq_types: dict[str, dtypes.SupportedONNXType | None] = {}
+                qdq_types: dict[str, SupportedONNXType | None] = {}
                 new_constant_map: dict[str, bool] = {}
 
                 for input_name, is_constant in is_constant_map.items():
@@ -1261,7 +1260,7 @@ class OpInputGenerator(ABC):
                     if (
                         not config.support_activation
                         and not config.support_weight
-                        and not isinstance(should_val, dtypes.SupportedONNXType)
+                        and not isinstance(should_val, SupportedONNXType)
                     ):
                         qdq_types[input_name] = None  # Pass-through input (support_non_qdq only)
                         new_constant_map[input_name] = (
@@ -1269,14 +1268,12 @@ class OpInputGenerator(ABC):
                         )
                         continue
 
-                    if isinstance(should_val, dtypes.SupportedONNXType):
+                    if isinstance(should_val, SupportedONNXType):
                         qdq_types[input_name] = should_val
                     elif is_constant:
-                        qdq_types[input_name] = dtypes.SupportedONNXType.from_onnx_type(
-                            weight_onnx_type
-                        )
+                        qdq_types[input_name] = SupportedONNXType.from_onnx_type(weight_onnx_type)
                     else:
-                        qdq_types[input_name] = dtypes.SupportedONNXType.from_onnx_type(
+                        qdq_types[input_name] = SupportedONNXType.from_onnx_type(
                             activation_onnx_type
                         )
 
@@ -1286,7 +1283,7 @@ class OpInputGenerator(ABC):
                 # Store output quantization type only for outputs that will be created
                 # Outputs use activation type
                 output_type = (
-                    dtypes.SupportedONNXType.from_onnx_type(activation_onnx_type)
+                    SupportedONNXType.from_onnx_type(activation_onnx_type)
                     if activation_onnx_type is not None
                     else None
                 )
@@ -1446,7 +1443,7 @@ class OpInputGenerator(ABC):
 
         # TODO: parallel and/or distributed execution of `check_compile`/`check_run`
         cases_skipped = 0
-        from winml.modelkit.analyze.runtime_checker.runner import ResilientRunner
+        from ...analyze.runtime_checker.runner import ResilientRunner
 
         with ResilientRunner(capture_output=capture_output, timeout_sec=60) as runner:
             for case_idx, (kwargs, tags) in enumerate(self.iter()):
@@ -1777,7 +1774,7 @@ class OpInputGenerator(ABC):
                 # Get the quantization type for this input
                 quant_type_annotation = qdq_types[qdq_key]
                 if isinstance(quant_type_annotation, str):
-                    quant_type = dtypes.SupportedONNXType.from_annotation(quant_type_annotation)
+                    quant_type = SupportedONNXType.from_annotation(quant_type_annotation)
                 else:
                     # Already a SupportedONNXType
                     quant_type = quant_type_annotation
@@ -1865,7 +1862,7 @@ class OpInputGenerator(ABC):
             elif type_var_key_with_op_name in self.type_vars_with_unique_dtypes:
                 annotation = self.type_vars_with_unique_dtypes[type_var_key_with_op_name].annotation
             else:
-                annotation = dtypes.SupportedONNXType.from_onnx_type(type_var_key).annotation
+                annotation = SupportedONNXType.from_onnx_type(type_var_key).annotation
             # TODO: decide what to do with optional outputs
             # in a general way - currently we add them to outputs
             # NOTE: variadic output not handled in this general

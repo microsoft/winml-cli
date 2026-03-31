@@ -16,16 +16,14 @@ from __future__ import annotations
 import pytest
 from onnx import TensorProto, helper
 
+from winml.modelkit.analyze import ONNXModel, RuntimeTestResult
 from winml.modelkit.analyze.core.model_validators import (
     ConstantFoldingValidator,
     ModelValidatorManager,
 )
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
-from winml.modelkit.analyze.models.onnx_op import OnnxOP
-from winml.modelkit.analyze.models.runtime_checks import (
+from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
     NodeTag,
     PatternRuntime,
-    RuntimeTestResult,
 )
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import OperatorPattern, PatternType
@@ -47,9 +45,6 @@ def create_runtime_result_with_tags(
         namespace="ai.onnx",
         op_type=op_type,
     )
-
-    # Create OnnxOP for matched node
-    _matched_node = OnnxOP(node_name=node_name, op_type=op_type)
 
     # Create a mock node proto for testing
     from onnx import helper

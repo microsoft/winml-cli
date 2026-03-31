@@ -83,7 +83,7 @@ class TaggingInfo:
 
 
 @dataclass
-class OnnxModelOutput:
+class ONNXModelOutput:
     """ONNX model output information."""
 
     path: str
@@ -96,7 +96,7 @@ class OnnxModelOutput:
 class OutputFiles:
     """Output file information."""
 
-    onnx_model: OnnxModelOutput
+    onnx_model: ONNXModelOutput
     metadata: dict[str, str] = field(default_factory=dict)
     report: dict[str, str] = field(default_factory=dict)
 
@@ -255,7 +255,7 @@ class HTPMetadataBuilder:
     ) -> HTPMetadataBuilder:
         """Set output file information."""
         self._output_files = OutputFiles(
-            onnx_model=OnnxModelOutput(
+            onnx_model=ONNXModelOutput(
                 path=Path(onnx_path).name,
                 size_mb=onnx_size_mb,
                 opset_version=opset_version,

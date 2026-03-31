@@ -12,7 +12,7 @@ import numpy as np
 import onnx
 import pytest
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern import (
     ExpandedAttentionPattern,
     PatternMatcher,
@@ -83,10 +83,7 @@ class TestAttentionPatternCrossMatching:
         results = matcher.match()
 
         assert len(results) == 1
-        assert (
-            type(results[0].skeleton_match_result.pattern).__name__
-            == "ExpandedAttentionPattern"
-        )
+        assert type(results[0].skeleton_match_result.pattern).__name__ == "ExpandedAttentionPattern"
 
 
 class TestBertTinyAttentionPatternRewriting:
@@ -105,9 +102,7 @@ class TestBertTinyAttentionPatternRewriting:
 
         # Keep only opset imports for domains actually used by nodes
         used_domains = {n.domain for n in model.graph.node}
-        opset_imports = [
-            opset for opset in model.opset_import if opset.domain in used_domains
-        ]
+        opset_imports = [opset for opset in model.opset_import if opset.domain in used_domains]
         del model.opset_import[:]
         model.opset_import.extend(opset_imports)
 
@@ -142,14 +137,10 @@ class TestBertTinyAttentionPatternRewriting:
         rewriter = PatternRewriter(bert_tiny_model)
         rewritten_model = rewriter.rewrite([(results, TransposeAttentionPattern)])
 
-        attention_count = sum(
-            1 for n in rewritten_model.graph.node if n.op_type == "Attention"
-        )
+        attention_count = sum(1 for n in rewritten_model.graph.node if n.op_type == "Attention")
         assert attention_count == 2
 
-    def test_bert_tiny_rewritten_model_has_transpose_attention(
-        self, bert_tiny_model
-    ) -> None:
+    def test_bert_tiny_rewritten_model_has_transpose_attention(self, bert_tiny_model) -> None:
         from winml.modelkit.pattern import PatternRewriter
 
         expanded_pattern = ExpandedAttentionPattern()
@@ -166,9 +157,7 @@ class TestBertTinyAttentionPatternRewriting:
 
         assert len(new_results) == 2
 
-    def test_bert_tiny_rewritten_model_no_expanded_patterns(
-        self, bert_tiny_model
-    ) -> None:
+    def test_bert_tiny_rewritten_model_no_expanded_patterns(self, bert_tiny_model) -> None:
         from winml.modelkit.pattern import PatternRewriter
 
         expanded_pattern = ExpandedAttentionPattern()

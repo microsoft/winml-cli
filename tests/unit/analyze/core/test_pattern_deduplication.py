@@ -11,8 +11,7 @@ Priority: HTP metadata > hierarchy_tag > PatternMatcher
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.analyze.core.pattern_extractor import PatternExtractor
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
+from winml.modelkit.analyze import ONNXModel, PatternExtractor
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import SubgraphPattern
 
@@ -220,8 +219,8 @@ class TestPatternMatchNodeAccess:
         assert match.matched_nodes[0] == "conv1"
 
     def test_matched_node_names_returns_onnx_ops(self):
-        """Test that matched_node_names returns OnnxOP objects."""
-        from winml.modelkit.analyze.models.onnx_op import OnnxOP
+        """Test that matched_node_names returns ONNXOp objects."""
+        from winml.modelkit.analyze import ONNXOp
 
         pattern = SubgraphPattern(
             pattern_id="SUBGRAPH/Test",
@@ -245,10 +244,10 @@ class TestPatternMatchNodeAccess:
             type_param_to_type={},
         )
 
-        # matched_node_names should return list of OnnxOP objects
+        # matched_node_names should return list of ONNXOp objects
         assert isinstance(match.matched_node_names, list)
         assert len(match.matched_node_names) == 1
-        assert isinstance(match.matched_node_names[0], OnnxOP)
+        assert isinstance(match.matched_node_names[0], ONNXOp)
         assert match.matched_node_names[0].op_type == "Relu"
         assert match.matched_node_names[0].node_name == "relu1"
 

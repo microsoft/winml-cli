@@ -23,7 +23,6 @@ import onnx
 import onnxruntime as ort
 from google.protobuf import json_format
 
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.base import (
     PatternInputGenerator,
     get_pattern_input_generator,
@@ -31,6 +30,7 @@ from winml.modelkit.pattern.base import (
 )
 
 from ... import winml
+from ...onnx import ONNXDomain
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker

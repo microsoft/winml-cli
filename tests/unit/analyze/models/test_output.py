@@ -17,13 +17,13 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from winml.modelkit.analyze.models.ihv_type import IHVType
-from winml.modelkit.analyze.models.output import (
+from winml.modelkit.analyze import (
     AnalysisOutput,
     EPSupport,
+    IHVType,
     ModelStats,
+    SupportLevel,
 )
-from winml.modelkit.analyze.models.support_level import SupportLevel
 
 
 class TestModelStatsValidation:
@@ -366,7 +366,7 @@ class TestAnalysisOutputValidation:
 
     def test_comprehensive_output_with_all_fields(self):
         """Test AnalysisOutput with all fields populated."""
-        from winml.modelkit.analyze.models.information import Information
+        from winml.modelkit.analyze import Information
         from winml.modelkit.pattern.models import SubgraphPattern
 
         # Create the subgraph pattern

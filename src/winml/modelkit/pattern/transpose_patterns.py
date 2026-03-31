@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
@@ -26,6 +25,8 @@ from winml.modelkit.pattern.base import (
     register_pattern_input_generator,
 )
 from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
+
+from ..onnx import ONNXDomain
 
 
 # Schema for ReshapeTransposeReshape pattern
