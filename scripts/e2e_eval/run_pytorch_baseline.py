@@ -71,6 +71,8 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
     "question-answering": "f1",
     "object-detection": "map",
     "image-segmentation": "mean_iou",
+    "feature-extraction": "cosine_spearman",
+    "sentence-similarity": "cosine_spearman",
 }
 
 
@@ -85,10 +87,15 @@ def _load_pytorch_model(model_id: str, task: str, device_str: str):
 
     import torch
 
-    cls_name = _TASK_AUTO_MODEL_CLS.get(task, "AutoModel")
-    transformers = importlib.import_module("transformers")
-    cls = getattr(transformers, cls_name)
-    _out(f"Loading {cls_name} for {model_id} on {device_str}")
+    from transformers import AutoConfig
+    from winml.modelkit.loader.task import _get_custom_model_class
+    model_type = AutoConfig.from_pretrained(model_id).model_type
+    cls = _get_custom_model_class(model_type, task)
+    if cls is None:
+        cls_name = _TASK_AUTO_MODEL_CLS.get(task, "AutoModel")
+        transformers = importlib.import_module("transformers")
+        cls = getattr(transformers, cls_name)
+    _out(f"Loading {cls.__name__} for {model_id} on {device_str}")
     device = torch.device(device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu")
     return cls.from_pretrained(model_id).to(device).eval()
 

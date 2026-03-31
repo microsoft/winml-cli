@@ -887,9 +887,15 @@ def main() -> None:
         try:
             registry_entries = load_registry(args.registry)
             for e in registry_entries:
-                if e.hf_id == args.hf_model:
+                if e.hf_id == args.hf_model and (not args.task or e.task == args.task):
                     matched_entry = e
                     break
+            # Fallback: match by hf_id only if task-specific match not found
+            if matched_entry is None:
+                for e in registry_entries:
+                    if e.hf_id == args.hf_model:
+                        matched_entry = e
+                        break
         except Exception:
             pass  # Registry is optional for single-model mode; proceed without enrichment
         if matched_entry is not None:

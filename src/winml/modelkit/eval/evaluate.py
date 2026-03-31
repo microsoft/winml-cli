@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from ..datasets.config import DatasetConfig
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
+from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
@@ -34,6 +35,8 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "token-classification": WinMLTokenClassificationEvaluator,
     "object-detection": WinMLObjectDetectionEvaluator,
     "image-segmentation": WinMLImageSegmentationEvaluator,
+    "feature-extraction": WinMLFeatureExtractionEvaluator,
+    "sentence-similarity": WinMLFeatureExtractionEvaluator,
 }
 
 _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
@@ -73,6 +76,30 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
             "bbox_key": "bbox",
             "category_key": "category",
             "box_format": "xyxy",
+        },
+    ),
+    "feature-extraction": DatasetConfig(
+        path="mteb/stsbenchmark-sts",
+        split="test",
+        samples=100,
+        shuffle=True,
+        streaming=True,
+        columns_mapping={
+            "input_column_1": "sentence1",
+            "input_column_2": "sentence2",
+            "score_column": "score",
+        },
+    ),
+    "sentence-similarity": DatasetConfig(
+        path="mteb/stsbenchmark-sts",
+        split="test",
+        samples=100,
+        shuffle=True,
+        streaming=True,
+        columns_mapping={
+            "input_column_1": "sentence1",
+            "input_column_2": "sentence2",
+            "score_column": "score",
         },
     ),
 }
