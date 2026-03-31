@@ -22,10 +22,10 @@ import pytest
 
 # Trigger OnnxConfig registration with TasksManager
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export.io import (
+from winml.modelkit.export import resolve_io_specs
+from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
     _map_task_synonym,
-    resolve_io_specs,
 )
 
 

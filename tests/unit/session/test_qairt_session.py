@@ -266,7 +266,7 @@ class TestQairtSessionPaths:
 
         Key logic: ep_config.qnn_sdk_root is used if provided.
         """
-        from winml.modelkit.compiler.configs import EPConfig
+        from winml.modelkit.compiler import EPConfig
         from winml.modelkit.session import WinMLQairtSession
 
         # Set env var to a different path

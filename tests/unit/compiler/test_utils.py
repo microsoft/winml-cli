@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 import onnx
 from onnx import TensorProto, helper
 
-from winml.modelkit.compiler.transforms import (
+from winml.modelkit.compiler import (
     clear_transforms,
     get_transforms_for_ep,
+    needs_format_conversion,
     register_transform,
 )
-from winml.modelkit.compiler.utils import needs_format_conversion
 from winml.modelkit.onnx import is_compiled_onnx, is_quantized_onnx
 
 
