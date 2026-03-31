@@ -20,7 +20,7 @@ import onnx
 from onnx import helper
 
 from winml.modelkit.onnx import ONNXDomain
-from winml.modelkit.pattern.base import (
+from winml.modelkit.pattern import (
     InvalidPatternMatcherModelError,
     PatternMatcher,
     get_pattern_input_generator,
