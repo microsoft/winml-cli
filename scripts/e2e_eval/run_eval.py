@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """E2E evaluation runner — unified perf + accuracy.
 
 Batch-runs wmk perf (and optionally wmk eval + pytorch baseline) for models
@@ -102,10 +107,10 @@ def _get_timeout_skip_reason(hf_id: str, task: str) -> str:
 
 # Patterns that indicate the disk is full (cross-platform).
 _NO_SPACE_PATTERNS = (
-    "no space left on device",          # Linux/macOS OSError
-    "oserror: [errno 28]",              # Python errno string
+    "no space left on device",  # Linux/macOS OSError
+    "oserror: [errno 28]",  # Python errno string
     "there is not enough space on the disk",  # Windows
-    "winerror 112",                     # Windows disk-full error code
+    "winerror 112",  # Windows disk-full error code
     "disk full",
 )
 
@@ -167,7 +172,8 @@ def _kill_process_tree(pid: int) -> None:
         # Fallback: taskkill on Windows, killpg on Unix
         if platform.system() == "Windows":
             subprocess.run(  # noqa: S603
-                ["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True
+                ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+                capture_output=True,
             )
         else:
             import signal
@@ -309,7 +315,11 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 
 
 def _run_build(
-    entry: ModelEntry, device: str, precision: str, timeout: int, model_dir: Path,
+    entry: ModelEntry,
+    device: str,
+    precision: str,
+    timeout: int,
+    model_dir: Path,
 ) -> dict:
     """Run wmk config + wmk build for one model. Returns build result dict.
 
@@ -320,11 +330,16 @@ def _run_build(
 
     # Step 1: wmk config
     config_args = [
-        *WMK, "config",
-        "-m", entry.hf_id,
-        "--device", device,
-        "--precision", precision,
-        "-o", str(config_path),
+        *WMK,
+        "config",
+        "-m",
+        entry.hf_id,
+        "--device",
+        device,
+        "--precision",
+        precision,
+        "-o",
+        str(config_path),
     ]
     if entry.task:
         config_args += ["--task", entry.task]
@@ -340,9 +355,12 @@ def _run_build(
 
     # Step 2: wmk build --use-cache
     build_args = [
-        *WMK, "build",
-        "-c", str(config_path),
-        "-m", entry.hf_id,
+        *WMK,
+        "build",
+        "-c",
+        str(config_path),
+        "-m",
+        entry.hf_id,
         "--use-cache",
     ]
 
@@ -404,7 +422,10 @@ def _find_cached_model(hf_id: str, build_proc: dict) -> str | None:
 
 
 def run_model(
-    entry: ModelEntry, device: str, timeout: int, onnx_path: str | None = None,
+    entry: ModelEntry,
+    device: str,
+    timeout: int,
+    onnx_path: str | None = None,
 ) -> dict:
     """Execute wmk perf for one model. Returns raw subprocess result dict.
 
@@ -415,8 +436,14 @@ def run_model(
         args = [*WMK, "perf", "-m", onnx_path, "--device", device]
     else:
         args = [
-            *WMK, "perf", "-m", entry.hf_id,
-            "--device", device, "--precision", _DEFAULT_PRECISION,
+            *WMK,
+            "perf",
+            "-m",
+            entry.hf_id,
+            "--device",
+            device,
+            "--precision",
+            _DEFAULT_PRECISION,
         ]
         if entry.task:
             args += ["--task", entry.task]
@@ -516,14 +543,23 @@ def _run_wmk_eval(
     eval_device = "npu" if device == "auto" else device
     if onnx_path:
         args = [
-            *WMK, "eval", "-m", onnx_path,
-            "--model-id", entry.hf_id,
-            "--device", eval_device,
+            *WMK,
+            "eval",
+            "-m",
+            onnx_path,
+            "--model-id",
+            entry.hf_id,
+            "--device",
+            eval_device,
         ]
     else:
         args = [
-            *WMK, "eval", "-m", entry.hf_id,
-            "--device", eval_device,
+            *WMK,
+            "eval",
+            "-m",
+            entry.hf_id,
+            "--device",
+            eval_device,
         ]
     if entry.task:
         args += ["--task", entry.task]
@@ -550,14 +586,9 @@ def _run_wmk_eval(
 
     metric = None
     if proc["exit_code"] == 0 and output_path.exists():
-        wmk_key = (
-            ds_config.get("wmk_metric_key")
-            or ds_config.get("metric", "accuracy")
-        )
+        wmk_key = ds_config.get("wmk_metric_key") or ds_config.get("metric", "accuracy")
         num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-        metric = _parse_metric_from_wmk_output(
-            output_path, wmk_key, num_samples
-        )
+        metric = _parse_metric_from_wmk_output(output_path, wmk_key, num_samples)
     status = "PASS" if (proc["exit_code"] == 0 and metric is not None) else "FAIL"
 
     return {
@@ -606,9 +637,7 @@ def _save_baseline_cache(cache: dict) -> None:
     )
 
 
-def _lookup_baseline_cache(
-    hf_id: str, task: str, ds_config: dict
-) -> dict | None:
+def _lookup_baseline_cache(hf_id: str, task: str, ds_config: dict) -> dict | None:
     """Return cached baseline result dict, or None if not cached."""
     cache = _load_baseline_cache()
     key = _baseline_cache_key(hf_id, task, ds_config)
@@ -631,9 +660,7 @@ def _shorten_command(cmd: str) -> str:
     return " ".join(shortened)
 
 
-def _store_baseline_cache(
-    hf_id: str, task: str, ds_config: dict, result: dict
-) -> None:
+def _store_baseline_cache(hf_id: str, task: str, ds_config: dict, result: dict) -> None:
     """Store a successful baseline result in cache."""
     if result.get("status") != "PASS":
         return
@@ -758,8 +785,10 @@ def save_environment_info(path: Path) -> None:
     # Git HEAD commit info
     try:
         result = subprocess.run(
-            ["git", "log", "-1", "--format=%H%n%s%n%ai"],  # noqa: S603, S607
-            capture_output=True, text=True, timeout=5,
+            ["git", "log", "-1", "--format=%H%n%s%n%ai"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             lines = result.stdout.strip().splitlines()
@@ -782,17 +811,6 @@ def _get_disk_free_gb() -> float:
     return shutil.disk_usage(anchor).free / (1024**3)
 
 
-def _clean_model_hf_cache(hf_id: str) -> None:
-    """Delete cached HuggingFace files for a specific model."""
-    slug = f"models--{hf_id.replace('/', '--')}"
-    cache_path = HF_CACHE_DIR / slug
-    if not cache_path.exists():
-        return
-    size_mb = sum(f.stat().st_size for f in cache_path.rglob("*") if f.is_file()) / (1024 * 1024)
-    shutil.rmtree(cache_path, ignore_errors=True)
-    safe_print(f"  [cache] Cleaned {slug} ({size_mb:.0f} MB freed)")
-
-
 def model_result_dir(output_dir: Path, hf_id: str, task: str = "") -> Path:
     """Convert model ID + task to directory slug."""
     slug = hf_id.replace("/", "__")
@@ -807,6 +825,7 @@ def model_result_dir(output_dir: Path, hf_id: str, task: str = "") -> Path:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="E2E evaluation runner — unified perf + accuracy")
     parser.add_argument(
         "--registry",
@@ -878,6 +897,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run the E2E evaluation pipeline."""
     args = parse_args()
 
     # 1. Load registry
@@ -928,13 +948,7 @@ def main() -> None:
         safe_print(f"Registry: {len(entries)} models  (eval-type: {args.eval_type})")
         for e in entries:
             ds = get_dataset_config(e.hf_id, e.task)
-            skip_acc = (
-                ""
-                if args.eval_type == "perf"
-                else "  [task_default]"
-                if ds is None
-                else ""
-            )
+            skip_acc = "" if args.eval_type == "perf" else "  [task_default]" if ds is None else ""
             safe_print(
                 f"  [{e.priority}] {e.hf_id} / {e.task}  ({e.model_type}, {e.group}){skip_acc}"
             )
@@ -1010,9 +1024,7 @@ def main() -> None:
         # Timeout skip list: skip known-timeout models and write a TIMEOUT result
         if (entry.hf_id, entry.task or "") in timeout_skip_set:
             reason = _get_timeout_skip_reason(entry.hf_id, entry.task or "")
-            safe_print(
-                f"\n[{i}/{len(entries)}] {label}  (SKIP - TIMEOUT: {reason})"
-            )
+            safe_print(f"\n[{i}/{len(entries)}] {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -1090,7 +1102,11 @@ def main() -> None:
             onnx_path: str | None = None
             if args.eval_type in ("perf", "both"):
                 build_result = _run_build(
-                    entry, args.device, _DEFAULT_PRECISION, args.timeout, model_dir,
+                    entry,
+                    args.device,
+                    _DEFAULT_PRECISION,
+                    args.timeout,
+                    model_dir,
                 )
                 if build_result["success"]:
                     onnx_path = build_result["onnx_path"]
@@ -1098,12 +1114,20 @@ def main() -> None:
             if args.eval_type == "accuracy":
                 # Accuracy-only: build + eval (no perf)
                 build_result = _run_build(
-                    entry, args.device, _DEFAULT_PRECISION, args.timeout, model_dir,
+                    entry,
+                    args.device,
+                    _DEFAULT_PRECISION,
+                    args.timeout,
+                    model_dir,
                 )
                 if build_result["success"]:
                     onnx_path = build_result["onnx_path"]
                     accuracy_result = _run_accuracy_phase(
-                        entry, args.device, args.timeout, model_dir, onnx_path,
+                        entry,
+                        args.device,
+                        args.timeout,
+                        model_dir,
+                        onnx_path,
                     )
                 else:
                     accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
@@ -1124,7 +1148,11 @@ def main() -> None:
                         accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
                     else:
                         accuracy_result = _run_accuracy_phase(
-                            entry, args.device, args.timeout, model_dir, onnx_path,
+                            entry,
+                            args.device,
+                            args.timeout,
+                            model_dir,
+                            onnx_path,
                         )
                 else:
                     # Build failed
@@ -1169,7 +1197,7 @@ def main() -> None:
             safe_print(f"  [acc only]{acc_tag}")
 
         if args.clean_hf_cache:
-            _clean_model_hf_cache(entry.hf_id)
+            _clear_disk_caches()
 
     run_duration = time.perf_counter() - run_start
 
