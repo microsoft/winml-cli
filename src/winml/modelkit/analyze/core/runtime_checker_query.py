@@ -2065,7 +2065,7 @@ class RuntimeCheckerQuery:
                         if k in conditions:
                             filter_v[k] = conditions[k]
                         else:
-                            raise OPOptionalInputSupportError(
+                            raise OpOptionalInputSupportError(
                                 f"Match key '{k}' not found in "
                                 f"conditions for pattern {pattern_name}. "
                                 f"Available: {_format_list_preview(conditions.keys())}"
@@ -2132,8 +2132,8 @@ class RuntimeCheckerQuery:
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
-        except OPOptionalInputSupportError as e:
-            logger.error("OPOptionalInputSupportError for pattern '%s': %s", pattern_name, e)
+        except OpOptionalInputSupportError as e:
+            logger.error("OpOptionalInputSupportError for pattern '%s': %s", pattern_name, e)
             return PatternRuntime(
                 pattern_id=pattern_id,
                 result=RuntimeTestResult(
