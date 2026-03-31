@@ -19,7 +19,7 @@ from typing import Any
 import onnx
 from onnx import helper
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern.base import (
     InvalidPatternMatcherModelError,
     PatternMatcher,

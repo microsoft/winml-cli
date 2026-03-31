@@ -22,9 +22,8 @@ from pathlib import Path
 
 import onnx
 
-from winml.modelkit.onnx.utils import EXTERNAL_DATA_THRESHOLD, get_model_size
-
 from .metadata import capture_metadata, restore_metadata
+from .utils import EXTERNAL_DATA_THRESHOLD, get_model_size
 
 
 logger = logging.getLogger(__name__)

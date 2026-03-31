@@ -13,8 +13,7 @@ Matrix multiplication operators perform matrix product operations on tensors,
 following Numpy's matmul semantics with broadcasting support for higher dimensions.
 """
 
-import winml.modelkit.onnx.dtypes as dtypes
-
+from ...onnx import SupportedONNXType
 from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
@@ -305,5 +304,5 @@ class GemmInputGenerator(OpInputGenerator):
         return {
             "A": QDQParameterConfig(support_activation=True),
             "B": QDQParameterConfig(support_weight=True),
-            "C": QDQParameterConfig(qdq_types=[dtypes.SupportedONNXType.INT32]),
+            "C": QDQParameterConfig(qdq_types=[SupportedONNXType.INT32]),
         }

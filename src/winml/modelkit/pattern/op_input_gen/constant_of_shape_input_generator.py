@@ -8,9 +8,7 @@ import numpy as np
 import onnx
 from onnx import TensorProto
 
-import winml.modelkit.onnx.dtypes as dtypes
-from winml.modelkit.onnx.dtypes import SupportedONNXType
-
+from ...onnx import SupportedONNXType
 from .op_input_gen import (
     InputConstraint,
     InputValueConstraint,
@@ -42,7 +40,7 @@ class ConstantOfShapeInputGenerator(OpInputGenerator):
             "value": [
                 onnx.helper.make_tensor(
                     name="value",
-                    data_type=dtypes.SupportedONNXType.from_onnx_type(x).tensor_proto_type,
+                    data_type=SupportedONNXType.from_onnx_type(x).tensor_proto_type,
                     dims=[1],
                     vals=[2],
                 )

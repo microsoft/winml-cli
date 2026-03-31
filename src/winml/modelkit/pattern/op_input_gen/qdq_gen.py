@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, ClassVar
 
 from onnx.defs import SchemaError
 
-import winml.modelkit.onnx.dtypes as dtypes
+from ...onnx import SupportedONNXType
 
 
 if TYPE_CHECKING:
-    from winml.modelkit.onnx.domains import ONNXDomain
+    from ...onnx import ONNXDomain
 
 
 class QDQGenerator:
@@ -25,26 +25,26 @@ class QDQGenerator:
 
     # Supported quantized types for weights (DQ input)
     SUPPORTED_WEIGHT_TYPES: ClassVar[set[str]] = {
-        dtypes.SupportedONNXType.INT8.onnx_type,
-        dtypes.SupportedONNXType.UINT8.onnx_type,
-        dtypes.SupportedONNXType.INT16.onnx_type,
-        dtypes.SupportedONNXType.UINT16.onnx_type,
+        SupportedONNXType.INT8.onnx_type,
+        SupportedONNXType.UINT8.onnx_type,
+        SupportedONNXType.INT16.onnx_type,
+        SupportedONNXType.UINT16.onnx_type,
     }
 
     SUPPORT_DQ_OUTPUT_TYPES: ClassVar[set[str]] = {
-        dtypes.SupportedONNXType.FLOAT.onnx_type,
+        SupportedONNXType.FLOAT.onnx_type,
     }
 
     # Supported quantized types for activations (Q output)
     SUPPORTED_ACTIVATION_TYPES: ClassVar[set[str]] = {
-        dtypes.SupportedONNXType.INT8.onnx_type,
-        dtypes.SupportedONNXType.UINT8.onnx_type,
-        dtypes.SupportedONNXType.INT16.onnx_type,
-        dtypes.SupportedONNXType.UINT16.onnx_type,
+        SupportedONNXType.INT8.onnx_type,
+        SupportedONNXType.UINT8.onnx_type,
+        SupportedONNXType.INT16.onnx_type,
+        SupportedONNXType.UINT16.onnx_type,
     }
 
     SUPPORTED_Q_INPUT_TYPES: ClassVar[set[str]] = {
-        dtypes.SupportedONNXType.FLOAT.onnx_type,
+        SupportedONNXType.FLOAT.onnx_type,
     }
 
     def __init__(self, opset_version: int, domain: ONNXDomain) -> None:
@@ -73,13 +73,11 @@ class QDQGenerator:
             print(f"Failed QuantizeLinear: {e}")
             raise
 
-        supported_onnx_types = {x.onnx_type: x for x in dtypes.SupportedONNXType}
+        supported_onnx_types = {x.onnx_type: x for x in SupportedONNXType}
         self._build_dq_type_vars(supported_onnx_types)
         self._build_q_type_vars(supported_onnx_types)
 
-    def _build_dq_type_vars(
-        self, supported_onnx_types: dict[str, dtypes.SupportedONNXType]
-    ) -> None:
+    def _build_dq_type_vars(self, supported_onnx_types: dict[str, SupportedONNXType]) -> None:
         """Create the following mappings for DequantizeLinear.
 
         self.weight_onnx_types:
@@ -123,7 +121,7 @@ class QDQGenerator:
         print("DequantizeLinear output types:", self.dq_output_onnx_types)
         print("DequantizeLinear all weight types:", self.weight_all_onnx_types)
 
-    def _build_q_type_vars(self, supported_onnx_types: dict[str, dtypes.SupportedONNXType]) -> None:
+    def _build_q_type_vars(self, supported_onnx_types: dict[str, SupportedONNXType]) -> None:
         """Create the following mappings for QuantizeLinear.
 
         self.activation_onnx_types:

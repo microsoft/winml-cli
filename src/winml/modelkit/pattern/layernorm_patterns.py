@@ -19,7 +19,6 @@ from typing import Any
 import numpy as np
 from onnx.defs import OpSchema
 
-from winml.modelkit.onnx.domains import ONNXDomain
 from winml.modelkit.pattern.base import (
     Pattern,
     PatternInputGenerator,
@@ -36,6 +35,8 @@ from winml.modelkit.pattern.utils import (
     get_tensor_shape,
     validate_scale_bias_shape_for_axis,
 )
+
+from ..onnx import ONNXDomain
 
 
 def _validate_layernorm_scale_bias(

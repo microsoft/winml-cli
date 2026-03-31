@@ -18,9 +18,6 @@ import onnxruntime as ort
 import pandas as pd
 from onnx import numpy_helper, shape_inference
 
-from winml.modelkit.onnx.domains import ONNXDomain
-from winml.modelkit.onnx.dtypes import SupportedONNXType, remove_optional_from_type_annotation
-from winml.modelkit.onnx.shape import infer_onnx_shapes
 from winml.modelkit.pattern.base import (
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
@@ -30,6 +27,12 @@ from winml.modelkit.pattern.op_input_gen import (
     get_runtime_checker_op,
 )
 
+from ...onnx import (
+    ONNXDomain,
+    SupportedONNXType,
+    infer_onnx_shapes,
+    remove_optional_from_type_annotation,
+)
 from ..exceptions import (
     OpLackOfRequiredInformationError,
     OpOptionalInputSupportError,
