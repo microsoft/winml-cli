@@ -12,9 +12,7 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.analyze.core.pattern_extractor import PatternExtractor
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
-from winml.modelkit.analyze.models.output import ModelStats
+from winml.modelkit.analyze import ModelStats, ONNXModel, PatternExtractor
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import SubgraphPattern
 

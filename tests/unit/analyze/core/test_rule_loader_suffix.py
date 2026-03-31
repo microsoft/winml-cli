@@ -14,8 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from winml.modelkit.analyze.models.information import Information
-from winml.modelkit.analyze.utils.rule_loader import RuleLoader
+from winml.modelkit.analyze import Information, RuleLoader
 
 
 @pytest.fixture

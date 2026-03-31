@@ -11,16 +11,20 @@ from unittest.mock import MagicMock, Mock, patch
 import onnx
 import pytest
 
-from winml.modelkit.analyze.analyzer import (
+from winml.modelkit.analyze import (
+    Action,
+    ActionItem,
+    AnalysisOutput,
     AnalysisResult,
     AnalyzerConfig,
+    EPSupport,
+    IHVType,
+    Information,
+    ModelStats,
     ONNXStaticAnalyzer,
+    SupportLevel,
+    infer_ihv_from_ep_name,
 )
-from winml.modelkit.analyze.models.ihv_type import IHVType
-from winml.modelkit.analyze.models.information import Action, ActionItem, Information
-from winml.modelkit.analyze.models.output import AnalysisOutput, EPSupport, ModelStats
-from winml.modelkit.analyze.models.support_level import SupportLevel
-from winml.modelkit.analyze.utils import infer_ihv_from_ep_name
 from winml.modelkit.optim import WinMLOptimizationConfig
 
 

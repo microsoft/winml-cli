@@ -17,12 +17,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from winml.modelkit.analyze.models.ihv_type import IHVType
-from winml.modelkit.analyze.models.runtime_checks import (
-    RuntimeCheckRule,
-    RuntimeTestResult,
-)
-from winml.modelkit.analyze.models.support_level import SupportLevel
+from winml.modelkit.analyze import IHVType, RuntimeCheckRule, RuntimeTestResult, SupportLevel
 
 
 class TestRuntimeTestResultValidation:
@@ -317,7 +312,7 @@ class TestRuntimeCheckRuleValidation:
         assert rule.alternatives is None
 
         # With alternatives
-        from winml.modelkit.analyze.models.runtime_checks import AlternativeType
+        from winml.modelkit.analyze import AlternativeType
 
         rule_with_alts = RuntimeCheckRule(
             pattern_id="SUBGRAPH/GELU_Erf",

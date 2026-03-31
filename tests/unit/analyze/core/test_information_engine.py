@@ -7,16 +7,19 @@
 import onnx
 import pytest
 
-from winml.modelkit.analyze.core.information_engine import InformationEngine
-from winml.modelkit.analyze.models.information import ActionLevel, Information
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
-from winml.modelkit.analyze.models.runtime_checks import (
+from winml.modelkit.analyze import (
+    ActionLevel,
     AlternativeType,
+    Information,
+    InformationEngine,
+    ONNXModel,
+    RuntimeTestResult,
+    SupportLevel,
+)
+from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
     PatternAlternative,
     PatternRuntime,
-    RuntimeTestResult,
 )
-from winml.modelkit.analyze.models.support_level import SupportLevel
 
 
 @pytest.fixture
