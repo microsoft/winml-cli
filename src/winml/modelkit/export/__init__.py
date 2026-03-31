@@ -20,6 +20,7 @@ from .config import (
 from .io import (
     MaxLengthTextInputGenerator,
     ONNXConfigNotFoundError,
+    generate_dummy_inputs,
     register_onnx_overwrite,
     resolve_io_specs,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "WinMLExportConfig",
     "export_onnx",
     "export_pytorch",
+    "generate_dummy_inputs",
     "register_onnx_overwrite",
     "resolve_export_config",
     "resolve_io_specs",
