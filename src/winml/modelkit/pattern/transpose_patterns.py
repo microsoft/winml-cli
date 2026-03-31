@@ -9,7 +9,6 @@ This module provides patterns for matching Reshape-Transpose-Reshape sequences
 commonly found in attention mechanisms and tensor manipulation operations.
 """
 
-from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -374,7 +373,7 @@ class ReshapeTransposeReshapeOverlyHighDimPatternInputGenerator(
     """PatternInputGenerator for ReshapeTransposeReshapeOverlyHighDim pattern."""
 
     pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
-    registration_name = "ReshapeTransposeReshapeOverlyHighDim"
+    registration_name = "ReshapeTransposeReshapeOverlyHighDimPattern"
 
 
 def _resolve_negative_dims(shape: tuple[int, ...], total_size: int) -> tuple[int, ...]:
@@ -622,4 +621,4 @@ class ReshapeTransposeReshapeLowDimPatternInputGenerator(
     """PatternInputGenerator for ReshapeTransposeReshapeLowDim pattern."""
 
     pattern = ReshapeTransposeReshapeLowDimPattern()
-    registration_name = "ReshapeTransposeReshapeLowDim"
+    registration_name = "ReshapeTransposeReshapeLowDimPattern"

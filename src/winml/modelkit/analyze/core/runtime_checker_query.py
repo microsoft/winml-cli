@@ -49,6 +49,7 @@ from ..utils.model_utils import (
     shape_and_dtype_from_valueinfo,
 )
 from ..utils.table_utils import build_table_df
+from .node_checkers.base import NodeChecker
 from .node_checkers.registry import NodeCheckerRegistry
 
 
@@ -1970,12 +1971,8 @@ class RuntimeCheckerQuery:
         Returns:
             PatternRuntime with check results
         """
-        # Extract pattern name from pattern_id (e.g., "SUBGRAPH/GeluPattern" -> "GeluPattern")
         pattern_id = pattern_match.pattern.pattern_id
-        if pattern_id.startswith("SUBGRAPH/"):
-            pattern_name = pattern_id[len("SUBGRAPH/") :]
-        else:
-            pattern_name = pattern_id
+        pattern_name = pattern_match.pattern.__class__.__name__
 
         # Step 1: Look up pattern in pattern_neg_rules by direct key match
         found_domain: ONNXDomain | None = None
@@ -2087,7 +2084,7 @@ class RuntimeCheckerQuery:
 
                         if run_unknown_op:
                             # Fallback to per-node check
-                            local_result =  self._run_for_subgraph_per_node(
+                            local_result = self._run_for_subgraph_per_node(
                                 pattern_match, pattern_name, run_unknown_op
                             )
                             if local_result is not None:
