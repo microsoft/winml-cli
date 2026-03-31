@@ -37,8 +37,7 @@ logger = logging.getLogger(__name__)
 # EP name -> target device type (all lowercase values)
 _EP_DEVICE_MAP: dict[str, str] = {
     # NVIDIA
-    "CUDAExecutionProvider": "gpu",
-    "TensorrtExecutionProvider": "gpu",
+    "NvTensorRTRTXExecutionProvider": "gpu",
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",
@@ -159,10 +158,7 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
     device = device.lower()
 
     if device != "auto" and device not in _VALID_DEVICES:
-        raise ValueError(
-            f"Unknown device '{device}'. "
-            f"Expected 'auto', 'npu', 'gpu', or 'cpu'."
-        )
+        raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
 
     available_devices = _get_available_devices()
     available_eps = _get_available_eps()
