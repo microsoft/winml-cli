@@ -13,8 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval.config import WinMLEvaluationConfig
-from winml.modelkit.eval.evaluate import EvalResult
+from winml.modelkit.eval import EvalResult, WinMLEvaluationConfig
 
 
 class TestEvaluationConfig:
@@ -148,7 +147,7 @@ class TestWinMLEvaluator:
         mock_hf_eval,
     ):
         """When requested samples exceed dataset size, select uses actual size."""
-        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+        from winml.modelkit.eval import WinMLEvaluator
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 50
@@ -184,7 +183,7 @@ class TestWinMLEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+        from winml.modelkit.eval import WinMLEvaluator
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 1000
@@ -240,7 +239,7 @@ class TestWinMLEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+        from winml.modelkit.eval import WinMLEvaluator
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 1000
@@ -295,7 +294,7 @@ class TestSequenceClassificationEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval.text_classification_evaluator import (
+        from winml.modelkit.eval import (
             WinMLTextClassificationEvaluator,
         )
 
@@ -339,7 +338,7 @@ class TestSequenceClassificationEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval.text_classification_evaluator import (
+        from winml.modelkit.eval import (
             WinMLTextClassificationEvaluator,
         )
 
@@ -386,7 +385,7 @@ class TestTokenClassificationEvaluator:
         mock_hf_eval,
     ):
         """Padding is set via tokenizer_params dict, not top-level."""
-        from winml.modelkit.eval.token_classification_evaluator import (
+        from winml.modelkit.eval import (
             WinMLTokenClassificationEvaluator,
         )
 
@@ -433,7 +432,7 @@ class TestTokenClassificationEvaluator:
         mock_hf_eval,
     ):
         """No tokenizer → no padding config."""
-        from winml.modelkit.eval.token_classification_evaluator import (
+        from winml.modelkit.eval import (
             WinMLTokenClassificationEvaluator,
         )
 
@@ -476,7 +475,7 @@ class TestTokenClassificationEvaluator:
         mock_hf_eval,
     ):
         """Missing input_shapes in io_config → no padding config."""
-        from winml.modelkit.eval.token_classification_evaluator import (
+        from winml.modelkit.eval import (
             WinMLTokenClassificationEvaluator,
         )
 
