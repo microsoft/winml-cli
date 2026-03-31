@@ -22,7 +22,7 @@ from winml.modelkit.analyze.models.runtime_checks import (
     PatternAlternative,
     RuntimeTestResult,
 )
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
 from winml.modelkit.pattern.models import OperatorPattern, PatternType
 

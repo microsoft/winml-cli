@@ -18,7 +18,7 @@ from pathlib import Path
 import onnx
 from onnx.external_data_helper import _get_all_tensors, uses_external_data
 
-from winml.modelkit.onnx.utils import EXTERNAL_DATA_THRESHOLD, get_model_size
+from .utils import EXTERNAL_DATA_THRESHOLD, get_model_size
 
 
 logger = logging.getLogger(__name__)

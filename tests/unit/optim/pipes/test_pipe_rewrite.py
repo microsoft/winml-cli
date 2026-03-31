@@ -26,7 +26,7 @@ import onnx
 import onnx.helper as oh
 import pytest
 
-from winml.modelkit.onnx.domains import ONNXDomain
+from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.optim.pipes.rewrite import RewritePipe, RewritePipeConfig, _detect_conflicts
 from winml.modelkit.optim.pipes.rewrite_rules import (
     REWRITE_CAPABILITIES,

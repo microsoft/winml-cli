@@ -14,8 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from winml.modelkit.onnx.dtypes import SupportedONNXType
-
+from ...onnx import SupportedONNXType
 from .op_input_gen import (
     InputConstraint,
     InputShapeConstraint,
