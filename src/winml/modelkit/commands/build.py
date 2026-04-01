@@ -228,7 +228,7 @@ def _build_modules(
     # max_position_embeddings = usable_length + pad_token_id + 1 (514) in the
     # pretrained config, but the class default is only 512.  The smaller
     # embedding table causes "index out of range in self" during ONNX export
-    # tracing — a position-offset OOB that the OnnxConfig-level fix (PR #415)
+    # tracing -- a position-offset OOB that the OnnxConfig-level fix (PR #415)
     # cannot reach because HTPExporter uses pre-populated input_tensors, not
     # Optimum's input generation path.  Supporting random-init reliably would
     # require storing the full pretrained HF config (or at least the model ID)

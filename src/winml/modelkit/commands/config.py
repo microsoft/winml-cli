@@ -97,7 +97,7 @@ def _is_onnx_file(model_input: str) -> bool:
     type=click.Path(exists=True),
     default=None,
     help="JSON file with shape overrides passed to dummy input generation. "
-    "Valid keys — text: sequence_length; "
+    "Valid keys -- text: sequence_length; "
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )

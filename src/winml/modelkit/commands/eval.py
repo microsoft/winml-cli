@@ -174,7 +174,7 @@ def eval(
             "A model is required. Provide -m with a HuggingFace model ID or path to an .onnx file."
         )
 
-    # Detect: -m as HF model ID (not an ONNX file) → treat as model_id
+    # Detect: -m as HF model ID (not an ONNX file) -> treat as model_id
     model_path = None
     if model is not None:
         p = Path(model)
