@@ -7,7 +7,7 @@ The zip files are **not tracked by git**. They are hosted on a GitHub Release an
 ## Setup (first time)
 
 ```bash
-python scripts/download_rules.py
+uv run python scripts/download_rules.py
 ```
 
 This reads `rules_manifest.json`, compares sha256 hashes, and downloads only missing or changed files from the `runtime-rules` GitHub Release.
@@ -15,7 +15,7 @@ This reads `rules_manifest.json`, compares sha256 hashes, and downloads only mis
 ## Check status
 
 ```bash
-python scripts/download_rules.py --check
+uv run python scripts/download_rules.py --check
 ```
 
 ## Update rules after running the runtime checker
@@ -66,7 +66,7 @@ gh release create runtime-rules \
     --prerelease
 
 # Verify
-python scripts/download_rules.py --check
+uv run python scripts/download_rules.py --check
 ```
 
 Any developer who has the zip files locally can perform this recovery.
