@@ -101,7 +101,7 @@ class QDQValidationValidator(ModelValidator):
                 [
                     {
                         "title": "Re-quantize model",
-                        "command": "wmk quantize --model model.onnx --output model-qdq.onnx",
+                        "command": "winml quantize --model model.onnx --output model-qdq.onnx",
                     }
                 ],
                 indent=2,

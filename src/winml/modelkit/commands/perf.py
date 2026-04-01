@@ -7,9 +7,9 @@
 Benchmarks model inference performance using WinMLAutoModel and WinMLSession.
 
 Usage:
-    wmk perf -m microsoft/resnet-50
-    wmk perf -m microsoft/resnet-50 --device npu --iterations 100
-    wmk perf -m bert-base-uncased --task text-classification
+    winml perf -m microsoft/resnet-50
+    winml perf -m microsoft/resnet-50 --device npu --iterations 100
+    winml perf -m bert-base-uncased --task text-classification
 """
 
 from __future__ import annotations
@@ -986,22 +986,22 @@ def perf(
     \b
     Examples:
         # Basic benchmark (HuggingFace model)
-        wmk perf -m microsoft/resnet-50
+        winml perf -m microsoft/resnet-50
 
         # Benchmark a pre-exported ONNX file directly
-        wmk perf -m model.onnx --device cpu
+        winml perf -m model.onnx --device cpu
 
         # With custom iterations on NPU
-        wmk perf -m microsoft/resnet-50 --iterations 500 --device npu
+        winml perf -m microsoft/resnet-50 --iterations 500 --device npu
 
         # Text model with explicit task
-        wmk perf -m bert-base-uncased --task text-classification
+        winml perf -m bert-base-uncased --task text-classification
 
         # Per-module benchmarking
-        wmk perf -m bert-base-uncased --module BertAttention
+        winml perf -m bert-base-uncased --module BertAttention
 
         # Operator-level profiling (QNN NPU)
-        wmk perf -m model.onnx --op-tracing basic
+        winml perf -m model.onnx --op-tracing basic
     """
     # Resolve deprecated --hf-model alias
     if hf_model_deprecated and model_id:

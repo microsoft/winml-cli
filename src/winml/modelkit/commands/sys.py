@@ -13,12 +13,12 @@ Displays detailed information about the system environment, including:
 - Available devices and execution providers
 
 Usage:
-    wmk sys
-    wmk sys --format json
-    wmk sys --format compact
-    wmk sys --verbose
-    wmk sys --list-device
-    wmk sys --list-ep
+    winml sys
+    winml sys --format json
+    winml sys --format compact
+    winml sys --verbose
+    winml sys --list-device
+    winml sys --list-ep
 """
 
 from __future__ import annotations
@@ -431,8 +431,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
         console.print(
-            f"  [bold]#{dev['priority']}[/bold]  "
-            f"[cyan]{dev['type']:5s}[/cyan] {dev['name']}"
+            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}"
         )
         details = dev.get("details", {})
         if "error" in details:
@@ -514,9 +513,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 
     for ep in eps:
         name_padded = ep["name"].ljust(30)
-        console.print(
-            f"  [bold]{name_padded}[/bold] [dim]->[/dim] [cyan]{ep['device']}[/cyan]"
-        )
+        console.print(f"  [bold]{name_padded}[/bold] [dim]->[/dim] [cyan]{ep['device']}[/cyan]")
         if ep.get("path"):
             console.print(f"    Path: {ep['path']}")
         else:
@@ -576,22 +573,22 @@ def sysinfo(
     \b
     Examples:
         # Display system info (human-readable format)
-        wmk sys
+        winml sys
 
         # Get output as JSON for scripting
-        wmk sys --format json
+        winml sys --format json
 
         # Show detailed info
-        wmk sys --verbose
+        winml sys --verbose
 
         # Compact format for quick overview
-        wmk sys --format compact
+        winml sys --format compact
 
         # List available devices
-        wmk sys --list-device
+        winml sys --list-device
 
         # List execution providers as JSON
-        wmk sys --list-ep --format json
+        winml sys --list-ep --format json
     """
     # Inherit debug mode from parent
     if ctx.obj.get("debug"):
@@ -637,13 +634,9 @@ def sysinfo(
                     else:
                         _output_ep_text(eps)
                 except Exception as e:
-                    console.print(
-                        f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                    )
+                    console.print(f"[bold red]Error detecting execution providers:[/bold red] {e}")
                     logger.exception("Failed to detect execution providers")
-                    raise click.ClickException(
-                        f"Error detecting execution providers: {e}"
-                    ) from e
+                    raise click.ClickException(f"Error detecting execution providers: {e}") from e
             return
 
         # Default: full sysinfo including devices and EPs

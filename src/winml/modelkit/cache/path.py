@@ -32,7 +32,7 @@ def get_cache_dir(override: str | Path | None = None) -> Path:
 
     Priority:
         1. ``override`` parameter (caller-specified)
-        2. ``WMK_CACHE_DIR`` environment variable
+        2. ``WINML_CACHE_DIR`` environment variable
         3. ``~/.cache/winml/``
 
     Args:
@@ -43,7 +43,7 @@ def get_cache_dir(override: str | Path | None = None) -> Path:
     """
     if override is not None:
         return Path(override)
-    env_dir = os.environ.get("WMK_CACHE_DIR")
+    env_dir = os.environ.get("WINML_CACHE_DIR")
     if env_dir:
         return Path(env_dir)
     return Path.home() / ".cache" / _DEFAULT_CACHE_DIR_NAME

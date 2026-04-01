@@ -91,7 +91,7 @@ urls.Repository = "https://github.com/microsoft/ModelKit.git"
 # but package-dir expects namespace names (winml.modelkit). These don't auto-connect.
 # For flat layout (modelkit/) with namespace imports (winml.modelkit), explicit listing
 # ensures the namespace prefix is correctly applied to all subpackages.
-scripts.wmk = "winml.modelkit.cli:main"
+scripts.winml = "winml.modelkit.cli:main"
 
 [dependency-groups]
 dev = [

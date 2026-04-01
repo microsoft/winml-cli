@@ -30,17 +30,17 @@ class TestGetCacheDir:
     """Test cache directory resolution."""
 
     def test_default_is_home_cache_winml(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("WMK_CACHE_DIR", raising=False)
+        monkeypatch.delenv("WINML_CACHE_DIR", raising=False)
         result = get_cache_dir()
         assert result == Path.home() / ".cache" / "winml"
 
     def test_env_var_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("WMK_CACHE_DIR", "/custom/cache")
+        monkeypatch.setenv("WINML_CACHE_DIR", "/custom/cache")
         result = get_cache_dir()
         assert result == Path("/custom/cache")
 
     def test_explicit_override_takes_priority(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("WMK_CACHE_DIR", "/env/cache")
+        monkeypatch.setenv("WINML_CACHE_DIR", "/env/cache")
         result = get_cache_dir(override="/explicit/cache")
         assert result == Path("/explicit/cache")
 
@@ -49,7 +49,7 @@ class TestGetCacheDir:
         assert result == Path("/some/path")
 
     def test_none_override_falls_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("WMK_CACHE_DIR", raising=False)
+        monkeypatch.delenv("WINML_CACHE_DIR", raising=False)
         result = get_cache_dir(override=None)
         assert result == Path.home() / ".cache" / "winml"
 
@@ -67,7 +67,7 @@ class TestGetArtifactsDir:
         assert result == Path("/cache/root/artifacts")
 
     def test_none_resolves_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("WMK_CACHE_DIR", raising=False)
+        monkeypatch.delenv("WINML_CACHE_DIR", raising=False)
         result = get_artifacts_dir()
         assert result == Path.home() / ".cache" / "winml" / "artifacts"
 

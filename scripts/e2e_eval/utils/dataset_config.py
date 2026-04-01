@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Dataset configuration for accuracy evaluation (Signal 2).
 
 Single source of truth: the model registry (e.g. ``testsets/models_with_acc.json``).
@@ -5,7 +10,7 @@ Configs are registered at startup via ``register_from_registry()``.
 
 Resolution:
 1. Per-model config registered from the registry's ``dataset_config`` field.
-2. None — caller decides whether to skip or let wmk eval use its
+2. None — caller decides whether to skip or let winml eval use its
    built-in task defaults.
 """
 
@@ -41,6 +46,6 @@ def get_dataset_config(hf_id: str, task: str) -> dict | None:
     """Return dataset config for a model, or None.
 
     None means no explicit config was found; the caller can either
-    skip or let wmk eval / pytorch baseline use built-in task defaults.
+    skip or let winml eval / pytorch baseline use built-in task defaults.
     """
     return _DATASET_CONFIGS.get((hf_id, task))

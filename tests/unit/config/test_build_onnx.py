@@ -88,7 +88,7 @@ def mock_export_config() -> WinMLExportConfig:
 
 
 class TestConfigOnnxAutoDetect:
-    """Test ONNX file auto-detection in wmk config command."""
+    """Test ONNX file auto-detection in winml config command."""
 
     def test_config_auto_detect_onnx(self, tmp_path) -> None:
         """When -m points to an existing .onnx file, generates config with export=None."""
