@@ -296,7 +296,8 @@ class HTPExporter:
             self._export_stats["export_time"] = export_time
             self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
             self._export_stats["onnx_nodes"] = len(onnx_model.graph.node)
-            self._export_stats["tagged_nodes"] = len(self._tagged_nodes)
+            embedded_count = len(self._tagged_nodes) if self.embed_hierarchy_attributes else 0
+            self._export_stats["tagged_nodes"] = embedded_count
 
             # Calculate empty tags (should be 0 with our implementation)
             empty_tag_count = sum(
@@ -306,8 +307,7 @@ class HTPExporter:
 
             # Calculate coverage percentage
             total_nodes = len(onnx_model.graph.node)
-            tagged_nodes = len(self._tagged_nodes)
-            coverage = (tagged_nodes / total_nodes * 100.0) if total_nodes > 0 else 0.0
+            coverage = (embedded_count / total_nodes * 100.0) if total_nodes > 0 else 0.0
             self._export_stats["coverage_percentage"] = coverage
 
             # Update monitor with actual export time
@@ -511,7 +511,8 @@ class HTPExporter:
 
         # Update export stats
         self._export_stats["onnx_nodes"] = len(onnx_model.graph.node)
-        self._export_stats["tagged_nodes"] = len(self._tagged_nodes)
+        embedded_count = len(self._tagged_nodes) if self.embed_hierarchy_attributes else 0
+        self._export_stats["tagged_nodes"] = embedded_count
 
         # Calculate empty tags (should be 0 with our implementation)
         empty_tag_count = sum(
@@ -521,8 +522,7 @@ class HTPExporter:
 
         # Calculate coverage percentage
         total_nodes = len(onnx_model.graph.node)
-        tagged_nodes = len(self._tagged_nodes)
-        coverage = (tagged_nodes / total_nodes * 100.0) if total_nodes > 0 else 0.0
+        coverage = (embedded_count / total_nodes * 100.0) if total_nodes > 0 else 0.0
         self._export_stats["coverage_percentage"] = coverage
 
     def _embed_graph_metadata(

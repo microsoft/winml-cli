@@ -854,3 +854,35 @@ class TestLoadModel:
 
         mock_auto.from_onnx.assert_called_once()
         assert result.config is mock_hf_config
+
+
+# =============================================================================
+# BUG B: --samples silently ignored when no --dataset
+# =============================================================================
+
+
+class TestEvaluateSamplesPreserved:
+    """Bug B: user --samples must survive the default-dataset merge."""
+
+    def test_user_samples_preserved_when_no_dataset_path(self) -> None:
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get("winml.modelkit.eval.evaluate") or importlib.import_module(
+            "winml.modelkit.eval.evaluate"
+        )
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(samples=20),
+        )
+
+        with (
+            patch.object(eval_mod, "_load_model"),
+            patch.object(eval_mod, "WinMLEvaluator") as mock_cls,
+        ):
+            mock_cls.return_value.compute.return_value = {}
+            result = eval_mod.evaluate(config)
+
+        assert result.config.dataset.samples == 20

@@ -152,7 +152,18 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."
             )
+        user_dataset = config.dataset
         config.dataset = deepcopy(default)
+        # Preserve user-specified values that differ from DatasetConfig class defaults
+        _cls_default = DatasetConfig()
+        if user_dataset.samples != _cls_default.samples:
+            config.dataset.samples = user_dataset.samples
+        if user_dataset.split != _cls_default.split:
+            config.dataset.split = user_dataset.split
+        if user_dataset.shuffle != _cls_default.shuffle:
+            config.dataset.shuffle = user_dataset.shuffle
+        if user_dataset.seed != _cls_default.seed:
+            config.dataset.seed = user_dataset.seed
         logger.info(
             "Using default dataset for %s: %s",
             config.task,

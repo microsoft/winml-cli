@@ -25,7 +25,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from ..config.precision import _DEVICE_TO_PROVIDER, VALID_EPS
+from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE, VALID_EPS
 from ..utils.logging import configure_logging
 
 
@@ -184,7 +184,7 @@ def compile(
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
-    console.print(f"[bold blue]Device:[/bold blue] {device}")
+    console.print(f"[bold blue]Device:[/bold blue] {_EP_TO_DEVICE.get(provider, device)}")
     if ep:
         console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")
@@ -203,13 +203,9 @@ def compile(
             if result.output_path:
                 console.print(f"[dim]Output: {result.output_path}[/dim]")
             if result.compile_time:
-                console.print(
-                    f"[dim]Compile time: {result.compile_time:.2f}s[/dim]"
-                )
+                console.print(f"[dim]Compile time: {result.compile_time:.2f}s[/dim]")
             if result.total_time:
-                console.print(
-                    f"[dim]Total time: {result.total_time:.2f}s[/dim]"
-                )
+                console.print(f"[dim]Total time: {result.total_time:.2f}s[/dim]")
         else:
             console.print("\n[bold red]Compilation failed:[/bold red]")
             for error in result.errors:
