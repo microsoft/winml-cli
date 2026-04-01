@@ -70,20 +70,8 @@ class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
-        """Create pipeline and set tokenizer padding for fixed-shape ONNX.
-
-        Always uses ``feature-extraction`` as the pipeline task because
-        ``sentence-similarity`` is not a valid HF pipeline task.
-        """
-        from transformers import pipeline as hf_pipeline
-
-        pipe = hf_pipeline(
-            "feature-extraction",
-            model=self.model,
-            framework="pt",
-            tokenizer=self.config.model_id,
-            device="cpu",
-        )
+        """Create pipeline and set tokenizer padding for fixed-shape ONNX."""
+        pipe = super().prepare_pipeline()
 
         if pipe.tokenizer is not None:
             io_config = getattr(self.model, "io_config", None) or {}

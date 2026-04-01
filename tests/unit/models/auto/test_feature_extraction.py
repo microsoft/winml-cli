@@ -1,7 +1,7 @@
 """Tests for WinMLModelForFeatureExtraction.
 
-Validates forward pass I/O contract: accepts input_ids / attention_mask /
-token_type_ids, returns BaseModelOutput with last_hidden_state.
+Validates forward pass I/O contract: accepts arbitrary **kwargs (architecture-agnostic),
+returns BaseModelOutput with last_hidden_state.
 """
 
 from __future__ import annotations
