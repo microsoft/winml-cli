@@ -10,7 +10,7 @@ Key specs:
 - Vision: ViT-B/16, 384x384 input, 577 sequence (1 CLS + 576 patches)
 - Text: BERT-based decoder, vocab 30524, max 512 positions
 
-Optimization settings match WMK_blip production pipeline:
+Optimization settings match WinML blip production pipeline:
 - GELU fusion enabled
 - LayerNorm fusion enabled
 - MatMul+Add fusion enabled (GEMM)

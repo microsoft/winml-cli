@@ -6,11 +6,11 @@
 """PyTorch baseline inference for accuracy evaluation (Signal 2).
 
 Performs native PyTorch inference on a HuggingFace model using the same
-dataset configuration as ``wmk eval``, so both sides are always evaluated on
+dataset configuration as ``winml eval``, so both sides are always evaluated on
 identical inputs.
 
 Dataset config is read from ``utils/dataset_config.py`` — the authoritative
-source shared with run_eval.py.  When ``wmk eval`` is implemented inside
+source shared with run_eval.py.  When ``winml eval`` is implemented inside
 ModelKit, it should import from the same location.
 
 Output: prints a single JSON object as the last line on stdout:

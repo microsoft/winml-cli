@@ -16,11 +16,11 @@ Accuracy fields explain *how much* quantization changed a model's metric:
   Negative means the quantized model scored lower.
 
 Usage:
-    wmk hub
-    wmk hub --model-type bert
-    wmk hub --task text-classification
-    wmk hub --model ProsusAI/finbert
-    wmk hub --output catalog.json
+    winml hub
+    winml hub --model-type bert
+    winml hub --task text-classification
+    winml hub --model ProsusAI/finbert
+    winml hub --output catalog.json
 """
 
 from __future__ import annotations
@@ -146,7 +146,6 @@ def _overall_verdict(accuracy: dict[str, Any]) -> str:
     return "PASS"
 
 
-
 # ---------------------------------------------------------------------------
 # List view
 # ---------------------------------------------------------------------------
@@ -186,12 +185,12 @@ def _build_list_renderable(models: list[dict[str, Any]]) -> Group:
     panel = Panel(
         table,
         title=f"[bold]ModelKit Catalog[/bold]  [dim]|[/dim]  "
-              f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
+        f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
         border_style="blue",
         padding=(0, 1),
     )
     hint = Text(
-        "Use  wmk hub --model <id>  to see perf and accuracy details.",
+        "Use  winml hub --model <id>  to see perf and accuracy details.",
         style="dim",
     )
     return Group(panel, hint)
@@ -310,9 +309,7 @@ def _build_detail_renderable(m: dict[str, Any]) -> Group:
                 Text(f"{sign}{drop:.2f}%", style=ep_style),
             )
 
-        panels.append(
-            Panel(acc, title=acc_panel_title, border_style="blue", padding=(0, 1))
-        )
+        panels.append(Panel(acc, title=acc_panel_title, border_style="blue", padding=(0, 1)))
 
     if not perf and not accuracy:
         panels.append(
@@ -359,8 +356,7 @@ def _output_detail(models: list[dict[str, Any]], model_id: str) -> dict[str, Any
             msg += "\n".join(f"  {c}" for c in candidates)
         else:
             msg = (
-                f"Model '{model_id}' not found in the catalog. "
-                "Run 'wmk hub' to list all models."
+                f"Model '{model_id}' not found in the catalog. Run 'winml hub' to list all models."
             )
         raise click.ClickException(msg)
 
@@ -440,16 +436,16 @@ def hub(
       drop %         -- relative change vs FP32 baseline
 
     \b
-    Use ``wmk hub --model <model_id>`` for per-model perf and accuracy.
-    Use ``wmk inspect -m <model_id>`` for architecture details.
+    Use ``winml hub --model <model_id>`` for per-model perf and accuracy.
+    Use ``winml inspect -m <model_id>`` for architecture details.
 
     \b
     Examples:
-        wmk hub
-        wmk hub --model-type bert
-        wmk hub --task text-classification
-        wmk hub --model ProsusAI/finbert
-        wmk hub --output results/catalog.json
+        winml hub
+        winml hub --model-type bert
+        winml hub --task text-classification
+        winml hub --model ProsusAI/finbert
+        winml hub --output results/catalog.json
     """
     try:
         catalog = _load_catalog()

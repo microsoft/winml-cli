@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for the wmk hub CLI command (no network calls, catalog mocked)."""
+"""Tests for the winml hub CLI command (no network calls, catalog mocked)."""
 
 from __future__ import annotations
 
@@ -40,19 +40,29 @@ MINIMAL_CATALOG = {
             "task": "token-classification",
             "perf": {
                 "QNN": {
-                    "avg_ms": 13.71, "p50_ms": 13.75, "p90_ms": 13.84,
-                    "p95_ms": 13.84, "p99_ms": 13.84,
-                    "min_ms": 13.59, "max_ms": 13.84, "throughput_qps": 72.93,
+                    "avg_ms": 13.71,
+                    "p50_ms": 13.75,
+                    "p90_ms": 13.84,
+                    "p95_ms": 13.84,
+                    "p99_ms": 13.84,
+                    "min_ms": 13.59,
+                    "max_ms": 13.84,
+                    "throughput_qps": 72.93,
                 },
                 "OV": {
-                    "avg_ms": 25.28, "p50_ms": 24.84, "p90_ms": 35.33,
-                    "p95_ms": 35.33, "p99_ms": 35.33,
-                    "min_ms": 20.6, "max_ms": 35.33, "throughput_qps": 39.56,
+                    "avg_ms": 25.28,
+                    "p50_ms": 24.84,
+                    "p90_ms": 35.33,
+                    "p95_ms": 35.33,
+                    "p99_ms": 35.33,
+                    "min_ms": 20.6,
+                    "max_ms": 35.33,
+                    "throughput_qps": 39.56,
                 },
             },
             "accuracy": {
                 "QNN": {"verdict": "PASS", "drop_pct": 0.0},
-                "OV":  {"verdict": "PASS", "drop_pct": 0.0},
+                "OV": {"verdict": "PASS", "drop_pct": 0.0},
             },
         },
         {
@@ -62,7 +72,7 @@ MINIMAL_CATALOG = {
             "perf": None,
             "accuracy": {
                 "QNN": {"verdict": "REGRESSION", "drop_pct": -36.84},
-                "OV":  {"verdict": "REGRESSION", "drop_pct": -32.67},
+                "OV": {"verdict": "REGRESSION", "drop_pct": -32.67},
             },
         },
         {
@@ -167,7 +177,7 @@ def test_hub_default_shows_table(runner, patched_catalog):
 def test_hub_table_shows_hint(runner, patched_catalog):
     result = runner.invoke(hub, ["--output", "/dev/null"])
     assert result.exit_code == 0
-    assert "wmk hub --model" in result.output
+    assert "winml hub --model" in result.output
 
 
 def test_hub_saves_json_file(runner, patched_catalog, tmp_path):
@@ -192,10 +202,7 @@ def test_hub_shows_accuracy_pass(runner, patched_catalog, tmp_path):
     assert result.exit_code == 0
     data = json.loads(out.read_text())
     verdicts = {
-        ep: info["verdict"]
-        for m in data
-        if m.get("accuracy")
-        for ep, info in m["accuracy"].items()
+        ep: info["verdict"] for m in data if m.get("accuracy") for ep, info in m["accuracy"].items()
     }
     assert "PASS" in verdicts.values()
 
@@ -271,9 +278,7 @@ def test_hub_model_detail_shows_accuracy(runner, patched_catalog, tmp_path):
 
 
 def test_hub_model_detail_regression(runner, patched_catalog):
-    result = runner.invoke(
-        hub, ["--model", "facebook/detr-resnet-50", "--output", "/dev/null"]
-    )
+    result = runner.invoke(hub, ["--model", "facebook/detr-resnet-50", "--output", "/dev/null"])
     assert result.exit_code == 0
     assert "REGRESSION" in result.output
     assert "-36.84%" in result.output
