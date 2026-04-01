@@ -206,24 +206,6 @@ def compute_delta(
 # ---------------------------------------------------------------------------
 
 
-def find_compiled_onnx(model_id: str) -> Path | None:
-    """Look for compiled ONNX in WinML artifact cache.
-
-    Checks ~/.cache/winml/artifacts/{slug}/ for *_compiled.onnx or *_ctx.onnx.
-    Returns the most recently modified compiled ONNX path, or None.
-    """
-    cache_dir = Path.home() / ".cache" / "winml" / "artifacts"
-    slug = model_id.replace("/", "_")
-    model_dir = cache_dir / slug
-    if not model_dir.exists():
-        return None
-
-    candidates = sorted(model_dir.glob("*_compiled.onnx"))
-    if not candidates:
-        candidates = sorted(model_dir.glob("*_ctx.onnx"))
-    return candidates[-1] if candidates else None
-
-
 def get_epcontext_diff(compiled_onnx: Path) -> dict:
     """Extract fallback op info from compiled (EPContext) ONNX.
 
@@ -275,13 +257,13 @@ def compare_sa_vs_epcontext(
     comparison = []
     for pid, sa_level in sorted(sa_predictions.items()):
         actual = "CPU" if pid in fallback_pids else "NPU"
-        if sa_level == "WHITE" and actual == "NPU":
+        if sa_level == "SUPPORTED" and actual == "NPU":
             verdict = "TP"
-        elif sa_level == "WHITE" and actual == "CPU":
+        elif sa_level == "SUPPORTED" and actual == "CPU":
             verdict = "FP"
-        elif sa_level in ("GRAY", "BLACK") and actual == "CPU":
+        elif sa_level in ("PARTIAL", "UNSUPPORTED") and actual == "CPU":
             verdict = "TN"
-        elif sa_level in ("GRAY", "BLACK") and actual == "NPU":
+        elif sa_level in ("PARTIAL", "UNSUPPORTED") and actual == "NPU":
             verdict = "FN"
         else:
             verdict = "UNKNOWN"

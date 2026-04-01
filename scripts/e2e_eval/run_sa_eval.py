@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import statistics
 import time
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -529,7 +530,6 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
             unknown_pre_counter[pid] += 1
 
     # EPContext accuracy (where available) — track pre and post separately
-    import statistics
     epctx_pre = [r for r in complete if r.get("epcontext_diff_pre")]
     epctx_post = [r for r in complete if r.get("epcontext_diff_post")]
     epctx_summary: dict = {
