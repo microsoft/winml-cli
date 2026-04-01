@@ -14,7 +14,11 @@ from onnx.defs import SchemaError, onnx_opset_version
 
 from ...onnx import ONNXDomain
 from ...pattern.base import get_pattern_input_generator
-from ...pattern.op_input_gen import OpInputGenerator, get_runtime_checker_op
+from ...pattern.op_input_gen import (
+    OpInputGenerator,
+    get_runtime_checker_op,
+    normalize_constraint_dict,
+)
 from ..utils.model_utils import get_op_since_version, make_hashable
 
 
@@ -138,7 +142,9 @@ def item_to_row(
                     for element in constraint["elements"]
                 )
                 res[f"{input_name}_value"] = tuple(
-                    element["value"] if element["type"] == "value" else None
+                    normalize_constraint_dict(element)["value"]
+                    if element["type"] == "value"
+                    else None
                     for element in constraint["elements"]
                 )
                 if use_qdq:
@@ -164,7 +170,7 @@ def item_to_row(
                 res[f"{input_name}_shape"] = constraint["shape"]
                 res[f"{input_name}_is_none"] = False
             else:  # value
-                res[f"{input_name}_value"] = constraint["value"]
+                res[f"{input_name}_value"] = normalize_constraint_dict(constraint)["value"]
                 res[f"{input_name}_is_none"] = False
 
             if use_qdq and f"{input_name}_is_constant" not in res:
@@ -261,7 +267,7 @@ def check_df_consistent(
     for group_key, group_df in grouped:
         eval_df = group_df
         if placeholder_col in group_df.columns:
-            eval_df = group_df[not group_df[placeholder_col]]
+            eval_df = group_df[group_df[placeholder_col].isna() | (group_df[placeholder_col] == "")]
 
         # If all rows are placeholders, this group should not trigger conflicts.
         if eval_df.empty:
