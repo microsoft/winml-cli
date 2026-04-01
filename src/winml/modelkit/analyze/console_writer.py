@@ -201,7 +201,7 @@ class StaticAnalyzerConsoleWriter:
             unique_operator_types: Total number of unique operator types
         """
         # Header with support status
-        status_icon = "[+]" if ihv_result.runtime_support else "[x]"
+        status_icon = "+" if ihv_result.runtime_support else "x"
         status_text = (
             self._bright_green("SUPPORTED")
             if ihv_result.runtime_support
