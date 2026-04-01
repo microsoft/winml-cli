@@ -7,6 +7,10 @@
 import hashlib
 import json
 import logging
+import shutil
+import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from ..models.ihv_type import IHVType
@@ -16,8 +20,147 @@ from ..models.runtime_checks import RuntimeCheckRule
 
 logger = logging.getLogger(__name__)
 
-_RUNTIME_RULES_DIR = Path(__file__).parent.parent / "rules" / "runtime_check_rules"
-_MANIFEST_PATH = _RUNTIME_RULES_DIR / "rules_manifest.json"
+RUNTIME_RULES_DIR = Path(__file__).parent.parent / "rules" / "runtime_check_rules"
+MANIFEST_PATH = RUNTIME_RULES_DIR / "rules_manifest.json"
+
+
+def load_manifest(manifest_path: Path = MANIFEST_PATH) -> dict:
+    """Load and return rules_manifest.json."""
+    with open(manifest_path, encoding="utf-8") as f:  # noqa: PTH123
+        return json.load(f)
+
+
+def sha256_file(path: Path) -> str:
+    """Compute sha256 hex digest for a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:  # noqa: PTH123
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def download_file(repo: str, tag: str, filename: str, dest: Path) -> None:
+    """Download a release asset, using gh CLI for private repos with fallback to direct URL.
+
+    Args:
+        repo: GitHub repo in owner/repo format
+        tag: Release tag
+        filename: Asset filename
+        dest: Local destination path
+    """
+    gh_path = shutil.which("gh")
+    if gh_path:
+        result = subprocess.run(  # noqa: S603
+            [
+                gh_path,
+                "release",
+                "download",
+                tag,
+                "--repo",
+                repo,
+                "--pattern",
+                filename,
+                "--dir",
+                str(dest.parent),
+                "--clobber",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return
+        raise RuntimeError(f"gh CLI failed to download {filename}: {result.stderr.strip()}")
+
+    url = f"https://github.com/{repo}/releases/download/{tag}/{filename}"
+    try:
+        urllib.request.urlretrieve(url, dest)  # noqa: S310
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 403):
+            raise RuntimeError(
+                f"Failed to download {filename} ({e.code}). "
+                f"For private repos, install GitHub CLI: https://cli.github.com"
+            ) from e
+        raise
+
+
+def download_rules(
+    rules_dir: Path = RUNTIME_RULES_DIR,
+    manifest_path: Path = MANIFEST_PATH,
+    force: bool = False,
+) -> tuple[int, int, int]:
+    """Download rule zip files from GitHub Release.
+
+    Args:
+        rules_dir: Target directory for zip files
+        manifest_path: Path to rules_manifest.json
+        force: Re-download all files regardless of hash match
+
+    Returns:
+        Tuple of (downloaded, skipped, errors) counts.
+    """
+    manifest = load_manifest(manifest_path)
+    repo = manifest["github_repo"]
+    tag = manifest["release_tag"]
+    files = manifest["files"]
+
+    rules_dir.mkdir(parents=True, exist_ok=True)
+
+    downloaded = 0
+    skipped = 0
+    errors = 0
+    for filename, info in files.items():
+        local_path = rules_dir / filename
+        expected_hash = info["sha256"]
+
+        if not force and local_path.exists() and sha256_file(local_path) == expected_hash:
+            skipped += 1
+            continue
+
+        size_mb = info["size"] / (1024 * 1024)
+        print(f"Downloading {filename} ({size_mb:.1f} MB)...")
+
+        try:
+            download_file(repo, tag, filename, local_path)
+        except Exception as e:
+            print(f"  ERROR: {e}")
+            errors += 1
+            continue
+
+        actual_hash = sha256_file(local_path)
+        if actual_hash != expected_hash:
+            print(
+                f"  WARNING: Hash mismatch for {filename} "
+                f"(expected {expected_hash[:12]}..., got {actual_hash[:12]}...)"
+            )
+            errors += 1
+        else:
+            downloaded += 1
+
+    return downloaded, skipped, errors
+
+
+def check_rules_status(
+    rules_dir: Path = RUNTIME_RULES_DIR,
+    manifest_path: Path = MANIFEST_PATH,
+) -> tuple[list[str], list[str], list[str]]:
+    """Check which rule files are missing, outdated, or up-to-date.
+
+    Returns:
+        Tuple of (missing, outdated, ok) filename lists.
+    """
+    manifest = load_manifest(manifest_path)
+    missing = []
+    outdated = []
+    ok = []
+    for filename, info in manifest["files"].items():
+        local_path = rules_dir / filename
+        if not local_path.exists():
+            missing.append(filename)
+        elif sha256_file(local_path) != info["sha256"]:
+            outdated.append(filename)
+        else:
+            ok.append(filename)
+    return missing, outdated, ok
 
 
 def verify_rules_available() -> list[str]:
@@ -26,13 +169,13 @@ def verify_rules_available() -> list[str]:
     Returns:
         List of missing filenames. Empty means all files are present.
     """
-    if not _MANIFEST_PATH.exists():
+    if not MANIFEST_PATH.exists():
         return []
 
-    with open(_MANIFEST_PATH, encoding="utf-8") as f:  # noqa: PTH123
+    with open(MANIFEST_PATH, encoding="utf-8") as f:  # noqa: PTH123
         manifest = json.load(f)
 
-    return [name for name in manifest["files"] if not (_RUNTIME_RULES_DIR / name).exists()]
+    return [name for name in manifest["files"] if not (RUNTIME_RULES_DIR / name).exists()]
 
 
 def manifest_cache_key() -> str:
@@ -42,9 +185,9 @@ def manifest_cache_key() -> str:
         First 12 hex characters of the manifest file's sha256, or empty string
         if manifest does not exist.
     """
-    if not _MANIFEST_PATH.exists():
+    if not MANIFEST_PATH.exists():
         return ""
-    return hashlib.sha256(_MANIFEST_PATH.read_bytes()).hexdigest()[:12]
+    return hashlib.sha256(MANIFEST_PATH.read_bytes()).hexdigest()[:12]
 
 
 class RuleLoader:

@@ -7,7 +7,7 @@ The zip files are **not tracked by git**. They are hosted on a GitHub Release an
 ## Setup (first time)
 
 ```bash
-winml rules download
+python scripts/download_rules.py
 ```
 
 This reads `rules_manifest.json`, compares sha256 hashes, and downloads only missing or changed files from the `runtime-rules` GitHub Release.
@@ -15,7 +15,7 @@ This reads `rules_manifest.json`, compares sha256 hashes, and downloads only mis
 ## Check status
 
 ```bash
-winml rules status
+python scripts/download_rules.py --check
 ```
 
 ## Update rules after running the runtime checker
@@ -47,19 +47,26 @@ The hook only runs when the manifest file is part of the merge diff. Download fa
 ## How it works
 
 - `rules_manifest.json` is the source of truth: it lists every zip file with its sha256 hash and size.
-- `winml rules download` uses `gh` CLI for authentication (works with private repos), falling back to direct URL for public repos.
+- Download uses `gh` CLI for authentication (works with private repos), falling back to direct URL for public repos.
 - The `winml analyze` command warns at startup if any rule files are missing.
 - At build time, zip files in this directory are included in the wheel via `pyproject.toml` package-data.
+- A CI workflow (`.github/workflows/verify-rules.yml`) checks that manifest hashes match release assets on PRs that modify the manifest.
 
-## CI cache key
+## Recovering a deleted release
 
-Use `winml rules cache-key` to get a short hash of the manifest for cache invalidation:
+If the `runtime-rules` release is accidentally deleted, recreate it from local zip files:
 
-```yaml
-- run: echo "key=$(winml rules cache-key)" >> $GITHUB_OUTPUT
-  id: rules-key
-- uses: actions/cache@v4
-  with:
-    path: src/winml/modelkit/analyze/rules/runtime_check_rules/*.zip
-    key: rules-${{ steps.rules-key.outputs.key }}
+```bash
+# Recreate the release
+gh release create runtime-rules \
+    src/winml/modelkit/analyze/rules/runtime_check_rules/*.zip \
+    --repo microsoft/ModelKit \
+    --title "Runtime check rules" \
+    --notes "Runtime check rule zip files for static analyzer." \
+    --prerelease
+
+# Verify
+python scripts/download_rules.py --check
 ```
+
+Any developer who has the zip files locally can perform this recovery.
