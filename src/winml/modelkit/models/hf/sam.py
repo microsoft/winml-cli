@@ -60,16 +60,48 @@ if TYPE_CHECKING:
 # Sam2VisionModel cannot load weights from a Sam2VideoModel checkpoint because
 # checkpoint keys are prefixed with "vision_encoder." (e.g., "vision_encoder.backbone.*")
 # but Sam2VisionModel expects unprefixed keys (e.g., "backbone.*").
-# This wrapper loads the full Sam2VideoModel and extracts the vision_encoder submodule.
+# This wrapper loads the full Sam2VideoModel and extracts the vision_encoder submodule,
+# flattening the FPN tuple outputs into individual tensor outputs for ONNX compatibility.
 
 
 class Sam2VisionEncoder(torch.nn.Module):
-    """Wrapper that loads Sam2VideoModel and extracts vision_encoder."""
+    """Wrapper that loads Sam2VideoModel, extracts vision_encoder.
+
+    Flattens FPN tuple outputs for ONNX export.
+
+    Sam2VisionModel.forward() returns Sam2VisionEncoderOutput where
+    fpn_hidden_states is a tuple of 3 tensors (one per FPN level).
+    Optimum's ModelPatcher output filter matches by dict key name against
+    the ONNX config's output names, so tuple-of-tensor fields are invisible
+    to the filter, producing an empty ONNX graph.
+
+    This wrapper flattens the FPN outputs into individual tensor entries
+    with names matching Sam2ImageEncoderIOConfig.outputs:
+        fpn_hidden_states[2] -> image_embeddings   [B, 256, 64, 64]
+        fpn_hidden_states[0] -> high_res_features1  [B, 256, 256, 256]
+        fpn_hidden_states[1] -> high_res_features2  [B, 256, 128, 128]
+    """
+
+    def __init__(self, vision_encoder: torch.nn.Module) -> None:
+        super().__init__()
+        self.vision_encoder = vision_encoder
+        self.config = vision_encoder.config
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> torch.nn.Module:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> Sam2VisionEncoder:
         full_model = Sam2Model.from_pretrained(model_name_or_path, **kwargs)
-        return full_model.vision_encoder
+        return cls(full_model.vision_encoder)
+
+    def forward(
+        self, pixel_values: torch.Tensor | None = None, **kwargs: Any
+    ) -> dict[str, torch.Tensor]:
+        out = self.vision_encoder(pixel_values=pixel_values, **kwargs)
+        fpn = out.fpn_hidden_states
+        return {
+            "image_embeddings": fpn[2],
+            "high_res_features1": fpn[0],
+            "high_res_features2": fpn[1],
+        }
 
 
 class SAM2MaskGeneration(torch.nn.Module):
@@ -155,14 +187,26 @@ class SAM2MaskGeneration(torch.nn.Module):
         no_mem = self.no_memory_embedding.permute(0, 2, 1).unsqueeze(-1)
         image_embeddings = image_embeddings + no_mem
 
-        # 2. Prompt embeddings (patched by Sam2ModelPatcher during export)
-        sparse_embeddings, dense_embeddings = self.prompt_encoder(
+        # 2. Prompt embeddings
+        # Get sparse embeddings (without mask — mask blending handled below)
+        sparse_embeddings, _ = self.prompt_encoder(
             input_points=input_points,
             input_labels=input_labels,
             input_boxes=None,
-            input_masks=mask_input,
-            use_mask_input=use_mask_input,
+            input_masks=None,
         )
+
+        # Arithmetic mask blending via use_mask_input flag
+        # (avoids torch.where for ONNX/QNN compatibility)
+        mask_dense = self.prompt_encoder.mask_embed(mask_input)
+        no_mask_dense = self.prompt_encoder.no_mask_embed.weight.reshape(1, -1, 1, 1).expand(
+            batch_size,
+            -1,
+            self.image_embedding_size[0],
+            self.image_embedding_size[1],
+        )
+        flag = use_mask_input.reshape(-1, 1, 1, 1).to(mask_dense.dtype)
+        dense_embeddings = (1.0 - flag) * no_mask_dense + flag * mask_dense
 
         # 3. Positional embeddings
         image_positional_embeddings = self._get_image_positional_embeddings(batch_size)
