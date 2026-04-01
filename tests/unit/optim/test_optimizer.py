@@ -28,11 +28,18 @@ import onnx
 import pytest
 
 from winml.modelkit.optim import Optimizer
-from winml.modelkit.optim.pipes import PIPES, get_all_capabilities
-from winml.modelkit.optim.pipes.base import BasePipe, PipeConfig
-from winml.modelkit.optim.pipes.fusion import ORTFusionPipe, ORTFusionPipeConfig
-from winml.modelkit.optim.pipes.graph import ORTGraphPipe, ORTGraphPipeConfig
-from winml.modelkit.optim.pipes.surgery import SurgeryPipe, SurgeryPipeConfig
+from winml.modelkit.optim.pipes import (
+    PIPES,
+    BasePipe,
+    ORTFusionPipe,
+    ORTFusionPipeConfig,
+    ORTGraphPipe,
+    ORTGraphPipeConfig,
+    PipeConfig,
+    SurgeryPipe,
+    SurgeryPipeConfig,
+    get_all_capabilities,
+)
 from winml.modelkit.optim.registry import (
     BoolCapability,
     CapabilityCategory,

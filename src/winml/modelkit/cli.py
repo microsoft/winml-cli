@@ -14,7 +14,7 @@ Usage:
 
 Entry Points:
     - Standalone CLI: wmk
-    - Module execution: python -m modelkit.cli
+    - Module execution: python -m winml.modelkit
 """
 
 from __future__ import annotations

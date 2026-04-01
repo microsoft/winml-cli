@@ -9,10 +9,10 @@ generating test results for each specified operator.
 
 Usage:
     Test specific operators:
-        python -m modelkit.analyze.runtime_checker.check_qnn_ops --ops Abs Relu Sigmoid
+        python -m winml.modelkit.analyze.runtime_checker.check_ops --ops Abs Relu Sigmoid
 
     Test all registered operators:
-        python -m modelkit.analyze.runtime_checker.check_qnn_ops --all_ops
+        python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
 import hashlib
@@ -26,16 +26,15 @@ import onnxruntime as ort
 from google.protobuf import json_format
 from onnx.defs import SchemaError
 
-from winml.modelkit.pattern.op_input_gen import (
+from ... import winml
+from ...onnx import ONNXDomain
+from ...pattern.op_input_gen import (
     OpInputGenerator,
     get_registered_operators,
     get_runtime_checker_op,
     normalize_constraint_dict,
 )
-from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
-
-from ... import winml
-from ...onnx import ONNXDomain
+from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils.model_utils import get_op_since_version

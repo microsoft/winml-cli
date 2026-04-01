@@ -149,7 +149,7 @@ class RewritePipe(BasePipe):
             return model
 
         try:
-            from winml.modelkit.pattern.base import PatternMatcher, PatternRewriter
+            from ...pattern.base import PatternMatcher, PatternRewriter
 
             # Register source patterns; map source class name → target class
             matcher = PatternMatcher(model)

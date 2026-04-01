@@ -12,14 +12,13 @@ import pandas as pd
 from colorama import Fore, Style
 from onnx.defs import SchemaError, onnx_opset_version
 
-from winml.modelkit.pattern.base import get_pattern_input_generator
-from winml.modelkit.pattern.op_input_gen import (
+from ...onnx import ONNXDomain
+from ...pattern.base import get_pattern_input_generator
+from ...pattern.op_input_gen import (
     OpInputGenerator,
     get_runtime_checker_op,
     normalize_constraint_dict,
 )
-
-from ...onnx import ONNXDomain
 from ..utils.model_utils import get_op_since_version, make_hashable
 
 
@@ -651,7 +650,7 @@ if __name__ == "__main__":
 
     qdq_generator = None
     if any(is_qdq for _, _, _, is_qdq in op_info_set):
-        from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
+        from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 
         qdq_generator = QDQGenerator(1, ONNXDomain.COM_MICROSOFT)
 
