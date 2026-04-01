@@ -19,6 +19,7 @@ from onnx import TensorProto, helper
 
 from winml.modelkit.analyze import ONNXModel, RuntimeChecker, RuntimeTestResult
 from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
+    AlternativeType,
     PatternAlternative,
     PatternRuntime,
 )
@@ -309,6 +310,75 @@ class TestRuntimeCheckerIntegration:
         assert isinstance(summary, dict)
         assert "subgraph_runtime_check_result" in summary
         assert len(summary["subgraph_runtime_check_result"]) == 1
+
+
+    def test_op_merged_from_subgraph_has_empty_alternatives(
+        self, simple_onnx_model: ONNXModel, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Ops merged from a subgraph pattern must have alternatives=[], not the subgraph's.
+
+        When a node is covered by a matched subgraph pattern, summary() replaces the
+        op-level result with the subgraph-level result.  The subgraph may carry
+        alternatives (e.g. SingleGeluPattern → GeluPattern), but those belong to the
+        subgraph entry — not to the individual op row.  Leaking them onto the op
+        would misrepresent what alternatives are available for that specific node.
+        """
+        checker = RuntimeChecker(
+            ep="QNNExecutionProvider",
+            device="NPU",
+            model=simple_onnx_model,
+        )
+
+        shared_node = helper.make_node("Add", ["a", "b"], ["c"], name="shared_node")
+
+        def _make_pm(node):
+            pattern = OperatorPattern(
+                pattern_id=f"OP/ai.onnx/{node.op_type}",
+                pattern_type=PatternType.OPERATOR,
+                namespace="ai.onnx",
+                op_type=node.op_type,
+                description="",
+            )
+            skeleton = SkeletonMatchResult(pattern=pattern, matched_nodes=[node], matcher=None)
+            return PatternMatchResult(
+                skeleton_match_result=skeleton,
+                schema_input_to_value={},
+                schema_output_to_value={},
+                type_param_to_type={},
+            )
+
+        supported_result = RuntimeTestResult(compile=True, run=True)
+        subgraph_alternative = PatternAlternative(
+            pattern_id="SUBGRAPH/SingleGeluPattern",
+            result=supported_result,
+            alternative_type=AlternativeType.EQUIVALENT,
+        )
+
+        op_pr = PatternRuntime(
+            pattern_id="OP/ai.onnx/Add",
+            result=supported_result,
+            alternatives=[],
+            pattern_match=_make_pm(shared_node),
+        )
+        subgraph_pr = PatternRuntime(
+            pattern_id="SUBGRAPH/GeluPattern",
+            result=supported_result,
+            alternatives=[subgraph_alternative],  # subgraph has a non-empty alternative
+            pattern_match=_make_pm(shared_node),
+        )
+
+        monkeypatch.setattr(checker, "op_support", lambda **kw: [op_pr])
+        monkeypatch.setattr(checker, "subgraph_support", lambda *a, **kw: [subgraph_pr])
+
+        result = checker.summary(patterns=[])
+        merged_ops = result["op_runtime_check_result"]
+
+        assert len(merged_ops) == 1
+        merged = merged_ops[0]
+        # Result must be taken from the subgraph
+        assert merged.result is subgraph_pr.result
+        # alternatives must be empty — subgraph alternatives must NOT leak onto the op
+        assert merged.alternatives == []
 
 
 class TestRuntimeCheckerQueryCache:
