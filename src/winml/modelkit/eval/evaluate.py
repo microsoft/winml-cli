@@ -39,6 +39,19 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
 }
 
+_FE_DEFAULT = DatasetConfig(
+    path="mteb/stsbenchmark-sts",
+    split="test",
+    samples=100,
+    shuffle=True,
+    streaming=True,
+    columns_mapping={
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score",
+    },
+)
+
 _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
     "image-classification": DatasetConfig(
         path="timm/mini-imagenet",
@@ -78,30 +91,8 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
             "box_format": "xyxy",
         },
     ),
-    "feature-extraction": DatasetConfig(
-        path="mteb/stsbenchmark-sts",
-        split="test",
-        samples=100,
-        shuffle=True,
-        streaming=True,
-        columns_mapping={
-            "input_column_1": "sentence1",
-            "input_column_2": "sentence2",
-            "score_column": "score",
-        },
-    ),
-    "sentence-similarity": DatasetConfig(
-        path="mteb/stsbenchmark-sts",
-        split="test",
-        samples=100,
-        shuffle=True,
-        streaming=True,
-        columns_mapping={
-            "input_column_1": "sentence1",
-            "input_column_2": "sentence2",
-            "score_column": "score",
-        },
-    ),
+    "feature-extraction": _FE_DEFAULT,
+    "sentence-similarity": _FE_DEFAULT,
 }
 
 

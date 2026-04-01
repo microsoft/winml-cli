@@ -192,8 +192,8 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets.config import DatasetConfig
-        from winml.modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -225,8 +225,8 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_padding_without_tokenizer(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets.config import DatasetConfig
-        from winml.modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
