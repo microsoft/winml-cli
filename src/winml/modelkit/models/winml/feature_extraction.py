@@ -30,15 +30,15 @@ class WinMLModelForFeatureExtraction(WinMLPreTrainedModel):
     Returns BaseModelOutput with last_hidden_state so the HF
     feature-extraction pipeline can consume it via output[0].
 
-    ONNX output handling:
-    - ``last_hidden_state`` (shape [B, seq_len, hidden_dim]): used directly.
-    - ``sentence_embedding``  (shape [B, hidden_dim]): unsqueezed to
-      [B, 1, hidden_dim] so downstream mean-pooling is a no-op.
-    - Any other single output: treated as last_hidden_state.
+    ONNX output handling (shape-based, architecture-agnostic):
+    - 3-D [B, seq_len, hidden_dim]: used directly as last_hidden_state.
+    - 2-D [B, hidden_dim]: unsqueezed to [B, 1, hidden_dim] so downstream
+      mean-pooling is a no-op.
     """
 
     def forward(
         self,
+        *,
         input_ids: torch.Tensor | np.ndarray,
         attention_mask: torch.Tensor | np.ndarray | None = None,
         token_type_ids: torch.Tensor | np.ndarray | None = None,
@@ -64,15 +64,9 @@ class WinMLModelForFeatureExtraction(WinMLPreTrainedModel):
         formatted = self._format_inputs(**inputs)
         outputs = self._run_inference(formatted)
 
-        # Prefer last_hidden_state; fall back to sentence_embedding or first output
-        if "last_hidden_state" in outputs:
-            last_hidden_state = outputs["last_hidden_state"]
-        elif "sentence_embedding" in outputs:
+        last_hidden_state = next(iter(outputs.values()))
+        if last_hidden_state.dim() == 2:
             # Already pooled [B, hidden_dim] -> wrap as [B, 1, hidden_dim]
-            last_hidden_state = outputs["sentence_embedding"].unsqueeze(1)
-        else:
-            last_hidden_state = next(iter(outputs.values()))
-            if last_hidden_state.dim() == 2:
-                last_hidden_state = last_hidden_state.unsqueeze(1)
+            last_hidden_state = last_hidden_state.unsqueeze(1)
 
         return BaseModelOutput(last_hidden_state=last_hidden_state)

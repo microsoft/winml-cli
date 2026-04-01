@@ -15,7 +15,7 @@ from transformers.modeling_outputs import BaseModelOutput
 
 def create_mock_model():
     """Create WinMLModelForFeatureExtraction with a mocked session."""
-    from winml.modelkit.models.winml.feature_extraction import WinMLModelForFeatureExtraction
+    from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
 
     model = WinMLModelForFeatureExtraction.__new__(WinMLModelForFeatureExtraction)
     mock_session = MagicMock()
@@ -35,12 +35,12 @@ def create_mock_model():
 
 class TestWinMLModelForFeatureExtractionBasic:
     def test_class_importable(self):
-        from winml.modelkit.models.winml.feature_extraction import WinMLModelForFeatureExtraction
+        from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
         assert WinMLModelForFeatureExtraction is not None
 
     def test_inherits_from_base(self):
-        from winml.modelkit.models.winml.base import WinMLPreTrainedModel
-        from winml.modelkit.models.winml.feature_extraction import WinMLModelForFeatureExtraction
+        from winml.modelkit.models.winml import WinMLPreTrainedModel
+        from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
         assert issubclass(WinMLModelForFeatureExtraction, WinMLPreTrainedModel)
 
     def test_exported_from_winml_package(self):
@@ -92,7 +92,7 @@ class TestForwardSentenceEmbedding:
     """When ONNX exports a pre-pooled sentence_embedding, it should be wrapped."""
 
     def test_sentence_embedding_unsqueezed(self):
-        from winml.modelkit.models.winml.feature_extraction import WinMLModelForFeatureExtraction
+        from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
 
         model = WinMLModelForFeatureExtraction.__new__(WinMLModelForFeatureExtraction)
         mock_session = MagicMock()
@@ -115,7 +115,7 @@ class TestForwardSentenceEmbedding:
 
     def test_generic_2d_output_unsqueezed(self):
         """Any unknown 2-D output is wrapped as [B, 1, H]."""
-        from winml.modelkit.models.winml.feature_extraction import WinMLModelForFeatureExtraction
+        from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
 
         model = WinMLModelForFeatureExtraction.__new__(WinMLModelForFeatureExtraction)
         mock_session = MagicMock()

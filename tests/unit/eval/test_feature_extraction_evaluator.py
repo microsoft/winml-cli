@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from winml.modelkit.eval.feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
-from winml.modelkit.eval.metrics.spearman_correlation import SpearmanCorrelationMetric
+from winml.modelkit.eval import SpearmanCorrelationMetric
+from winml.modelkit.eval import WinMLFeatureExtractionEvaluator
 
 
 # ---------------------------------------------------------------------------
@@ -17,8 +17,8 @@ from winml.modelkit.eval.metrics.spearman_correlation import SpearmanCorrelation
 
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator by patching external dependencies."""
-    from winml.modelkit.datasets.config import DatasetConfig
-    from winml.modelkit.eval.config import WinMLEvaluationConfig
+    from winml.modelkit.datasets import DatasetConfig
+    from winml.modelkit.eval import WinMLEvaluationConfig
 
     mapping = columns_mapping or {
         "input_column_1": "sentence1",
