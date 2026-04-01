@@ -884,7 +884,7 @@ class TestEvaluateSamplesPreserved:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="image-classification",
-            dataset=DatasetConfig(samples=20),
+            dataset=DatasetConfig(samples=20, explicit_fields=frozenset({"samples"})),
         )
 
         with (

@@ -36,6 +36,9 @@ class DatasetConfig:
     columns_mapping: dict[str, str] = field(default_factory=dict)
     label_mapping: dict[str, int] | None = None
     streaming: bool = False
+    # Tracks which fields were explicitly set by the caller (e.g. CLI).
+    # Not serialized; used by evaluate.py to merge user overrides onto defaults.
+    explicit_fields: frozenset[str] = field(default_factory=frozenset, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""

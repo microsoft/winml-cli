@@ -61,22 +61,19 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--samples",
     type=int,
-    default=100,
-    show_default=True,
-    help="Number of dataset samples.",
+    default=None,
+    help="Number of dataset samples (default: from dataset config).",
 )
 @click.option(
     "--split",
     type=str,
-    default="validation",
-    show_default=True,
-    help="Dataset split.",
+    default=None,
+    help="Dataset split (default: from dataset config).",
 )
 @click.option(
     "--shuffle/--no-shuffle",
-    default=True,
-    show_default=True,
-    help="Shuffle dataset before sampling.",
+    default=None,
+    help="Shuffle dataset before sampling (default: from dataset config).",
 )
 @click.option(
     "--streaming",
@@ -125,9 +122,9 @@ def eval(
     dataset_name: str | None,
     task: str | None,
     device: str,
-    samples: int,
-    split: str,
-    shuffle: bool,
+    samples: int | None,
+    split: str | None,
+    shuffle: bool | None,
     streaming: bool,
     column: tuple[str, ...],
     label_mapping: Path | None,
@@ -216,15 +213,24 @@ def eval(
 
     resolved_device, _ = resolve_device(device)
 
+    explicit: set[str] = set()
+    if samples is not None:
+        explicit.add("samples")
+    if split is not None:
+        explicit.add("split")
+    if shuffle is not None:
+        explicit.add("shuffle")
+
     ds_config = DatasetConfig(
         path=dataset_path,
         name=dataset_name,
-        split=split,
-        samples=samples,
-        shuffle=shuffle,
+        split=split if split is not None else "validation",
+        samples=samples if samples is not None else 100,
+        shuffle=shuffle if shuffle is not None else True,
         columns_mapping=columns_mapping,
         label_mapping=parsed_label_mapping,
         streaming=streaming,
+        explicit_fields=frozenset(explicit),
     )
 
     config = WinMLEvaluationConfig(
