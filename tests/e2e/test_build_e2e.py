@@ -11,7 +11,7 @@ compilation stages.
 The build command uses @click.pass_context and requires obj={"debug": False}.
 
 We generate a proper config via ``generate_build_config()`` (same API
-the ``wmk config`` command calls) to ensure export input_tensors are
+the ``winml config`` command calls) to ensure export input_tensors are
 populated. A minimal hand-crafted config lacks I/O specs and will fail.
 
 Markers:
@@ -19,6 +19,7 @@ Markers:
     slow: Tests that take > 30 seconds
     network: Requires network access to HuggingFace Hub
 """
+
 from __future__ import annotations
 
 import json
@@ -93,6 +94,7 @@ def _make_minimal_config_file(tmp_path, task: str) -> str:
 # HF model build (export + optimize only)
 # ===========================================================================
 
+
 class TestBuildHF:
     """Build from HuggingFace model with --no-quant --no-compile."""
 
@@ -102,7 +104,9 @@ class TestBuildHF:
         Uses --no-quant --no-compile so only export + optimize run.
         """
         config_path = _generate_config_file(
-            tmp_path, "bert-base-uncased", task="text-classification",
+            tmp_path,
+            "bert-base-uncased",
+            task="text-classification",
         )
         output_dir = tmp_path / "output"
 
@@ -110,18 +114,19 @@ class TestBuildHF:
         result = runner.invoke(
             build,
             [
-                "-c", config_path,
-                "-m", "bert-base-uncased",
-                "-o", str(output_dir),
+                "-c",
+                config_path,
+                "-m",
+                "bert-base-uncased",
+                "-o",
+                str(output_dir),
                 "--no-quant",
                 "--no-compile",
             ],
             obj={"debug": False},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         # Build should produce an output directory
         assert output_dir.exists()
         # Should contain at least one ONNX file
@@ -136,6 +141,7 @@ class TestBuildHF:
 # ONNX input build
 # ===========================================================================
 
+
 class TestBuildONNX:
     """Build from pre-exported ONNX file."""
 
@@ -148,16 +154,17 @@ class TestBuildONNX:
         result = runner.invoke(
             build,
             [
-                "-c", config_path,
-                "-m", str(onnx_model_path),
-                "-o", str(output_dir),
+                "-c",
+                config_path,
+                "-m",
+                str(onnx_model_path),
+                "-o",
+                str(output_dir),
                 "--no-quant",
                 "--no-compile",
             ],
             obj={"debug": False},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert output_dir.exists()

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for wmk build module mode (array config detection and orchestration)."""
+"""Tests for winml build module mode (array config detection and orchestration)."""
 
 from __future__ import annotations
 
