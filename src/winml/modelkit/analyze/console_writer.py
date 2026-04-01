@@ -43,8 +43,6 @@ class StaticAnalyzerConsoleWriter:
         self.verbose = verbose
         self.console = console or Console(
             width=self.CONSOLE_WIDTH,
-            force_terminal=True,
-            legacy_windows=False,
             highlight=False,
         )
         # Ensure we have a reliable width value (Rich may return None in some cases)
@@ -94,17 +92,17 @@ class StaticAnalyzerConsoleWriter:
         """Write analysis header."""
         self.console.print()
         self.console.print("=" * self.SEPARATOR_LENGTH)
-        self.console.print(f"📊 {self._bold('ONNX MODEL STATIC ANALYSIS REPORT')}")
+        self.console.print(f"{self._bold('ONNX MODEL STATIC ANALYSIS REPORT')}")
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
         timestamp = analysis.analysis_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        self.console.print(f"🕒 Analysis Time: {self._dim(timestamp)}")
-        self.console.print(f"📦 Model: {self._bright_cyan(analysis.metadata.model_path)}")
+        self.console.print(f"Analysis Time: {self._dim(timestamp)}")
+        self.console.print(f"Model: {self._bright_cyan(analysis.metadata.model_path)}")
         self.console.print()
 
     def _write_model_info(self, analysis: AnalysisOutput) -> None:
         """Write model information section."""
-        self.console.print(f"📋 {self._bold('MODEL INFORMATION')}")
+        self.console.print(f"{self._bold('MODEL INFORMATION')}")
         self.console.print("-" * self.SEPARATOR_LENGTH)
 
         metadata = analysis.metadata
@@ -133,7 +131,7 @@ class StaticAnalyzerConsoleWriter:
 
     def _write_operator_summary(self, analysis: AnalysisOutput) -> None:
         """Write operator summary with top operators."""
-        self.console.print(f"🔧 {self._bold('OPERATOR ANALYSIS')}")
+        self.console.print(f"{self._bold('OPERATOR ANALYSIS')}")
         self.console.print("-" * self.SEPARATOR_LENGTH)
 
         metadata = analysis.metadata
@@ -157,7 +155,7 @@ class StaticAnalyzerConsoleWriter:
 
     def _write_pattern_summary(self, analysis: AnalysisOutput) -> None:
         """Write pattern detection summary."""
-        self.console.print(f"🔍 {self._bold('PATTERN DETECTION')}")
+        self.console.print(f"{self._bold('PATTERN DETECTION')}")
         self.console.print("-" * self.SEPARATOR_LENGTH)
 
         detected = analysis.metadata.detected_pattern_count
@@ -172,7 +170,7 @@ class StaticAnalyzerConsoleWriter:
         # Show pattern details
         sorted_patterns = sorted(detected.items(), key=lambda x: x[1], reverse=True)
         for pattern_id, count in sorted_patterns:
-            pattern_type = "🔸 Subgraph" if pattern_id.startswith("SUBGRAPH/") else "🔹 Operator"
+            pattern_type = "Subgraph" if pattern_id.startswith("SUBGRAPH/") else "Operator"
             self.console.print(
                 f"   {pattern_type}: {self._bright_green(pattern_id)} "
                 f"({self._bright_cyan(count)} instances)"
@@ -181,7 +179,7 @@ class StaticAnalyzerConsoleWriter:
 
     def _write_ihv_results(self, analysis: AnalysisOutput) -> None:
         """Write IHV support analysis results."""
-        self.console.print(f"💻 {self._bold('IHV PLATFORM SUPPORT ANALYSIS')}")
+        self.console.print(f"{self._bold('IHV PLATFORM SUPPORT ANALYSIS')}")
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
         for ihv_result in analysis.results:
@@ -203,7 +201,7 @@ class StaticAnalyzerConsoleWriter:
             unique_operator_types: Total number of unique operator types
         """
         # Header with support status
-        status_icon = "✅" if ihv_result.runtime_support else "❌"
+        status_icon = "+" if ihv_result.runtime_support else "x"
         status_text = (
             self._bright_green("SUPPORTED")
             if ihv_result.runtime_support
@@ -230,10 +228,10 @@ class StaticAnalyzerConsoleWriter:
         self.console.print(f"\n   {self._bold('Support Classification:')}")
 
         classification_info = [
-            (SupportLevel.SUPPORTED, "✅", "Fully Supported", "green"),
-            (SupportLevel.PARTIAL, "⚠️ ", "Partial Support", "yellow"),
-            (SupportLevel.UNKNOWN, "❓", "Unknown Support", "blue"),
-            (SupportLevel.UNSUPPORTED, "⛔", "Not Supported", "red"),
+            (SupportLevel.SUPPORTED, "+", "Fully Supported", "green"),
+            (SupportLevel.PARTIAL, "!", "Partial Support", "yellow"),
+            (SupportLevel.UNKNOWN, "?", "Unknown Support", "blue"),
+            (SupportLevel.UNSUPPORTED, "x", "Not Supported", "red"),
         ]
 
         for level, icon, label, color in classification_info:
@@ -265,7 +263,7 @@ class StaticAnalyzerConsoleWriter:
         info_count = len(ihv_result.information)
         if info_count > 0:
             self.console.print(
-                f"\n   💡 {self._bright_yellow('Actionable Information')}: "
+                f"\n   {self._bright_yellow('Actionable Information')}: "
                 f"{self._bright_cyan(info_count)} items"
             )
 
@@ -385,7 +383,7 @@ class StaticAnalyzerConsoleWriter:
                 for action_idx, action in enumerate(info.actions, 1):
                     # Show transformation: from_pattern -> to_pattern
                     transformation = (
-                        f"{self._bright_yellow(action.pattern_from_id)} → "
+                        f"{self._bright_yellow(action.pattern_from_id)} -> "
                         f"{self._bright_green(action.pattern_to_id)}"
                     )
                     priority_str = (
@@ -402,11 +400,11 @@ class StaticAnalyzerConsoleWriter:
                     # Show expected status after transformation
                     if action.status:
                         status_icon = {
-                            "supported": "✅",
-                            "partial": "⚠️",
-                            "unknown": "❓",
-                            "unsupported": "⛔",
-                        }.get(action.status.value, "•")
+                            "supported": "+",
+                            "partial": "!",
+                            "unknown": "?",
+                            "unsupported": "x",
+                        }.get(action.status.value, "*")
                         result_label = self._bold("Expected Result:")
                         status_val = self._bright_green(action.status.value)
                         self.console.print(f"            {result_label} {status_icon} {status_val}")
@@ -464,7 +462,7 @@ class StaticAnalyzerConsoleWriter:
     def _write_footer(self, analysis: AnalysisOutput) -> None:
         """Write analysis footer with summary."""
         self.console.print("=" * self.SEPARATOR_LENGTH)
-        self.console.print(f"📈 {self._bold('ANALYSIS SUMMARY')}")
+        self.console.print(f"{self._bold('ANALYSIS SUMMARY')}")
         self.console.print("-" * self.SEPARATOR_LENGTH)
 
         # Overall support status
@@ -485,21 +483,21 @@ class StaticAnalyzerConsoleWriter:
 
         if supported_platforms == total_platforms:
             status_msg = self._bright_green(
-                f"✅ Model is supported on all {total_platforms} platform(s)"
+                f"Model is supported on all {total_platforms} platform(s)"
             )
         elif supported_platforms > 0 and not has_only_unknown:
             status_msg = self._bright_yellow(
-                f"⚠️ Model is supported on {supported_platforms}/{total_platforms} platform(s)"
+                f"Model is supported on {supported_platforms}/{total_platforms} platform(s)"
             )
         elif supported_platforms > 0 and has_only_unknown:
             status_msg = self._bright_yellow(
-                f"⚠️ Model is supported on {supported_platforms}/{total_platforms} platform(s), "
+                f"Model is supported on {supported_platforms}/{total_platforms} platform(s), "
                 f"unknown nodes found on some of platforms"
             )
         elif has_only_unknown:
-            status_msg = self._bright_yellow("⚠️  Model has unknown nodes")
+            status_msg = self._bright_yellow("Model has unknown nodes")
         else:
-            status_msg = self._bright_red("❌ Model is not supported on any platform")
+            status_msg = self._bright_red("Model is not supported on any platform")
 
         self.console.print(f"   {status_msg}")
 
@@ -535,7 +533,7 @@ class StaticAnalyzerConsoleWriter:
 
         self.console.print()
         self.console.print(
-            f"💡 Use {self._bright_cyan('--output results.json')} to save detailed results"
+            f"Use {self._bright_cyan('--output results.json')} to save detailed results"
         )
         self.console.print("=" * self.SEPARATOR_LENGTH)
         self.console.print()
