@@ -22,10 +22,10 @@ from .types import InspectResult, ModuleInfo, SupportLevel
 
 # Status icons
 STATUS_ICONS = {
-    SupportLevel.SUPPORTED: "[green]✓[/green]",
-    SupportLevel.DEFAULT: "[yellow]○[/yellow]",
-    SupportLevel.GENERIC: "[blue]◇[/blue]",
-    SupportLevel.UNSUPPORTED: "[red]✗[/red]",
+    SupportLevel.SUPPORTED: "[green]+[/green]",
+    SupportLevel.DEFAULT: "[yellow]-[/yellow]",
+    SupportLevel.GENERIC: "[blue]*[/blue]",
+    SupportLevel.UNSUPPORTED: "[red]x[/red]",
 }
 
 STATUS_LABELS = {
@@ -168,10 +168,10 @@ def _output_cache_table(console: Console, result: InspectResult) -> None:
 
     for stage in cache.stages:
         if stage.cached:
-            icon = "[green]✓[/green]"
+            icon = "[green]+[/green]"
             info = f"{stage.size_mb} MB"
         else:
-            icon = "[dim]○[/dim]"
+            icon = "[dim]-[/dim]"
             info = "[dim]not cached[/dim]"
         cache_table.add_row(f"  {icon} {stage.stage}", info)
 

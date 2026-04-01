@@ -23,7 +23,8 @@ from typing import Any
 import numpy as np
 from onnx.defs import OpSchema
 
-from winml.modelkit.pattern.base import (
+from ..onnx import ONNXDomain
+from .base import (
     Pattern,
     PatternInputGenerator,
     PatternMatchResult,
@@ -33,14 +34,12 @@ from winml.modelkit.pattern.base import (
     SkeletonMatchResult,
     register_pattern_input_generator,
 )
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint, InputValueConstraint
-from winml.modelkit.pattern.utils import (
+from .op_input_gen import InputShapeConstraint, InputValueConstraint
+from .utils import (
     get_attribute_proto_value,
     get_tensor_shape,
     validate_scale_bias_shape_for_axis,
 )
-
-from ..onnx import ONNXDomain
 
 
 def _validate_rmsnorm_scale(
