@@ -107,6 +107,7 @@ include = [ "winml", "winml.*" ]
 
 [tool.setuptools.package-data]
 "winml.modelkit" = [ "py.typed" ]
+"winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
   "rules/**/*.json",
   "rules/**/*.zip",
