@@ -260,9 +260,9 @@ def optimize(
 
         # Pattern rewrite flags follow: --enable-{source-slug}-{target-slug}
         # Run --list-rewrites to discover all available flag names.
-        # Example (all GELU variants → single Gelu node):
+        # Example (all GELU variants -> single Gelu node):
         winml optimize -m model.onnx -o out.onnx --enable-gelu-singlegelu
-        # Example (only Gelu1 variant → single Gelu node):
+        # Example (only Gelu1 variant -> single Gelu node):
         winml optimize -m model.onnx -o out.onnx --enable-gelu1-singlegelu
 
         # Basic optimization with GELU fusion
@@ -358,7 +358,7 @@ def optimize(
             console.print("[yellow]No rewrite capabilities discovered.[/yellow]")
             return
 
-        console.print("\n[bold]Rewrite capabilities (source → target):[/bold]\n")
+        console.print("\n[bold]Rewrite capabilities (source -> target):[/bold]\n")
         for group in REWRITE_GROUPS:
             rule_file = Path(group.rule_file).name
             is_multi = len(group.sources) > 1
@@ -440,7 +440,7 @@ def optimize(
     if all_errors:
         console.print("[bold red]Configuration validation errors:[/bold red]")
         for error in all_errors:
-            console.print(f"  [red]• {error}[/red]")
+            console.print(f"  [red]* {error}[/red]")
         sys.exit(1)
 
     # Convert capability names (kebab-case) to python names (snake_case) for optimizer
@@ -471,7 +471,7 @@ def optimize(
         reduction = (1 - optimized_nodes / original_nodes) * 100 if original_nodes else 0
 
         console.print(f"\n[bold green]Success![/bold green] Model optimized: {output}")
-        node_info = f"Nodes: {original_nodes} → {optimized_nodes} ({reduction:.1f}% reduction)"
+        node_info = f"Nodes: {original_nodes} -> {optimized_nodes} ({reduction:.1f}% reduction)"
         console.print(f"[dim]{node_info}[/dim]")
 
     except Exception as e:

@@ -57,7 +57,7 @@ def compute_delta(
     Returns (None, None) if either is missing or baseline value is zero.
 
     Note: For error-rate metrics (WER — lower is better) a positive delta
-    means the WMK pipeline is *worse*.  The threshold in derive_verdict()
+    means the WinML pipeline is *worse*.  The threshold in derive_verdict()
     uses abs(delta_relative) to handle both directions uniformly.
     """
     if winml_metric is None or baseline_metric is None:
@@ -242,7 +242,7 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
     lines += ["", "## Accuracy Regressions", ""]
     if regressions:
         lines += [
-            "| Model | Task | WMK | Baseline | Delta% |",
+            "| Model | Task | WinML | Baseline | Delta% |",
             "|-------|------|-----|----------|--------|",
         ]
         for r in regressions:
@@ -263,7 +263,7 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
     lines += ["", "## At-Risk Models", ""]
     if at_risk:
         lines += [
-            "| Model | Task | WMK | Baseline | Delta% |",
+            "| Model | Task | WinML | Baseline | Delta% |",
             "|-------|------|-----|----------|--------|",
         ]
         for r in at_risk:

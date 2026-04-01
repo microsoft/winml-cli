@@ -71,7 +71,7 @@ from utils.reporter import (
 # Constants
 # ---------------------------------------------------------------------------
 
-WMK = [sys.executable, "-m", "winml.modelkit.cli"]
+WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
 BASELINE_SCRIPT = Path(__file__).parent / "run_pytorch_baseline.py"
 BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
 EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
@@ -330,7 +330,7 @@ def _run_build(
 
     # Step 1: winml config
     config_args = [
-        *WMK,
+        *WINML_CLI,
         "config",
         "-m",
         entry.hf_id,
@@ -355,7 +355,7 @@ def _run_build(
 
     # Step 2: winml build --use-cache
     build_args = [
-        *WMK,
+        *WINML_CLI,
         "build",
         "-c",
         str(config_path),
@@ -433,10 +433,10 @@ def run_model(
     (skips internal build). Otherwise falls back to HF model ID.
     """
     if onnx_path:
-        args = [*WMK, "perf", "-m", onnx_path, "--device", device]
+        args = [*WINML_CLI, "perf", "-m", onnx_path, "--device", device]
     else:
         args = [
-            *WMK,
+            *WINML_CLI,
             "perf",
             "-m",
             entry.hf_id,
@@ -543,7 +543,7 @@ def _run_winml_eval(
     eval_device = "npu" if device == "auto" else device
     if onnx_path:
         args = [
-            *WMK,
+            *WINML_CLI,
             "eval",
             "-m",
             onnx_path,
@@ -554,7 +554,7 @@ def _run_winml_eval(
         ]
     else:
         args = [
-            *WMK,
+            *WINML_CLI,
             "eval",
             "-m",
             entry.hf_id,
