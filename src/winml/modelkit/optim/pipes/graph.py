@@ -19,8 +19,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from winml.modelkit.onnx import load_onnx, save_onnx
-
+from ...onnx import load_onnx, save_onnx
 from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 
 

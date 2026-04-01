@@ -32,18 +32,20 @@ logger = logging.getLogger(__name__)
 
 # Level 1: Task -> Universal WinML class name (lazy import)
 TASK_TO_WINML_CLASS: dict[str, str] = {
+    # Implemented
     "image-classification": "WinMLModelForImageClassification",
     "text-classification": "WinMLModelForSequenceClassification",
     "sequence-classification": "WinMLModelForSequenceClassification",
     "next-sentence-prediction": "WinMLModelForSequenceClassification",
+    "image-segmentation": "WinMLModelForImageSegmentation",
+    "semantic-segmentation": "WinMLModelForSemanticSegmentation",
+    "object-detection": "WinMLModelForObjectDetection",
+    # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
     "question-answering": "WinMLModelForQuestionAnswering",
     "text-generation": "WinMLModelForCausalLM",
     "text2text-generation": "WinMLModelForSeq2SeqLM",
     "fill-mask": "WinMLModelForMaskedLM",
-    "image-segmentation": "WinMLModelForImageSegmentation",
-    "semantic-segmentation": "WinMLModelForSemanticSegmentation",
-    "object-detection": "WinMLModelForObjectDetection",
     "feature-extraction": "WinMLModelForFeatureExtraction",
 }
 

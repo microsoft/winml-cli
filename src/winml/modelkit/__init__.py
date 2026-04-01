@@ -15,7 +15,7 @@ Key Features:
 - Automatic task detection and model selection
 
 Usage:
-    from modelkit import WinMLAutoModel, WinMLBuildConfig
+    from winml.modelkit import WinMLAutoModel, WinMLBuildConfig
 
     # Auto-detect task and load model
     model = WinMLAutoModel.from_pretrained("microsoft/resnet-50")

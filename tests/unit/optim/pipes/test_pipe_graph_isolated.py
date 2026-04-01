@@ -80,7 +80,7 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.optim.pipes.graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
+from winml.modelkit.optim.pipes import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
 
 # Import all builders
 from ..assets.graphpipe.builders import (
