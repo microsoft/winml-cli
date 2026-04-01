@@ -1994,16 +1994,19 @@ class PatternRewriter:
                 rewrite_counter += 1
 
                 # Generate the new subgraph model
-                new_subgraph_model = new_pattern.get_onnx_model(
-                    inputs=inputs,
-                    attributes=match_result.attributes,
-                    is_constant_map=is_constant_map,
-                    output_dtypes=output_dtypes,
-                    domain_versions=self.domain_versions,
-                    prefix=prefix,
-                    input_names=input_names,
-                    output_names=output_names,
-                )
+                try:
+                    new_subgraph_model = new_pattern.get_onnx_model(
+                        inputs=inputs,
+                        attributes=match_result.attributes,
+                        is_constant_map=is_constant_map,
+                        output_dtypes=output_dtypes,
+                        domain_versions=self.domain_versions,
+                        prefix=prefix,
+                        input_names=input_names,
+                        output_names=output_names,
+                    )
+                except PatternMismatchedError:
+                    continue
 
                 # Find insertion point: position of last matched node after deletions
                 # Since original graph is topologically sorted,
