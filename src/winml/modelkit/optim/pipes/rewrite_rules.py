@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from winml.modelkit.pattern.base import Pattern
+from ...pattern.base import Pattern
 
 
 logger = logging.getLogger(__name__)

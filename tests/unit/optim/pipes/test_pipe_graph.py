@@ -30,7 +30,7 @@ from dataclasses import dataclass
 import onnx
 import pytest
 
-from winml.modelkit.optim.pipes.graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
+from winml.modelkit.optim.pipes import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
 
 from ..conftest import verify_capability_effect
 

@@ -196,11 +196,11 @@ def analyze(
         is_model_supported = result.is_fully_supported()
         if is_model_supported:
             # Full support
-            logger.info("✓ Model is fully supported")
+            logger.info("Model is fully supported")
             sys.exit(0)
         else:
             # Partial or no support
-            logger.warning("⚠ Model has %d unsupported operators", len(unsupported_ops))
+            logger.warning("Model has %d unsupported operators", len(unsupported_ops))
             if verbose:
                 for op_name in unsupported_ops[:5]:  # Show first 5
                     logger.warning("  - %s", op_name)

@@ -4,7 +4,7 @@
 The runtime checker tests ONNX operators on various execution providers (EPs) to validate their support across different input combinations, data types, and attributes.
 
 ## check_ops CLI Mode Rules
-When using `modelkit.static_analyzer.runtime_checker.check_ops`, the following mode flags are mutually exclusive (only one can be set at a time):
+When using `winml.modelkit.analyze.runtime_checker.check_ops`, the following mode flags are mutually exclusive (only one can be set at a time):
 
 - `--rerun_failed`
 - `--delta_only`
@@ -14,13 +14,13 @@ Examples:
 
 ```powershell
 # rerun only failed cases
-python -m modelkit.static_analyzer.runtime_checker.check_ops --ops Resize --rerun_failed
+python -m winml.modelkit.analyze.runtime_checker.check_ops --ops Resize --rerun_failed
 
 # run only new (delta) cases
-python -m modelkit.static_analyzer.runtime_checker.check_ops --ops Resize --delta_only
+python -m winml.modelkit.analyze.runtime_checker.check_ops --ops Resize --delta_only
 
 # run only one case by hashed case index
-python -m modelkit.static_analyzer.runtime_checker.check_ops --ops Resize --case_index <hash>
+python -m winml.modelkit.analyze.runtime_checker.check_ops --ops Resize --case_index <hash>
 ```
 
 ## Example Usage
@@ -29,7 +29,7 @@ runnable under different conditions. Compile test will check if it runs on NPU, 
 check if it runs without throwing exception (either on NPU or by falling back to CPU).
 
 ```powershell
-python -m winml.modelkit.static_analyzer.runtime_checker.run_reshape_qnn_example reshape_qnn_results.json --opset 22 --quick --validate_inputs
+python -m winml.modelkit.analyze.runtime_checker.run_reshape_qnn_example reshape_qnn_results.json --opset 22 --quick --validate_inputs
 
 # Arguments:
 #   output_path:        Required (unless --validate_inputs) - Path where test results JSON will be saved

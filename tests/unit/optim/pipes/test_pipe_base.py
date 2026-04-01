@@ -24,7 +24,7 @@ import onnx
 import pytest
 
 # Import pipe base classes from modelkit (production)
-from winml.modelkit.optim.pipes.base import BasePipe, OptimizationError, PipeConfig
+from winml.modelkit.optim.pipes import BasePipe, OptimizationError, PipeConfig
 
 
 class TestPipeConfig:
