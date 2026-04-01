@@ -12,9 +12,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, TypedDict
 
-from winml.modelkit.pattern.base import InvalidPatternMatcherModelError, PatternMatcher
-from winml.modelkit.pattern.config import UnifiedPatternConfig
-
+from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
+from ...pattern.config import UnifiedPatternConfig
 from ..models.onnx_model import ONNXModel
 from ..models.output import extract_model_stats
 
@@ -334,7 +333,7 @@ class PatternExtractor:
         Returns:
             List of PatternMatch instances
         """
-        from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
+        from ...pattern.match import PatternMatchResult, SkeletonMatchResult
 
         # Note: For hierarchy_tag and HTP metadata matches, we create a simplified
         # PatternMatchResult without full skeleton information since these matches

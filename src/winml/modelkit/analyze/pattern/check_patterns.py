@@ -9,10 +9,10 @@ on execution providers, generating test results for each specified pattern.
 
 Usage:
     Test specific patterns:
-        python -m modelkit.analyze.pattern.check_patterns --patterns Gelu MatMulAdd
+        python -m winml.modelkit.analyze.pattern.check_patterns --patterns Gelu MatMulAdd
 
     Test all registered patterns:
-        python -m modelkit.analyze.pattern.check_patterns --all_patterns
+        python -m winml.modelkit.analyze.pattern.check_patterns --all_patterns
 """
 
 import json
@@ -23,14 +23,13 @@ import onnx
 import onnxruntime as ort
 from google.protobuf import json_format
 
-from winml.modelkit.pattern.base import (
+from ... import winml
+from ...onnx import ONNXDomain
+from ...pattern.base import (
     PatternInputGenerator,
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
 )
-
-from ... import winml
-from ...onnx import ONNXDomain
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker

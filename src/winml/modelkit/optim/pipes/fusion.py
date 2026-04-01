@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 if TYPE_CHECKING:
     import onnx
 
-from winml.modelkit.onnx import save_onnx
+from ...onnx import save_onnx
 
 # Import capability modules for FusionPipe
 # Note: gelu import removed - GELU capabilities disabled due to ORT bundling issue

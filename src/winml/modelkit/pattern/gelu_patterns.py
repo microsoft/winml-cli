@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 
-from winml.modelkit.pattern.base import (
+from ..onnx import ONNXDomain
+from .base import (
     Pattern,
     PatternInputGenerator,
     PatternSchema,
@@ -14,9 +15,7 @@ from winml.modelkit.pattern.base import (
     make_single_op_pattern,
     register_pattern_input_generator,
 )
-from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
-
-from ..onnx import ONNXDomain
+from .op_input_gen import get_runtime_checker_op
 
 
 # TODO: Add and Mul are commutative, support matching either
