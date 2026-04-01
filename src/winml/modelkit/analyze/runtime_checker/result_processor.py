@@ -566,7 +566,7 @@ def _update_manifest(rules_dir: Path) -> None:
         manifest = {
             "version": 1,
             "github_repo": "microsoft/ModelKit",
-            "release_tag": "",
+            "release_tag": "runtime-rules",
             "files": {},
         }
 
@@ -581,18 +581,11 @@ def _update_manifest(rules_dir: Path) -> None:
     # Write back sorted
     manifest["files"] = dict(sorted(manifest["files"].items()))
 
-    # Derive release tag from content hash — no manual version bumping needed
-    content_hash = hashlib.sha256(
-        json.dumps(manifest["files"], sort_keys=True).encode()
-    ).hexdigest()[:12]
-    manifest["release_tag"] = f"runtime-rules/{content_hash}"
-
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
         json.dump(manifest, f, indent=2)
         f.write("\n")
 
     print(f"Updated {manifest_path} with {len(manifest['files'])} file entries.")
-    print(f"Release tag: {manifest['release_tag']}")
 
 
 if __name__ == "__main__":

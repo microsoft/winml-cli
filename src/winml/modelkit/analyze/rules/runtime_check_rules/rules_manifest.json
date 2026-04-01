@@ -1,7 +1,7 @@
 {
   "version": 1,
   "github_repo": "microsoft/ModelKit",
-  "release_tag": "runtime-rules/74961c4374d8",
+  "release_tag": "runtime-rules",
   "files": {
     "NvTensorRTRTXExecutionProvider_GPU_ai.onnx_opset17.zip": {
       "sha256": "98beab99784e6f543aada314fa51941e9d65bb57fb4181bab429e3bde4eeaeee",
