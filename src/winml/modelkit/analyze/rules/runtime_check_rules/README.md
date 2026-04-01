@@ -33,6 +33,17 @@ git add rules_manifest.json
 git commit -m "update runtime check rules"
 ```
 
+## Auto-download on git pull (optional)
+
+Install the post-merge hook to automatically download rules when `rules_manifest.json` changes:
+
+```bash
+cp scripts/post-merge-rules-check.sh .git/hooks/post-merge
+chmod +x .git/hooks/post-merge
+```
+
+The hook only runs when the manifest file is part of the merge diff. Download failures are non-blocking (warning only).
+
 ## How it works
 
 - `rules_manifest.json` is the source of truth: it lists every zip file with its sha256 hash and size.
