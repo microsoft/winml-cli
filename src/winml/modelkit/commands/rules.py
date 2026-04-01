@@ -20,6 +20,7 @@ import logging
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -78,11 +79,19 @@ def _download_file(repo: str, tag: str, filename: str, dest: Path) -> None:
         )
         if result.returncode == 0:
             return
-        logger.debug("gh CLI download failed: %s", result.stderr.strip())
+        raise RuntimeError(f"gh CLI failed to download {filename}: {result.stderr.strip()}")
 
-    # Fallback to direct URL (works for public repos)
+    # Fallback to direct URL (works for public repos only)
     url = f"https://github.com/{repo}/releases/download/{tag}/{filename}"
-    urllib.request.urlretrieve(url, dest)  # noqa: S310
+    try:
+        urllib.request.urlretrieve(url, dest)  # noqa: S310
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 403):
+            raise RuntimeError(
+                f"Failed to download {filename} ({e.code}). "
+                f"For private repos, install GitHub CLI: https://cli.github.com"
+            ) from e
+        raise
 
 
 @click.group()
