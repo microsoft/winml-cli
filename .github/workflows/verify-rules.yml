@@ -1,0 +1,57 @@
+name: Verify Runtime Rules
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/winml/modelkit/analyze/rules/runtime_check_rules/rules_manifest.json"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify manifest hashes match release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          MANIFEST="src/winml/modelkit/analyze/rules/runtime_check_rules/rules_manifest.json"
+          REPO=$(jq -r '.github_repo' "$MANIFEST")
+          TAG=$(jq -r '.release_tag' "$MANIFEST")
+          ERRORS=0
+
+          echo "Checking release '$TAG' on $REPO..."
+
+          for FILE in $(jq -r '.files | keys[]' "$MANIFEST"); do
+            EXPECTED_HASH=$(jq -r --arg f "$FILE" '.files[$f].sha256' "$MANIFEST")
+
+            # Download asset via gh CLI
+            if ! gh release download "$TAG" --repo "$REPO" --pattern "$FILE" --dir /tmp/rules --clobber 2>/dev/null; then
+              echo "ERROR: $FILE not found in release '$TAG'"
+              ERRORS=$((ERRORS + 1))
+              continue
+            fi
+
+            ACTUAL_HASH=$(sha256sum "/tmp/rules/$FILE" | cut -d' ' -f1)
+            if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+              echo "ERROR: $FILE hash mismatch"
+              echo "  manifest: $EXPECTED_HASH"
+              echo "  release:  $ACTUAL_HASH"
+              ERRORS=$((ERRORS + 1))
+            else
+              echo "OK: $FILE"
+            fi
+          done
+
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "FAILED: $ERRORS file(s) have mismatched or missing release assets."
+            echo "Upload the correct zips before merging:"
+            echo "  gh release upload $TAG *.zip --repo $REPO --clobber"
+            exit 1
+          fi
+
+          echo "All files verified."
