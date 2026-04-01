@@ -146,7 +146,7 @@ class PatternMatchResult:
             Falls back to dicts when ONNXOp is not available.
         """
         try:
-            from winml.modelkit.analyze.models.onnx_op import ONNXOp
+            from ..analyze import ONNXOp
 
             return [
                 ONNXOp(

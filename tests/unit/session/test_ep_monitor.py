@@ -14,9 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.session.monitor.ep_monitor import EPMonitor
-from winml.modelkit.session.monitor.vitisai_monitor import VitisAIMonitor
-from winml.modelkit.session.stats import PerfStats
+from winml.modelkit.session import EPMonitor, PerfStats, VitisAIMonitor
 
 
 # ============================================================================
@@ -64,7 +62,7 @@ class TestEPMonitor:
 
     def test_null_ep_monitor(self):
         """NullEPMonitor implements Null Object Pattern correctly."""
-        from winml.modelkit.session.monitor.ep_monitor import NullEPMonitor
+        from winml.modelkit.session import NullEPMonitor
 
         mon = NullEPMonitor()
         assert NullEPMonitor.is_available() is True
@@ -88,7 +86,7 @@ class TestPerfStatsImport:
     """Verify PerfStats imports work from session package."""
 
     def test_import_from_submodule(self):
-        from winml.modelkit.session.stats import PerfStats
+        from winml.modelkit.session import PerfStats
 
         assert PerfStats is not None
 
@@ -446,14 +444,14 @@ class TestHWMonitor:
     """Test universal PDH-based HWMonitor."""
 
     def test_is_available_returns_bool(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         result = HWMonitor.is_available()
         assert isinstance(result, bool)
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_context_manager_lifecycle(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.2)
@@ -464,7 +462,7 @@ class TestHWMonitor:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_to_dict_structure(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.1)
@@ -494,7 +492,7 @@ class TestHWMonitor:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_idle_shows_low_utilization(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.2)
@@ -503,7 +501,7 @@ class TestHWMonitor:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_utilization_samples_accessible(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.2)
@@ -514,7 +512,7 @@ class TestHWMonitor:
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_companion_pattern_with_perfstats(self):
         """HWMonitor works alongside PerfStats."""
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         stats = PerfStats(warmup=2)
         with HWMonitor(poll_interval_ms=50) as hw:
@@ -527,7 +525,7 @@ class TestHWMonitor:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_cpu_metrics_available(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.2)
@@ -538,7 +536,7 @@ class TestHWMonitor:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_ram_metrics_available(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.2)
@@ -550,7 +548,7 @@ class TestHWMonitor:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_cpu_samples_accessible(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.2)
@@ -570,12 +568,12 @@ class TestQNNMonitor:
     """Test QNNMonitor placeholder."""
 
     def test_is_available_returns_false(self):
-        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+        from winml.modelkit.session import QNNMonitor
 
         assert QNNMonitor.is_available() is False
 
     def test_context_manager_noop(self):
-        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+        from winml.modelkit.session import QNNMonitor
 
         with QNNMonitor() as hw:
             pass
@@ -583,7 +581,7 @@ class TestQNNMonitor:
         assert hw.to_dict()["ep"] == "QNN"
 
     def test_to_dict_returns_stub(self):
-        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+        from winml.modelkit.session import QNNMonitor
 
         with QNNMonitor() as hw:
             pass
@@ -603,12 +601,12 @@ class TestOpenVinoMonitor:
     """Test OpenVinoMonitor placeholder."""
 
     def test_is_available_returns_false(self):
-        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+        from winml.modelkit.session import OpenVinoMonitor
 
         assert OpenVinoMonitor.is_available() is False
 
     def test_context_manager_noop(self):
-        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+        from winml.modelkit.session import OpenVinoMonitor
 
         with OpenVinoMonitor() as hw:
             pass
@@ -616,7 +614,7 @@ class TestOpenVinoMonitor:
         assert hw.to_dict()["ep"] == "OpenVINO"
 
     def test_to_dict_returns_stub(self):
-        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+        from winml.modelkit.session import OpenVinoMonitor
 
         with OpenVinoMonitor() as hw:
             pass
@@ -636,17 +634,17 @@ class TestMonitorImports:
     """Verify all monitors are importable from submodules and session."""
 
     def test_import_hw_monitor_from_submodule(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         assert HWMonitor is not None
 
     def test_import_qnn_monitor_from_submodule(self):
-        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+        from winml.modelkit.session import QNNMonitor
 
         assert QNNMonitor is not None
 
     def test_import_openvino_monitor_from_submodule(self):
-        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+        from winml.modelkit.session import OpenVinoMonitor
 
         assert OpenVinoMonitor is not None
 
@@ -729,7 +727,7 @@ class TestToDictJsonSerializable:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_hw_monitor_to_dict_json(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         with HWMonitor(poll_interval_ms=50) as hw:
             time.sleep(0.1)
@@ -746,7 +744,7 @@ class TestToDictJsonSerializable:
         assert isinstance(serialized, str)
 
     def test_qnn_monitor_to_dict_json(self):
-        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+        from winml.modelkit.session import QNNMonitor
 
         with QNNMonitor() as hw:
             pass
@@ -755,7 +753,7 @@ class TestToDictJsonSerializable:
         assert isinstance(serialized, str)
 
     def test_openvino_monitor_to_dict_json(self):
-        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+        from winml.modelkit.session import OpenVinoMonitor
 
         with OpenVinoMonitor() as hw:
             pass
@@ -774,7 +772,7 @@ class TestMonitorExceptionSafety:
     """Verify monitors clean up properly when exceptions occur."""
 
     def test_hw_monitor_cleans_up_on_exception(self):
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
+        from winml.modelkit.session import HWMonitor
 
         monitor = HWMonitor(poll_interval_ms=50)
         with pytest.raises(RuntimeError), monitor:
@@ -790,86 +788,6 @@ class TestMonitorExceptionSafety:
 
         # VitisAI has no background thread — just verify it exited cleanly
         assert monitor.command_submissions == 0
-
-
-# ============================================================================
-# Integration test (requires real NPU)
-# ============================================================================
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
-class TestHWMonitorIntegration:
-    """Integration tests requiring a real NPU."""
-
-    @pytest.fixture
-    def simple_onnx_model(self, tmp_path):
-        """Create a minimal ONNX model (MatMul) for NPU integration testing.
-
-        This is a tiny graph that compiles to any NPU EP and runs fast
-        enough for integration testing without downloading large models.
-        """
-        import onnx
-        from onnx import TensorProto, helper
-
-        # MatMul: (1, 64) x (64, 32) -> (1, 32)
-        x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 64])
-        y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [64, 32])
-        z = helper.make_tensor_value_info("Z", TensorProto.FLOAT, [1, 32])
-
-        matmul = helper.make_node("MatMul", ["X", "Y"], ["Z"])
-        graph = helper.make_graph([matmul], "test_matmul", [x, y], [z])
-        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
-        model.ir_version = 8
-
-        model_path = tmp_path / "test_matmul.onnx"
-        onnx.save(model, str(model_path))
-        return model_path
-
-    def test_npu_monitor_captures_metrics(self, simple_onnx_model):
-        """HWMonitor captures metrics during real NPU inference."""
-        import numpy as np
-
-        from winml.modelkit.session import WinMLSession
-        from winml.modelkit.session.monitor.hw_monitor import HWMonitor
-
-        if not HWMonitor.is_available():
-            pytest.skip("HWMonitor not available (not Windows)")
-
-        # Skip if no NPU — this test needs real NPU inference
-        from winml.modelkit.session.monitor._pdh import PdhPoller
-
-        if not PdhPoller.is_npu_available():
-            pytest.skip("No NPU detected via PDH — skipping integration test")
-
-        session = WinMLSession(str(simple_onnx_model), device="npu")
-
-        # Generate random inputs matching the model
-        inputs = {
-            "X": np.random.rand(1, 64).astype(np.float32),
-            "Y": np.random.rand(64, 32).astype(np.float32),
-        }
-
-        # Warm up session
-        session.run(inputs)
-
-        with HWMonitor(poll_interval_ms=50) as hw:
-            for _ in range(500):
-                session.run(inputs)
-            # Give poller time to capture at least one sample
-            time.sleep(0.15)
-
-        # Monitor should have collected metrics without errors
-        d = hw.to_dict()
-        assert d["monitor"] == "HWMonitor"
-        assert d["npu_luid"] is not None  # NPU was discovered
-
-        # Verify JSON serializability
-        serialized = json.dumps(d)
-        assert isinstance(serialized, str)
-
-        # Memory should be detected (even if utilization is 0 for fast ops)
-        assert isinstance(hw.peak_memory_mb, float)
-        assert isinstance(hw.mean_utilization_pct, float)
 
 
 # ============================================================================

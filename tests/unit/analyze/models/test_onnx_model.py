@@ -17,7 +17,7 @@ import pytest
 from onnx import TensorProto, helper
 from pydantic import ValidationError
 
-from winml.modelkit.analyze.models.onnx_model import ONNXModel
+from winml.modelkit.analyze import ONNXModel
 
 
 class TestONNXModelValidation:

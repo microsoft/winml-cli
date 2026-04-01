@@ -270,7 +270,7 @@ def _build_rewrite_capabilities() -> dict[str, Any]:
     - Per-source flags (e.g. ``gelu1-singlegelu``) → applies only that one variant.
     Single-source groups register only the group flag (the two would be identical).
     """
-    from winml.modelkit.optim.registry import BoolCapability, CapabilityCategory
+    from ..registry import BoolCapability, CapabilityCategory
 
     caps: dict[str, BoolCapability] = {}
     for group in REWRITE_GROUPS:

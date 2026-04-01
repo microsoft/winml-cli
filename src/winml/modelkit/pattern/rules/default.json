@@ -148,7 +148,7 @@
       "description": "Reshape-Transpose-Reshape for dimension permutation",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+          "pattern_to_id": "SUBGRAPH/ReshapeTransposeReshapeLowDimPattern",
           "pattern_class": "ReshapeTransposeReshapeLowDimPattern",
           "module": "winml.modelkit.pattern.transpose_patterns",
           "priority": 1,
