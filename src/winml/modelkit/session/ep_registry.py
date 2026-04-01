@@ -61,7 +61,7 @@ class WinMLEPRegistry:
             self._init_windows_app_sdk()
             self._load_ep_catalog()
             self._winml_available = True
-            logger.info("WinML EP discovery successful: %s", list(self._ep_paths.keys()))
+            logger.debug("WinML EP discovery successful: %s", list(self._ep_paths.keys()))
         except ImportError as e:
             logger.warning("WinML not available (missing packages): %s", e)
             self._winml_available = False
@@ -126,7 +126,7 @@ class WinMLEPRegistry:
                 # Use ORT's native EP registration API
                 ort.register_execution_provider_library(name, dll_path)
                 self._registered_eps.append(name)
-                logger.info("Registered EP: %s -> %s", name, dll_path)
+                logger.debug("Registered EP: %s -> %s", name, dll_path)
             except Exception as e:
                 logger.warning("Failed to register EP %s: %s", name, e)
 
