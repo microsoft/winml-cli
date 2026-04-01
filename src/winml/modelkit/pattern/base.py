@@ -175,17 +175,16 @@ import onnx
 from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
-from winml.modelkit.pattern.match import InputInfo, PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
-from winml.modelkit.pattern.op_input_gen.op_input_gen import OpInputGenerator
-from winml.modelkit.pattern.utils import get_attribute_proto_value, make_hashable
-
 from ..onnx import ONNXDomain, SupportedONNXType, check_onnx_model, infer_onnx_shapes
+from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
+from .op_input_gen import InputShapeConstraint
+from .op_input_gen.op_input_gen import OpInputGenerator
+from .utils import get_attribute_proto_value, make_hashable
 
 
 logger = logging.getLogger(__name__)
 
-# ModelTag string constants (inlined to avoid static_analyzer dependency)
+# ModelTag string constants (inlined to avoid analyze module dependency)
 _MODEL_TAG_INVALID_PATTERN_MATCHER_MODEL = "invalid_pattern_matcher_model"
 _MODEL_TAG_MISSING_NODE_NAMES = "missing_node_names"
 

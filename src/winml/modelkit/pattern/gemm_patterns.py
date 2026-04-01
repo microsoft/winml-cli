@@ -7,17 +7,16 @@ from typing import Any
 import numpy as np
 from onnx.defs import OpSchema
 
-from winml.modelkit.pattern.base import (
+from ..onnx import ONNXDomain
+from .base import (
     Pattern,
     PatternInputGenerator,
     PatternSchema,
     Skeleton,
     register_pattern_input_generator,
 )
-from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint, InputValueConstraint
-
-from ..onnx import ONNXDomain
+from .match import PatternMatchResult, SkeletonMatchResult
+from .op_input_gen import InputShapeConstraint, InputValueConstraint
 
 
 # Shared schema for MatMulAdd and ReshapeGemmReshape patterns

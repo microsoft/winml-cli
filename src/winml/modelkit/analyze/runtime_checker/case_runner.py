@@ -16,14 +16,13 @@ if TYPE_CHECKING:
 import numpy as np
 import onnx
 
-from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
-from winml.modelkit.pattern.op_input_gen.op_input_gen import (
+from ...onnx import ONNXDomain
+from ...pattern.op_input_gen import get_runtime_checker_op
+from ...pattern.op_input_gen.op_input_gen import (
     InputShapeConstraint,
     OpInputGenerator,
     model_from_b64,
 )
-
-from ...onnx import ONNXDomain
 from .check_ops import get_ep_checker
 from .runner import ResilientRunner
 

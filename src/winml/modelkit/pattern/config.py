@@ -142,11 +142,7 @@ class UnifiedPatternConfig:
         alternatives = qnn_config.get_alternatives(gelu_pattern)
     """
 
-    def __init__(
-        self,
-        ihv_type: str | None = None,
-        config_path: Path | str | None = None
-    ) -> None:
+    def __init__(self, ihv_type: str | None = None, config_path: Path | str | None = None) -> None:
         """Initialize the unified pattern configuration.
 
         Args:
@@ -171,8 +167,7 @@ class UnifiedPatternConfig:
 
         self.config_path = config_path
         logger.debug(
-            f"UnifiedPatternConfig initialized for IHV={self.ihv_type}, "
-            f"config={self.config_path}"
+            f"UnifiedPatternConfig initialized for IHV={self.ihv_type}, config={self.config_path}"
         )
 
     def get_skeleton_patterns(self) -> list[Pattern]:
@@ -251,7 +246,7 @@ class UnifiedPatternConfig:
             )
 
         logger.info(f"Loading default configuration from {default_config_path}")
-        with default_config_path.open(encoding='utf-8') as f:
+        with default_config_path.open(encoding="utf-8") as f:
             merged_config = json.load(f)
 
         # If IHV-specific config requested, load and merge it
@@ -263,23 +258,23 @@ class UnifiedPatternConfig:
                 )
             else:
                 logger.info(f"Loading IHV configuration from {self.config_path}")
-                with self.config_path.open(encoding='utf-8') as f:
+                with self.config_path.open(encoding="utf-8") as f:
                     ihv_config = json.load(f)
 
                 # Merge HTPPatternRules: IHV overrides default by pattern_id
-                merged_config['HTPPatternRules'] = self._merge_pattern_rules(
-                    merged_config.get('HTPPatternRules', []),
-                    ihv_config.get('HTPPatternRules', []),
-                    key='pattern_id'
+                merged_config["HTPPatternRules"] = self._merge_pattern_rules(
+                    merged_config.get("HTPPatternRules", []),
+                    ihv_config.get("HTPPatternRules", []),
+                    key="pattern_id",
                 )
 
                 # Merge SkeletonPatternRules: IHV overrides default by pattern_class
                 # Using pattern_class as key because multiple Pattern classes
                 # can share the same pattern_id
-                merged_config['SkeletonPatternRules'] = self._merge_pattern_rules(
-                    merged_config.get('SkeletonPatternRules', []),
-                    ihv_config.get('SkeletonPatternRules', []),
-                    key='pattern_class'
+                merged_config["SkeletonPatternRules"] = self._merge_pattern_rules(
+                    merged_config.get("SkeletonPatternRules", []),
+                    ihv_config.get("SkeletonPatternRules", []),
+                    key="pattern_class",
                 )
 
                 logger.info(f"Merged default + {self.ihv_type} configurations")
@@ -287,19 +282,19 @@ class UnifiedPatternConfig:
         config_data = merged_config
 
         # Validate required sections
-        if 'HTPPatternRules' not in config_data:
+        if "HTPPatternRules" not in config_data:
             logger.warning("Missing 'HTPPatternRules' section in configuration")
-            config_data['HTPPatternRules'] = []
+            config_data["HTPPatternRules"] = []
 
-        if 'SkeletonPatternRules' not in config_data:
+        if "SkeletonPatternRules" not in config_data:
             logger.warning("Missing 'SkeletonPatternRules' section in configuration")
-            config_data['SkeletonPatternRules'] = []
+            config_data["SkeletonPatternRules"] = []
 
         # Load HTP pattern metadata
-        for htp_data in config_data['HTPPatternRules']:
+        for htp_data in config_data["HTPPatternRules"]:
             try:
                 # Import SubgraphPattern model
-                from winml.modelkit.pattern.models import SubgraphPattern
+                from .models import SubgraphPattern
 
                 # Convert edge_topology if present
                 if "edge_topology" in htp_data and isinstance(htp_data["edge_topology"], list):
@@ -315,33 +310,31 @@ class UnifiedPatternConfig:
                 self._htp_patterns.append(htp_pattern)
                 logger.debug(f"Loaded HTP pattern: {htp_pattern.pattern_id}")
             except Exception as e:  # noqa: PERF203
-                pattern_id = htp_data.get('pattern_id', 'unknown')
-                logger.warning(
-                    f"Failed to load HTP pattern {pattern_id}: {e}. Skipping."
-                )
+                pattern_id = htp_data.get("pattern_id", "unknown")
+                logger.warning(f"Failed to load HTP pattern {pattern_id}: {e}. Skipping.")
 
         # Load Skeleton pattern configurations
         skeleton_count = 0
-        for pattern_data in config_data['SkeletonPatternRules']:
+        for pattern_data in config_data["SkeletonPatternRules"]:
             # Parse alternatives (metadata only, not loaded as Pattern instances)
             alternatives = [
                 PatternAlternative(
-                    pattern_to_id=alt_data['pattern_to_id'],
-                    priority=alt_data['priority'],
-                    reason=alt_data.get('reason'),
-                    pattern_class=alt_data.get('pattern_class'),
-                    module=alt_data.get('module'),
+                    pattern_to_id=alt_data["pattern_to_id"],
+                    priority=alt_data["priority"],
+                    reason=alt_data.get("reason"),
+                    pattern_class=alt_data.get("pattern_class"),
+                    module=alt_data.get("module"),
                 )
-                for alt_data in pattern_data.get('alternatives', [])
+                for alt_data in pattern_data.get("alternatives", [])
             ]
 
             # Create pattern config
             config = PatternConfig(
-                pattern_id=pattern_data['pattern_id'],
-                pattern_class=pattern_data['pattern_class'],
-                module=pattern_data['module'],
-                enabled=pattern_data['enabled'],
-                description=pattern_data.get('description'),
+                pattern_id=pattern_data["pattern_id"],
+                pattern_class=pattern_data["pattern_class"],
+                module=pattern_data["module"],
+                enabled=pattern_data["enabled"],
+                description=pattern_data.get("description"),
                 alternatives=alternatives,
             )
 
@@ -368,10 +361,7 @@ class UnifiedPatternConfig:
         )
 
     def _merge_pattern_rules(
-        self,
-        base_rules: list[dict],
-        override_rules: list[dict],
-        key: str = 'pattern_id'
+        self, base_rules: list[dict], override_rules: list[dict], key: str = "pattern_id"
     ) -> list[dict]:
         """Merge two pattern rule lists with override behavior.
 
