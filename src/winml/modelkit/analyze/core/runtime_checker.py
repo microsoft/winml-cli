@@ -329,7 +329,11 @@ class RuntimeChecker:
         # Build node_name -> PatternRuntime from pattern_results
         node_to_pattern_runtime: dict[str, PatternRuntime] = {}
         for pr in pattern_results:
-            if pr.pattern_match and hasattr(pr.pattern_match, "skeleton_match_result"):
+            if (
+                (not pr.result.no_data)
+                and pr.pattern_match
+                and hasattr(pr.pattern_match, "skeleton_match_result")
+            ):
                 smr = pr.pattern_match.skeleton_match_result
                 if smr and smr.matched_nodes:
                     for node in smr.matched_nodes:
