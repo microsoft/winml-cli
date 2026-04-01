@@ -7,10 +7,6 @@
 import hashlib
 import json
 import logging
-import shutil
-import subprocess
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from ..models.ihv_type import IHVType
@@ -48,6 +44,9 @@ def download_file(repo: str, tag: str, filename: str, dest: Path) -> None:
         filename: Asset filename
         dest: Local destination path
     """
+    import shutil
+    import subprocess
+
     gh_path = shutil.which("gh")
     if gh_path:
         result = subprocess.run(  # noqa: S603
@@ -70,6 +69,9 @@ def download_file(repo: str, tag: str, filename: str, dest: Path) -> None:
         if result.returncode == 0:
             return
         raise RuntimeError(f"gh CLI failed to download {filename}: {result.stderr.strip()}")
+
+    import urllib.error
+    import urllib.request
 
     url = f"https://github.com/{repo}/releases/download/{tag}/{filename}"
     try:
