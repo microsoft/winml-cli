@@ -41,6 +41,9 @@ from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registratio
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
 from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
 from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
+from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
+from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
+from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
@@ -50,6 +53,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     **_CLIP_CLASS_MAPPING,
     **_SAM2_CLASS_MAPPING,
     **_SEGFORMER_CLASS_MAPPING,
+    **_T5_CLASS_MAPPING,
 }
 
 # Registry: model_type -> WinMLBuildConfig
