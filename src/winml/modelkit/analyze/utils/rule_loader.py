@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 """Rule database loader for JSON rule files."""
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -14,6 +15,36 @@ from ..models.runtime_checks import RuntimeCheckRule
 
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_RULES_DIR = Path(__file__).parent.parent / "rules" / "runtime_check_rules"
+_MANIFEST_PATH = _RUNTIME_RULES_DIR / "rules_manifest.json"
+
+
+def verify_rules_available() -> list[str]:
+    """Check whether runtime check rule zip files are present.
+
+    Returns:
+        List of missing filenames. Empty means all files are present.
+    """
+    if not _MANIFEST_PATH.exists():
+        return []
+
+    with open(_MANIFEST_PATH, encoding="utf-8") as f:  # noqa: PTH123
+        manifest = json.load(f)
+
+    return [name for name in manifest["files"] if not (_RUNTIME_RULES_DIR / name).exists()]
+
+
+def manifest_cache_key() -> str:
+    """Return a short hash of rules_manifest.json for use as a CI cache key.
+
+    Returns:
+        First 12 hex characters of the manifest file's sha256, or empty string
+        if manifest does not exist.
+    """
+    if not _MANIFEST_PATH.exists():
+        return ""
+    return hashlib.sha256(_MANIFEST_PATH.read_bytes()).hexdigest()[:12]
 
 
 class RuleLoader:

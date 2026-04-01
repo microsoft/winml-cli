@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "github_repo": "microsoft/ModelKit",
+  "release_tag": "runtime-rules/74961c4374d8",
+  "files": {
+    "NvTensorRTRTXExecutionProvider_GPU_ai.onnx_opset17.zip": {
+      "sha256": "98beab99784e6f543aada314fa51941e9d65bb57fb4181bab429e3bde4eeaeee",
+      "size": 10291756
+    },
+    "OpenVINOExecutionProvider_CPU_ai.onnx_opset17.zip": {
+      "sha256": "1ce3c949cb39727fce7d03a31dc6b835f85ed3e9be38fc627587100b2c2986d2",
+      "size": 10267939
+    },
+    "OpenVINOExecutionProvider_GPU_ai.onnx_opset17.zip": {
+      "sha256": "1ac79483dcc88a60c031b3f71262569fd8a27456e7a2d8e7a8e40a8bd6d15a83",
+      "size": 9368817
+    },
+    "OpenVINOExecutionProvider_NPU_ai.onnx_opset17.zip": {
+      "sha256": "0cb3d41768833f76824c49ba29f7226b8513099ea59cf83d9b66a4dd46a4cbf6",
+      "size": 12701380
+    },
+    "OpenVINOExecutionProvider_NPU_com.microsoft_opset1.zip": {
+      "sha256": "7c4903a03fddbed112e7059853807d1a6fae4c2700c641b0a4bfd64698d5bd69",
+      "size": 1320
+    },
+    "QNNExecutionProvider_GPU_ai.onnx_opset17.zip": {
+      "sha256": "f67187f850a1901585f8bedf92902a46ba670bab59e44fd22ed65f14ba371bb3",
+      "size": 8746039
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset11.zip": {
+      "sha256": "c366f42bc774262cf017b7c76a0646dbef377206429122c8f7bef1c1c4d5dd61",
+      "size": 9436039
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset12.zip": {
+      "sha256": "302cd0ecb9b2484bc37614f28d73cab9987229a173945b8995f72fafc491d309",
+      "size": 17916485
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset13.zip": {
+      "sha256": "b7312b6088e95995eb5764548ba36040dfd33583b6445a3165b1f4c4d718860b",
+      "size": 18835570
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset14.zip": {
+      "sha256": "d4d7df06e8d7cb908b42e3736ddf4a3442bd800bb1b22e866b70636d1abec70d",
+      "size": 19192598
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset15.zip": {
+      "sha256": "d8f6c36c0e0e35edc435fd6097649572859076cf514170bbb5c8c30b3331c7d3",
+      "size": 20380648
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset16.zip": {
+      "sha256": "eb8787e0b3d8b377d2a8be396164c9812d64a967777b554302001f3c94fc6e02",
+      "size": 24265235
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset17.zip": {
+      "sha256": "4c2f87c73a81e401f538b8562974e7dbcf1fa77eb8659c2938636fb1f973daf7",
+      "size": 24408650
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset18.zip": {
+      "sha256": "f4c94f5fabe631e33ef564dcc2076763bcbadb36c6ec5151baa3b868698e1102",
+      "size": 26843735
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset19.zip": {
+      "sha256": "2ef7a394fbe4985133003066e3a83144c648d770df197a7a8c45558a8710f949",
+      "size": 27811747
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset20.zip": {
+      "sha256": "30b011c65ca3b08bff11a4a47be468492cfeaa53ff7e4bb15ec93cf82d89273a",
+      "size": 27860532
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset21.zip": {
+      "sha256": "8504607b276d08901a501556c8822a22d7bd192734b66f93e8911c59287c6dbb",
+      "size": 27862573
+    },
+    "QNNExecutionProvider_NPU_ai.onnx_opset22.zip": {
+      "sha256": "424e921429bdf90c67c0d7708b9f0257a86ffe1ba29c50d6cd3428ae646db956",
+      "size": 27859621
+    },
+    "QNNExecutionProvider_NPU_com.microsoft_opset1.zip": {
+      "sha256": "c5298375f2d301463bbf425e3d65fcc01a310dedf7eca080c724d025b14d5dd0",
+      "size": 1306
+    },
+    "VitisAIExecutionProvider_NPU_ai.onnx_opset17.zip": {
+      "sha256": "cd2e652bb4f97e2b0b6b87eeb042b3ea7f215ec29f2d7a05d0eb44f8d705f02a",
+      "size": 2526249
+    }
+  }
+}

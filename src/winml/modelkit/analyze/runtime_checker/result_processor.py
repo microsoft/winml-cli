@@ -545,6 +545,56 @@ def get_opset_version_range(op_name: str, start_opset_version: int, op_domain: s
     return versions
 
 
+def _update_manifest(rules_dir: Path) -> None:
+    """Update rules_manifest.json with current zip file hashes.
+
+    Scans the rules directory for zip files and updates the manifest
+    with their sha256 hashes and sizes, preserving repo and tag settings.
+
+    Args:
+        rules_dir: Path to the runtime_check_rules directory
+    """
+    import hashlib
+
+    manifest_path = rules_dir / "rules_manifest.json"
+
+    # Load existing manifest to preserve repo/tag settings
+    if manifest_path.exists():
+        with open(manifest_path, encoding="utf-8") as f:  # noqa: PTH123
+            manifest = json.load(f)
+    else:
+        manifest = {
+            "version": 1,
+            "github_repo": "microsoft/ModelKit",
+            "release_tag": "",
+            "files": {},
+        }
+
+    # Update file entries
+    for zip_path in sorted(rules_dir.glob("*.zip")):
+        h = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+        manifest["files"][zip_path.name] = {
+            "sha256": h,
+            "size": zip_path.stat().st_size,
+        }
+
+    # Write back sorted
+    manifest["files"] = dict(sorted(manifest["files"].items()))
+
+    # Derive release tag from content hash — no manual version bumping needed
+    content_hash = hashlib.sha256(
+        json.dumps(manifest["files"], sort_keys=True).encode()
+    ).hexdigest()[:12]
+    manifest["release_tag"] = f"runtime-rules/{content_hash}"
+
+    with open(manifest_path, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
+        json.dump(manifest, f, indent=2)
+        f.write("\n")
+
+    print(f"Updated {manifest_path} with {len(manifest['files'])} file entries.")
+    print(f"Release tag: {manifest['release_tag']}")
+
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -845,3 +895,6 @@ if __name__ == "__main__":
                     f"_opset{current_opset_version}.zip "
                     f"updated with {len(file_list)} files."
                 )
+
+            # Update rules_manifest.json with new/changed zip hashes
+            _update_manifest(rule_zip_path.parent)

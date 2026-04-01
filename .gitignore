@@ -260,3 +260,6 @@ specs/
 /eval_results
 /settings.local.json
 .claude/settings.local.json
+
+# Runtime check rule zips (downloaded from GitHub Releases)
+src/winml/modelkit/analyze/rules/runtime_check_rules/*.zip

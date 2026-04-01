@@ -559,6 +559,18 @@ class ONNXStaticAnalyzer:
         """
         import onnx
 
+        from .utils.rule_loader import verify_rules_available
+
+        # Check rule files are present
+        missing = verify_rules_available()
+        if missing:
+            logger.warning(
+                "%d runtime check rule file(s) missing. "
+                "Run 'winml rules download' to fetch them. "
+                "Analysis results may be incomplete.",
+                len(missing),
+            )
+
         # Normalize EP name (convert aliases to full names)
         ep_normalized = normalize_ep_name(ep)
         if ep != ep_normalized:
