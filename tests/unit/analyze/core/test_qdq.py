@@ -1045,8 +1045,8 @@ class TestIterQDQCombinations:
             ("Concat", 240),  # 15 base shapes/axes * 4 variadic counts * 4 activation types
             (
                 "Conv",
-                1536,
-            ),  # shape 3 * auto_pad 4 * group_opts 2 * kernel shape 2 * optional b 2 * 16 = 1536
+                1536 * 4,
+            ),  # shape 3 * attrs 4 * 2 * kernel shape 2 * opt B 2 * 16 * B/Y non qdq 4
             (
                 "ConvTranspose",
                 3072,
@@ -1094,9 +1094,9 @@ class TestIterQDQCombinations:
             ("Reshape", 36 * 4 * 2 * 2),  # allowzero 2 * is_constant 2
             (
                 "Resize",
-                2880,
+                3456,
             ),  # shape 4 * T2 3 * QDQ 4 * antialias 2
-            # * attribute 5 * (optional input 4 + 2)
+            # * attribute 6 * (optional input 4 + 2)
             (
                 "ScatterND",
                 1680,
@@ -1112,7 +1112,7 @@ class TestIterQDQCombinations:
             # All unary use this and it is enough
             ("Tanh", unary_input_shapes * 4),  # 32
             ("TopK", 768),  # QDQ 4 * example 12 * k is_constant 2 * parameter 8
-            ("Transpose", 11 * 4 * 2),  # 88
+            ("Transpose", 11 * 4 * 2 * 2),  # cases * QDQ * opt perm * non_qdq data
             ("Unsqueeze", 208),  # 26 * 4 QDQ types * 2 is_constant axes
             (
                 "Where",
