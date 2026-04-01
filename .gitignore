@@ -260,3 +260,5 @@ specs/
 /eval_results
 /settings.local.json
 .claude/settings.local.json
+/docs/
+/sa_eval_results/
