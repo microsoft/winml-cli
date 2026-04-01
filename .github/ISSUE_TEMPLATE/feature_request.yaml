@@ -1,0 +1,27 @@
+name: Feature Request
+description: File a feature or enhancement proposal
+title: "[FR]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for submitting a feature request.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal Summary
+      description: In a few sentences, provide a clear, high-level description of the feature request
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: What component(s) does this request affect?
+      description: Please choose one or more components below.
+      options:
+        - label: analyze (static analysis, pattern detection)
+        - label: optim (model optimization, graph rewriting)
+        - label: inspect (model inspection)
+        - label: compiler (model compilation)
+        - label: CLI (wmk commands)
+        - label: Other
