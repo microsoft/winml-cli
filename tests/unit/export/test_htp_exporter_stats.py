@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from winml.modelkit.export.htp.exporter import HTPExporter
+from winml.modelkit.export.htp import HTPExporter
 
 
 class TestHTPExporterTaggedNodesStats:

@@ -154,16 +154,10 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             )
         user_dataset = config.dataset
         config.dataset = deepcopy(default)
-        # Preserve user-specified values that differ from DatasetConfig class defaults
-        _cls_default = DatasetConfig()
-        if user_dataset.samples != _cls_default.samples:
-            config.dataset.samples = user_dataset.samples
-        if user_dataset.split != _cls_default.split:
-            config.dataset.split = user_dataset.split
-        if user_dataset.shuffle != _cls_default.shuffle:
-            config.dataset.shuffle = user_dataset.shuffle
-        if user_dataset.seed != _cls_default.seed:
-            config.dataset.seed = user_dataset.seed
+        # Apply fields the caller explicitly set (tracked via explicit_fields sentinel).
+        for f in ("samples", "split", "shuffle", "seed"):
+            if f in user_dataset.explicit_fields:
+                setattr(config.dataset, f, getattr(user_dataset, f))
         logger.info(
             "Using default dataset for %s: %s",
             config.task,
