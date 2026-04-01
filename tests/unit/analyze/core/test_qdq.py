@@ -1071,8 +1071,8 @@ class TestIterQDQCombinations:
             ("Gelu", unary_input_shapes * 4 * 2),  # 64
             (
                 "Gemm",
-                2304,
-            ),  # attributes 2 * 2 * 3 * 3 * C dim 4 * 16 = 2304
+                36 * 16 * (4 + 3 * 2),
+            ),  # attributes (2 * 2 * 3 * 3) * QDQ * C (qdq + non-qdq * opt)
             ("GlobalAveragePool", 3 * 4),  # 12
             ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
