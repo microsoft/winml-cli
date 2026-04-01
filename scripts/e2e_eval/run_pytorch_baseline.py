@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """PyTorch baseline inference for accuracy evaluation (Signal 2).
 
 Performs native PyTorch inference on a HuggingFace model using the same
@@ -76,7 +81,9 @@ def _load_pytorch_model(model_id: str, task: str, device_str: str):
     config = AutoConfig.from_pretrained(model_id)
     _, cls = resolve_task_and_model_class(config, task=task)
     _out(f"Loading {cls.__name__} for {model_id} on {device_str}")
-    device = torch.device(device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu"
+    )
     return cls.from_pretrained(model_id).to(device).eval()
 
 
@@ -86,7 +93,7 @@ def _build_dataset_config(ds_dict: dict, num_samples: int):
     The registry uses a "dataset" key (normalised from "path" by
     dataset_config.py).  DatasetConfig uses "path".
     """
-    from modelkit.datasets.config import DatasetConfig
+    from winml.modelkit.datasets.config import DatasetConfig
 
     columns_mapping = ds_dict.get("columns_mapping", {})
     if isinstance(columns_mapping, str):
@@ -120,15 +127,13 @@ def _extract_metric(metrics: dict, task: str, metric_label: str) -> tuple[str, f
     hf_key = _TASK_HF_METRIC_KEY.get(task, "accuracy")
     if hf_key in metrics:
         return metric_label, float(metrics[hf_key])
-    # Fallback: first score-range value (0–1), skipping timing/throughput fields
+    # Fallback: first score-range value (0-1), skipping timing/throughput fields
     # that HF evaluator injects (total_time_in_seconds, samples_per_second, etc.).
-    _SKIP_KEYS = {"total_time_in_seconds", "samples_per_second", "latency_in_seconds"}
+    skip_keys = {"total_time_in_seconds", "samples_per_second", "latency_in_seconds"}
     for k, v in metrics.items():
-        if k not in _SKIP_KEYS and isinstance(v, (int, float)) and 0.0 <= v <= 1.0:
+        if k not in skip_keys and isinstance(v, (int, float)) and 0.0 <= v <= 1.0:
             return metric_label, float(v)
-    raise ValueError(
-        f"No score metric found in evaluator output for task '{task}': {metrics}"
-    )
+    raise ValueError(f"No score metric found in evaluator output for task '{task}': {metrics}")
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +142,7 @@ def _extract_metric(metrics: dict, task: str, metric_label: str) -> tuple[str, f
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="PyTorch baseline inference for accuracy evaluation (Signal 2)"
     )
@@ -174,6 +180,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run PyTorch baseline inference for accuracy evaluation."""
     args = parse_args()
     model_id = args.model
 
@@ -199,7 +206,10 @@ def main() -> None:
             try:
                 columns_mapping = json.loads(args.columns_mapping)
             except json.JSONDecodeError:
-                _out(f"WARNING: --columns-mapping is not valid JSON, ignoring: {args.columns_mapping}")
+                _out(
+                    "WARNING: --columns-mapping is not valid JSON, "
+                    f"ignoring: {args.columns_mapping}"
+                )
         ds_config_dict: dict | None = {
             "dataset": args.dataset,
             "split": args.split or "validation",
@@ -221,11 +231,14 @@ def main() -> None:
     metric_label = ds_config_dict.get("metric", _TASK_HF_METRIC_KEY.get(task, "accuracy"))
 
     _out(f"Task: {task} | Model: {model_id} | Device: {args.device} | Samples: {num_samples}")
-    _out(f"Dataset: {ds_config_dict.get('dataset')} / {ds_config_dict.get('dataset_config', '')} [{ds_config_dict.get('split', 'validation')}]")
+    ds_name = ds_config_dict.get("dataset")
+    ds_cfg = ds_config_dict.get("dataset_config", "")
+    ds_split = ds_config_dict.get("split", "validation")
+    _out(f"Dataset: {ds_name} / {ds_cfg} [{ds_split}]")
 
     try:
-        from modelkit.eval.base_evaluator import WinMLEvaluator
-        from modelkit.eval.config import WinMLEvaluationConfig
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
+        from winml.modelkit.eval.config import WinMLEvaluationConfig
 
         pytorch_model = _load_pytorch_model(model_id, task, args.device)
         dataset_config = _build_dataset_config(ds_config_dict, num_samples)
@@ -237,7 +250,8 @@ def main() -> None:
             dataset=dataset_config,
         )
 
-        from modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+
         evaluator_cls = _EVALUATOR_REGISTRY.get(task, WinMLEvaluator)
         task_evaluator = evaluator_cls(eval_config, pytorch_model)
 

@@ -30,8 +30,7 @@ from typing import Any
 
 import onnx
 
-from winml.modelkit.onnx import load_onnx, save_onnx
-
+from ..onnx import load_onnx, save_onnx
 from .errors import ConfigurationError, ModelValidationError
 from .optimizer import Optimizer
 from .pipes import get_all_capabilities

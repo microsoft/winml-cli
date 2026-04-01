@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from winml.modelkit.pattern.models import OperatorPattern, PatternType
+from ...pattern.models import OperatorPattern, PatternType
 
-# Re-export shared utilities from winml.modelkit.pattern.utils
-from winml.modelkit.pattern.utils import (  # noqa: F401
+# Re-export shared utilities from pattern.utils
+from ...pattern.utils import (  # noqa: F401
     DUMMY_FLOAT,
     collect_initializers,
     collect_valueinfo_dict,
@@ -57,7 +57,7 @@ def node_to_pattern_match(
         This is useful for converting individual operators to patterns
         for runtime support checking.
     """
-    from winml.modelkit.pattern.match import PatternMatchResult, SkeletonMatchResult
+    from ...pattern.match import PatternMatchResult, SkeletonMatchResult
 
     # Detect namespace
     namespace = "ai.onnx"

@@ -23,8 +23,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from winml.modelkit.optim.pipes.base import PipeConfig
-from winml.modelkit.optim.pipes.graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
+from winml.modelkit.optim.pipes import (
+    GRAPH_CAPABILITIES,
+    ORTGraphPipe,
+    ORTGraphPipeConfig,
+    PipeConfig,
+)
 
 
 if TYPE_CHECKING:
