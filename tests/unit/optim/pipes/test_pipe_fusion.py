@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 # Import pipe classes from modelkit (production)
-from winml.modelkit.optim.pipes.fusion import ORTFusionPipe, ORTFusionPipeConfig
+from winml.modelkit.optim.pipes import ORTFusionPipe, ORTFusionPipeConfig
 from winml.modelkit.optim.registry import (
     BoolCapability,
     CapabilityCategory,
@@ -114,7 +114,7 @@ class TestORTFusionPipeConfig:
 
     def test_fusion_pipe_config_is_pipe_config(self) -> None:
         """Verify ORTFusionPipeConfig inherits from PipeConfig."""
-        from winml.modelkit.optim.pipes.base import PipeConfig
+        from winml.modelkit.optim.pipes import PipeConfig
 
         config = ORTFusionPipeConfig()
         assert isinstance(config, PipeConfig)

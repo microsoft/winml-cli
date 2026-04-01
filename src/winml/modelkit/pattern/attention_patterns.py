@@ -44,7 +44,8 @@ from typing import Any
 import numpy as np
 from onnx.defs import OpSchema
 
-from winml.modelkit.pattern.base import (
+from ..onnx import ONNXDomain
+from .base import (
     Pattern,
     PatternInputGenerator,
     PatternMatchResult,
@@ -53,9 +54,7 @@ from winml.modelkit.pattern.base import (
     SkeletonMatchResult,
     register_pattern_input_generator,
 )
-from winml.modelkit.pattern.op_input_gen import InputShapeConstraint
-
-from ..onnx import ONNXDomain
+from .op_input_gen import InputShapeConstraint
 
 
 # Type constraints for Attention operator (from opset 24 spec)

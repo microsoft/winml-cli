@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING
 
 import tqdm
 
-from winml.modelkit.pattern.config import UnifiedPatternConfig
-
+from ...pattern.config import UnifiedPatternConfig
 from ..models.runtime_checks import (
     AlternativeType,
     PatternAlternative,
@@ -343,12 +342,14 @@ class RuntimeChecker:
             if node_name in node_to_pattern_runtime:
                 # Replace with pattern-level result, keeping original pattern_match for traceability
                 pr = node_to_pattern_runtime[node_name]
-                merged.append(PatternRuntime(
-                    pattern_id=op_r.pattern_id,  # keep original op pattern_id
-                    result=pr.result,            # use subgraph-level result
-                    alternatives=pr.alternatives,
-                    pattern_match=op_r.pattern_match,
-                ))
+                merged.append(
+                    PatternRuntime(
+                        pattern_id=op_r.pattern_id,  # keep original op pattern_id
+                        result=pr.result,  # use subgraph-level result
+                        alternatives=pr.alternatives,
+                        pattern_match=op_r.pattern_match,
+                    )
+                )
             else:
                 merged.append(op_r)
 

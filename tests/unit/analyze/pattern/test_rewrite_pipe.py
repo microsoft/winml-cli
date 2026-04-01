@@ -24,7 +24,7 @@ import onnx
 import pytest
 
 from winml.modelkit.onnx import ONNXDomain
-from winml.modelkit.optim.pipes.rewrite import RewritePipe
+from winml.modelkit.optim.pipes import RewritePipe
 from winml.modelkit.optim.pipes.rewrite_rules import REWRITE_GROUPS
 from winml.modelkit.pattern import PatternMatcher
 
@@ -58,8 +58,7 @@ def _gelu_cap_name() -> str | None:
 
 def _gelu_cap_name_for_variant(gelu_variant: str) -> str | None:
     """Return the capability name for the group containing gelu_variant, or None."""
-    source_name = f"{gelu_variant}Pattern"
-    group = next((g for g in REWRITE_GROUPS if source_name in g.sources), None)
+    group = next((g for g in REWRITE_GROUPS if gelu_variant in g.sources), None)
     return group.flag_name if group is not None else None
 
 

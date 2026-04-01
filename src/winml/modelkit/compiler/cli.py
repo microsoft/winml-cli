@@ -139,18 +139,18 @@ def compile(
 
     Examples:
         # Basic QNN compile with defaults
-        python -m modelkit.compiler compile -m model.onnx --ep qnn
+        python -m winml.modelkit.compiler compile -m model.onnx --ep qnn
 
         # Skip quantization (pre-quantized model)
-        python -m modelkit.compiler compile -m model_qdq.onnx --no-quantize
+        python -m winml.modelkit.compiler compile -m model_qdq.onnx --no-quantize
 
         # Custom calibration
-        python -m modelkit.compiler compile -m model.onnx \
+        python -m winml.modelkit.compiler compile -m model.onnx \
             --calibration-samples 500 \
             --calibration-save calibration.json
 
         # Load pre-computed calibration
-        python -m modelkit.compiler compile -m model.onnx \
+        python -m winml.modelkit.compiler compile -m model.onnx \
             --calibration-load calibration.json
     """
     from .compiler import compile_onnx
@@ -274,10 +274,10 @@ def calibrate(
 
     Examples:
         # Generate calibration data
-        python -m modelkit.compiler calibrate -m model.onnx -o calibration.json
+        python -m winml.modelkit.compiler calibrate -m model.onnx -o calibration.json
 
         # Use more samples
-        python -m modelkit.compiler calibrate -m model.onnx -o calibration.json --samples 500
+        python -m winml.modelkit.compiler calibrate -m model.onnx -o calibration.json --samples 500
     """
     import tempfile
 
