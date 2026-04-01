@@ -31,6 +31,7 @@ from typing import Any
 
 import click
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
@@ -595,6 +596,16 @@ def sysinfo(
     # Inherit debug mode from parent
     if ctx.obj.get("debug"):
         verbose = True
+
+    # Route winml.modelkit logs through Rich so they never interleave with CLI output.
+    # In normal mode suppress everything below WARNING; in debug mode show all levels.
+    _log_level = logging.DEBUG if verbose else logging.WARNING
+    _rich_handler = RichHandler(console=console, show_path=False)
+    _rich_handler.setLevel(_log_level)
+    _pkg_logger = logging.getLogger("winml.modelkit")
+    _pkg_logger.setLevel(_log_level)
+    _pkg_logger.addHandler(_rich_handler)
+    _pkg_logger.propagate = False
 
     use_json = output_format.lower() == "json"
 
