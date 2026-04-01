@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Optimize command for wmk CLI.
+"""Optimize command for winml CLI.
 
 This module provides the optimize command that uses the capability-driven
 optimizer for ONNX model optimization with fusion and graph optimizations.
@@ -11,12 +11,12 @@ CLI options are auto-generated from the capability registry, following
 the Open-Closed Principle from the design documentation.
 
 Usage:
-    wmk optimize --model MODEL --output OUTPUT [OPTIONS]
+    winml optimize --model MODEL --output OUTPUT [OPTIONS]
 
 Examples:
-    wmk optimize -m model.onnx -o model_opt.onnx
-    wmk optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
-    wmk optimize -m model.onnx --preset transformer-optimized
+    winml optimize -m model.onnx -o model_opt.onnx
+    winml optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
+    winml optimize -m model.onnx --preset transformer-optimized
 """
 
 from __future__ import annotations
@@ -253,26 +253,26 @@ def optimize(
     \b
     Examples:
         # List available capabilities
-        wmk optimize --list-capabilities
+        winml optimize --list-capabilities
 
         # List available rewrite pattern families
-        wmk optimize --list-rewrites
+        winml optimize --list-rewrites
 
         # Pattern rewrite flags follow: --enable-{source-slug}-{target-slug}
         # Run --list-rewrites to discover all available flag names.
         # Example (all GELU variants -> single Gelu node):
-        wmk optimize -m model.onnx -o out.onnx --enable-gelu-singlegelu
+        winml optimize -m model.onnx -o out.onnx --enable-gelu-singlegelu
         # Example (only Gelu1 variant -> single Gelu node):
-        wmk optimize -m model.onnx -o out.onnx --enable-gelu1-singlegelu
+        winml optimize -m model.onnx -o out.onnx --enable-gelu1-singlegelu
 
         # Basic optimization with GELU fusion
-        wmk optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
+        winml optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
 
         # Use transformer preset
-        wmk optimize -m bert.onnx --preset transformer-optimized
+        winml optimize -m bert.onnx --preset transformer-optimized
 
         # Use config file
-        wmk optimize -m model.onnx -c config.toml
+        winml optimize -m model.onnx -c config.toml
     """
     # Import capabilities (late import to speed up CLI)
     from ..optim.pipes import get_all_capabilities

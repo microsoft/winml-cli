@@ -2,19 +2,19 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Analyze command for wmk CLI.
+"""Analyze command for winml CLI.
 
 This module provides the analyze command that analyzes ONNX models
 for runtime support across NPU execution providers.
 
 Usage:
-    wmk analyze --model MODEL --ep EP --device DEVICE [OPTIONS]
+    winml analyze --model MODEL --ep EP --device DEVICE [OPTIONS]
 
 Examples:
-    wmk analyze --model model.onnx --ep QNNExecutionProvider --device NPU
-    wmk analyze --model model.onnx --ep qnn --device NPU
-    wmk analyze --model model.onnx --ep ov --device GPU --information
-    wmk analyze --model model.onnx --ep vitis --device GPU --output results.json
+    winml analyze --model model.onnx --ep QNNExecutionProvider --device NPU
+    winml analyze --model model.onnx --ep qnn --device NPU
+    winml analyze --model model.onnx --ep ov --device GPU --information
+    winml analyze --model model.onnx --ep vitis --device GPU --output results.json
 """
 
 from __future__ import annotations
@@ -100,27 +100,27 @@ def analyze(
     Examples:
     Analyze all supported EPs with default device:
 
-        wmk analyze --model model.onnx
+        winml analyze --model model.onnx
 
     Check QNN NPU support (full name):
 
-        wmk analyze --model model.onnx --ep QNNExecutionProvider --device NPU
+        winml analyze --model model.onnx --ep QNNExecutionProvider --device NPU
 
     Check QNN NPU support (using alias):
 
-        wmk analyze --model model.onnx --ep qnn --device NPU
+        winml analyze --model model.onnx --ep qnn --device NPU
 
     Check Intel OpenVINO GPU support with recommendations (using alias):
 
-        wmk analyze --model model.onnx --ep ov --device GPU --information
+        winml analyze --model model.onnx --ep ov --device GPU --information
 
     Analyze all EPs and save results to file:
 
-        wmk analyze --model model.onnx --output results.json
+        winml analyze --model model.onnx --output results.json
 
     Use HTP metadata for enhanced pattern extraction:
 
-        wmk analyze --model model.onnx
+        winml analyze --model model.onnx
             --ep OpenVINOExecutionProvider --driver GPU --information --htp-metadata metadata.json
     """
     # Configure logging

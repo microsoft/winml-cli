@@ -1,6 +1,6 @@
 # E2E Evaluation Scripts
 
-Batch-evaluate ModelKit's `wmk perf` pipeline against a curated set of HuggingFace models.
+Batch-evaluate ModelKit's `winml perf` pipeline against a curated set of HuggingFace models.
 Captures pass/fail, failure classification, and generates interactive reports.
 
 ## Quick Start
@@ -48,7 +48,7 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 
 ### `run_eval.py` — Run Evaluation
 
-Executes `wmk perf` for each model in a subprocess, classifies failures, and
+Executes `winml perf` for each model in a subprocess, classifies failures, and
 generates reports (JSON, Markdown, HTML).
 
 ```bash

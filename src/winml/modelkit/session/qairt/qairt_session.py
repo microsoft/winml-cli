@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# QAIRT SDK dependencies for venv-wmk virtual environment
+# QAIRT SDK dependencies for venv-winml virtual environment
 QAIRT_DEPENDENCIES = [
     "onnx>=1.14.0,<1.17",
     "torch==2.4.1",
@@ -72,7 +72,7 @@ class WinMLQairtSession(WinMLSession):
         """Compile model using QAIRT SDK.
 
         Pipeline:
-            1. Ensure venv-wmk in SDK directory
+            1. Ensure venv-winml in SDK directory
             2. Run compile_qairt_bin.py subprocess → .bin
             3. Generate cache_info.json
             4. Wrap binary into EPContext ONNX model
@@ -89,7 +89,7 @@ class WinMLQairtSession(WinMLSession):
         # Step 1: Set up venv with QAIRT dependencies
         venv_python = ensure_venv(
             root_path=self._qnn_sdk_root,
-            venv_name="venv-wmk",
+            venv_name="venv-winml",
             python_version="3.10",
             requirements=QAIRT_DEPENDENCIES,
         )

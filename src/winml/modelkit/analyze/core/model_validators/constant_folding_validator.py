@@ -122,7 +122,7 @@ class ConstantFoldingValidator(ModelValidator):
                 [
                     {
                         "title": "Normalize model",
-                        "command": "wmk optimize --model model.onnx",
+                        "command": "winml optimize --model model.onnx",
                     }
                 ],
                 indent=2,

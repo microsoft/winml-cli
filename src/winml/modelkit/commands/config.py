@@ -11,13 +11,13 @@ When -m points to an existing .onnx file, generates a simpler config with
 export=None (marking it as an ONNX build that skips the export stage).
 
 Usage:
-    wmk config -m microsoft/resnet-50
-    wmk config -m bert-base-uncased --task text-classification
-    wmk config -m model.onnx
-    wmk config --model-type bert
-    wmk config --model-type bert --task fill-mask
-    wmk config -m microsoft/resnet-50 --module ResNetConvLayer
-    wmk config -m bert-base-uncased -o config.json
+    winml config -m microsoft/resnet-50
+    winml config -m bert-base-uncased --task text-classification
+    winml config -m model.onnx
+    winml config --model-type bert
+    winml config --model-type bert --task fill-mask
+    winml config -m microsoft/resnet-50 --module ResNetConvLayer
+    winml config -m bert-base-uncased -o config.json
 """
 
 from __future__ import annotations
@@ -196,34 +196,34 @@ def config(
     \b
     Examples:
         # Basic usage - auto-detect everything
-        wmk config -m microsoft/resnet-50
+        winml config -m microsoft/resnet-50
 
         # Override task
-        wmk config -m bert-base-uncased --task text-classification
+        winml config -m bert-base-uncased --task text-classification
 
         # Target NPU with int8 quantization
-        wmk config -m microsoft/resnet-50 --device npu --precision int8
+        winml config -m microsoft/resnet-50 --device npu --precision int8
 
         # Target GPU with fp16 (no quantization)
-        wmk config -m bert-base-uncased --device gpu --precision fp16
+        winml config -m bert-base-uncased --device gpu --precision fp16
 
         # Model type only (uses default HF config, auto-detects task)
-        wmk config --model-type bert
+        winml config --model-type bert
 
         # Model type + task
-        wmk config --model-type bert --task fill-mask
+        winml config --model-type bert --task fill-mask
 
         # Override with JSON config file
-        wmk config -m bert-base-uncased -c overrides.json
+        winml config -m bert-base-uncased -c overrides.json
 
         # Vision model with shape overrides ({"height": 224, "width": 224})
-        wmk config --model-type resnet -t image-classification --shape-config shapes.json
+        winml config --model-type resnet -t image-classification --shape-config shapes.json
 
         # Save to file
-        wmk config -m bert-base-uncased -o config.json
+        winml config -m bert-base-uncased -o config.json
 
         # Generate configs for submodules
-        wmk config -m microsoft/resnet-50 --module ResNetConvLayer
+        winml config -m microsoft/resnet-50 --module ResNetConvLayer
     """
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
