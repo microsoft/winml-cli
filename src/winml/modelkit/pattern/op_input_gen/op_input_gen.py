@@ -19,9 +19,8 @@ import onnx
 from colorama import Fore, Style
 from onnx.defs import OpSchema
 
-from winml.modelkit.pattern.utils import get_op_input_properties
-
 from ...onnx import ONNXDomain, SupportedONNXType
+from ..utils import get_op_input_properties
 from .qdq_gen import QDQGenerator
 
 
@@ -321,8 +320,10 @@ class OpInputGenerator(ABC):
                 - "all_axes_combinations": Iterate over all axis
                   subsets for each non-constant and non-scalar
                   input. Not yet implemented.
-            runner: Optional ResilientRunner for EP runtime checking. Injected by static_analyzer.
-            ep_checker: Optional EPChecker for EP validation. Injected by static_analyzer.
+            runner: Optional ResilientRunner for EP runtime checking.
+                Injected by the analyze module.
+            ep_checker: Optional EPChecker for EP validation.
+                Injected by the analyze module.
         """
         assert dynamic_axis_mode in (
             "none",

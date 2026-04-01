@@ -219,7 +219,7 @@ class TestCapabilityCliFlagsIntegration:
 
     def test_graph_capability_flags(self) -> None:
         """Test CLI flags for actual graph capabilities."""
-        from winml.modelkit.optim.pipes.graph import GRAPH_CAPABILITIES
+        from winml.modelkit.optim.pipes import GRAPH_CAPABILITIES
 
         # Check a few actual capabilities
         for _cap_name, cap in list(GRAPH_CAPABILITIES.items())[:5]:
@@ -232,7 +232,7 @@ class TestCapabilityCliFlagsIntegration:
 
     def test_fusion_capability_flags(self) -> None:
         """Test CLI flags for actual fusion capabilities."""
-        from winml.modelkit.optim.pipes.fusion import ORTFusionPipe
+        from winml.modelkit.optim.pipes import ORTFusionPipe
 
         for _cap_name, cap in list(ORTFusionPipe.capabilities.items())[:5]:
             if isinstance(cap, BoolCapability):

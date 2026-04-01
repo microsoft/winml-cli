@@ -23,7 +23,7 @@ import onnx
 import pytest
 from onnx import numpy_helper
 
-from winml.modelkit.optim.pipes.surgery import (
+from winml.modelkit.optim.pipes import (
     SURGERY_CAPABILITIES,
     SurgeryPipe,
     SurgeryPipeConfig,
