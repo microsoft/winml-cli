@@ -1,5 +1,11 @@
 trigger: none
 
+parameters:
+  - name: evalDate
+    displayName: 'Eval date (leave empty for today, e.g. 2026-04-01)'
+    type: string
+    default: ''
+
 variables:
   evalOutputBase: 'c:/eval_results'
 
@@ -43,7 +49,8 @@ jobs:
         displayName: 'Install dependencies'
 
       - powershell: |
-          $evalDate = Get-Date -Format 'yyyy-MM-dd'
+          $evalDate = '${{ parameters.evalDate }}'
+          if (-not $evalDate) { $evalDate = Get-Date -Format 'yyyy-MM-dd' }
           $dir = "$(evalOutputBase)/$evalDate"
           Write-Host "##vso[task.setvariable variable=EVAL_DIR;isOutput=true]$dir"
           Write-Host "Eval output directory: $dir"
@@ -86,7 +93,8 @@ jobs:
   - job: EvalModel
     displayName: 'Run Model Eval'
     dependsOn: Prepare
-    timeoutInMinutes: 2400
+    timeoutInMinutes: 90
+    cancelTimeoutInMinutes: 2
     pool:
       name: modelkit-selfhost-pool
       demands:
@@ -136,11 +144,60 @@ jobs:
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Run eval for current model'
 
+  - job: RetryMissed
+    displayName: 'Retry Interrupted Models'
+    dependsOn:
+      - Prepare
+      - EvalModel
+    condition: always()
+    timeoutInMinutes: 180
+    cancelTimeoutInMinutes: 5
+    pool:
+      name: modelkit-selfhost-pool
+      demands:
+        - Agent.Name -equals NPU-QNN
+    variables:
+      EVAL_DIR: $[ dependencies.Prepare.outputs['set_output_dir.EVAL_DIR'] ]
+
+    steps:
+      - checkout: none
+
+      - powershell: |
+          $uvBin = "$env:USERPROFILE\.local\bin"
+          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
+          Write-Host "##vso[task.prependpath]$uvBin"
+          Write-Host "##vso[task.prependpath]$venvDir"
+        displayName: 'Activate Python environment'
+
+      - powershell: |
+          Write-Host "Retrying any models missing eval_result.json in $(EVAL_DIR)"
+
+          $uvArgs = @(
+              "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
+              "--output-dir", "$(EVAL_DIR)",
+              "--device", "npu",
+              "--continue",
+              "--verbose",
+              "--timeout", "1800",
+              "--no-report",
+              "--clean-hf-cache"
+          )
+
+          & uv @uvArgs
+          $retryExit = $LASTEXITCODE
+          if ($retryExit -ne 0) {
+              Write-Warning "Retry pass exited with code $retryExit (non-blocking)"
+          }
+          exit 0
+        workingDirectory: $(Build.SourcesDirectory)
+        displayName: 'Re-run models with missing results'
+
   - job: Report
     displayName: 'Generate Eval Report'
     dependsOn:
       - Prepare
       - EvalModel
+      - RetryMissed
     condition: always()
     pool:
       name: modelkit-selfhost-pool
