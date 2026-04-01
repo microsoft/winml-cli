@@ -827,8 +827,9 @@ class TestIterQDQCombinationsTagSchema:
     - Optional QDQ input not provided: present in 'qdq_types' as ''
 
     Note: When an operator has pass-through inputs, 'input_is_constant' contains only
-    those pass-through inputs (Gather). When no pass-through inputs exist, all inputs
-    are in 'input_is_constant' from the outer constant-combination loop (Gemm).
+    those pass-through inputs (Gather). When an optional input supports both QDQ and
+    non-QDQ (pass-through) modes (Gemm C), 'input_is_constant' contains that input only
+    in the non-QDQ combination; pure QDQ inputs (A, B) never appear in 'input_is_constant'.
     """
 
     @pytest.fixture
@@ -970,29 +971,41 @@ class TestIterQDQCombinationsTagSchema:
             assert final_tags["qdq_types"]["B"] != ""
 
     def test_gemm_qdq_inputs_not_in_input_is_constant(self, gemm_gen) -> None:
-        """A (activation) and B (weight) not exist in input_is_constant.
+        """A (activation) and B (weight) never appear in input_is_constant.
 
-        Gemm has no pass-through inputs, so input_is_constant does not exist.
+        C may appear in input_is_constant for its non-QDQ (pass-through) combination,
+        but pure QDQ inputs A and B are never pass-through.
         """
         gen = gemm_gen
         kwargs, tags = self._gemm_float_c_provided_kwargs_tags(gen)
         results = list(gen.iter_const_and_dynamic_models(kwargs, tags))
         assert len(results) > 0
         for _, final_tags in results:
-            assert "input_is_constant" not in final_tags
+            ic = final_tags.get("input_is_constant", {})
+            assert "A" not in ic
+            assert "B" not in ic
 
     # ---- Gemm: optional QDQ input (C) ----
 
     def test_gemm_optional_c_provided_has_int32_type(self, gemm_gen) -> None:
-        """When optional C is provided as constant, qdq_types['C'] is INT32 annotation."""
+        """When optional C is provided and quantized, qdq_types['C'] is INT32 annotation.
+
+        C supports both QDQ (INT32) and non-QDQ (pass-through) modes. In the non-QDQ
+        combination qdq_types['C'] is None; when quantized it must be INT32.
+        """
         gen = gemm_gen
         int32_ann = dtypes.SupportedONNXType.INT32.annotation
         kwargs, tags = self._gemm_float_c_provided_kwargs_tags(gen)
         results = list(gen.iter_const_and_dynamic_models(kwargs, tags))
         assert len(results) > 0
+        int32_seen = False
         for _, final_tags in results:
             assert "C" in final_tags["qdq_types"]
-            assert final_tags["qdq_types"]["C"] == int32_ann
+            c_type = final_tags["qdq_types"]["C"]
+            if c_type is not None:
+                assert c_type == int32_ann
+                int32_seen = True
+        assert int32_seen, "Expected at least one result with C quantized as INT32"
 
     def test_gemm_optional_c_not_provided_recorded_as_empty_in_qdq_types(self, gemm_gen) -> None:
         """When optional C is not provided (None), qdq_types['C'] is '' (not omitted)."""
