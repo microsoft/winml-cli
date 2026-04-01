@@ -52,8 +52,8 @@
       "size": 24265235
     },
     "QNNExecutionProvider_NPU_ai.onnx_opset17.zip": {
-      "sha256": "4c2f87c73a81e401f538b8562974e7dbcf1fa77eb8659c2938636fb1f973daf7",
-      "size": 24408650
+      "sha256": "4388dadd9e4d07f3f51068ab1e3652b5b3d7f2147bef37aec6e3f97b87812ff2",
+      "size": 25222281
     },
     "QNNExecutionProvider_NPU_ai.onnx_opset18.zip": {
       "sha256": "f4c94f5fabe631e33ef564dcc2076763bcbadb36c6ec5151baa3b868698e1102",
