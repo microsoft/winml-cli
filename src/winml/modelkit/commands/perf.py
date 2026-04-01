@@ -314,7 +314,7 @@ class PerfBenchmark:
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
-        # Resolve device once — "auto" becomes concrete (e.g., "npu")
+        # Resolve device once -- "auto" becomes concrete (e.g., "npu")
         resolved_device, _ = resolve_device(device=self.config.device)
 
         # Only override config when user explicitly passes --no-quantize
@@ -322,7 +322,7 @@ class PerfBenchmark:
         if self.config.no_quantize:
             override = WinMLBuildConfig(quant=None)
 
-        # Cache control: --ignore-cache → temp dir, --rebuild → overwrite cache
+        # Cache control: --ignore-cache -> temp dir, --rebuild -> overwrite cache
         use_cache = not self.config.ignore_cache
         force_rebuild = self.config.rebuild or self.config.ignore_cache
 

@@ -35,9 +35,7 @@ logger = logging.getLogger(__name__)
 console = Console(stderr=True)
 
 
-def _apply_stage_overrides(
-    cfg: Any, *, no_quant: bool, no_compile: bool
-) -> None:
+def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> None:
     """Apply --no-quant and --no-compile CLI overrides to a config."""
     if no_quant:
         cfg.quant = None
@@ -99,7 +97,7 @@ def _is_onnx_file(model_input: str) -> bool:
     type=click.Path(exists=True),
     default=None,
     help="JSON file with shape overrides passed to dummy input generation. "
-    "Valid keys — text: sequence_length; "
+    "Valid keys -- text: sequence_length; "
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
@@ -109,8 +107,7 @@ def _is_onnx_file(model_input: str) -> bool:
     "device",
     type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
     default="auto",
-    help="Target device (affects quant/compile config). "
-    "Default: auto (no changes to config).",
+    help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )
 @click.option(
     "--ep",
@@ -260,9 +257,7 @@ def config(
                     )
                 override = WinMLBuildConfig.from_dict(data)
             except json.JSONDecodeError as e:
-                raise click.UsageError(
-                    f"Invalid JSON in config file {config_path}: {e}"
-                ) from e
+                raise click.UsageError(f"Invalid JSON in config file {config_path}: {e}") from e
             console.print(f"[dim]Loaded overrides from {config_path.name}[/dim]")
 
         # Load shape_config (shape overrides) from JSON file if provided
@@ -330,9 +325,7 @@ def config(
                 # Apply --no-quant / --no-compile overrides to each config
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
-                console.print(
-                    f"[green]Found {len(configs)} submodules matching '{module}'[/green]"
-                )
+                console.print(f"[green]Found {len(configs)} submodules matching '{module}'[/green]")
                 output_data = [cfg.to_dict() for cfg in configs]
             else:
                 # Normal mode: result is WinMLBuildConfig
@@ -343,10 +336,7 @@ def config(
                 if not task and not module:
                     auto_task = config_obj.loader.task
                     source = model_type or hf_model
-                    console.print(
-                        f"[dim]Auto-selected task: {auto_task} "
-                        f"(from '{source}')[/dim]"
-                    )
+                    console.print(f"[dim]Auto-selected task: {auto_task} (from '{source}')[/dim]")
                 console.print(
                     f"[green]Generated config for task '{config_obj.loader.task}'[/green]"
                 )
