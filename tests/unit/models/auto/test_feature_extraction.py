@@ -39,8 +39,7 @@ class TestWinMLModelForFeatureExtractionBasic:
         assert WinMLModelForFeatureExtraction is not None
 
     def test_inherits_from_base(self):
-        from winml.modelkit.models.winml import WinMLPreTrainedModel
-        from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
+        from winml.modelkit.models.winml import WinMLModelForFeatureExtraction, WinMLPreTrainedModel
         assert issubclass(WinMLModelForFeatureExtraction, WinMLPreTrainedModel)
 
     def test_exported_from_winml_package(self):

@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from winml.modelkit.eval import SpearmanCorrelationMetric
-from winml.modelkit.eval import WinMLFeatureExtractionEvaluator
+from winml.modelkit.eval import SpearmanCorrelationMetric, WinMLFeatureExtractionEvaluator
 
 
 # ---------------------------------------------------------------------------
