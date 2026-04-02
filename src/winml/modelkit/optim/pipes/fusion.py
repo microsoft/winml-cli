@@ -301,6 +301,8 @@ class ORTFusionPipe(BasePipe):
             ) from e
 
         finally:
-            # Clean up temporary file
+            # Clean up temporary file and its external data sidecar
             if input_path:
-                Path(input_path).unlink(missing_ok=True)
+                p = Path(input_path)
+                p.unlink(missing_ok=True)
+                (p.parent / f"{p.name}.data").unlink(missing_ok=True)
