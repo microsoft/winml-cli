@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """SA pre/post comparison and EPContext diff logic for SA evaluation.
 
 Uses the Python SA API (ONNXStaticAnalyzer) directly to run analysis and
@@ -8,9 +13,14 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import onnx
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 # ---------------------------------------------------------------------------
 # SA Python API invocation
@@ -225,10 +235,12 @@ def get_epcontext_diff(compiled_onnx: Path) -> dict:
             epcontext_count += 1
         else:
             domain = node.domain or "ai.onnx"
-            fallback.append({
-                "op_type": node.op_type,
-                "pattern_id": f"OP/{domain}/{node.op_type}",
-            })
+            fallback.append(
+                {
+                    "op_type": node.op_type,
+                    "pattern_id": f"OP/{domain}/{node.op_type}",
+                }
+            )
 
     fallback_counts = Counter(n["op_type"] for n in fallback)
     fallback_pattern_ids = list({n["pattern_id"] for n in fallback})
@@ -267,12 +279,14 @@ def compare_sa_vs_epcontext(
             verdict = "FN"
         else:
             verdict = "UNKNOWN"
-        comparison.append({
-            "pattern_id": pid,
-            "sa_prediction": sa_level,
-            "actual_ep": actual,
-            "verdict": verdict,
-        })
+        comparison.append(
+            {
+                "pattern_id": pid,
+                "sa_prediction": sa_level,
+                "actual_ep": actual,
+                "verdict": verdict,
+            }
+        )
 
     verdicts = Counter(c["verdict"] for c in comparison)
     tp = verdicts.get("TP", 0)
@@ -289,7 +303,10 @@ def compare_sa_vs_epcontext(
         "fallback_op_types": diff["fallback_op_types"],
         "comparison": comparison,
         "summary": {
-            "tp": tp, "tn": tn, "fp": fp, "fn": fn,
+            "tp": tp,
+            "tn": tn,
+            "fp": fp,
+            "fn": fn,
             "accuracy": round(accuracy, 4),
         },
     }

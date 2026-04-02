@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """SA accuracy evaluation — four-stage self-contained pipeline.
 
 Reads models from model_with_acc.json, runs export + graph optimize,
@@ -26,9 +31,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import subprocess
 import sys
-import statistics
 import time
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -57,6 +62,7 @@ MODELS_FILE = Path(__file__).parent / "testsets" / "models_with_acc.json"
 
 
 def safe_print(text: str) -> None:
+    """Print text, replacing non-ASCII characters on encoding errors."""
     try:
         print(text)
     except UnicodeEncodeError:
@@ -64,6 +70,7 @@ def safe_print(text: str) -> None:
 
 
 def make_slug(hf_id: str, task: str) -> str:
+    """Build a filesystem-safe slug from HF model ID and task."""
     slug = hf_id.replace("/", "__")
     if task:
         slug += f"__{task}"
@@ -71,15 +78,21 @@ def make_slug(hf_id: str, task: str) -> str:
 
 
 def is_cached(path: Path) -> bool:
+    """Return True if path exists and is non-empty."""
     return path.exists() and path.stat().st_size > 0
 
 
 def run_wmk_export(hf_id: str, task: str, output: Path) -> tuple[int, str]:
     """Run wmk export via subprocess. Returns (rc, stderr_tail)."""
     args = [
-        sys.executable, "-m", "winml.modelkit.cli", "export",
-        "--model", hf_id,
-        "--output", str(output),
+        sys.executable,
+        "-m",
+        "winml.modelkit.cli",
+        "export",
+        "--model",
+        hf_id,
+        "--output",
+        str(output),
         "--clean-onnx",
     ]
     if task:
@@ -265,11 +278,17 @@ def _run_compile(onnx_path: Path, output_dir: Path) -> tuple[int, str]:
     """Run wmk compile --device npu --no-quantize. Returns (rc, stderr_tail)."""
     result = subprocess.run(  # noqa: S603
         [
-            sys.executable, "-m", "winml.modelkit.cli", "compile",
-            "--model", str(onnx_path),
-            "--device", "npu",
+            sys.executable,
+            "-m",
+            "winml.modelkit.cli",
+            "compile",
+            "--model",
+            str(onnx_path),
+            "--device",
+            "npu",
             "--no-quantize",
-            "--output-dir", str(output_dir),
+            "--output-dir",
+            str(output_dir),
         ],
         capture_output=True,
         text=True,
@@ -470,9 +489,7 @@ def evaluate_model(
     return result
 
 
-def _skip_result(
-    hf_id: str, task: str, model_type: str, status: str, model_dir: Path
-) -> dict:
+def _skip_result(hf_id: str, task: str, model_type: str, status: str, model_dir: Path) -> dict:
     result = {"model": hf_id, "task": task, "model_type": model_type, "status": status}
     (model_dir / "sa_eval_result.json").write_text(
         json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -508,8 +525,7 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
 
     # improved = explicit level change OR fused away (implicit improvement)
     models_improved = sum(
-        1 for r in complete
-        if r["delta"]["improved"] or r["delta"].get("fused_away")
+        1 for r in complete if r["delta"]["improved"] or r["delta"].get("fused_away")
     )
     models_regressed = sum(1 for r in complete if r["delta"]["regressed"])
     models_unchanged = len(complete) - models_improved - models_regressed
@@ -537,10 +553,14 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
         "models_with_post_gt": len(epctx_post),
         "avg_accuracy_pre": round(
             statistics.mean(r["epcontext_diff_pre"]["summary"]["accuracy"] for r in epctx_pre), 4
-        ) if epctx_pre else None,
+        )
+        if epctx_pre
+        else None,
         "avg_accuracy_post": round(
             statistics.mean(r["epcontext_diff_post"]["summary"]["accuracy"] for r in epctx_post), 4
-        ) if epctx_post else None,
+        )
+        if epctx_post
+        else None,
     }
 
     return {
@@ -555,7 +575,8 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
             "avg_unknown_count": round(avg_pre_unknown, 2),
             "models_all_supported": sum(1 for r in pre_ratios if r == 1.0),
             "models_with_partial_unsupported": sum(
-                1 for r in complete
+                1
+                for r in complete
                 if r["sa_pre"]["summary"]["partial"] + r["sa_pre"]["summary"]["unsupported"] > 0
             ),
         },
@@ -564,7 +585,8 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
             "avg_unknown_count": round(avg_post_unknown, 2),
             "models_all_supported": sum(1 for r in post_ratios if r == 1.0),
             "models_with_partial_unsupported": sum(
-                1 for r in complete
+                1
+                for r in complete
                 if r["sa_post"]["summary"]["partial"] + r["sa_post"]["summary"]["unsupported"] > 0
             ),
         },
@@ -577,19 +599,23 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
         "epcontext_ground_truth": epctx_summary,
         "common_improved_patterns": sorted(
             [{"pattern": k, "count": v} for k, v in improved_counter.items()],
-            key=lambda x: x["count"], reverse=True,
+            key=lambda x: x["count"],
+            reverse=True,
         )[:20],
         "common_fused_away_patterns": sorted(
             [{"pattern": k, "count": v} for k, v in fused_counter.items()],
-            key=lambda x: x["count"], reverse=True,
+            key=lambda x: x["count"],
+            reverse=True,
         )[:20],
         "unresolved_partial_unsupported_patterns": sorted(
             [{"pattern": k, "count": v} for k, v in unresolved_counter.items()],
-            key=lambda x: x["count"], reverse=True,
+            key=lambda x: x["count"],
+            reverse=True,
         )[:20],
         "common_unknown_patterns": sorted(
             [{"pattern": k, "count": v} for k, v in unknown_pre_counter.items()],
-            key=lambda x: x["count"], reverse=True,
+            key=lambda x: x["count"],
+            reverse=True,
         )[:20],
         "results": complete,
     }
@@ -601,23 +627,31 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
 
 
 def main() -> None:
+    """Run SA accuracy evaluation pipeline for all models in the registry."""
     parser = argparse.ArgumentParser(
         description="SA accuracy evaluation — 4-stage self-contained pipeline"
     )
     parser.add_argument(
-        "--models-file", type=Path, default=MODELS_FILE,
+        "--models-file",
+        type=Path,
+        default=MODELS_FILE,
         help=f"Input model list JSON (default: {MODELS_FILE})",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=None,
+        "--output-dir",
+        type=Path,
+        default=None,
         help="Output directory (default: sa_eval_results/{date})",
     )
     parser.add_argument(
-        "--model", type=str, default=None,
+        "--model",
+        type=str,
+        default=None,
         help="Run a single model by HF ID",
     )
     parser.add_argument(
-        "--use-cache", action="store_true",
+        "--use-cache",
+        action="store_true",
         help="Skip stages whose output artifacts already exist",
     )
     args = parser.parse_args()
@@ -663,7 +697,9 @@ def main() -> None:
     if complete:
         avg_pre = sum(r["sa_pre"]["summary"]["supported_ratio"] for r in complete) / len(complete)
         avg_post = sum(r["sa_post"]["summary"]["supported_ratio"] for r in complete) / len(complete)
-        safe_print(f"Avg supported ratio: {avg_pre:.0%} -> {avg_post:.0%} ({avg_post - avg_pre:+.0%})")
+        safe_print(
+            f"Avg supported ratio: {avg_pre:.0%} -> {avg_post:.0%} ({avg_post - avg_pre:+.0%})"
+        )
 
         report = build_aggregate_report(all_results, args.models_file)
         report["total_elapsed"] = round(elapsed, 2)

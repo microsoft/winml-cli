@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """SA eval HTML report — pre/post optimizer comparison with detailed breakdowns.
 
 Shows separate pre/post SA level distributions, unknown op info,
@@ -32,63 +37,73 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
         post_sum = r.get("sa_post", {}).get("summary", {})
         delta = r.get("delta", {})
         optim = r.get("optimization", {})
-        viewer_data.append({
-            "model": r.get("model", ""),
-            "task": r.get("task", ""),
-            "model_type": r.get("model_type", ""),
-            "elapsed": r.get("elapsed", 0),
-            # pre SA
-            "pre_supported": pre_sum.get("supported", 0),
-            "pre_partial": pre_sum.get("partial", 0),
-            "pre_unsupported": pre_sum.get("unsupported", 0),
-            "pre_unknown": pre_sum.get("unknown", 0),
-            "pre_total": pre_sum.get("total", 0),
-            "pre_supported_ratio": pre_sum.get("supported_ratio", 0),
-            "pre_partial_patterns": r.get("sa_pre", {}).get("partial_patterns", []),
-            "pre_unsupported_patterns": r.get("sa_pre", {}).get("unsupported_patterns", []),
-            "pre_unknown_patterns": r.get("sa_pre", {}).get("unknown_patterns", []),
-            "pre_info_items": r.get("sa_pre", {}).get("info_items", []),
-            # post SA
-            "post_supported": post_sum.get("supported", 0),
-            "post_partial": post_sum.get("partial", 0),
-            "post_unsupported": post_sum.get("unsupported", 0),
-            "post_unknown": post_sum.get("unknown", 0),
-            "post_total": post_sum.get("total", 0),
-            "post_supported_ratio": post_sum.get("supported_ratio", 0),
-            "post_partial_patterns": r.get("sa_post", {}).get("partial_patterns", []),
-            "post_unsupported_patterns": r.get("sa_post", {}).get("unsupported_patterns", []),
-            "post_unknown_patterns": r.get("sa_post", {}).get("unknown_patterns", []),
-            "post_info_items": r.get("sa_post", {}).get("info_items", []),
-            # delta
-            "supported_ratio_delta": delta.get("supported_ratio_delta", 0),
-            "improved": delta.get("improved", []),
-            "fused_away": delta.get("fused_away", []),
-            "regressed": delta.get("regressed", []),
-            "unchanged_partial_unsupported": delta.get("unchanged_partial_unsupported", []),
-            # optimization
-            "optim_config": optim.get("optim_config", {}),
-            "optim_flags": list(optim.get("optim_config", {}).keys()),
-            # epcontext pre (graph_optimized compiled vs sa_pre)
-            "pre_epctx_accuracy": r.get("epcontext_diff_pre", {}).get("summary", {}).get("accuracy"),
-            "pre_epctx_fn_ops": [
-                c["pattern_id"] for c in r.get("epcontext_diff_pre", {}).get("comparison", [])
-                if c["verdict"] == "FN"
-            ],
-            "pre_epctx_fp_ops": [
-                c["pattern_id"] for c in r.get("epcontext_diff_pre", {}).get("comparison", [])
-                if c["verdict"] == "FP"
-            ],
-            # epcontext post (sa_optimized compiled vs sa_post)
-            "post_epctx_accuracy": r.get("epcontext_diff_post", {}).get("summary", {}).get("accuracy"),
-            "post_epctx_fn_ops": [
-                c["pattern_id"] for c in r.get("epcontext_diff_post", {}).get("comparison", [])
-                if c["verdict"] == "FN"
-            ],
-            "post_epctx_fp_ops": [
-                c["pattern_id"] for c in r.get("epcontext_diff_post", {}).get("comparison", [])
-                if c["verdict"] == "FP"
-            ],
-        })
+        viewer_data.append(
+            {
+                "model": r.get("model", ""),
+                "task": r.get("task", ""),
+                "model_type": r.get("model_type", ""),
+                "elapsed": r.get("elapsed", 0),
+                # pre SA
+                "pre_supported": pre_sum.get("supported", 0),
+                "pre_partial": pre_sum.get("partial", 0),
+                "pre_unsupported": pre_sum.get("unsupported", 0),
+                "pre_unknown": pre_sum.get("unknown", 0),
+                "pre_total": pre_sum.get("total", 0),
+                "pre_supported_ratio": pre_sum.get("supported_ratio", 0),
+                "pre_partial_patterns": r.get("sa_pre", {}).get("partial_patterns", []),
+                "pre_unsupported_patterns": r.get("sa_pre", {}).get("unsupported_patterns", []),
+                "pre_unknown_patterns": r.get("sa_pre", {}).get("unknown_patterns", []),
+                "pre_info_items": r.get("sa_pre", {}).get("info_items", []),
+                # post SA
+                "post_supported": post_sum.get("supported", 0),
+                "post_partial": post_sum.get("partial", 0),
+                "post_unsupported": post_sum.get("unsupported", 0),
+                "post_unknown": post_sum.get("unknown", 0),
+                "post_total": post_sum.get("total", 0),
+                "post_supported_ratio": post_sum.get("supported_ratio", 0),
+                "post_partial_patterns": r.get("sa_post", {}).get("partial_patterns", []),
+                "post_unsupported_patterns": r.get("sa_post", {}).get("unsupported_patterns", []),
+                "post_unknown_patterns": r.get("sa_post", {}).get("unknown_patterns", []),
+                "post_info_items": r.get("sa_post", {}).get("info_items", []),
+                # delta
+                "supported_ratio_delta": delta.get("supported_ratio_delta", 0),
+                "improved": delta.get("improved", []),
+                "fused_away": delta.get("fused_away", []),
+                "regressed": delta.get("regressed", []),
+                "unchanged_partial_unsupported": delta.get("unchanged_partial_unsupported", []),
+                # optimization
+                "optim_config": optim.get("optim_config", {}),
+                "optim_flags": list(optim.get("optim_config", {}).keys()),
+                # epcontext pre (graph_optimized compiled vs sa_pre)
+                "pre_epctx_accuracy": r.get("epcontext_diff_pre", {})
+                .get("summary", {})
+                .get("accuracy"),
+                "pre_epctx_fn_ops": [
+                    c["pattern_id"]
+                    for c in r.get("epcontext_diff_pre", {}).get("comparison", [])
+                    if c["verdict"] == "FN"
+                ],
+                "pre_epctx_fp_ops": [
+                    c["pattern_id"]
+                    for c in r.get("epcontext_diff_pre", {}).get("comparison", [])
+                    if c["verdict"] == "FP"
+                ],
+                # epcontext post (sa_optimized compiled vs sa_post)
+                "post_epctx_accuracy": r.get("epcontext_diff_post", {})
+                .get("summary", {})
+                .get("accuracy"),
+                "post_epctx_fn_ops": [
+                    c["pattern_id"]
+                    for c in r.get("epcontext_diff_post", {}).get("comparison", [])
+                    if c["verdict"] == "FN"
+                ],
+                "post_epctx_fp_ops": [
+                    c["pattern_id"]
+                    for c in r.get("epcontext_diff_post", {}).get("comparison", [])
+                    if c["verdict"] == "FP"
+                ],
+            }
+        )
 
     common_improved = report_data.get("common_improved_patterns", [])
     common_fused = report_data.get("common_fused_away_patterns", [])
@@ -134,9 +149,8 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
       <div style="font-size:11px;color:var(--text2)">{n} models w/ GT</div>
     </div>"""
 
-    epctx_section = (
-        _epctx_card("EPCtx Acc (Pre SA)", epctx_pre_acc, epctx_pre_n)
-        + _epctx_card("EPCtx Acc (Post SA)", epctx_post_acc, epctx_post_n)
+    epctx_section = _epctx_card("EPCtx Acc (Pre SA)", epctx_pre_acc, epctx_pre_n) + _epctx_card(
+        "EPCtx Acc (Post SA)", epctx_post_acc, epctx_post_n
     )
 
     html = f"""\
@@ -270,7 +284,7 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     </div>
     <div class="summary-card">
       <div class="label">All-SUPPORTED (Post)</div>
-      <div class="value c-good">{post_opt.get('models_all_supported', 0)}</div>
+      <div class="value c-good">{post_opt.get("models_all_supported", 0)}</div>
     </div>
     {epctx_section}
   </div>
