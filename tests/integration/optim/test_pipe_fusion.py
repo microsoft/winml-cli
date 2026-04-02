@@ -11,7 +11,7 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.optim.pipes.fusion import ORTFusionPipe, ORTFusionPipeConfig
+from winml.modelkit.optim.pipes import ORTFusionPipe, ORTFusionPipeConfig
 
 
 def _make_simple_model() -> onnx.ModelProto:

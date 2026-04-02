@@ -91,7 +91,7 @@ urls.Repository = "https://github.com/microsoft/ModelKit.git"
 # but package-dir expects namespace names (winml.modelkit). These don't auto-connect.
 # For flat layout (modelkit/) with namespace imports (winml.modelkit), explicit listing
 # ensures the namespace prefix is correctly applied to all subpackages.
-scripts.wmk = "winml.modelkit.cli:main"
+scripts.winml = "winml.modelkit.cli:main"
 
 [dependency-groups]
 dev = [
@@ -107,6 +107,7 @@ include = [ "winml", "winml.*" ]
 
 [tool.setuptools.package-data]
 "winml.modelkit" = [ "py.typed" ]
+"winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
   "rules/**/*.json",
   "rules/**/*.zip",
@@ -253,6 +254,8 @@ lint.per-file-ignores."*.pyi" = [ "ANN", "D" ]
 lint.per-file-ignores."__init__.py" = [ "D104", "E402", "F401", "F403" ]
 # Examples & Scripts: Relax for educational clarity
 lint.per-file-ignores."examples/**" = [ "ANN", "D100", "D103", "S101", "T20" ]
+# E2E eval scripts: Allow print, long lines in HTML templates, try-except in loops
+lint.per-file-ignores."scripts/e2e_eval/**" = [ "ANN", "D103", "E501", "PERF203", "T20" ]
 # CLI: Allow print statements
 lint.per-file-ignores."src/winml/modelkit/cli.py" = [ "T20", "T201" ]
 lint.per-file-ignores."src/winml/modelkit/commands/**" = [ "T20", "T201" ]

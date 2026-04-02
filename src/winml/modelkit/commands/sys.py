@@ -13,12 +13,12 @@ Displays detailed information about the system environment, including:
 - Available devices and execution providers
 
 Usage:
-    wmk sys
-    wmk sys --format json
-    wmk sys --format compact
-    wmk sys --verbose
-    wmk sys --list-device
-    wmk sys --list-ep
+    winml sys
+    winml sys --format json
+    winml sys --format compact
+    winml sys --verbose
+    winml sys --list-device
+    winml sys --list-ep
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from typing import Any
 
 import click
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
@@ -430,8 +431,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
         console.print(
-            f"  [bold]#{dev['priority']}[/bold]  "
-            f"[cyan]{dev['type']:5s}[/cyan] {dev['name']}"
+            f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {dev['name']}"
         )
         details = dev.get("details", {})
         if "error" in details:
@@ -513,9 +513,7 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 
     for ep in eps:
         name_padded = ep["name"].ljust(30)
-        console.print(
-            f"  [bold]{name_padded}[/bold] [dim]->[/dim] [cyan]{ep['device']}[/cyan]"
-        )
+        console.print(f"  [bold]{name_padded}[/bold] [dim]->[/dim] [cyan]{ep['device']}[/cyan]")
         if ep.get("path"):
             console.print(f"    Path: {ep['path']}")
         else:
@@ -575,94 +573,111 @@ def sysinfo(
     \b
     Examples:
         # Display system info (human-readable format)
-        wmk sys
+        winml sys
 
         # Get output as JSON for scripting
-        wmk sys --format json
+        winml sys --format json
 
         # Show detailed info
-        wmk sys --verbose
+        winml sys --verbose
 
         # Compact format for quick overview
-        wmk sys --format compact
+        winml sys --format compact
 
         # List available devices
-        wmk sys --list-device
+        winml sys --list-device
 
         # List execution providers as JSON
-        wmk sys --list-ep --format json
+        winml sys --list-ep --format json
     """
     # Inherit debug mode from parent
     if ctx.obj.get("debug"):
         verbose = True
 
-    use_json = output_format.lower() == "json"
+    # Route winml.modelkit logs through Rich so they never interleave with CLI output.
+    # In normal mode suppress everything below WARNING; in debug mode show all levels.
+    # Restore logger state on exit so tests using caplog are not affected.
+    log_level = logging.DEBUG if verbose else logging.WARNING
+    pkg_logger = logging.getLogger("winml.modelkit")
+    _saved_handlers = pkg_logger.handlers[:]
+    _saved_level = pkg_logger.level
+    _saved_propagate = pkg_logger.propagate
+    pkg_logger.handlers = [h for h in pkg_logger.handlers if not isinstance(h, RichHandler)]
+    rich_handler = RichHandler(console=console, show_path=False)
+    rich_handler.setLevel(log_level)
+    pkg_logger.setLevel(log_level)
+    pkg_logger.addHandler(rich_handler)
+    pkg_logger.propagate = False
 
-    # Handle --list-device and/or --list-ep (combinable)
-    if list_device or list_ep:
-        if list_device:
-            try:
-                devices = _gather_device_info()
-                if use_json:
-                    _output_device_json(devices)
-                else:
-                    _output_device_text(devices)
-            except Exception as e:
-                console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
-                logger.exception("Failed to detect devices")
-                raise click.ClickException(f"Error detecting devices: {e}") from e
-
-        if list_ep:
-            try:
-                eps = _gather_ep_info()
-                if use_json:
-                    _output_ep_json(eps)
-                else:
-                    _output_ep_text(eps)
-            except Exception as e:
-                console.print(
-                    f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                )
-                logger.exception("Failed to detect execution providers")
-                raise click.ClickException(
-                    f"Error detecting execution providers: {e}"
-                ) from e
-        return
-
-    # Default: full sysinfo including devices and EPs
     try:
-        info = _gather_system_info(verbose=verbose)
+        use_json = output_format.lower() == "json"
 
-        if use_json:
-            # Add devices and EPs to JSON output
-            try:
-                info["devices"] = _gather_device_info()
-            except Exception:
-                info["devices"] = []
-            try:
-                info["executionProviders"] = _gather_ep_info()
-            except Exception:
-                info["executionProviders"] = []
-            _output_json(info)
-        elif output_format.lower() == "compact":
-            _output_compact(info)
-        else:
-            _output_text(info, verbose=verbose)
-            # Append devices and EPs to text output
-            console.print()
-            try:
-                devices = _gather_device_info()
-                _output_device_text(devices)
-            except Exception:
-                logger.debug("Device detection failed in default output")
-            console.print()
-            try:
-                eps = _gather_ep_info()
-                _output_ep_text(eps)
-            except Exception:
-                logger.debug("EP detection failed in default output")
+        # Handle --list-device and/or --list-ep (combinable)
+        if list_device or list_ep:
+            if list_device:
+                try:
+                    devices = _gather_device_info()
+                    if use_json:
+                        _output_device_json(devices)
+                    else:
+                        _output_device_text(devices)
+                except Exception as e:
+                    console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
 
-    except Exception as e:
-        console.print(f"[bold red]Error gathering system information:[/bold red] {e}")
-        logger.exception("Failed to gather system information")
-        raise click.ClickException(f"Error gathering system information: {e}") from e
+            if list_ep:
+                try:
+                    eps = _gather_ep_info()
+                    if use_json:
+                        _output_ep_json(eps)
+                    else:
+                        _output_ep_text(eps)
+                except Exception as e:
+                    console.print(f"[bold red]Error detecting execution providers:[/bold red] {e}")
+                    logger.exception("Failed to detect execution providers")
+                    raise click.ClickException(f"Error detecting execution providers: {e}") from e
+            return
+
+        # Default: full sysinfo including devices and EPs
+        try:
+            info = _gather_system_info(verbose=verbose)
+
+            if use_json:
+                # Add devices and EPs to JSON output
+                try:
+                    info["devices"] = _gather_device_info()
+                except Exception:
+                    info["devices"] = []
+                try:
+                    info["executionProviders"] = _gather_ep_info()
+                except Exception:
+                    info["executionProviders"] = []
+                _output_json(info)
+            elif output_format.lower() == "compact":
+                _output_compact(info)
+            else:
+                _output_text(info, verbose=verbose)
+                # Append devices and EPs to text output
+                console.print()
+                try:
+                    devices = _gather_device_info()
+                    _output_device_text(devices)
+                except Exception:
+                    logger.debug("Device detection failed in default output")
+                console.print()
+                try:
+                    eps = _gather_ep_info()
+                    _output_ep_text(eps)
+                except Exception:
+                    logger.debug("EP detection failed in default output")
+
+        except Exception as e:
+            console.print(f"[bold red]Error gathering system information:[/bold red] {e}")
+            logger.exception("Failed to gather system information")
+            raise click.ClickException(f"Error gathering system information: {e}") from e
+
+    finally:
+        pkg_logger.handlers = _saved_handlers
+        pkg_logger.setLevel(_saved_level)
+        pkg_logger.propagate = _saved_propagate

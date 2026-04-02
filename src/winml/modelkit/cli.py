@@ -8,13 +8,13 @@ This module provides the main CLI entry point for ModelKit with automatic
 command discovery from the commands/ directory.
 
 Usage:
-    wmk --version
-    wmk --help
-    wmk export --model MODEL --output PATH [--backend BACKEND] [--verbose]
+    winml --version
+    winml --help
+    winml export --model MODEL --output PATH [--backend BACKEND] [--verbose]
 
 Entry Points:
-    - Standalone CLI: wmk
-    - Module execution: python -m modelkit.cli
+    - Standalone CLI: winml
+    - Module execution: python -m winml.modelkit
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 @click.group()
-@click.version_option(version=__version__, prog_name="wmk")
+@click.version_option(version=__version__, prog_name="winml")
 @click.option(
     "--debug",
     is_flag=True,

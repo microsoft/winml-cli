@@ -30,8 +30,7 @@ from typing import Any
 
 import onnx
 
-from winml.modelkit.onnx import load_onnx, save_onnx
-
+from ..onnx import load_onnx, save_onnx
 from .errors import ConfigurationError, ModelValidationError
 from .optimizer import Optimizer
 from .pipes import get_all_capabilities
@@ -256,7 +255,9 @@ def optimize_onnx(
     # Step 9: Run optimization
     logger.info("Starting optimization pipeline...")
     optimizer = Optimizer()
+    # More than one "optimize" call is necessary for certain models for thorough optimization
     optimized_model = optimizer.optimize(loaded_model, **optimizer_kwargs)
+    optimized_model = optimizer.optimize(optimized_model, **optimizer_kwargs)
 
     # Step 10: Save if output path provided
     if output is not None:

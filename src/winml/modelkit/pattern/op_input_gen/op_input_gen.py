@@ -19,9 +19,8 @@ import onnx
 from colorama import Fore, Style
 from onnx.defs import OpSchema
 
-from winml.modelkit.pattern.utils import get_op_input_properties
-
 from ...onnx import ONNXDomain, SupportedONNXType
+from ..utils import get_op_input_properties
 from .qdq_gen import QDQGenerator
 
 
@@ -156,6 +155,14 @@ class InputValueConstraint(InputConstraint):
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
         if isinstance(self.value, np.ndarray):
+            flat = self.value.ravel()
+            if flat.size > 0 and np.all(flat == flat[0]):
+                return {
+                    "type": "value",
+                    "same_value": flat[0].item(),
+                    "same_value_shape": list(self.value.shape),
+                    "dtype": str(self.value.dtype),
+                }
             return {
                 "type": "value",
                 "value": self.value.tolist(),  # Nested list structure reflects shape
@@ -174,6 +181,23 @@ class InputValueConstraint(InputConstraint):
             f"Supported types: np.ndarray, dict, list, str, int, float, bool, None"
         )
         raise TypeError(msg)
+
+
+def normalize_constraint_dict(c: dict) -> dict:
+    """Expand same_value/same_value_shape back to the canonical value list form.
+
+    Converts the compact representation produced by InputValueConstraint.to_dict()
+    when all values are equal, back to the full nested value list. Use this when
+    consuming serialized constraint dicts to ensure consistent handling regardless
+    of which representation was saved.
+    """
+    if "same_value" in c and "same_value_shape" in c:
+        normalized = {k: v for k, v in c.items() if k not in ("same_value", "same_value_shape")}
+        dtype = np.dtype(c["dtype"]) if "dtype" in c else None
+        normalized["value"] = np.full(c["same_value_shape"], c["same_value"], dtype=dtype).tolist()
+
+        return normalized
+    return c
 
 
 class InputShapeConstraint(InputConstraint):
@@ -321,8 +345,10 @@ class OpInputGenerator(ABC):
                 - "all_axes_combinations": Iterate over all axis
                   subsets for each non-constant and non-scalar
                   input. Not yet implemented.
-            runner: Optional ResilientRunner for EP runtime checking. Injected by static_analyzer.
-            ep_checker: Optional EPChecker for EP validation. Injected by static_analyzer.
+            runner: Optional ResilientRunner for EP runtime checking.
+                Injected by the analyze module.
+            ep_checker: Optional EPChecker for EP validation.
+                Injected by the analyze module.
         """
         assert dynamic_axis_mode in (
             "none",

@@ -3,14 +3,19 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """E2E evaluation runner — unified perf + accuracy.
 
-Batch-runs wmk perf (and optionally wmk eval + pytorch baseline) for models
+Batch-runs winml perf (and optionally winml eval + pytorch baseline) for models
 in a JSON registry, writes unified eval_result.json per model, and generates
 combined reports.
 
-Strategy B cache sharing: wmk perf runs first (build + benchmark, populates
-model cache). wmk eval then reuses the cache — no redundant build step.
+Strategy B cache sharing: winml perf runs first (build + benchmark, populates
+model cache). winml eval then reuses the cache — no redundant build step.
 
 Usage:
     # Perf only (default)
@@ -19,7 +24,7 @@ Usage:
     # Both perf and accuracy in one batch
     python scripts/e2e_eval/run_eval.py --eval-type both --priority P0
 
-    # Accuracy only (wmk perf is skipped; wmk eval will build the model if cache is missing)
+    # Accuracy only (winml perf is skipped; winml eval will build the model if cache is missing)
     python scripts/e2e_eval/run_eval.py --eval-type accuracy --hf-model microsoft/resnet-50
 
     # Single model
@@ -72,7 +77,7 @@ from utils.reporter import (
 # Constants
 # ---------------------------------------------------------------------------
 
-WMK = [sys.executable, "-m", "winml.modelkit.cli"]
+WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
 BASELINE_SCRIPT = Path(__file__).parent / "run_pytorch_baseline.py"
 BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
 EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
@@ -350,16 +355,16 @@ def _run_build(
     timeout: int,
     model_dir: Path,
 ) -> dict:
-    """Run wmk config + wmk build for one model. Returns build result dict.
+    """Run winml config + winml build for one model. Returns build result dict.
 
-    Flow: wmk config → config.json → wmk build --use-cache → ONNX path.
+    Flow: winml config → config.json → winml build --use-cache → ONNX path.
     """
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: wmk config
+    # Step 1: winml config
     config_args = [
-        *WMK,
+        *WINML_CLI,
         "config",
         "-m",
         entry.hf_id,
@@ -382,9 +387,9 @@ def _run_build(
             "proc": config_proc,
         }
 
-    # Step 2: wmk build --use-cache
+    # Step 2: winml build --use-cache
     build_args = [
-        *WMK,
+        *WINML_CLI,
         "build",
         "-c",
         str(config_path),
@@ -403,7 +408,7 @@ def _run_build(
         }
 
     # Extract ONNX path from build output
-    # wmk build prints "Final artifact: <path>" in stderr
+    # winml build prints "Final artifact: <path>" in stderr
     onnx_path = None
     for line in build_proc["stderr"].splitlines():
         if "Final artifact:" in line:
@@ -456,16 +461,16 @@ def run_model(
     timeout: int,
     onnx_path: str | None = None,
 ) -> dict:
-    """Execute wmk perf for one model. Returns raw subprocess result dict.
+    """Execute winml perf for one model. Returns raw subprocess result dict.
 
     When onnx_path is provided, benchmarks the pre-built ONNX directly
     (skips internal build). Otherwise falls back to HF model ID.
     """
     if onnx_path:
-        args = [*WMK, "perf", "-m", onnx_path, "--device", device]
+        args = [*WINML_CLI, "perf", "-m", onnx_path, "--device", device]
     else:
         args = [
-            *WMK,
+            *WINML_CLI,
             "perf",
             "-m",
             entry.hf_id,
@@ -514,10 +519,10 @@ def _parse_metric_from_stdout(stdout: str) -> dict | None:
     return None
 
 
-def _parse_metric_from_wmk_output(
+def _parse_metric_from_winml_output(
     output_path: Path, metric_name: str, num_samples: int
 ) -> dict | None:
-    """Parse wmk eval --output JSON file into the canonical metric dict."""
+    """Parse winml eval --output JSON file into the canonical metric dict."""
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -556,7 +561,7 @@ def _build_dataset(ds_config: dict, timeout: int) -> None:
                 safe_print(f"      {line}")
 
 
-def _run_wmk_eval(
+def _run_winml_eval(
     entry: ModelEntry,
     device: str,
     timeout: int,
@@ -564,15 +569,15 @@ def _run_wmk_eval(
     model_dir: Path,
     onnx_path: str | None = None,
 ) -> dict:
-    """Invoke wmk eval for one model. Returns process result + parsed metric."""
-    output_path = model_dir / "wmk_eval_output.json"
+    """Invoke winml eval for one model. Returns process result + parsed metric."""
+    output_path = model_dir / "winml_eval_output.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # wmk eval requires explicit device ('cpu'/'gpu'/'npu'); 'auto' is not accepted
+    # winml eval requires explicit device ('cpu'/'gpu'/'npu'); 'auto' is not accepted
     eval_device = "npu" if device == "auto" else device
     if onnx_path:
         args = [
-            *WMK,
+            *WINML_CLI,
             "eval",
             "-m",
             onnx_path,
@@ -583,7 +588,7 @@ def _run_wmk_eval(
         ]
     else:
         args = [
-            *WMK,
+            *WINML_CLI,
             "eval",
             "-m",
             entry.hf_id,
@@ -593,7 +598,7 @@ def _run_wmk_eval(
     if entry.task:
         args += ["--task", entry.task]
     # When ds_config is provided, pass explicit dataset args;
-    # otherwise wmk eval uses its built-in task defaults.
+    # otherwise winml eval uses its built-in task defaults.
     if ds_config.get("dataset"):
         args += ["--dataset", ds_config["dataset"]]
     if ds_config.get("split"):
@@ -615,9 +620,9 @@ def _run_wmk_eval(
 
     metric = None
     if proc["exit_code"] == 0 and output_path.exists():
-        wmk_key = ds_config.get("wmk_metric_key") or ds_config.get("metric", "accuracy")
+        winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric", "accuracy")
         num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-        metric = _parse_metric_from_wmk_output(output_path, wmk_key, num_samples)
+        metric = _parse_metric_from_winml_output(output_path, winml_key, num_samples)
     status = "PASS" if (proc["exit_code"] == 0 and metric is not None) else "FAIL"
 
     return {
@@ -751,13 +756,13 @@ def _run_accuracy_phase(
     model_dir: Path,
     onnx_path: str | None = None,
 ) -> dict:
-    """Run wmk eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
+    """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
 
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    wmk = _run_wmk_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
+    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -768,17 +773,17 @@ def _run_accuracy_phase(
         baseline = _run_pytorch_baseline(entry, device, timeout)
         _store_baseline_cache(entry.hf_id, entry.task, ds_config, baseline)
 
-    delta_abs, delta_rel = compute_delta(wmk["metric"], baseline["metric"])
+    delta_abs, delta_rel = compute_delta(winml["metric"], baseline["metric"])
 
     return {
         "skipped": False,
         "skip_reason": None,
-        "wmk_eval_status": wmk["status"],
-        "wmk_metric": wmk["metric"],
-        "wmk_eval_exit_code": wmk.get("exit_code"),
-        "wmk_eval_stdout": wmk.get("stdout", ""),
-        "wmk_eval_stderr": wmk.get("stderr", ""),
-        "elapsed_wmk": wmk["elapsed"],
+        "winml_eval_status": winml["status"],
+        "winml_metric": winml["metric"],
+        "winml_eval_exit_code": winml.get("exit_code"),
+        "winml_eval_stdout": winml.get("stdout", ""),
+        "winml_eval_stderr": winml.get("stderr", ""),
+        "elapsed_winml": winml["elapsed"],
         "pytorch_baseline_status": baseline["status"],
         "pytorch_baseline_metric": baseline["metric"],
         "pytorch_baseline_exit_code": baseline.get("exit_code"),
@@ -787,7 +792,7 @@ def _run_accuracy_phase(
         "delta_absolute": delta_abs,
         "delta_relative": delta_rel,
         "dataset_config": {k: v for k, v in ds_config.items() if k != "hf_token_required"},
-        "wmk_eval_command": wmk["command"],
+        "winml_eval_command": winml["command"],
         "pytorch_baseline_command": baseline["command"],
     }
 
@@ -808,7 +813,7 @@ def save_environment_info(path: Path) -> None:
         try:
             mod = __import__(pkg)
             info[f"{pkg}_version"] = getattr(mod, "__version__", "unknown")
-        except ImportError:  # noqa: PERF203
+        except ImportError:
             info[f"{pkg}_version"] = "not installed"
 
     # Git HEAD commit info
@@ -896,8 +901,8 @@ def parse_args() -> argparse.Namespace:
         default="perf",
         help=(
             "Evaluation signals to run (default: perf). "
-            "accuracy/both: wmk perf runs first to populate cache, "
-            "then wmk eval + pytorch baseline."
+            "accuracy/both: winml perf runs first to populate cache, "
+            "then winml eval + pytorch baseline."
         ),
     )
     parser.add_argument("--task", help="Filter by HF task")
@@ -954,7 +959,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the E2E evaluation pipeline."""
+    """Run E2E evaluation pipeline."""
     args = parse_args()
 
     # 1. Load registry
@@ -1062,9 +1067,9 @@ def main() -> None:
     save_environment_info(output_dir / "environment.json")
 
     # eval_types_run reflects what actually runs for each model:
-    #   "perf"     → wmk perf only
-    #   "accuracy" → wmk eval + pytorch baseline only (perf skipped)
-    #   "both"     → Strategy B: wmk perf first (populates cache), then wmk eval + baseline
+    #   "perf"     → winml perf only
+    #   "accuracy" → winml eval + pytorch baseline only (perf skipped)
+    #   "both"     → Strategy B: winml perf first (populates cache), then winml eval + baseline
     eval_types_run = (
         ["accuracy"]
         if args.eval_type == "accuracy"
@@ -1165,7 +1170,7 @@ def main() -> None:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
 
-            # Build phase: wmk config + wmk build → ONNX path
+            # Build phase: winml config + winml build → ONNX path
             # Build is shared by perf and eval, avoiding redundant builds.
             onnx_path: str | None = None
             if args.eval_type in ("perf", "both"):

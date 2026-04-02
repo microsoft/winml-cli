@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING
 
 import tqdm
 
-from winml.modelkit.pattern.config import UnifiedPatternConfig
-
+from ...pattern.config import UnifiedPatternConfig
 from ..models.runtime_checks import (
     AlternativeType,
     PatternAlternative,
@@ -330,7 +329,11 @@ class RuntimeChecker:
         # Build node_name -> PatternRuntime from pattern_results
         node_to_pattern_runtime: dict[str, PatternRuntime] = {}
         for pr in pattern_results:
-            if pr.pattern_match and hasattr(pr.pattern_match, "skeleton_match_result"):
+            if (
+                (not pr.result.no_data)
+                and pr.pattern_match
+                and hasattr(pr.pattern_match, "skeleton_match_result")
+            ):
                 smr = pr.pattern_match.skeleton_match_result
                 if smr and smr.matched_nodes:
                     for node in smr.matched_nodes:
@@ -343,12 +346,14 @@ class RuntimeChecker:
             if node_name in node_to_pattern_runtime:
                 # Replace with pattern-level result, keeping original pattern_match for traceability
                 pr = node_to_pattern_runtime[node_name]
-                merged.append(PatternRuntime(
-                    pattern_id=op_r.pattern_id,  # keep original op pattern_id
-                    result=pr.result,            # use subgraph-level result
-                    alternatives=pr.alternatives,
-                    pattern_match=op_r.pattern_match,
-                ))
+                merged.append(
+                    PatternRuntime(
+                        pattern_id=op_r.pattern_id,  # keep original op pattern_id
+                        result=pr.result,  # use subgraph-level result
+                        alternatives=[],  # subgraph alternatives belong to the subgraph, not the op
+                        pattern_match=op_r.pattern_match,
+                    )
+                )
             else:
                 merged.append(op_r)
 

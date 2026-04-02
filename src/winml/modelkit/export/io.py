@@ -73,14 +73,19 @@ register_onnx_overwrite = TasksManager.create_register("onnx", overwrite_existin
 TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
     # next-sentence-prediction has same I/O as text-classification: input_ids → logits
     "next-sentence-prediction": "text-classification",
+    # mask-generation is registered via register_onnx_overwrite for SAM2.
+    # Optimum incorrectly maps it to "feature-extraction"; preserve as-is.
+    "mask-generation": "mask-generation",
 }
 
 
 def _map_task_synonym(task: str) -> str:
     """Map task name to canonical form, extending Optimum's synonym mapping.
 
-    This function first checks our custom extensions for tasks Optimum doesn't
-    recognize, then delegates to Optimum's map_from_synonym for known synonyms.
+    Our extensions take priority over Optimum's built-in synonym map.
+    If a task is found in ``TASK_SYNONYM_EXTENSIONS``, return immediately
+    without passing through Optimum (which may incorrectly normalize
+    custom-registered tasks like ``mask-generation``).
 
     Args:
         task: Task name (e.g., "next-sentence-prediction", "image-feature-extraction")
@@ -91,16 +96,20 @@ def _map_task_synonym(task: str) -> str:
     Example:
         >>> map_task_synonym("next-sentence-prediction")  # Our extension
         'text-classification'
+        >>> map_task_synonym("mask-generation")  # Preserved (not Optimum-normalized)
+        'mask-generation'
         >>> map_task_synonym("image-feature-extraction")  # Optimum's synonym
         'feature-extraction'
         >>> map_task_synonym("text-classification")  # Already canonical
         'text-classification'
     """
-    # First: apply our extensions for tasks Optimum doesn't recognize
-    mapped_task = TASK_SYNONYM_EXTENSIONS.get(task, task)
+    # Our extensions take priority — return early to prevent Optimum from
+    # incorrectly normalizing custom-registered tasks.
+    if task in TASK_SYNONYM_EXTENSIONS:
+        return TASK_SYNONYM_EXTENSIONS[task]
 
-    # Second: normalize via Optimum's built-in synonym mapping
-    return TasksManager.map_from_synonym(mapped_task)
+    # Fallback: normalize via Optimum's built-in synonym mapping
+    return TasksManager.map_from_synonym(task)
 
 
 # =============================================================================

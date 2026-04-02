@@ -9,10 +9,10 @@ generating test results for each specified operator.
 
 Usage:
     Test specific operators:
-        python -m modelkit.analyze.runtime_checker.check_qnn_ops --ops Abs Relu Sigmoid
+        python -m winml.modelkit.analyze.runtime_checker.check_ops --ops Abs Relu Sigmoid
 
     Test all registered operators:
-        python -m modelkit.analyze.runtime_checker.check_qnn_ops --all_ops
+        python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
 import hashlib
@@ -26,22 +26,18 @@ import onnxruntime as ort
 from google.protobuf import json_format
 from onnx.defs import SchemaError
 
-from winml.modelkit.pattern.op_input_gen import (
+from ...onnx import ONNXDomain
+from ...pattern.op_input_gen import (
     OpInputGenerator,
     get_registered_operators,
     get_runtime_checker_op,
+    normalize_constraint_dict,
 )
-from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
-
-from ... import winml
-from ...onnx import ONNXDomain
+from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils.model_utils import get_op_since_version
 from .ep_checker import EPChecker
-
-
-winml.register_execution_providers(ort=True)
 
 
 def _compute_case_signature(case: dict, *, namespace: str) -> str:
@@ -95,7 +91,10 @@ def _compute_case_signature(case: dict, *, namespace: str) -> str:
 
     # Input constraints (shapes/values)
     if "input_constraints" in case:
-        constraints = case["input_constraints"]
+        constraints = {
+            k: normalize_constraint_dict(v) if isinstance(v, dict) else v
+            for k, v in case["input_constraints"].items()
+        }
         sig_parts.append(f"inputs:{_safe_dump(constraints)}")
 
     # Input is constant flags
@@ -847,6 +846,9 @@ def build_parser():
 
 def run_from_args(args: Any) -> None:
     """Run check_ops from parsed CLI args."""
+    from ... import winml
+
+    winml.register_execution_providers(ort=True)
     available_ops = get_registered_operators()
     ops_to_check = available_ops if args.all_ops else args.ops
     ep_checker = get_ep_checker(args.ep, device=args.device)

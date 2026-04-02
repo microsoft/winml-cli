@@ -67,7 +67,7 @@ class WinMLAutoModel:
         → Return inference-ready WinMLPreTrainedModel subclass
 
     Example:
-        >>> from modelkit import WinMLAutoModel
+        >>> from winml.modelkit import WinMLAutoModel
         >>> # From HuggingFace model
         >>> model = WinMLAutoModel.from_pretrained("microsoft/resnet-50")
         >>> # Returns WinMLModelForImageClassification (inference-ready)
@@ -132,8 +132,7 @@ class WinMLAutoModel:
         onnx_path = Path(onnx_path)
         if not onnx_path.is_file():
             raise FileNotFoundError(
-                f"ONNX model not found: {onnx_path}. "
-                f"Provide a valid path to an existing ONNX file."
+                f"ONNX model not found: {onnx_path}. Provide a valid path to an existing ONNX file."
             )
         logger.info("Loading WinML model from ONNX: %s", onnx_path)
 
@@ -174,7 +173,8 @@ class WinMLAutoModel:
             output_dir = get_model_dir(onnx_path.stem, cache_dir=cache_dir_path)
         else:
             import tempfile
-            cache_dir_path = Path(tempfile.mkdtemp(prefix="wmk_"))
+
+            cache_dir_path = Path(tempfile.mkdtemp(prefix="winml_"))
             output_dir = cache_dir_path
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", output_dir)
@@ -286,8 +286,13 @@ class WinMLAutoModel:
         # Device/precision resolution is handled inside generate_hf_build_config().
         # When config is provided, it merges as Tier-1 override on top of defaults.
         build_config = generate_hf_build_config(
-            model_id, task=task, override=config, shape_config=shape_config,
-            device=device, precision=precision, ep=kwargs.get("ep"),
+            model_id,
+            task=task,
+            override=config,
+            shape_config=shape_config,
+            device=device,
+            precision=precision,
+            ep=kwargs.get("ep"),
         )
 
         resolved_task = build_config.loader.task
@@ -318,7 +323,8 @@ class WinMLAutoModel:
         else:
             # No cache -- use temp directory, always rebuild
             import tempfile
-            cache_dir_path = Path(tempfile.mkdtemp(prefix="wmk_"))
+
+            cache_dir_path = Path(tempfile.mkdtemp(prefix="winml_"))
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
@@ -352,36 +358,6 @@ class WinMLAutoModel:
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
         )
-
-    @classmethod
-    def _get_model_config(cls, model_type: str) -> WinMLBuildConfig:
-        """Get model-specific config or default.
-
-        .. deprecated:: 1.0
-            Use :func:`modelkit.config.generate_build_config` instead for
-            complete configs with I/O specs, shapes, and dtypes. This method
-            returns bare defaults without I/O specifications.
-        """
-        import warnings
-
-        warnings.warn(
-            "_get_model_config() is deprecated. Use generate_build_config() "
-            "from winml.modelkit.config for complete configs with I/O specs.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        from ..config import WinMLBuildConfig
-        from . import MODEL_BUILD_CONFIGS
-
-        model_type_normalized = model_type.lower().replace("_", "-")
-
-        if model_type_normalized in MODEL_BUILD_CONFIGS:
-            logger.debug("Using registered config for: %s", model_type_normalized)
-            return MODEL_BUILD_CONFIGS[model_type_normalized]
-
-        logger.debug("Using default config (no registration for %s)", model_type_normalized)
-        return WinMLBuildConfig()
 
     @classmethod
     def supported_tasks(cls) -> list[str]:
