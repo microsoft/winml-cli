@@ -163,7 +163,6 @@ jobs:
     dependsOn:
       - Prepare
       - EvalModel
-      - RetryMissed
     condition: always()
     pool:
       name: modelkit-selfhost-pool
