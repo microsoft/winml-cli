@@ -12,9 +12,8 @@ Export Strategy (split by task):
   → encoder-only ONNX (input_ids, attention_mask → encoder_hidden_states)
 - T5DecoderWrapper + T5DecoderIOConfig: ``text2text-generation`` task
   → decoder ONNX with static buffer input + single-token KV output.
-    Internally uses StaticWriteCache for scatter-write at cache_position
-    (preserves T5 position bias invariant). Output is only the new token's
-    KV [batch, heads, 1, d_kv], not the full buffer.
+    Uses HF StaticCache (index_copy_ at cache_position) for attention.
+    Output is only the new token's KV [batch, heads, 1, d_kv].
 
 Model: google-t5/t5-small, google-t5/t5-base, etc.
 
@@ -35,11 +34,10 @@ from optimum.utils.input_generators import (
     DummyInputGenerator,
     DummyTextInputGenerator,
 )
-from transformers import T5ForConditionalGeneration
-from transformers.cache_utils import DynamicCache
+from transformers import StaticCache, T5ForConditionalGeneration
+from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
 from ...export import register_onnx_overwrite
-from ..cache import StaticWriteCache, StaticWriteEncoderDecoderCache
 
 
 # =============================================================================
@@ -83,14 +81,14 @@ class T5DecoderWrapper(nn.Module):
     Input: full static buffer ``[batch, heads, max_decode, d_kv]`` per layer.
     Output: only the new token's KV ``[batch, heads, 1, d_kv]`` per layer.
 
-    Internally uses StaticWriteCache (scatter-write at cache_position) so
-    that ``KV_index = sequence_position`` holds and T5's relative position
-    bias computes correct distances. The full buffer is used for attention;
-    only the newly written single-token KV is extracted for output.
+    Uses HF ``StaticCache`` (``index_copy_`` at ``cache_position``) wrapped
+    in ``EncoderDecoderCache`` (cross-attn empty → always recomputed from
+    ``encoder_hidden_states``). ``KV_index = sequence_position`` holds, so
+    T5's relative position bias computes correct distances.
 
-    The inference wrapper (WinMLModelForSeq2SeqLM) manages the buffer
-    externally: it scatter-writes the output KV back into the buffer
-    before the next step.
+    The inference wrapper (WinMLModelForSeq2SeqLM) uses the same
+    ``StaticCache`` class — it writes the single-token output KV back
+    into the buffer via ``cache.update()`` before the next step.
     """
 
     def __init__(self, model: nn.Module, num_layers: int) -> None:
@@ -131,12 +129,24 @@ class T5DecoderWrapper(nn.Module):
         decoder_attention_mask = args[3]
         cache_position = args[4]
         kv_start = 5
-        kv_pairs = [
-            (args[kv_start + i * 2], args[kv_start + i * 2 + 1]) for i in range(self.num_layers)
-        ]
-        self_attn_cache = StaticWriteCache.from_kv_pairs(kv_pairs)
+
+        # Build StaticCache from input KV tensors.
+        # StaticCache.update() uses index_copy_ at cache_position — traces
+        # correctly and preserves KV_index = sequence_position invariant.
+        self_attn_cache = StaticCache(self.config, max_cache_len=args[kv_start].size(2))
+        self_attn_cache.early_initialization(
+            batch_size=decoder_input_ids.size(0),
+            num_heads=args[kv_start].size(1),
+            head_dim=args[kv_start].size(3),
+            dtype=args[kv_start].dtype,
+            device=decoder_input_ids.device,
+        )
+        for i in range(self.num_layers):
+            self_attn_cache.layers[i].keys = args[kv_start + i * 2]
+            self_attn_cache.layers[i].values = args[kv_start + i * 2 + 1]
+
         cross_attn_cache = DynamicCache()
-        cache = StaticWriteEncoderDecoderCache(self_attn_cache, cross_attn_cache)
+        cache = EncoderDecoderCache(self_attn_cache, cross_attn_cache)
 
         out = self.model(
             decoder_input_ids=decoder_input_ids,
@@ -149,7 +159,7 @@ class T5DecoderWrapper(nn.Module):
         )
 
         # Extract only the new token's KV at cache_position.
-        # After scatter-write, the value at cache_position is the newly
+        # After index_copy_, the value at cache_position is the newly
         # computed KV. Use gather to extract it → [batch, heads, 1, d_kv].
         result: list[torch.Tensor] = [out.logits]
         updated_self_attn = out.past_key_values.self_attention_cache

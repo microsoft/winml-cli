@@ -449,168 +449,103 @@ Cross-attention KV is constant after step 1 (computed from encoder output). Opti
 
 Option 2 is recommended — the manager already mediates all cache I/O so this is trivial to add.
 
-## Final Design: StaticWriteCache (append-only, scatter-write)
+## Final Design: HF StaticCache (index_copy_ at cache_position)
 
-**Approach:** Append-only static buffer with `torch.scatter` write at `cache_position`. No shifting — `KV_index = sequence_position` always holds. T5's `memory_position = arange(key_length)` computes correct distances.
+**Approach:** Uses HF's ``StaticCache`` directly — both for ONNX export and inference. Static buffer with ``index_copy_`` write at ``cache_position``. No shifting — ``KV_index = sequence_position`` always holds. T5's ``memory_position = arange(key_length)`` computes correct distances.
+
+**Key design change (v2):** The ONNX decoder outputs only the **new token's KV** ``[batch, heads, 1, d_kv]`` (extracted via ``gather`` at ``cache_position``), not the full buffer. The inference wrapper writes the single-token output back into its ``StaticCache`` via ``cache.update()``. This aligns with HF's cache design — the cache is a stateful object that flows through ``GenerationMixin``'s loop.
 
 ### Implementation Components
 
 | Component | Location | Description |
 |---|---|---|
-| `StaticWriteLayer` | `models/cache.py` | Single layer KV buffer. `update()` writes at `cache_position` via `torch.scatter`. Returns full buffer. |
-| `StaticWriteCache` | `models/cache.py` | Multi-layer cache using `StaticWriteLayer`. Implements `Cache` interface. |
-| `StaticWriteEncoderDecoderCache` | `models/cache.py` | Wraps `StaticWriteCache` (self-attn) + empty `DynamicCache` (cross-attn). Forces `is_updated=False`. Tracks `fill_count` for mask construction. |
 | `T5EncoderWrapper(nn.Module)` | `models/hf/t5.py` | Wraps `model.encoder` → `forward(input_ids, attention_mask) → encoder_hidden_states` |
-| `T5DecoderWithStaticCache(nn.Module)` | `models/hf/t5.py` | Export wrapper. Takes positional args: `(decoder_input_ids, encoder_hidden_states, attention_mask, decoder_attention_mask, cache_position, past_0_key, past_0_value, ...)`. Constructs cache, calls model, extracts updated KV. |
-| `make_t5_encoder_config()` / `make_t5_decoder_config()` | `models/hf/t5.py` | Config factories reading `num_layers`, `num_heads`, `d_kv`, `d_model` from HF config. |
-| `_wrap_t5_component()` | `build/hf.py` | Post-load hook: loads full `T5ForConditionalGeneration`, wraps encoder or decoder based on `subfolder`. |
-| `_accepts_var_positional()` | `export/htp/exporter.py` | Detects `*args` forward signature, switches `torch.onnx.export` to positional arg mode. |
+| `T5DecoderWrapper(nn.Module)` | `models/hf/t5.py` | Export wrapper. Constructs `StaticCache` + `EncoderDecoderCache` from flat input KV tensors, calls model, extracts new token's KV via `gather`. |
+| `T5DecoderIOConfig` | `models/hf/t5.py` | OnnxConfig: input past KV `[batch, heads, max_decode, d_kv]`, output present KV `[batch, heads, 1, d_kv]`. |
+| `WinMLModelForSeq2SeqLM` | `models/winml/seq2seq.py` | Inference wrapper. Uses HF `StaticCache` (mutated in-place via `cache.update()` with `index_copy_`). Same cache object flows through `GenerationMixin`. |
+
+### ONNX I/O
+
+```
+Decoder Inputs:
+  decoder_input_ids        [1, 1]
+  encoder_hidden_states    [1, enc_seq, 512]
+  attention_mask           [1, enc_seq]
+  decoder_attention_mask   [1, max_decode]
+  cache_position           [1]
+  past.{i}.key             [1, 8, max_decode, 64]   # i=0..5, full static buffer
+  past.{i}.value           [1, 8, max_decode, 64]
+
+Decoder Outputs:
+  logits                   [1, 1, vocab_size]
+  present.{i}.key          [1, 8, 1, 64]            # new token only
+  present.{i}.value        [1, 8, 1, 64]
+```
+
+All shapes are static. Cross-attention KV is always recomputed from ``encoder_hidden_states`` (empty cross-attention cache → ``is_updated=False``).
 
 ### Verified Results
 
 | Check | Result |
 |---|---|
-| PyTorch numerics (StaticWriteCache vs DynamicCache) | Step 0: diff=0.000000, Steps 1-2: diff~1e-5 |
-| ONNX export | Encoder 134.8 MB, Decoder 221.6 MB |
-| ORT vs PyTorch (different `cache_position`) | logits diff=4e-6, generalizes to different inputs |
-| `wmk config --subfolder encoder` | 2 inputs, 1 output, dims from HF config |
-| `wmk config --subfolder decoder` | 17 inputs (5 base + 12 KV), 13 outputs, dims from HF config |
-| `wmk build` encoder | Success, artifacts in `encoder/` subfolder |
-| `wmk build` decoder | Success, artifacts in `decoder/` subfolder |
-| `transformers.pipeline('translation')` | **Exact match** vs PyTorch reference |
+| ONNX export (StaticCache, index_copy_) | Encoder + Decoder export OK |
+| `wmk config` + `wmk build` encoder | Success |
+| `wmk config` + `wmk build` decoder | Success |
+| ORT output shapes | present KV all `[1, 8, 1, 64]` (new token only) |
+| E2E translation pipeline | **Exact match** vs PyTorch reference |
+
+### HF StaticCache behavior at inference
+
+```
+StaticCache is stateful — same object across all generation steps:
+
+  Step 0: cache.get_seq_length() = 0
+          → feed zero buffer to ORT, cache_position = [0]
+          → ORT returns new token KV [1,8,1,64]
+          → cache.update(new_k, new_v, layer_idx, cache_kwargs={"cache_position": [0]})
+            (index_copy_ writes at position 0)
+          → cache.get_seq_length() = 1
+
+  Step 1: cache.get_seq_length() = 1
+          → feed buffer (pos 0 filled) to ORT, cache_position = [1]
+          → ORT returns new token KV
+          → cache.update(..., cache_kwargs={"cache_position": [1]})
+          → cache.get_seq_length() = 2
+  ...
+```
 
 ## Usage
 
 ### 1. Generate configs
 
 ```powershell
-# Encoder config
 ./.venv/Scripts/activate.ps1
-python -m winml.modelkit config -m google-t5/t5-small --task translation --subfolder encoder --device cpu -o t5_encoder_config.json
 
-# Decoder config (reads num_layers, d_kv, etc. from model)
-python -m winml.modelkit config -m google-t5/t5-small --task translation --subfolder decoder --device cpu -o t5_decoder_config.json
+# Encoder config
+python -m winml.modelkit config -m google-t5/t5-small --task feature-extraction --device cpu -o t5_enc_config.json
+
+# Decoder config
+python -m winml.modelkit config -m google-t5/t5-small --task text2text-generation --device cpu -o t5_dec_config.json
 ```
 
 ### 2. Build ONNX models
 
 ```powershell
-# Build encoder (artifacts in .cache/winml/artifacts/google-t5_t5-small/encoder/)
-python -m winml.modelkit build -c t5_encoder_config.json -m google-t5/t5-small --use-cache
-
-# Build decoder (artifacts in .cache/winml/artifacts/google-t5_t5-small/decoder/)
-python -m winml.modelkit build -c t5_decoder_config.json -m google-t5/t5-small --use-cache
+python -m winml.modelkit build -c t5_enc_config.json -m google-t5/t5-small -o output/encoder
+python -m winml.modelkit build -c t5_dec_config.json -m google-t5/t5-small -o output/decoder
 ```
 
-### 3. Run translation pipeline with ONNX models
+### 3. Run translation pipeline
 
 ```python
-import types
-import torch
-import onnxruntime as ort
-from transformers import (
-    T5ForConditionalGeneration, AutoTokenizer, AutoConfig, pipeline,
-)
-from transformers.modeling_outputs import Seq2SeqLMOutput, BaseModelOutput
-from winml.modelkit.models.cache import StaticWriteCache, StaticWriteEncoderDecoderCache
+from winml.modelkit.models.winml.seq2seq import WinMLModelForSeq2SeqLM
+from transformers import AutoTokenizer, pipeline
 
-# Config
-config = AutoConfig.from_pretrained("google-t5/t5-small")
-nl, nh, dk = config.num_layers, config.num_heads, config.d_kv
-enc_seq, max_dec = 16, 32  # must match export config
-
-# Load ONNX sessions
-enc_sess = ort.InferenceSession("path/to/encoder/model.onnx")
-dec_sess = ort.InferenceSession("path/to/decoder/model.onnx")
-dec_input_names = [inp.name for inp in dec_sess.get_inputs()]
-
-# Load real model for generate() machinery (config, generation_config, etc.)
-model = T5ForConditionalGeneration.from_pretrained("google-t5/t5-small")
-model.eval()
+model = WinMLModelForSeq2SeqLM.from_pretrained("google-t5/t5-small")
 tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
 
-
-def _pad_to(t, tl, pv=0):
-    s = t.shape[-1]
-    if s == tl: return t
-    if s > tl: return t[..., :tl]
-    return torch.nn.functional.pad(t, (0, tl - s), value=pv)
-
-
-# Swap encoder
-class OnnxEncoderProxy(torch.nn.Module):
-    def __init__(self, sess):
-        super().__init__()
-        self._sess = sess
-
-    def forward(self, input_ids, attention_mask=None, **kw):
-        ids = _pad_to(input_ids, enc_seq, tokenizer.pad_token_id or 0)
-        mask = _pad_to(attention_mask, enc_seq, 0)
-        out = self._sess.run(
-            None, {"input_ids": ids.numpy(), "attention_mask": mask.numpy()}
-        )
-        return BaseModelOutput(last_hidden_state=torch.from_numpy(out[0]))
-
-
-enc_proxy = OnnxEncoderProxy(enc_sess)
-model.get_encoder = lambda: enc_proxy
-
-
-# Swap forward
-def onnx_forward(self, input_ids=None, attention_mask=None,
-                 decoder_input_ids=None, encoder_outputs=None,
-                 past_key_values=None, use_cache=None, **kw):
-    enc_h = (
-        encoder_outputs[0] if isinstance(encoder_outputs, tuple)
-        else encoder_outputs.last_hidden_state
-    ) if encoder_outputs is not None else enc_proxy(input_ids, attention_mask).last_hidden_state
-
-    if not isinstance(past_key_values, StaticWriteEncoderDecoderCache):
-        cache = StaticWriteEncoderDecoderCache.from_zeros(nl, nh, dk, max_dec)
-    else:
-        cache = past_key_values
-
-    fc = cache.fill_count
-    dec_mask = torch.zeros(1, max_dec, dtype=torch.int64)
-    dec_mask[0, :fc + 1] = 1
-    cp = torch.tensor([fc], dtype=torch.int64)
-
-    feeds_list = [
-        decoder_input_ids.numpy(),
-        enc_h.detach().numpy(),
-        _pad_to(attention_mask, enc_seq, 0).numpy(),
-        dec_mask.numpy(),
-        cp.numpy(),
-    ]
-    for i in range(nl):
-        layer = cache.self_attention_cache.layers[i]
-        feeds_list.append(layer.keys.detach().numpy())
-        feeds_list.append(layer.values.detach().numpy())
-
-    ort_out = dec_sess.run(None, dict(zip(dec_input_names, feeds_list)))
-    logits = torch.from_numpy(ort_out[0])
-    kv_pairs = [
-        (torch.from_numpy(ort_out[1 + i * 2]), torch.from_numpy(ort_out[2 + i * 2]))
-        for i in range(nl)
-    ]
-    new_cache = StaticWriteEncoderDecoderCache(
-        StaticWriteCache.from_kv_pairs(kv_pairs),
-        cache.cross_attention_cache,
-        fill_count=fc + 1,
-    )
-    return Seq2SeqLMOutput(logits=logits, past_key_values=new_cache)
-
-
-model.forward = types.MethodType(onnx_forward, model)
-model.generation_config.num_beams = 1
-model.generation_config.do_sample = False
-
-# Run pipeline
-pipe = pipeline(
-    "translation_en_to_fr", model=model, tokenizer=tokenizer,
-    device="cpu", max_length=max_dec,
-)
-result = pipe("Hello, how are you?", num_beams=1, truncation=True)
+pipe = pipeline("translation_en_to_fr", model=model, tokenizer=tokenizer)
+result = pipe("Hello, how are you?")
 print(result[0]["translation_text"])
-# Output: Bonjour, comment êtes-vous ?
+# Output: Bonjour, comment êtes-vous?
 ```

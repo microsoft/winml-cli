@@ -253,10 +253,20 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
         else:
             raise ValueError("Either encoder_outputs or input_ids required")
 
-        # Initialize cache on first call
-        if past_key_values is None:
-            past_key_values = StaticCache(self.config, max_cache_len=self._max_dec)
-            past_key_values.early_initialization(
+        # Resolve the self-attention cache.
+        # GenerationMixin may pass None, a StaticCache, or an
+        # EncoderDecoderCache wrapping a DynamicCache (auto-created).
+        # We need our own StaticCache for the static-buffer ONNX decoder.
+        cache = None
+        if isinstance(past_key_values, StaticCache):
+            cache = past_key_values
+        elif hasattr(past_key_values, "self_attention_cache"):
+            sa = past_key_values.self_attention_cache
+            if isinstance(sa, StaticCache):
+                cache = sa
+        if cache is None:
+            cache = StaticCache(self.config, max_cache_len=self._max_dec)
+            cache.early_initialization(
                 batch_size=1,
                 num_heads=self._nh,
                 head_dim=self._dk,
@@ -265,7 +275,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
             )
 
         # Determine write position from cache occupancy
-        fc = past_key_values.get_seq_length()
+        fc = cache.get_seq_length()
         dec_mask = torch.zeros(1, self._max_dec, dtype=torch.int64)
         dec_mask[0, : fc + 1] = 1
 
@@ -278,7 +288,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
             "cache_position": torch.tensor([fc], dtype=torch.int64),
         }
         for i in range(self._nl):
-            layer = past_key_values.layers[i]
+            layer = cache.layers[i]
             feeds[f"past_{i}_key"] = layer.keys.detach()
             feeds[f"past_{i}_value"] = layer.values.detach()
 
@@ -288,7 +298,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
         # StaticCache.update() calls index_copy_ at cache_position.
         cache_kwargs = {"cache_position": torch.tensor([fc], dtype=torch.int64)}
         for i in range(self._nl):
-            past_key_values.update(
+            cache.update(
                 outputs[f"present_{i}_key"],
                 outputs[f"present_{i}_value"],
                 layer_idx=i,
@@ -297,7 +307,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
 
         return Seq2SeqLMOutput(
             logits=outputs["logits"],
-            past_key_values=past_key_values,
+            past_key_values=cache,
         )
 
     # -----------------------------------------------------------------
