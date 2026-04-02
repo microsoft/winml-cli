@@ -10,8 +10,11 @@ T5 encoder-decoder models with static KV cache.
 Export Strategy (split by task):
 - T5EncoderWrapper + T5EncoderIOConfig: ``feature-extraction`` task
   → encoder-only ONNX (input_ids, attention_mask → encoder_hidden_states)
-- T5DecoderWithStaticCache + T5DecoderIOConfig: ``text2text-generation`` task
-  → decoder ONNX with static append-only KV cache (scatter-write)
+- T5DecoderWrapper + T5DecoderIOConfig: ``text2text-generation`` task
+  → decoder ONNX with static buffer input + single-token KV output.
+    Internally uses StaticWriteCache for scatter-write at cache_position
+    (preserves T5 position bias invariant). Output is only the new token's
+    KV [batch, heads, 1, d_kv], not the full buffer.
 
 Model: google-t5/t5-small, google-t5/t5-base, etc.
 
@@ -74,13 +77,20 @@ class T5EncoderWrapper(nn.Module):
         ).last_hidden_state
 
 
-class T5DecoderWithStaticCache(nn.Module):
-    """Wraps T5ForConditionalGeneration with static append-only KV cache.
+class T5DecoderWrapper(nn.Module):
+    """Wraps T5ForConditionalGeneration with static KV cache I/O.
 
-    Uses scatter-write at cache_position — KV_index = sequence_position
-    always holds, so T5's relative position bias is correct.
+    Input: full static buffer ``[batch, heads, max_decode, d_kv]`` per layer.
+    Output: only the new token's KV ``[batch, heads, 1, d_kv]`` per layer.
 
-    Loads the full T5ForConditionalGeneration and wraps it.
+    Internally uses StaticWriteCache (scatter-write at cache_position) so
+    that ``KV_index = sequence_position`` holds and T5's relative position
+    bias computes correct distances. The full buffer is used for attention;
+    only the newly written single-token KV is extracted for output.
+
+    The inference wrapper (WinMLModelForSeq2SeqLM) manages the buffer
+    externally: it scatter-writes the output KV back into the buffer
+    before the next step.
     """
 
     def __init__(self, model: nn.Module, num_layers: int) -> None:
@@ -91,7 +101,7 @@ class T5DecoderWithStaticCache(nn.Module):
         self.config = model.config
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> T5DecoderWithStaticCache:
+    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> T5DecoderWrapper:
         """Load full T5, wrap with static cache."""
         full_model = T5ForConditionalGeneration.from_pretrained(model_name_or_path, **kwargs)
         num_layers = full_model.config.num_layers
@@ -112,7 +122,8 @@ class T5DecoderWithStaticCache(nn.Module):
             past_0_key, past_0_value, past_1_key, past_1_value, ...
 
         Returns:
-            (logits, present_0_key, present_0_value, ...) all fixed shape.
+            (logits, present_0_key, present_0_value, ...) where each
+            present KV is [batch, heads, 1, d_kv] — the new token only.
         """
         decoder_input_ids = args[0]
         encoder_hidden_states = args[1]
@@ -137,11 +148,17 @@ class T5DecoderWithStaticCache(nn.Module):
             cache_position=cache_position,
         )
 
+        # Extract only the new token's KV at cache_position.
+        # After scatter-write, the value at cache_position is the newly
+        # computed KV. Use gather to extract it → [batch, heads, 1, d_kv].
         result: list[torch.Tensor] = [out.logits]
         updated_self_attn = out.past_key_values.self_attention_cache
         for i in range(self.num_layers):
             layer = updated_self_attn.layers[i]
-            result.extend([layer.keys, layer.values])
+            idx = cache_position.reshape(1, 1, -1, 1).expand(
+                layer.keys.size(0), layer.keys.size(1), -1, layer.keys.size(3)
+            )
+            result.extend([layer.keys.gather(2, idx), layer.values.gather(2, idx)])
         return tuple(result)
 
 
@@ -281,6 +298,9 @@ class T5DecoderIOConfig(OnnxConfig):
     Inputs:  decoder_input_ids, encoder_hidden_states, attention_mask,
              decoder_attention_mask, cache_position, past_{i}_key/value
     Outputs: logits, present_{i}_key/value
+
+    Input past KV: full static buffer [batch, heads, max_decode, d_kv].
+    Output present KV: new token only [batch, heads, 1, d_kv].
     """
 
     # T5Config: d_model, num_layers, num_heads, d_kv, vocab_size.
@@ -332,13 +352,13 @@ class T5DecoderIOConfig(OnnxConfig):
 
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("t5", "feature-extraction"): T5EncoderWrapper,
-    ("t5", "text2text-generation"): T5DecoderWithStaticCache,
+    ("t5", "text2text-generation"): T5DecoderWrapper,
 }
 
 __all__ = [
     "MODEL_CLASS_MAPPING",
     "T5DecoderIOConfig",
-    "T5DecoderWithStaticCache",
+    "T5DecoderWrapper",
     "T5EncoderIOConfig",
     "T5EncoderWrapper",
 ]

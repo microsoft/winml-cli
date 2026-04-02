@@ -4,11 +4,12 @@
 # --------------------------------------------------------------------------
 """WinMLModelForSeq2SeqLM.
 
-Inference wrapper for encoder-decoder ONNX models with static KV cache.
+Inference wrapper for encoder-decoder ONNX models with KV cache.
 Supports T5 and similar architectures exported as split encoder + decoder.
 
-The encoder runs once. The decoder runs per token with a StaticWriteCache
-(append-only, scatter-write at cache_position).
+The encoder runs once. The decoder runs per token with a StaticCache
+that persists across generation steps (same object, mutated in-place via
+``index_copy_`` at ``cache_position``).
 
 Both encoder and decoder are built and held as WinMLAutoModel instances.
 
@@ -24,10 +25,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import torch
+from transformers import Cache, StaticCache
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
-from ..cache import StaticWriteCache, StaticWriteEncoderDecoderCache
 from .base import PreTrainedModel
 
 
@@ -44,7 +45,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
 
     Composes two WinMLAutoModel instances (encoder + decoder).
     The encoder runs once at the start of generate(). The decoder runs
-    per token with static KV cache.
+    per token with a HF ``StaticCache`` that is mutated in-place each step.
 
     Use ``from_pretrained()`` to build both ONNX models automatically.
     """
@@ -196,7 +197,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
     def prepare_inputs_for_generation(
         self,
         input_ids: torch.LongTensor,
-        past_key_values: StaticWriteEncoderDecoderCache | None = None,
+        past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_outputs: BaseModelOutput | None = None,
         **kwargs: Any,
@@ -229,11 +230,17 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
         decoder_input_ids: torch.Tensor | None = None,
         encoder_outputs: BaseModelOutput | tuple | None = None,
         attention_mask: torch.Tensor | None = None,
-        past_key_values: StaticWriteEncoderDecoderCache | None = None,
+        past_key_values: Cache | None = None,
         input_ids: torch.Tensor | None = None,
         **kwargs: Any,
     ) -> Seq2SeqLMOutput:
-        """Run decoder with static KV cache."""
+        """Run decoder with static KV cache.
+
+        ``past_key_values`` is a HF ``Cache`` — a pre-allocated
+        fixed-size buffer mutated in-place via ``index_copy_`` at
+        ``cache_position``. The same object flows through GenerationMixin's
+        loop across steps, just like HF's DynamicCache.
+        """
         # Encoder hidden states
         if encoder_outputs is not None:
             enc_h = (
@@ -246,18 +253,19 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
         else:
             raise ValueError("Either encoder_outputs or input_ids required")
 
-        # Cache
-        if not isinstance(past_key_values, StaticWriteEncoderDecoderCache):
-            cache = StaticWriteEncoderDecoderCache.from_zeros(
-                self._nl,
-                self._nh,
-                self._dk,
-                self._max_dec,
+        # Initialize cache on first call
+        if past_key_values is None:
+            past_key_values = StaticCache(self.config, max_cache_len=self._max_dec)
+            past_key_values.early_initialization(
+                batch_size=1,
+                num_heads=self._nh,
+                head_dim=self._dk,
+                dtype=torch.float32,
+                device=torch.device("cpu"),
             )
-        else:
-            cache = past_key_values
 
-        fc = cache.fill_count
+        # Determine write position from cache occupancy
+        fc = past_key_values.get_seq_length()
         dec_mask = torch.zeros(1, self._max_dec, dtype=torch.int64)
         dec_mask[0, : fc + 1] = 1
 
@@ -270,25 +278,26 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
             "cache_position": torch.tensor([fc], dtype=torch.int64),
         }
         for i in range(self._nl):
-            layer = cache.self_attention_cache.layers[i]
+            layer = past_key_values.layers[i]
             feeds[f"past_{i}_key"] = layer.keys.detach()
             feeds[f"past_{i}_value"] = layer.values.detach()
 
         outputs = self._decoder(**feeds)
 
-        # Reconstruct cache
-        kv_pairs = [
-            (outputs[f"present_{i}_key"], outputs[f"present_{i}_value"]) for i in range(self._nl)
-        ]
-        new_cache = StaticWriteEncoderDecoderCache(
-            StaticWriteCache.from_kv_pairs(kv_pairs),
-            cache.cross_attention_cache,
-            fill_count=fc + 1,
-        )
+        # Write new token's KV into the StaticCache in-place.
+        # StaticCache.update() calls index_copy_ at cache_position.
+        cache_kwargs = {"cache_position": torch.tensor([fc], dtype=torch.int64)}
+        for i in range(self._nl):
+            past_key_values.update(
+                outputs[f"present_{i}_key"],
+                outputs[f"present_{i}_value"],
+                layer_idx=i,
+                cache_kwargs=cache_kwargs,
+            )
 
         return Seq2SeqLMOutput(
             logits=outputs["logits"],
-            past_key_values=new_cache,
+            past_key_values=past_key_values,
         )
 
     # -----------------------------------------------------------------
