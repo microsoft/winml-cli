@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Result building, summary generation, and report output (JSON, Markdown, HTML).
 
 Works with the unified eval_result.json format:
@@ -12,9 +17,13 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .classifier import classify_failure
-from .registry import ModelEntry
+
+
+if TYPE_CHECKING:
+    from .registry import ModelEntry
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +128,7 @@ def load_results_from_dir(results_dir: Path) -> list[dict]:
     for result_file in sorted(models_dir.glob("*/eval_result.json")):
         try:
             results.append(load_result_json(result_file))
-        except (json.JSONDecodeError, KeyError) as exc:  # noqa: PERF203
+        except (json.JSONDecodeError, KeyError) as exc:
             print(f"  WARNING: skipping {result_file} ({exc})")
     return results
 
