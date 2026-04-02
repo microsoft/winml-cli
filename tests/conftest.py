@@ -39,6 +39,10 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
         "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
         classmethod(lambda cls: None),
     )
+    monkeypatch.setattr(
+        "winml.modelkit.winml.register_execution_providers",
+        lambda **kwargs: {},
+    )
 
 
 # =============================================================================
