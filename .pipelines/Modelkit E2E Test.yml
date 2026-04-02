@@ -87,8 +87,8 @@ jobs:
           $matrix = @{}
           for ($i = 0; $i -lt $total; $i++) {
               $m = $models[$i]
-              $slug = ($m.hf_id -replace '[^A-Za-z0-9]', '_')
-              $key = "$($i + 1)_${slug}"
+              $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
+              $key = $slug
               $matrix[$key] = @{
                   hf_id = [string]$m.hf_id
                   hf_task = [string]$m.task
