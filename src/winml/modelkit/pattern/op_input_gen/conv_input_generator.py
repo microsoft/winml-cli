@@ -259,6 +259,16 @@ class ConvOpInputGenerator(ConvInputGenerator):
             "B_shape",
         ]
 
+    def get_qdq_config(self):
+        """Return QDQ configuration for Conv operator inputs."""
+        # B/Y can be non-QDQ from P1 models
+        return {
+            "X": QDQParameterConfig(support_activation=True),
+            "W": QDQParameterConfig(support_weight=True),
+            "B": QDQParameterConfig(support_non_qdq=True, qdq_types=[SupportedONNXType.INT32]),
+            "Y": QDQParameterConfig(support_non_qdq=True, support_activation=True),
+        }
+
 
 @register_runtime_checker_op
 class ConvTransposeInputGenerator(ConvInputGenerator):

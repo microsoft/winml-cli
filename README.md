@@ -32,17 +32,17 @@ uv sync
 
 ### Usage
 
-ModelKit provides a CLI tool `wmk`:
+ModelKit provides a CLI tool `winml`:
 
 ```bash
 # Export a Hugging Face model to ONNX
-uv run wmk export --model microsoft/resnet-50 --output ./output
+uv run winml export --model microsoft/resnet-50 --output ./output
 
 # Analyze an ONNX model
-uv run wmk analyze --model ./output/model.onnx
+uv run winml analyze --model ./output/model.onnx
 
 # Quantize an ONNX model
-uv run wmk quantize --model ./output/model.onnx
+uv run winml quantize --model ./output/model.onnx
 ```
 
 ## Contributions and Feedback

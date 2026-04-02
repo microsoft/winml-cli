@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Export command for wmk CLI.
+"""Export command for winml CLI.
 
 This module provides the export command that uses export_onnx() as the single
 implementation path for HuggingFace to ONNX model conversion.
@@ -13,13 +13,13 @@ Features:
 - Supports MODEL_BUILD_CONFIGS lookup for input_tensors fallback
 
 Usage:
-    wmk export --model MODEL --output PATH [--verbose] [--with-report]
+    winml export --model MODEL --output PATH [--verbose] [--with-report]
 
 Examples:
-    wmk export -m prajjwal1/bert-tiny -o model.onnx
-    wmk export -m facebook/convnext-tiny-224 -o convnext.onnx -v --with-report
-    wmk export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
-    wmk export -m bert-base-uncased -o bert.onnx --export-config config.json
+    winml export -m prajjwal1/bert-tiny -o model.onnx
+    winml export -m facebook/convnext-tiny-224 -o convnext.onnx -v --with-report
+    winml export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
+    winml export -m bert-base-uncased -o bert.onnx --export-config config.json
 """
 
 from __future__ import annotations
@@ -143,28 +143,28 @@ def export(
     \b
     Examples:
         # Basic export
-        wmk export --model prajjwal1/bert-tiny --output model.onnx
+        winml export --model prajjwal1/bert-tiny --output model.onnx
 
         # Short form
-        wmk export -m prajjwal1/bert-tiny -o model.onnx
+        winml export -m prajjwal1/bert-tiny -o model.onnx
 
         # With verbose output and full reporting
-        wmk export -m facebook/convnext-tiny-224 -o convnext.onnx -v --with-report
+        winml export -m facebook/convnext-tiny-224 -o convnext.onnx -v --with-report
 
         # Clean ONNX output (no hierarchy metadata, for optimization)
-        wmk export -m prajjwal1/bert-tiny -o model.onnx --clean-onnx
+        winml export -m prajjwal1/bert-tiny -o model.onnx --clean-onnx
 
         # Use PyTorch dynamo export (for rich node metadata)
-        wmk export -m prajjwal1/bert-tiny -o model.onnx --dynamo
+        winml export -m prajjwal1/bert-tiny -o model.onnx --dynamo
 
         # Include torch.nn modules in hierarchy
-        wmk export -m prajjwal1/bert-tiny -o model.onnx --torch-module LayerNorm,Embedding
+        winml export -m prajjwal1/bert-tiny -o model.onnx --torch-module LayerNorm,Embedding
 
         # Custom input specifications from JSON file
-        wmk export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
+        winml export -m bert-base-uncased -o bert.onnx --input-specs inputs.json
 
         # Custom ONNX export configuration
-        wmk export -m bert-base-uncased -o bert.onnx --export-config config.json
+        winml export -m bert-base-uncased -o bert.onnx --export-config config.json
     """
     # Inherit debug mode from parent
     if ctx.obj.get("debug"):

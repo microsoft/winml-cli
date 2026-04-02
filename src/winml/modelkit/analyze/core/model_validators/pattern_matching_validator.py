@@ -69,10 +69,10 @@ class PatternMatchingValidator(ModelValidator):
                 "Pattern matching requires all nodes to have non-empty names.\n\n"
             ),
             # Todo: Update with actual command when available
-            action_method="wmk onnx_normalize",
+            action_method="winml onnx_normalize",
             action_description=("Add missing node names to the model using ONNX utilities"),
             action_command=(
-                "[Placeholder] wmk onnx_normalize <input_model.onnx> <output_model.onnx>"
+                "[Placeholder] winml onnx_normalize <input_model.onnx> <output_model.onnx>"
             ),
         ),
         PatternErrorConfig(

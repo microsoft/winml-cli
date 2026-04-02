@@ -2,19 +2,19 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Compile command for wmk CLI.
+"""Compile command for winml CLI.
 
 This module provides the compile command that compiles ONNX models to
 EP-specific formats (e.g., QNN EPContext) with optional quantization.
 
 Usage:
-    wmk compile --model MODEL [OPTIONS]
+    winml compile --model MODEL [OPTIONS]
 
 Examples:
-    wmk compile -m model.onnx
-    wmk compile -m model.onnx --device npu
-    wmk compile -m model.onnx --device gpu --ep migraphx
-    wmk compile -m model_qdq.onnx --no-quantize
+    winml compile -m model.onnx
+    winml compile -m model.onnx --device npu
+    winml compile -m model.onnx --device gpu --ep migraphx
+    winml compile -m model_qdq.onnx --no-quantize
 """
 
 from __future__ import annotations
@@ -127,19 +127,19 @@ def compile(
     \b
     Examples:
         # Compile for NPU (default, uses QNN/VitisAI)
-        wmk compile -m model.onnx
+        winml compile -m model.onnx
 
         # Compile for NPU with explicit VitisAI EP
-        wmk compile -m model.onnx --ep vitisai
+        winml compile -m model.onnx --ep vitisai
 
         # Compile for GPU with MIGraphX
-        wmk compile -m model.onnx --device gpu --ep migraphx
+        winml compile -m model.onnx --device gpu --ep migraphx
 
         # Compile pre-quantized model
-        wmk compile -m model_qdq.onnx --no-quantize
+        winml compile -m model_qdq.onnx --no-quantize
 
         # Compile using QAIRT SDK
-        wmk compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
+        winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
     """
     # Inherit debug mode from parent
     if ctx.obj and ctx.obj.get("debug"):
@@ -179,7 +179,7 @@ def compile(
         console.print(
             "[yellow]Note:[/yellow] --no-quantize has no effect. "
             "Quantization is no longer performed during compile. "
-            "Use 'wmk quantize' before 'wmk compile' to control quantization."
+            "Use 'winml quantize' before 'winml compile' to control quantization."
         )
 
     # Show info
@@ -203,13 +203,9 @@ def compile(
             if result.output_path:
                 console.print(f"[dim]Output: {result.output_path}[/dim]")
             if result.compile_time:
-                console.print(
-                    f"[dim]Compile time: {result.compile_time:.2f}s[/dim]"
-                )
+                console.print(f"[dim]Compile time: {result.compile_time:.2f}s[/dim]")
             if result.total_time:
-                console.print(
-                    f"[dim]Total time: {result.total_time:.2f}s[/dim]"
-                )
+                console.print(f"[dim]Total time: {result.total_time:.2f}s[/dim]")
         else:
             console.print("\n[bold red]Compilation failed:[/bold red]")
             for error in result.errors:

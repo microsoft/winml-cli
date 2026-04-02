@@ -1927,7 +1927,7 @@ class TestDevicePrecisionIntegration:
 
 
 # =============================================================================
-# TestDevicePrecisionCli - CLI tests for --device/--precision on wmk config
+# TestDevicePrecisionCli - CLI tests for --device/--precision on winml config
 # =============================================================================
 
 
@@ -1964,7 +1964,7 @@ class TestDevicePrecisionCli:
         }
 
     def _invoke(self, tmp_path, extra_args: list[str] | None = None):
-        """Helper: invoke wmk config with standard mocks."""
+        """Helper: invoke winml config with standard mocks."""
         output_file = tmp_path / "result.json"
         args = ["-m", "bert-base-uncased", "-o", str(output_file)]
         if extra_args:
@@ -2056,7 +2056,7 @@ class TestDevicePrecisionCli:
 
 
 class TestConfigOnnxAutoDetect:
-    """Test ONNX file auto-detection in wmk config command."""
+    """Test ONNX file auto-detection in winml config command."""
 
     def test_config_auto_detect_onnx(self, tmp_path) -> None:
         """When -m points to an existing .onnx file, generates config with export=None."""
