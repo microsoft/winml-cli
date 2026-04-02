@@ -6,7 +6,7 @@
 
 import numpy as np
 
-from winml.modelkit.analyze.utils.op_utils import _compute_case_signature
+from winml.modelkit.analyze.utils.op_utils import compute_case_signature
 from winml.modelkit.pattern.op_input_gen import InputValueConstraint
 
 
@@ -51,7 +51,7 @@ class TestComputeCaseSignature:
         compact_case = self._case({"X": compact_dict})
         expanded_case = self._case({"X": expanded_dict})
 
-        assert _compute_case_signature(compact_case, namespace="") == _compute_case_signature(
+        assert compute_case_signature(compact_case, namespace="") == compute_case_signature(
             expanded_case, namespace=""
         )
 
@@ -65,7 +65,7 @@ class TestComputeCaseSignature:
         assert "value" in full_dict and "same_value" not in full_dict
 
         case = self._case({"X": full_dict})
-        assert _compute_case_signature(case, namespace="") == _compute_case_signature(
+        assert compute_case_signature(case, namespace="") == compute_case_signature(
             case, namespace=""
         )
 
@@ -89,7 +89,7 @@ class TestComputeCaseSignature:
             },
         }
 
-        assert _compute_case_signature(case_xy, namespace="") == _compute_case_signature(
+        assert compute_case_signature(case_xy, namespace="") == compute_case_signature(
             case_yx, namespace=""
         )
 
@@ -105,7 +105,7 @@ class TestComputeCaseSignature:
         case_a = self._case({"X": InputValueConstraint(arr_a).to_dict()})
         case_b = self._case({"X": InputValueConstraint(arr_b).to_dict()})
 
-        assert _compute_case_signature(case_a, namespace="") != _compute_case_signature(
+        assert compute_case_signature(case_a, namespace="") != compute_case_signature(
             case_b, namespace=""
         )
 
@@ -117,7 +117,7 @@ class TestComputeCaseSignature:
         case_a = self._case({"X": InputValueConstraint(arr_2x3).to_dict()})
         case_b = self._case({"X": InputValueConstraint(arr_3x2).to_dict()})
 
-        assert _compute_case_signature(case_a, namespace="") != _compute_case_signature(
+        assert compute_case_signature(case_a, namespace="") != compute_case_signature(
             case_b, namespace=""
         )
 
@@ -128,19 +128,19 @@ class TestComputeCaseSignature:
     def test_namespace_is_included_in_signature(self) -> None:
         """Different namespaces produce different signatures for the same case."""
         case = self._case({"X": InputValueConstraint(np.ones((2,), dtype=np.float32)).to_dict()})
-        assert _compute_case_signature(case, namespace="file_a") != _compute_case_signature(
+        assert compute_case_signature(case, namespace="file_a") != compute_case_signature(
             case, namespace="file_b"
         )
 
     def test_empty_namespace_omitted_from_signature(self) -> None:
         """An empty namespace string does not appear in the signature."""
         case = {"type_vars": {"T": "FLOAT"}}
-        assert "ns:" not in _compute_case_signature(case, namespace="")
+        assert "ns:" not in compute_case_signature(case, namespace="")
 
     def test_empty_attrs_excluded_from_signature(self) -> None:
         """An empty attrs dict does not affect the signature."""
         base = {"type_vars": {"T": "FLOAT"}}
         with_empty_attrs = {**base, "attrs": {}}
-        assert _compute_case_signature(base, namespace="") == _compute_case_signature(
+        assert compute_case_signature(base, namespace="") == compute_case_signature(
             with_empty_attrs, namespace=""
         )

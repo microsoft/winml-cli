@@ -36,7 +36,7 @@ from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils.model_utils import get_op_since_version
-from ..utils.op_utils import _compute_case_signature, _hash_case_signature
+from ..utils.op_utils import compute_case_signature, hash_case_signature
 from .ep_checker import EPChecker
 
 
@@ -112,7 +112,7 @@ class CheckResultWriter:
                     if self._contains_not_run_reason(case):
                         continue
 
-                    sig = _compute_case_signature(case, namespace=self.case_namespace)
+                    sig = compute_case_signature(case, namespace=self.case_namespace)
                     self.existing_signatures[sig] = case
 
                     check_result = case.get("check_result", {})
@@ -138,10 +138,10 @@ class CheckResultWriter:
         Returns:
             True if the case should be skipped.
         """
-        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        sig = compute_case_signature(case, namespace=self.case_namespace)
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
-            return _hash_case_signature(sig) not in self._filter_case_index_set
+            return hash_case_signature(sig) not in self._filter_case_index_set
 
         if self.delta_only:
             # Only run brand-new cases; skip anything we already have
@@ -160,7 +160,7 @@ class CheckResultWriter:
         Args:
             case: Test case dictionary
         """
-        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        sig = compute_case_signature(case, namespace=self.case_namespace)
         if sig in self.output_signatures:
             self.duplicate_skipped_count += 1
             return
@@ -183,10 +183,10 @@ class CheckResultWriter:
         Returns:
             True if existing result was found and reused, False otherwise.
         """
-        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        sig = compute_case_signature(case, namespace=self.case_namespace)
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
-            if _hash_case_signature(sig) not in self._filter_case_index_set:
+            if hash_case_signature(sig) not in self._filter_case_index_set:
                 return False
 
         existing_case = self.existing_signatures.get(sig)
@@ -203,8 +203,8 @@ class CheckResultWriter:
 
     def _set_case_index_signature(self, case: dict[str, Any]) -> None:
         """Set case_index to a stable hash derived from normalized signature."""
-        signature = _compute_case_signature(case, namespace=self.case_namespace)
-        case["case_index"] = _hash_case_signature(signature)
+        signature = compute_case_signature(case, namespace=self.case_namespace)
+        case["case_index"] = hash_case_signature(signature)
 
     def _contains_not_run_reason(self, case: dict[str, Any]) -> bool:
         """Check whether compile/run reason contains a not_run placeholder."""

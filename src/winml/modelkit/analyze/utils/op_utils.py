@@ -15,7 +15,7 @@ from google.protobuf import json_format
 from ...pattern.op_input_gen import normalize_constraint_dict
 
 
-def _compute_case_signature(case: dict, *, namespace: str) -> str:
+def compute_case_signature(case: dict, *, namespace: str) -> str:
     """Compute a signature for a test case based on its content.
 
     The signature is used to match test cases across different runs,
@@ -92,6 +92,6 @@ def _compute_case_signature(case: dict, *, namespace: str) -> str:
     return "|".join(sig_parts)
 
 
-def _hash_case_signature(signature: str) -> str:
+def hash_case_signature(signature: str) -> str:
     """Return a stable hash value for a case signature."""
     return hashlib.sha256(signature.encode("utf-8")).hexdigest()
