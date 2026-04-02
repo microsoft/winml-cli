@@ -118,7 +118,7 @@ _NO_SPACE_PATTERNS = (
 _HF_CACHE = Path.home() / ".cache" / "huggingface"
 _WML_CACHE = Path.home() / ".cache" / "winml"
 _TEMP_DIR = Path(os.environ.get("TEMP", os.environ.get("TMP", tempfile.gettempdir())))
-_TEMP_PREFIXES = ("wmk_", "tmp", "modelkit_compat_")
+_TEMP_PREFIXES = ("wmk_", "modelkit_compat_")
 
 
 def _is_no_space_error(proc: dict) -> bool:
@@ -151,6 +151,7 @@ def _clear_disk_caches() -> None:
                 or name.endswith(".onnx.data")
             )
             if is_leaked:
+                safe_print(f"  [cleanup] Leaked temp: {entry} (dir={entry.is_dir()})")
                 try:
                     if entry.is_dir():
                         shutil.rmtree(entry)
