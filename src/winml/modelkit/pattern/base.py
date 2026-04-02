@@ -2005,7 +2005,8 @@ class PatternRewriter:
                         input_names=input_names,
                         output_names=output_names,
                     )
-                except PatternMismatchedError:
+                except PatternMismatchedError as e:
+                    logger.debug("Skipping rewrite %s: %s", new_pattern_class.__name__, e)
                     continue
 
                 # Find insertion point: position of last matched node after deletions

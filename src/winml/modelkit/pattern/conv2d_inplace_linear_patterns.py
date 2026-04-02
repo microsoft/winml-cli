@@ -22,6 +22,7 @@ and raises PatternMismatchedError if the input rank is incompatible,
 so that PatternRewriter can skip infeasible rewrites gracefully.
 """
 
+from abc import abstractmethod
 from typing import Any
 
 import numpy as np
@@ -48,11 +49,15 @@ def _weight_reshape_constant(
     B is (in_f, out_f) in MatMulAdd convention.
     After Transpose([1,0]) -> (out_f, in_f).
     Reshape -> (out_f, in_f, 1, 1) for Conv2D.
+
+    Returns None if B is not present in inputs.
+    Raises ValueError if B is present but not 2D (indicates upstream bug).
     """
     if "B" in inputs and inputs["B"] is not None:
         b = inputs["B"]
         if b.ndim != 2:
-            return None
+            msg = f"Expected 2D weight B, got {b.ndim}D"
+            raise ValueError(msg)
         in_f, out_f = b.shape
         return np.array([out_f, in_f, 1, 1], dtype=np.int64)
     return None
@@ -320,9 +325,9 @@ class Conv2DInplaceLinearInputGeneratorBase(PatternInputGenerator):
     Subclasses override ``_get_a_shapes`` for topology-appropriate A shapes.
     """
 
+    @abstractmethod
     def _get_a_shapes(self) -> list[tuple[int, ...]]:
         """Return A shapes compatible with this pattern's topology."""
-        raise NotImplementedError
 
     def get_finite_attribute_sets(self) -> dict[str, list[Any]]:
         """No finite attribute sets."""
