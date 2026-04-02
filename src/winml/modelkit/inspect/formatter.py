@@ -73,12 +73,14 @@ def _output_processor_table(console: Console, result: InspectResult) -> None:
         processor_table.add_row("Feature Extractor", processor.feature_extractor_class)
 
     # Only show panel if we have at least one processor class
-    if any([
-        processor.processor_class,
-        processor.tokenizer_class,
-        processor.image_processor_class,
-        processor.feature_extractor_class,
-    ]):
+    if any(
+        [
+            processor.processor_class,
+            processor.tokenizer_class,
+            processor.image_processor_class,
+            processor.feature_extractor_class,
+        ]
+    ):
         console.print(Panel(processor_table, title="Data Processing", border_style="dim"))
 
 

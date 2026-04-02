@@ -311,7 +311,6 @@ class TestRuntimeCheckerIntegration:
         assert "subgraph_runtime_check_result" in summary
         assert len(summary["subgraph_runtime_check_result"]) == 1
 
-
     def test_op_merged_from_subgraph_has_empty_alternatives(
         self, simple_onnx_model: ONNXModel, monkeypatch: pytest.MonkeyPatch
     ):
