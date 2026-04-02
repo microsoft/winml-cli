@@ -138,20 +138,23 @@ def _clear_disk_caches() -> None:
             except OSError as exc:
                 safe_print(f"  [cleanup] Warning: could not remove {cache_dir}: {exc}")
 
-    # Clean leaked temp directories/files (wmk_*, modelkit_compat_*, tmp*.onnx)
+    # Clean leaked temp directories/files (wmk_*, modelkit_compat_*, tmp*.onnx*)
     if _TEMP_DIR.is_dir():
         cleaned = 0
         for entry in _TEMP_DIR.iterdir():
             name = entry.name
-            if not any(name.startswith(p) for p in _TEMP_PREFIXES):
-                continue
-            is_leaked = (
-                entry.is_dir()
-                or entry.suffix in (".onnx", ".out", ".err")
-                or name.endswith(".onnx.data")
-            )
-            if is_leaked:
-                safe_print(f"  [cleanup] Leaked temp: {entry} (dir={entry.is_dir()})")
+            should_clean = False
+            if any(name.startswith(p) for p in _TEMP_PREFIXES):
+                should_clean = (
+                    entry.is_dir()
+                    or entry.suffix in (".onnx", ".out", ".err")
+                    or name.endswith(".onnx.data")
+                )
+            elif name.startswith("tmp") and name.endswith((".onnx", ".onnx.data")):
+                # Python tempfile creates tmp* prefixed files; only clean ONNX artifacts
+                should_clean = True
+            if should_clean:
+                safe_print(f"  [cleanup] Leaked temp: {entry}")
                 try:
                     if entry.is_dir():
                         shutil.rmtree(entry)
