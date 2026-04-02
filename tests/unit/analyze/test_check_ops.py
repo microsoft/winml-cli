@@ -6,7 +6,7 @@
 
 import numpy as np
 
-from winml.modelkit.analyze.runtime_checker.check_ops import _compute_case_signature
+from winml.modelkit.analyze.utils.op_utils import _compute_case_signature
 from winml.modelkit.pattern.op_input_gen import InputValueConstraint
 
 
