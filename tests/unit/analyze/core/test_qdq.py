@@ -1104,6 +1104,7 @@ class TestIterQDQCombinations:
                 1440,
             ),  # (3+3+6*4) * 4 QDQ * 4 attr combos
             # * 3 (axes none, const, not const)
+            ("Relu", unary_input_shapes * 4 * 2),
             ("Reshape", 36 * 4 * 2 * 2),  # allowzero 2 * is_constant 2
             (
                 "Resize",
