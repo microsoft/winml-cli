@@ -198,7 +198,7 @@ def build_dataset(output_dir: Path) -> None:
     print("Done.")
 
 
-def main() -> None:  # noqa: D103
+def main() -> None:
     parser = argparse.ArgumentParser(description="Build PubTables-1M detection dataset")
     parser.add_argument("--output", type=Path, required=True, help="Output directory")
     args = parser.parse_args()
