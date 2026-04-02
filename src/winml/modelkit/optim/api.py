@@ -256,6 +256,7 @@ def optimize_onnx(
     logger.info("Starting optimization pipeline...")
     optimizer = Optimizer()
     optimized_model = optimizer.optimize(loaded_model, **optimizer_kwargs)
+    optimized_model = optimizer.optimize(optimized_model, **optimizer_kwargs)
 
     # Step 10: Save if output path provided
     if output is not None:
