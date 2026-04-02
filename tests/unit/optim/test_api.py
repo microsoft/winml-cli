@@ -262,8 +262,8 @@ class TestOptimizeOnnxInput:
             mock_opt.return_value.optimize.return_value = onnx.ModelProto()
             result = optimize_onnx(str(model_file))
             assert isinstance(result, onnx.ModelProto)
-            # Verify model was loaded and passed to optimizer
-            mock_opt.return_value.optimize.assert_called_once()
+            # Verify model was loaded and passed to optimizer (called twice to optimize correctly)
+            assert mock_opt.return_value.optimize.call_count == 2
 
     def test_accepts_path_object(self, model_file: Path) -> None:
         """Accept Path object as model input."""
