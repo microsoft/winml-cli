@@ -20,14 +20,28 @@ import onnxruntime as ort
 import pytest
 from onnx import TensorProto
 
-
 # =============================================================================
 # WINML SDK INITIALIZATION GUARD
 # =============================================================================
-# winml.modelkit.models.winml.base imports WinMLSession at module level,
-# which triggers WinMLEPRegistry._discover_eps() → WinML SDK runtime init.
-# This can hang on CI environments without the SDK installed.
-# Mock it globally for non-e2e tests; e2e tests use real initialization.
+# check_ops.py and check_patterns.py call winml.register_execution_providers()
+# at module level. This triggers WinML() singleton → Windows App SDK init →
+# provider.ensure_ready_async(), which hangs on CI without the SDK installed.
+#
+# monkeypatch fixtures run too late (after test collection / module import),
+# so we must patch at module level here. conftest.py is loaded by pytest
+# before test modules are collected, guaranteeing the mock is in place.
+# =============================================================================
+import winml.modelkit.winml as _winml_mod
+
+
+_winml_mod.register_execution_providers = lambda **kwargs: {}
+_winml_mod.WinML = type(
+    "WinML",
+    (),
+    {
+        "register_execution_providers": lambda self, **kwargs: {},
+    },
+)
 
 
 @pytest.fixture(autouse=True)
@@ -38,10 +52,6 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
     monkeypatch.setattr(
         "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
         classmethod(lambda cls: None),
-    )
-    monkeypatch.setattr(
-        "winml.modelkit.winml.register_execution_providers",
-        lambda **kwargs: {},
     )
 
 
