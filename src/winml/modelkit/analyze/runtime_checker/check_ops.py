@@ -26,6 +26,7 @@ import onnxruntime as ort
 from google.protobuf import json_format
 from onnx.defs import SchemaError
 
+from ... import winml
 from ...onnx import ONNXDomain
 from ...pattern.op_input_gen import (
     OpInputGenerator,
@@ -38,6 +39,11 @@ from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils.model_utils import get_op_since_version
 from .ep_checker import EPChecker
+
+
+# Register WinML EPs at module level before any ORT session is created.
+# This must stay at the top of the file so EPs are available for all downstream usage.
+winml.register_execution_providers(ort=True)
 
 
 def _compute_case_signature(case: dict, *, namespace: str) -> str:
@@ -846,9 +852,6 @@ def build_parser():
 
 def run_from_args(args: Any) -> None:
     """Run check_ops from parsed CLI args."""
-    from ... import winml
-
-    winml.register_execution_providers(ort=True)
     available_ops = get_registered_operators()
     ops_to_check = available_ops if args.all_ops else args.ops
     ep_checker = get_ep_checker(args.ep, device=args.device)
