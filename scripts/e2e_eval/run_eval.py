@@ -779,7 +779,7 @@ def save_environment_info(path: Path) -> None:
         try:
             mod = __import__(pkg)
             info[f"{pkg}_version"] = getattr(mod, "__version__", "unknown")
-        except ImportError:  # noqa: PERF203
+        except ImportError:
             info[f"{pkg}_version"] = "not installed"
 
     # Git HEAD commit info

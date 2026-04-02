@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Analyze E2E evaluation results — summary, failure distribution, and run comparison.
 
 Usage:
@@ -51,7 +56,9 @@ def print_summary(results: list[dict]) -> None:
     rate = len(passed) / total * 100 if total else 0
 
     safe_print("=== SUMMARY ===")
-    safe_print(f"Total: {total} | Passed: {len(passed)} | Failed: {len(failed)} | Rate: {rate:.1f}%")
+    safe_print(
+        f"Total: {total} | Passed: {len(passed)} | Failed: {len(failed)} | Rate: {rate:.1f}%"
+    )
 
     if failed:
         fc = Counter(r.get("failure_classification", "UNKNOWN") or "UNKNOWN" for r in failed)
@@ -148,7 +155,8 @@ def compare_runs(current_dir: Path) -> None:
                 cause = "COMPILE_FAIL"
             else:
                 err_lines = [
-                    line for line in combined.splitlines()
+                    line
+                    for line in combined.splitlines()
                     if "error" in line.lower() or "Error" in line
                 ]
                 cause = err_lines[-1].strip()[:80] if err_lines else "UNKNOWN"

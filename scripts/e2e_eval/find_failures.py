@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Find failed models matching a pattern in E2E evaluation results.
 
 Searches model_type first (exact), then falls back to full-text search
@@ -21,6 +26,7 @@ from pathlib import Path
 
 
 def safe_print(text: str) -> None:
+    """Print text with fallback for Unicode errors."""
     try:
         print(text)
     except UnicodeEncodeError:
@@ -74,12 +80,14 @@ def find_failures(pattern: str, results_dir: Path) -> list[dict]:
     # Phase 3: full-text search including stderr/stdout
     full_matches = []
     for r in all_failed:
-        searchable = " ".join([
-            r.get("model_type", ""),
-            r.get("failure_classification", ""),
-            r.get("stderr_output", "") or "",
-            r.get("stdout_output", "") or "",
-        ])
+        searchable = " ".join(
+            [
+                r.get("model_type", ""),
+                r.get("failure_classification", ""),
+                r.get("stderr_output", "") or "",
+                r.get("stdout_output", "") or "",
+            ]
+        )
         if re.search(pattern, searchable, re.IGNORECASE):
             full_matches.append(r)
     return full_matches
@@ -91,7 +99,7 @@ def check_registry_no_result(pattern: str, results_dir: Path) -> list[dict]:
     if not registry_path.exists():
         return []
 
-    with open(registry_path) as f:
+    with registry_path.open() as f:
         registry = json.load(f)
 
     models_dir = results_dir / "models"
@@ -108,9 +116,14 @@ def check_registry_no_result(pattern: str, results_dir: Path) -> list[dict]:
 
 
 def main() -> None:
+    """Find failed models matching a pattern."""
     parser = argparse.ArgumentParser(description="Find failed models matching a pattern")
-    parser.add_argument("pattern", help="Pattern to search (model_type, error message, or classification)")
-    parser.add_argument("results_dir", nargs="?", type=Path, default=None, help="Eval results directory")
+    parser.add_argument(
+        "pattern", help="Pattern to search (model_type, error message, or classification)"
+    )
+    parser.add_argument(
+        "results_dir", nargs="?", type=Path, default=None, help="Eval results directory"
+    )
     args = parser.parse_args()
 
     results_dir = args.results_dir or find_latest_results_dir()
@@ -126,10 +139,11 @@ def main() -> None:
         # No eval results at all — check registry only
         registry_path = Path("scripts/e2e_eval/testsets/models_all.json")
         if registry_path.exists():
-            with open(registry_path) as f:
+            with registry_path.open() as f:
                 registry = json.load(f)
             no_result = [
-                m for m in registry
+                m
+                for m in registry
                 if re.search(args.pattern, m.get("model_type", ""), re.IGNORECASE)
             ]
 

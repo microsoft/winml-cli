@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Build a local HF-compatible dataset from nateraw/fairface.
 
 The upstream ``nateraw/fairface`` dataset uses a legacy loading script
@@ -73,11 +78,13 @@ def build_dataset(output_dir: Path) -> None:
     print(f"Age distribution:    {dict(Counter(ages))}")
     print(f"Gender distribution: {dict(Counter(genders))}")
 
-    features = Features({
-        "image": Image(),
-        "age": ClassLabel(names=AGE_LABELS),
-        "gender": ClassLabel(names=GENDER_LABELS),
-    })
+    features = Features(
+        {
+            "image": Image(),
+            "age": ClassLabel(names=AGE_LABELS),
+            "gender": ClassLabel(names=GENDER_LABELS),
+        }
+    )
     ds = Dataset.from_dict(
         {"image": images, "age": ages, "gender": genders},
         features=features,
