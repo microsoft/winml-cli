@@ -5,6 +5,10 @@ parameters:
     displayName: 'Eval date (leave empty for today, e.g. 2026-04-01)'
     type: string
     default: ''
+  - name: continueRun
+    displayName: 'Skip already-evaluated models (--continue)'
+    type: boolean
+    default: true
 
 variables:
   evalOutputBase: 'c:/eval_results'
@@ -57,10 +61,16 @@ jobs:
         name: set_output_dir
         displayName: 'Set eval output directory'
 
-      - script: >
-          uv run python scripts/e2e_eval/run_eval.py
-          --list-json temp/model_list.json
-          --device npu
+      - powershell: |
+          $args = @(
+              "run", "python", "scripts/e2e_eval/run_eval.py",
+              "--list-json", "temp/model_list.json",
+              "--device", "npu"
+          )
+          if ('${{ parameters.continueRun }}' -eq 'True') {
+              $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)")
+          }
+          & uv @args
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Generate model list'
 
@@ -68,7 +78,10 @@ jobs:
           $models = Get-Content "$(Build.SourcesDirectory)/temp/model_list.json" | ConvertFrom-Json
           $total = $models.Count
           if ($total -eq 0) {
-              throw "No models found in temp/model_list.json"
+              Write-Host "All models already evaluated — nothing to run"
+              Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]{}"
+              Write-Host "##vso[task.setvariable variable=skipEval;isOutput=true]true"
+              return
           }
 
           $matrix = @{}
@@ -93,6 +106,7 @@ jobs:
   - job: EvalModel
     displayName: 'Run Model Eval'
     dependsOn: Prepare
+    condition: and(succeeded(), ne(dependencies.Prepare.outputs['set_matrix.skipEval'], 'true'))
     timeoutInMinutes: 90
     cancelTimeoutInMinutes: 2
     pool:
@@ -129,7 +143,7 @@ jobs:
               "--verbose",
               "--timeout", "1800",
               "--no-report",
-              "--clean-hf-cache"
+              "--clean-cache"
           )
           if ("$(hf_task)") {
               $uvArgs += @("--task", "$(hf_task)")
@@ -180,7 +194,7 @@ jobs:
               "--verbose",
               "--timeout", "1800",
               "--no-report",
-              "--clean-hf-cache"
+              "--clean-cache"
           )
 
           & uv @uvArgs
