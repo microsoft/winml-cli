@@ -102,8 +102,7 @@ class PdhQuery:
         q.add_counter("util", r"\\GPU Engine(...)\\Utilization Percentage",
                        fmt="double")
         q.prime()           # first collect (needed for rate counters)
-        time.sleep(0.2)
-        values = q.collect()  # {"util": 42.5}
+        values = q.collect()  # retries until valid; {"util": 42.5}
         q.close()
     """
 
@@ -151,13 +150,8 @@ class PdhQuery:
         """
         _pdh.PdhCollectQueryData(self._query)
 
-    def collect(self) -> dict[str, float | int | None]:
-        """Collect current values for all registered counters.
-
-        Returns:
-            Dict mapping counter name -> value. ``None`` if the counter
-            has no data (e.g. process hasn't used the device yet).
-        """
+    def _collect_once(self) -> dict[str, float | int | None]:
+        """Single-shot PDH query. May return ``None`` for rate counters."""
         _pdh.PdhCollectQueryData(self._query)
 
         values: dict[str, float | int | None] = {}
@@ -184,6 +178,36 @@ class PdhQuery:
                 values[entry.name] = val.largeValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
 
         return values
+
+    def collect(
+        self,
+        *,
+        timeout: float = 1.0,
+        interval: float = 0.1,
+    ) -> dict[str, float | int | None]:
+        """Collect current values for all registered counters.
+
+        Rate-based PDH counters (e.g. ``% Processor Time``) can transiently
+        return ``None`` right after :meth:`prime` on busy systems.  This method
+        retries at *interval* seconds until every registered counter yields a
+        non-None value or *timeout* is exceeded.
+
+        Args:
+            timeout: Maximum seconds to wait for valid data (default 1.0).
+            interval: Seconds between retries (default 0.1).
+
+        Returns:
+            Dict mapping counter name -> value.  Values may still be ``None``
+            if *timeout* is exceeded.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            values = self._collect_once()
+            if all(v is not None for v in values.values()):
+                return values
+            if time.monotonic() >= deadline:
+                return values
+            time.sleep(interval)
 
     def close(self) -> None:
         """Close the PDH query and release resources."""
@@ -355,8 +379,7 @@ class PdhPoller:
 
             self._query.prime()
 
-            time.sleep(0.05)
-            initial = self._query.collect()
+            initial = self._query.collect(interval=0.05)
             rt = initial.get("running_time_ns")
             if rt is not None:
                 self._running_time_start_ns = rt
@@ -384,7 +407,7 @@ class PdhPoller:
 
         if self._query is not None:
             try:
-                final = self._query.collect()
+                final = self._query._collect_once()
                 rt = final.get("running_time_ns")
                 if rt is not None:
                     self._running_time_end_ns = rt
@@ -405,7 +428,7 @@ class PdhPoller:
         """Background thread: poll PDH counters at fixed interval."""
         while not self._stop_event.is_set():
             try:
-                values = self._query.collect()
+                values = self._query._collect_once()
                 util = values.get("utilization_pct")
                 mem_local = values.get("memory_local_bytes")
                 mem_shared = values.get("memory_shared_bytes")
