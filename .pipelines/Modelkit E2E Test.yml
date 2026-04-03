@@ -89,6 +89,11 @@ jobs:
               $m = $models[$i]
               $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
               $key = $slug
+              $suffix = 2
+              while ($matrix.ContainsKey($key)) {
+                  $key = "${slug}_${suffix}"
+                  $suffix++
+              }
               $matrix[$key] = @{
                   hf_id = [string]$m.hf_id
                   hf_task = [string]$m.task

@@ -3,11 +3,6 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-# -------------------------------------------------------------------------
-# Copyright (c) Microsoft Corporation. All rights reserved.
-# Licensed under the MIT License.
-# --------------------------------------------------------------------------
-
 """E2E evaluation runner — unified perf + accuracy.
 
 Batch-runs winml perf (and optionally winml eval + pytorch baseline) for models
@@ -167,7 +162,7 @@ def _clear_disk_caches() -> None:
                         entry.unlink()
                     cleaned += 1
                 except OSError:
-                    pass
+                    pass  # Best-effort cleanup; ignore if file is locked or already removed
         if cleaned:
             safe_print(f"  [cleanup] Removed {cleaned} leaked temp entries from {_TEMP_DIR}")
 
