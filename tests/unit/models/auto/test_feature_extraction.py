@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Tests for WinMLModelForFeatureExtraction.
 
 Validates forward pass I/O contract: accepts arbitrary **kwargs (architecture-agnostic),

@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """WinML Model for Feature Extraction.
 
 Thin wrapper for feature extraction inference (sentence embeddings, etc.).

@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Spearman correlation metric for feature extraction (sentence similarity).
 
 Measures rank correlation between predicted cosine similarities and

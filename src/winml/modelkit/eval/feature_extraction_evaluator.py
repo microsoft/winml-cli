@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Feature extraction evaluator using Spearman correlation on STS-B.
 
 Evaluates sentence embedding models (e.g. sentence-transformers) by:
