@@ -78,11 +78,6 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
         enc_shapes = enc_io.get("input_shapes", [])
         self._enc_seq = enc_shapes[0][1] if enc_shapes and len(enc_shapes[0]) > 1 else 16
 
-        # Model dims from config
-        self._nl = getattr(config, "num_layers", 6)
-        self._nh = getattr(config, "num_heads", 8)
-        self._dk = getattr(config, "d_kv", 64)
-
     @classmethod
     def from_pretrained(
         cls,
@@ -268,8 +263,8 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
             cache = StaticCache(self.config, max_cache_len=self._max_dec)
             cache.early_initialization(
                 batch_size=1,
-                num_heads=self._nh,
-                head_dim=self._dk,
+                num_heads=self.config.num_heads,
+                head_dim=self.config.d_kv,
                 dtype=torch.float32,
                 device=torch.device("cpu"),
             )
@@ -287,7 +282,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
             "decoder_attention_mask": dec_mask,
             "cache_position": torch.tensor([fc], dtype=torch.int64),
         }
-        for i in range(self._nl):
+        for i in range(self.config.num_layers):
             layer = cache.layers[i]
             feeds[f"past_{i}_key"] = layer.keys.detach()
             feeds[f"past_{i}_value"] = layer.values.detach()
@@ -297,7 +292,7 @@ class WinMLModelForSeq2SeqLM(PreTrainedModel, GenerationMixin):
         # Write new token's KV into the StaticCache in-place.
         # StaticCache.update() calls index_copy_ at cache_position.
         cache_kwargs = {"cache_position": torch.tensor([fc], dtype=torch.int64)}
-        for i in range(self._nl):
+        for i in range(self.config.num_layers):
             cache.update(
                 outputs[f"present_{i}_key"],
                 outputs[f"present_{i}_value"],
