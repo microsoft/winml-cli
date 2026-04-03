@@ -195,6 +195,38 @@ class TestSysCommand:
         result = runner.invoke(main, ["sys", "--verbose"])
         assert result.exit_code == 0
 
+    def test_sys_list_device_list_ep_json_is_valid_single_object(
+        self, runner: CliRunner
+    ) -> None:
+        """--list-device --list-ep --format json must emit one valid JSON object, not two arrays."""
+        import json
+
+        result = runner.invoke(
+            main, ["sys", "--list-device", "--list-ep", "--format", "json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "devices" in data
+        assert "executionProviders" in data
+        assert isinstance(data["devices"], list)
+        assert isinstance(data["executionProviders"], list)
+
+    def test_sys_list_device_compact(self, runner: CliRunner) -> None:
+        """--list-device --format compact must produce compact single-line output, not text table."""
+        result = runner.invoke(main, ["sys", "--list-device", "--format", "compact"])
+        assert result.exit_code == 0
+        assert "CPU" in result.output
+        # Compact output is a single line; no Rich panel borders
+        assert "Available Devices" not in result.output
+
+    def test_sys_list_ep_compact(self, runner: CliRunner) -> None:
+        """--list-ep --format compact must produce compact output, not text table."""
+        result = runner.invoke(main, ["sys", "--list-ep", "--format", "compact"])
+        assert result.exit_code == 0
+        assert "CPUExecutionProvider" in result.output
+        # Compact output is a single line; no Rich panel headers
+        assert "Available Execution Providers" not in result.output
+
 
 class TestModuleExecution:
     """Test python -m winml.modelkit execution."""
