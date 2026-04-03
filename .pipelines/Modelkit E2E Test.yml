@@ -187,3 +187,9 @@ jobs:
           --input-dir $(EVAL_DIR)
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Generate evaluation report'
+
+      - task: PublishPipelineArtifact@1
+        inputs:
+          targetPath: $(EVAL_DIR)
+          artifactName: EvalReport
+        displayName: 'Publish eval results as artifact'
