@@ -256,6 +256,8 @@ lint.per-file-ignores."__init__.py" = [ "D104", "E402", "F401", "F403" ]
 lint.per-file-ignores."examples/**" = [ "ANN", "D100", "D103", "S101", "T20" ]
 # E2E eval scripts: Allow print, long lines in HTML templates, try-except in loops
 lint.per-file-ignores."scripts/e2e_eval/**" = [ "ANN", "D103", "E501", "PERF203", "T20" ]
+# Download scripts: Allow subprocess, print, missing docstrings
+lint.per-file-ignores."scripts/download_rules.py" = [ "D103", "E501", "PERF401", "S603", "S607", "SIM108", "T20" ]
 # CLI: Allow print statements
 lint.per-file-ignores."src/winml/modelkit/cli.py" = [ "T20", "T201" ]
 lint.per-file-ignores."src/winml/modelkit/commands/**" = [ "T20", "T201" ]
