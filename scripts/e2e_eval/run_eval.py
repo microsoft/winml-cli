@@ -915,7 +915,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--clean-cache",
-        "--clean-hf-cache",
         dest="clean_cache",
         action="store_true",
         help="Delete caches and leaked temp files after each model evaluation (saves disk space)",
