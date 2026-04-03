@@ -38,8 +38,14 @@ class AccuracyVerdict(str, Enum):
     DATASET_CONFIG_MISSING = "DATASET_CONFIG_MISSING"  # no dataset_config in registry
 
 
-THRESHOLD_PASS = 0.05  # 5%
-THRESHOLD_AT_RISK = 0.10  # 10%
+# Per-metric comparison strategy:
+# (delta_key, thresh_pass, thresh_at_risk, higher_is_better)
+# higher_is_better: True  = larger value is better (accuracy, f1, spearman)
+#                   False = smaller value is better (WER, loss)
+METRIC_COMPARE_STRATEGY: dict[str, tuple[str, float, float, bool]] = {
+    "cosine_spearman": ("delta_absolute", 2.0, 4.0, True),
+    "default": ("delta_relative", 0.05, 0.10, True), # 5% and 10%
+}
 
 
 # ---------------------------------------------------------------------------
@@ -99,14 +105,22 @@ def derive_verdict(accuracy: dict | None) -> AccuracyVerdict:
     if not winml_ok or not base_ok:
         return AccuracyVerdict.EVAL_ERROR
 
-    delta_rel = accuracy.get("delta_relative")
-    if delta_rel is None:
+    # Look up compare strategy by metric name
+    metric_name = (accuracy.get("dataset_config") or {}).get("metric")
+    delta_key, thresh_pass, thresh_at_risk, higher_is_better = METRIC_COMPARE_STRATEGY.get(
+        metric_name, METRIC_COMPARE_STRATEGY["default"]
+    )
+    delta = accuracy.get(delta_key)
+    if delta is None:
         return AccuracyVerdict.EVAL_ERROR
 
-    abs_delta = abs(delta_rel)
-    if abs_delta < THRESHOLD_PASS:
+    # Normalize so negative always means regression.
+    delta = delta if higher_is_better else -delta
+    if delta >= 0:
         return AccuracyVerdict.ACCURACY_PASS
-    if abs_delta < THRESHOLD_AT_RISK:
+    if abs(delta) < thresh_pass:
+        return AccuracyVerdict.ACCURACY_PASS
+    if abs(delta) < thresh_at_risk:
         return AccuracyVerdict.ACCURACY_AT_RISK
     return AccuracyVerdict.ACCURACY_REGRESSION
 

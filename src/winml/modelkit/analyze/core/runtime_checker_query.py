@@ -724,9 +724,12 @@ def get_query_conditions_for_node(
             update_conditions_(conditions, input_name, is_variadic, is_constant, shape, None)
             conditions[f"{input_name}_is_none"] = False
 
+    conditions["n_outputs"] = len(node.output)
+
     # Try to derive properties, but catch errors for incomplete/invalid model information
     try:
         conditions = runtime_checker_op.derive_properties(conditions)
+        conditions.pop("n_outputs", None)
     except (KeyError, TypeError, IndexError) as e:
         # KeyError: missing required property (e.g., 'input_value', 'input_shape')
         # TypeError: invalid property value (e.g., None when expecting iterable)
@@ -816,10 +819,13 @@ def get_query_conditions_for_pattern(
         conditions[f"attr_{attr_name}"] = attr_value
         conditions[f"attr_{attr_name}_is_none"] = attr_value is None
 
+    conditions["n_outputs"] = len(pattern_match.skeleton_match_result.pattern.get_schema().outputs)
+
     # Derive additional properties via pattern input generator
     if gen is not None:
         try:
             conditions = gen.derive_properties(conditions)
+            conditions.pop("n_outputs", None)
             infinite_properties = gen.get_infinite_property_names()
         except Exception as e:
             logger.debug("Could not derive properties for pattern '%s': %s", pattern_name, e)

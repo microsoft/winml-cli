@@ -419,7 +419,7 @@ def _run_build(
 
     if not onnx_path or not Path(onnx_path).exists():
         # Last resort: find _model.onnx in the cache
-        onnx_path = _find_cached_model(entry.hf_id, build_proc)
+        onnx_path = _find_cached_model(entry.hf_id, build_proc, entry.task)
 
     return {
         "success": onnx_path is not None,
@@ -430,15 +430,26 @@ def _run_build(
     }
 
 
-def _find_cached_model(hf_id: str, build_proc: dict) -> str | None:
-    """Try to find the built ONNX model in the WinML cache."""
+def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) -> str | None:
+    """Try to find the built ONNX model in the WinML cache.
+
+    Requires task to safely identify the correct artifact when a model has
+    multiple cached tasks (e.g. feat_* and txtcls_*). Returns None if task is
+    not provided to avoid picking the wrong model.
+    """
+    if not task:
+        return None
+
     slug = hf_id.replace("/", "_").replace("\\", "_")
     cache_dir = Path.home() / ".cache" / "winml" / "artifacts" / slug
     if not cache_dir.exists():
         return None
-    # Find the most recent *_model.onnx file
+
+    from winml.modelkit.loader.task import get_task_abbrev
+    prefix = get_task_abbrev(task) + "_"
+
     model_files = sorted(
-        cache_dir.glob("*_model.onnx"),
+        (p for p in cache_dir.glob("*_model.onnx") if p.name.startswith(prefix)),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -963,9 +974,15 @@ def main() -> None:
         try:
             registry_entries = load_registry(args.registry)
             for e in registry_entries:
-                if e.hf_id == args.hf_model:
+                if e.hf_id == args.hf_model and (not args.task or e.task == args.task):
                     matched_entry = e
                     break
+            # Fallback: match by hf_id only if task-specific match not found
+            if matched_entry is None:
+                for e in registry_entries:
+                    if e.hf_id == args.hf_model:
+                        matched_entry = e
+                        break
         except Exception:
             pass  # Registry is optional for single-model mode; proceed without enrichment
         if matched_entry is not None:
