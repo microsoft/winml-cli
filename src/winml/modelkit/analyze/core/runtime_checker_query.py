@@ -138,6 +138,10 @@ class LazyDomainTables:
         import zipfile
 
         if not self._zip_path.exists():
+            logger.debug(
+                "Rule zip not found: %s. Copy rule zips from gim-home/ModelKitArtifacts.",
+                self._zip_path,
+            )
             return
         try:
             with zipfile.ZipFile(self._zip_path, "r") as zf:
@@ -211,7 +215,12 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
             if self._set_error_on_missing:
                 self[EG_RULE_ERROR_KEY] = "rules_zip_not_found"
                 self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._zip_path)
-                logger.warning(f"Rule zip file not found: {self._zip_path}")
+                logger.warning(
+                    "Rule zip file not found: %s. "
+                    "Copy rule zips from gim-home/ModelKitArtifacts to "
+                    "src/winml/modelkit/analyze/rules/runtime_check_rules/",
+                    self._zip_path,
+                )
             return
 
         with zipfile.ZipFile(self._zip_path, "r") as zf:
