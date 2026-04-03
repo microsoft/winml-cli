@@ -275,19 +275,9 @@ class TestPdhModule:
         assert "test_cpu" in query.counter_names
 
         query.prime()
-        # PDH can transiently return None on some systems/runners right after priming.
-        # Retry briefly to avoid flakiness on CI.
-        value = None
-        last_values = None
-        for _ in range(10):
-            time.sleep(0.1)
-            last_values = query.collect()
-            assert "test_cpu" in last_values
-            value = last_values["test_cpu"]
-            if value is not None:
-                break
-
-        assert value is not None, f"PDH returned None for CPU counter: {last_values}"
+        values = query.collect()
+        assert "test_cpu" in values
+        assert values["test_cpu"] is not None, f"PDH returned None for CPU counter: {values}"
 
         query.close()
 
