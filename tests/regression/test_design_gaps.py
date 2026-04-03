@@ -13,6 +13,7 @@ Design Gap IDs reference the CLI verification plan.
 Markers:
     regression: Regression test suite
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -33,6 +34,7 @@ pytestmark = [pytest.mark.regression]
 # A-1: All --help text must be ASCII-safe (no non-ASCII chars in descriptions)
 # ===========================================================================
 
+
 class TestA1HelpTextAsciiSafe:
     """Verify that --help output contains no non-ASCII characters (regression: #228).
 
@@ -45,9 +47,8 @@ class TestA1HelpTextAsciiSafe:
         result = runner.invoke(cmd, args, obj={})
         assert result.exit_code == 0, f"--help exited {result.exit_code}: {result.exception}"
         non_ascii = [(i, c) for i, c in enumerate(result.output) if ord(c) > 127]
-        assert not non_ascii, (
-            f"Non-ASCII characters found in help output: "
-            + ", ".join(f"pos {i} U+{ord(c):04X}" for i, c in non_ascii[:5])
+        assert not non_ascii, "Non-ASCII characters found in help output: " + ", ".join(
+            f"pos {i} U+{ord(c):04X}" for i, c in non_ascii[:5]
         )
 
     def test_optimize_help_is_ascii_safe(self):
@@ -67,6 +68,7 @@ class TestA1HelpTextAsciiSafe:
 # M-1: --list-tasks NOT in inspect --help
 # ===========================================================================
 
+
 class TestM1ListTasksAbsent:
     """Document that --list-tasks is not implemented in inspect."""
 
@@ -82,6 +84,7 @@ class TestM1ListTasksAbsent:
 # M-5: --no-analyze NOT in build --help
 # ===========================================================================
 
+
 class TestM5NoAnalyzePresent:
     """Verify that --no-analyze IS now implemented in build (M-5 fixed)."""
 
@@ -96,6 +99,7 @@ class TestM5NoAnalyzePresent:
 # ===========================================================================
 # B-2: precision values accepted by perf CLI
 # ===========================================================================
+
 
 class TestB2PerfPrecisionValues:
     """Document current precision values accepted by perf --precision."""
@@ -130,12 +134,14 @@ class TestB2PerfPrecisionValues:
 # D-6: DEFAULT_VOCAB_SIZE == 30522
 # ===========================================================================
 
+
 class TestD6NoHardcodedVocab:
     """Verify that DEFAULT_VOCAB_SIZE is removed from perf.py (D-6 fixed)."""
 
     def test_no_default_vocab_size_constant(self):
         """perf.py should NOT have DEFAULT_VOCAB_SIZE constant after D-6 fix."""
         import winml.modelkit.commands.perf as perf_mod
+
         assert not hasattr(perf_mod, "DEFAULT_VOCAB_SIZE"), (
             "DEFAULT_VOCAB_SIZE still exists — D-6 not fixed"
         )
@@ -144,6 +150,7 @@ class TestD6NoHardcodedVocab:
 # ===========================================================================
 # B-1: inspect help says "HuggingFace" (no ONNX mention)
 # ===========================================================================
+
 
 class TestB1InspectHelpScope:
     """Document that inspect only targets HuggingFace models."""
@@ -172,6 +179,7 @@ class TestB1InspectHelpScope:
 # B-4: config --model-type bert without --task (e2e-level)
 # ===========================================================================
 
+
 class TestB4ConfigModelTypeNoTask:
     """Document that config --model-type without --task does not crash."""
 
@@ -197,6 +205,5 @@ class TestB4ConfigModelTypeNoTask:
         runner = CliRunner()
         result = runner.invoke(config, ["--model-type", "bert"])
         assert result.exit_code == 0, (
-            f"config --model-type bert crashed (exit {result.exit_code}):\n"
-            f"{result.output}"
+            f"config --model-type bert crashed (exit {result.exit_code}):\n{result.output}"
         )
