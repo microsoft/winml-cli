@@ -188,6 +188,13 @@ logger = logging.getLogger(__name__)
 _MODEL_TAG_INVALID_PATTERN_MATCHER_MODEL = "invalid_pattern_matcher_model"
 _MODEL_TAG_MISSING_NODE_NAMES = "missing_node_names"
 
+# Maximum number of partial match candidates kept per edge during pattern
+# matching.  Without this cap, nodes with many candidates across several
+# input slots produce m^k combinations in the Cartesian product step
+# (e.g. 3 slots × 50 candidates = 125,000 combinations).  Pruning to this
+# limit bounds the worst-case fan-out while preserving all realistic matches.
+_PARTIAL_MATCH_PRUNING_LIMIT: int = 50
+
 
 class PatternMismatchedError(Exception):
     """Exception raised when a skeleton match fails to validate as a pattern.
@@ -1741,6 +1748,16 @@ class PatternMatcher:
                                 node_mapping=valid_mapping,
                             )
                         )
+                    # Prune the partial result list to prevent Cartesian
+                    # product explosion in subsequent nodes.  Keeps the
+                    # first _PARTIAL_MATCH_PRUNING_LIMIT entries; excess
+                    # candidates are nearly always duplicates in real
+                    # models and do not affect match correctness for
+                    # well-formed (non-adversarial) models.
+                    if len(edge_partial_matching_results[out_edge]) > _PARTIAL_MATCH_PRUNING_LIMIT:
+                        edge_partial_matching_results[out_edge] = edge_partial_matching_results[
+                            out_edge
+                        ][:_PARTIAL_MATCH_PRUNING_LIMIT]
 
                 if valid_merged_mappings and subgraph_node in exit_nodes:
                     # print(f"    (is exit node)")

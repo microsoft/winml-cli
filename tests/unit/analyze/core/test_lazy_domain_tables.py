@@ -36,6 +36,8 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
     EG_RULE_ERROR_KEY,
     LazyDomainTables,
     _LazyNegRules,
+    _build_column_index,
+    query_table_exact_match,
 )
 
 
@@ -78,6 +80,7 @@ class TestLazyDomainTablesCore:
         assert tables._loaded is False
         assert tables._raw_data == {}
         assert tables._loaded_tables == {}
+        assert tables._table_indexes == {}
 
     def test_lazy_loading_on_first_access(self, tables: LazyDomainTables):
         """First __getitem__ triggers zip read and returns a DataFrame."""
@@ -88,6 +91,14 @@ class TestLazyDomainTablesCore:
         assert len(conv_df) == 2
         assert "Conv" in tables._loaded_tables
         assert "Conv" not in tables._raw_data  # cleaned up after DataFrame built
+
+    def test_index_built_on_first_access(self, tables: LazyDomainTables):
+        """Pre-built column inverted index is populated alongside the DataFrame."""
+        _ = tables["Conv"]
+        assert "Conv" in tables._table_indexes
+        idx = tables._table_indexes["Conv"]
+        # Index must cover every column of the DataFrame
+        assert set(idx.keys()) == set(tables["Conv"].columns)
 
     def test_caching_returns_same_object(self, tables: LazyDomainTables):
         """Subsequent access returns the cached DataFrame."""
@@ -204,6 +215,90 @@ class TestLazyDomainTablesDataFrame:
         assert isinstance(df, pd.DataFrame)
         assert "attr_value" in df.columns
         assert len(df) == 2
+
+
+# ---------------------------------------------------------------------------
+# Tests for the column inverted index and indexed query_table_exact_match
+# ---------------------------------------------------------------------------
+
+
+class TestBuildColumnIndex:
+    """Tests for _build_column_index."""
+
+    def test_index_covers_all_columns(self):
+        """Index dict must contain an entry for every DataFrame column."""
+        df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+        idx = _build_column_index(df)
+        assert set(idx.keys()) == {"a", "b"}
+
+    def test_index_maps_values_to_row_positions(self):
+        """Each value maps to the correct set of iloc row positions."""
+        df = pd.DataFrame({"x": [10, 20, 10]})
+        idx = _build_column_index(df)
+        assert idx["x"][10] == {0, 2}
+        assert idx["x"][20] == {1}
+
+    def test_none_values_stored_under_none_key(self):
+        """NaN/None cells are stored under the sentinel key None."""
+        df = pd.DataFrame({"x": [1.0, float("nan")]})
+        idx = _build_column_index(df)
+        assert None in idx["x"]
+        assert 1 in idx["x"][1.0]
+
+
+class TestQueryTableExactMatchIndexed:
+    """Tests for the indexed fast-path of query_table_exact_match."""
+
+    @pytest.fixture()
+    def sample_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "dtype": ["float32", "float16", "float32"],
+                "shape": [(1, 3), (1, 3), (2, 4)],
+                "compile_run_success": [(True, True), (True, False), (False, False)],
+            }
+        )
+
+    @pytest.fixture()
+    def sample_index(self, sample_df: pd.DataFrame) -> dict:
+        return _build_column_index(sample_df)
+
+    def test_indexed_result_matches_baseline(self, sample_df, sample_index):
+        """Indexed query must return the same rows as the unindexed query."""
+        query = {"dtype": "float32", "shape": (1, 3)}
+        baseline = query_table_exact_match(sample_df, query)
+        indexed = query_table_exact_match(sample_df, query, index=sample_index)
+        assert list(baseline["compile_run_success"]) == list(indexed["compile_run_success"])
+
+    def test_no_match_returns_empty(self, sample_df, sample_index):
+        """A query with no matching row returns an empty DataFrame."""
+        query = {"dtype": "int8"}
+        result = query_table_exact_match(sample_df, query, index=sample_index)
+        assert result.empty
+
+    def test_single_column_query(self, sample_df, sample_index):
+        """Single-column query with index returns all matching rows."""
+        query = {"dtype": "float32"}
+        result = query_table_exact_match(sample_df, query, index=sample_index)
+        assert len(result) == 2
+
+    def test_missing_column_raises_keyerror(self, sample_df, sample_index):
+        """query_table_exact_match raises KeyError for unknown columns (indexed path)."""
+        with pytest.raises(KeyError, match="nonexistent"):
+            query_table_exact_match(sample_df, {"nonexistent": "x"}, index=sample_index)
+
+    def test_get_index_returns_none_before_load(self, zip_path: Path):
+        """get_index returns None before the operator DataFrame is loaded."""
+        tables = LazyDomainTables(zip_path, FILE_NAME)
+        assert tables.get_index("Conv") is None
+
+    def test_get_index_returns_index_after_load(self, tables: LazyDomainTables):
+        """get_index returns a populated dict after the operator is loaded."""
+        _ = tables["Conv"]
+        idx = tables.get_index("Conv")
+        assert idx is not None
+        assert isinstance(idx, dict)
+        assert set(idx.keys()) == set(tables["Conv"].columns)
 
 
 # ---------------------------------------------------------------------------

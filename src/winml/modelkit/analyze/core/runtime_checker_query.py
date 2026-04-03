@@ -82,20 +82,81 @@ def _make_pseudo_node(pattern_name: str) -> _PseudoNode:
     return _PseudoNode(pattern_name)
 
 
-def query_table_exact_match(df: pd.DataFrame, query: dict[str, Any]) -> pd.DataFrame:
-    """Query DataFrame with exact match.
+def _build_column_index(df: pd.DataFrame) -> dict[str, dict[Any, set[int]]]:
+    """Build a column-based inverted index for fast exact-match queries.
+
+    For each column, maps each distinct value to the set of row integer
+    positions (iloc-based) that hold that value.  None values are stored
+    under the sentinel key ``None``.
+
+    Args:
+        df: Sanitized DataFrame (all values must already be hashable).
+
+    Returns:
+        Nested dict: column → value → set of row integer positions.
+    """
+    index: dict[str, dict[Any, set[int]]] = {}
+    for col in df.columns:
+        col_map: dict[Any, set[int]] = {}
+        for iloc_pos, val in enumerate(df[col]):
+            try:
+                is_na = bool(pd.isna(val))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                # pd.isna may raise on some sequence-like types; treat as non-null
+                is_na = False
+            key = None if is_na else val
+            if key not in col_map:
+                col_map[key] = set()
+            col_map[key].add(iloc_pos)
+        index[col] = col_map
+    return index
+
+
+def query_table_exact_match(
+    df: pd.DataFrame,
+    query: dict[str, Any],
+    index: dict[str, dict[Any, set[int]]] | None = None,
+) -> pd.DataFrame:
+    """Query DataFrame with exact match, using a pre-built index when available.
+
+    When *index* is supplied (built by :func:`_build_column_index`), each
+    column lookup is an O(1) dict look-up followed by a set intersection,
+    giving overall O(query_columns) instead of O(rows × query_columns).
+    Without an index the original boolean-mask scan is used as fallback.
 
     Args:
         df: DataFrame to query
         query: Dictionary of column -> value to match
+        index: Optional pre-built column inverted index from
+            :func:`_build_column_index`.
 
     Returns:
         Filtered DataFrame with matching rows
     """
-    mask = pd.Series(True, index=df.index)
-    for col, value in query.items():
+    for col in query:
         if col not in df.columns:
             raise KeyError(f"Column '{col}' not found in dataframe.")
+
+    if index is not None:
+        # Fast path: intersect row-position sets from the pre-built index.
+        matching_positions: set[int] | None = None
+        for col, value in query.items():
+            col_map = index.get(col, {})
+            lookup_key = None if value is None else value
+            candidates = col_map.get(lookup_key, set())
+            if matching_positions is None:
+                matching_positions = candidates.copy()
+            else:
+                matching_positions &= candidates
+            if not matching_positions:
+                return df.iloc[[]]  # early-exit: no rows can match
+        if matching_positions is None:
+            return df
+        return df.iloc[sorted(matching_positions)]
+
+    # Slow path (no index): original boolean-mask scan.
+    mask = pd.Series(True, index=df.index)
+    for col, value in query.items():
         if value is None:
             mask &= df[col].isna()
         else:
@@ -128,6 +189,9 @@ class LazyDomainTables:
         self._file_name = file_name
         self._raw_data: dict[str, Any] = {}
         self._loaded_tables: dict[str, pd.DataFrame] = {}
+        # Pre-built column inverted indexes keyed by operator name.
+        # Built alongside the DataFrame in __getitem__ for O(1) query lookups.
+        self._table_indexes: dict[str, dict[str, dict[Any, set[int]]]] = {}
         self._loaded: bool = False
 
     def _ensure_loaded(self) -> None:
@@ -149,14 +213,24 @@ class LazyDomainTables:
             logger.debug(f"Failed to load table file {self._file_name}: {e}")
 
     def __getitem__(self, key: str) -> pd.DataFrame:
-        """Get table for operator, loading from zip if needed."""
+        """Get table for operator, loading from zip if needed.
+
+        The column inverted index (used by :func:`query_table_exact_match`) is
+        built once alongside the DataFrame and cached in ``_table_indexes``.
+        """
         if key not in self._loaded_tables:
             self._ensure_loaded()
             if key not in self._raw_data:
                 raise KeyError(f"Operator '{key}' not found in tables")
-            self._loaded_tables[key] = _sanitize_df(build_table_df(self._raw_data[key]))
+            df = _sanitize_df(build_table_df(self._raw_data[key]))
+            self._loaded_tables[key] = df
+            self._table_indexes[key] = _build_column_index(df)
             del self._raw_data[key]
         return self._loaded_tables[key]
+
+    def get_index(self, key: str) -> dict[str, dict[Any, set[int]]] | None:
+        """Return the pre-built column inverted index for *key*, or None if absent."""
+        return self._table_indexes.get(key)
 
     def __contains__(self, key: str) -> bool:
         """Check if operator exists in tables."""
@@ -911,6 +985,10 @@ class RuntimeCheckerQuery:
         self._failed_nodes_logged: set[Any] = set()
         # Cache of nodes that have been run locally for quick lookup
         self._local_run_nodes: dict[Any, RuntimeTestResult] = {}
+        # Cache for table-query results keyed on (op_type, domain, opset, is_qdq,
+        # frozenset of filter_v items).  Avoids re-scanning the table for repeated
+        # operators (e.g. the 12 identical LayerNorm nodes in BERT).
+        self._table_query_cache: dict[tuple[Any, ...], PatternRuntime] = {}
 
         # Register per-domain lazy rule objects — no file I/O occurs here.
         registered_patterns = set(get_registered_pattern_input_generators())
@@ -1719,6 +1797,10 @@ class RuntimeCheckerQuery:
         op_neg_rules = target_neg_rules[op_domain][node.op_type]
         reason = ""
 
+        # Cache key for the table-query result.  Set once filter_v is known so
+        # the final PatternRuntime can be stored in _table_query_cache.
+        _tq_cache_key: tuple[Any, ...] | None = None
+
         try:
             compile_result, compile_reason = self._check_negative_rules(
                 op_neg_rules, conditions, node, "compile"
@@ -1762,7 +1844,27 @@ class RuntimeCheckerQuery:
                                 f" keys: {avail}"
                             )
 
-                    ret = query_table_exact_match(table_df, filter_v)
+                    ret = query_table_exact_match(
+                        table_df,
+                        filter_v,
+                        index=domain_tables.get_index(node.op_type),
+                    )
+                    cache_key = (
+                        node.op_type,
+                        op_domain,
+                        opset_version,
+                        is_qdq,
+                        make_hashable(filter_v),
+                    )
+                    if cache_key in self._table_query_cache:
+                        cached = self._table_query_cache[cache_key]
+                        return PatternRuntime(
+                            pattern_id=get_pattern_id(is_qdq),
+                            result=cached.result,
+                            alternatives=self.alternatives,
+                            pattern_match=pattern_match,
+                        )
+                    _tq_cache_key = cache_key
                     if not ret.empty:
                         compile_result = ret.iloc[0]["compile_run_success"][0]
                         run_result = ret.iloc[0]["compile_run_success"][1]
@@ -1944,7 +2046,7 @@ class RuntimeCheckerQuery:
                     name_suffix="unsupported" if is_unsupported else "partial",
                 )
 
-        return PatternRuntime(
+        result = PatternRuntime(
             pattern_id=get_pattern_id(is_qdq),
             result=RuntimeTestResult(
                 compile=compile_result,
@@ -1957,6 +2059,9 @@ class RuntimeCheckerQuery:
             alternatives=self.alternatives,
             pattern_match=pattern_match,
         )
+        if _tq_cache_key is not None:
+            self._table_query_cache[_tq_cache_key] = result
+        return result
 
     def run_for_subgraph(
         self,
@@ -2079,7 +2184,11 @@ class RuntimeCheckerQuery:
                                 f"Available: {_format_list_preview(conditions.keys())}"
                             )
 
-                    ret = query_table_exact_match(table_df, filter_v)
+                    ret = query_table_exact_match(
+                        table_df,
+                        filter_v,
+                        index=domain_tables.get_index(pattern_name),
+                    )
                     if not ret.empty:
                         compile_result = ret.iloc[0]["compile_run_success"][0]
                         run_result = ret.iloc[0]["compile_run_success"][1]
