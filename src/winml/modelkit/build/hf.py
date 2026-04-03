@@ -455,11 +455,11 @@ def _load_model(
                     "Options:\n"
                     "  1. Provide --model <model_id> to use pretrained weights\n"
                     "  2. Ensure config has loader.model_type (e.g., 'bert', 'resnet')\n"
-                    "  3. Regenerate config: wmk config -m <model_id> -o config.json"
+                    "  3. Regenerate config: winml config -m <model_id> -o config.json"
                 )
             hf_config = AutoConfig.for_model(model_type)
 
-        # Prefer explicit model_class from loader config (set by wmk config),
+        # Prefer explicit model_class from loader config (set by winml config),
         # fall back to resolve_task_and_model_class for auto-detection.
         model_class = None
         if config.loader.model_class:

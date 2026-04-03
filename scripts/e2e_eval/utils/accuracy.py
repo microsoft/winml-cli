@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Accuracy evaluation data structures, threshold logic, and summary generation.
 
 Mirrors the design of reporter.py (Signal 1):
@@ -28,7 +33,7 @@ class AccuracyVerdict(str, Enum):
     ACCURACY_PASS = "ACCURACY_PASS"  # noqa: S105  # |relative_delta| < 5%
     ACCURACY_AT_RISK = "ACCURACY_AT_RISK"  # 5% ≤ |relative_delta| < 10%
     ACCURACY_REGRESSION = "ACCURACY_REGRESSION"  # |relative_delta| ≥ 10%
-    EVAL_ERROR = "EVAL_ERROR"  # wmk eval or baseline subprocess failed
+    EVAL_ERROR = "EVAL_ERROR"  # winml eval or baseline subprocess failed
     SKIPPED = "SKIPPED"  # perf_failed
     DATASET_CONFIG_MISSING = "DATASET_CONFIG_MISSING"  # no dataset_config in registry
 
@@ -49,7 +54,7 @@ METRIC_COMPARE_STRATEGY: dict[str, tuple[str, float, float, bool]] = {
 
 
 def compute_delta(
-    wmk_metric: dict | None,
+    winml_metric: dict | None,
     baseline_metric: dict | None,
 ) -> tuple[float | None, float | None]:
     """Return (delta_absolute, delta_relative) from metric dicts.
@@ -58,16 +63,16 @@ def compute_delta(
     Returns (None, None) if either is missing or baseline value is zero.
 
     Note: For error-rate metrics (WER — lower is better) a positive delta
-    means the WMK pipeline is *worse*.  The threshold in derive_verdict()
+    means the WinML pipeline is *worse*.  The threshold in derive_verdict()
     uses abs(delta_relative) to handle both directions uniformly.
     """
-    if wmk_metric is None or baseline_metric is None:
+    if winml_metric is None or baseline_metric is None:
         return None, None
-    wmk_val = wmk_metric.get("value")
+    winml_val = winml_metric.get("value")
     base_val = baseline_metric.get("value")
-    if wmk_val is None or base_val is None:
+    if winml_val is None or base_val is None:
         return None, None
-    delta_abs = wmk_val - base_val
+    delta_abs = winml_val - base_val
     if base_val == 0:
         return round(delta_abs, 6), None
     return round(delta_abs, 6), round(delta_abs / base_val, 6)
@@ -95,9 +100,9 @@ def derive_verdict(accuracy: dict | None) -> AccuracyVerdict:
             return AccuracyVerdict.DATASET_CONFIG_MISSING
         return AccuracyVerdict.SKIPPED
 
-    wmk_ok = accuracy.get("wmk_eval_status") == "PASS"
+    winml_ok = accuracy.get("winml_eval_status") == "PASS"
     base_ok = accuracy.get("pytorch_baseline_status") == "PASS"
-    if not wmk_ok or not base_ok:
+    if not winml_ok or not base_ok:
         return AccuracyVerdict.EVAL_ERROR
 
     # Look up compare strategy by metric name
@@ -251,14 +256,14 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
     lines += ["", "## Accuracy Regressions", ""]
     if regressions:
         lines += [
-            "| Model | Task | WMK | Baseline | Delta% |",
+            "| Model | Task | WinML | Baseline | Delta% |",
             "|-------|------|-----|----------|--------|",
         ]
         for r in regressions:
             acc = r["accuracy"]
             lines.append(
                 f"| {r['model']} | {r.get('task', '')} "
-                f"| {_val(acc, 'wmk_metric')} | {_val(acc, 'pytorch_baseline_metric')} "
+                f"| {_val(acc, 'winml_metric')} | {_val(acc, 'pytorch_baseline_metric')} "
                 f"| {_pct(acc)} |"
             )
     else:
@@ -272,14 +277,14 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
     lines += ["", "## At-Risk Models", ""]
     if at_risk:
         lines += [
-            "| Model | Task | WMK | Baseline | Delta% |",
+            "| Model | Task | WinML | Baseline | Delta% |",
             "|-------|------|-----|----------|--------|",
         ]
         for r in at_risk:
             acc = r["accuracy"]
             lines.append(
                 f"| {r['model']} | {r.get('task', '')} "
-                f"| {_val(acc, 'wmk_metric')} | {_val(acc, 'pytorch_baseline_metric')} "
+                f"| {_val(acc, 'winml_metric')} | {_val(acc, 'pytorch_baseline_metric')} "
                 f"| {_pct(acc)} |"
             )
     else:

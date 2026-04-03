@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for wmk perf --module flag."""
+"""Tests for winml perf --module flag."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ from winml.modelkit.commands.perf import generate_output_path
 
 
 class TestPerfModuleFlag:
-    """Tests for --module flag on wmk perf."""
+    """Tests for --module flag on winml perf."""
 
     def test_module_flag_in_help(self) -> None:
-        """Verify --module flag appears in wmk perf --help."""
+        """Verify --module flag appears in winml perf --help."""
         runner = CliRunner()
         result = runner.invoke(main, ["perf", "--help"])
         assert result.exit_code == 0

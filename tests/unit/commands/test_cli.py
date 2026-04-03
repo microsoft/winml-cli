@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""CLI integration tests for wmk command.
+"""CLI integration tests for winml command.
 
 Tests the CLI interface using Click's CliRunner to ensure commands work
 correctly without executing actual model exports (which are slow).
@@ -42,7 +42,7 @@ class TestCLIBasics:
         """Test --version flag shows version info."""
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "wmk" in result.output.lower()
+        assert "winml" in result.output.lower()
 
     def test_help(self, runner: CliRunner) -> None:
         """Test --help shows usage information."""

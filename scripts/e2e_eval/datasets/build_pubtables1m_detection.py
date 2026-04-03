@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Build a local HF-compatible object-detection dataset from PubTables-1M.
 
 Downloads the validation split annotations (5 MB) and images (7 GB) from
@@ -18,8 +23,9 @@ from __future__ import annotations
 import argparse
 import random
 import tarfile
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # noqa: N817
 from pathlib import Path
+
 
 # Labels matching microsoft/table-transformer-detection config
 LABEL_NAMES = ["table", "table rotated"]
@@ -30,7 +36,7 @@ _SEED = 42
 
 def _parse_voc_xml(xml_bytes: bytes) -> dict | None:
     """Parse a PASCAL VOC XML annotation and return structured data."""
-    root = ET.fromstring(xml_bytes)
+    root = ET.fromstring(xml_bytes)  # noqa: S314
     filename = root.findtext("filename")
     size_el = root.find("size")
     if size_el is None or filename is None:
@@ -147,38 +153,43 @@ def build_dataset(output_dir: Path) -> None:
     print(f"  Extracted {len(images_by_name)} images")
 
     # Step 6: Build dataset rows (skip any missing images)
-    from datasets import ClassLabel, Dataset, Features, Image as HFImage, Sequence, Value
+    from datasets import ClassLabel, Dataset, Features, Sequence, Value
+    from datasets import Image as HFImage
 
     rows: list[dict] = []
     for idx, ann in enumerate(sampled):
         img = images_by_name.get(ann["filename"])
         if img is None:
             continue
-        rows.append({
-            "image_id": idx,
-            "image": img,
-            "width": ann["width"],
-            "height": ann["height"],
-            "objects": {
-                "bbox_id": ann["bbox_id"],
-                "category": ann["category"],
-                "bbox": ann["bbox"],
-                "area": ann["area"],
-            },
-        })
+        rows.append(
+            {
+                "image_id": idx,
+                "image": img,
+                "width": ann["width"],
+                "height": ann["height"],
+                "objects": {
+                    "bbox_id": ann["bbox_id"],
+                    "category": ann["category"],
+                    "bbox": ann["bbox"],
+                    "area": ann["area"],
+                },
+            }
+        )
 
-    features = Features({
-        "image_id": Value("int64"),
-        "image": HFImage(),
-        "width": Value("int64"),
-        "height": Value("int64"),
-        "objects": {
-            "bbox_id": Sequence(Value("int64")),
-            "category": Sequence(ClassLabel(names=LABEL_NAMES)),
-            "bbox": Sequence(Sequence(Value("float64"), length=4)),
-            "area": Sequence(Value("float64")),
-        },
-    })
+    features = Features(
+        {
+            "image_id": Value("int64"),
+            "image": HFImage(),
+            "width": Value("int64"),
+            "height": Value("int64"),
+            "objects": {
+                "bbox_id": Sequence(Value("int64")),
+                "category": Sequence(ClassLabel(names=LABEL_NAMES)),
+                "bbox": Sequence(Sequence(Value("float64"), length=4)),
+                "area": Sequence(Value("float64")),
+            },
+        }
+    )
 
     dataset = Dataset.from_list(rows, features=features)
     print(f"Saving {len(dataset)} samples to {output_dir} ...")
@@ -188,9 +199,7 @@ def build_dataset(output_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build PubTables-1M detection dataset"
-    )
+    parser = argparse.ArgumentParser(description="Build PubTables-1M detection dataset")
     parser.add_argument("--output", type=Path, required=True, help="Output directory")
     args = parser.parse_args()
     build_dataset(args.output)

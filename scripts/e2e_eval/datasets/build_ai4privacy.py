@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Build a local HF-compatible dataset for Isotonic/distilbert_finetuned_ai4privacy_v2.
 
 The ``ai4privacy/pii-masking-200k`` dataset uses string BIO labels
@@ -12,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
 
 _NUM_SAMPLES = 10000
 
@@ -37,10 +43,12 @@ def build_dataset(output_dir: Path) -> None:
     tokens_list = [s["mbert_text_tokens"] for s in samples]
     tags_list = [[label2id[lbl] for lbl in s["mbert_bio_labels"]] for s in samples]
 
-    features = Features({
-        "tokens": Sequence(Value("string")),
-        "ner_tags": Sequence(ClassLabel(names=all_labels)),
-    })
+    features = Features(
+        {
+            "tokens": Sequence(Value("string")),
+            "ner_tags": Sequence(ClassLabel(names=all_labels)),
+        }
+    )
     dataset = Dataset.from_dict(
         {"tokens": tokens_list, "ner_tags": tags_list},
         features=features,

@@ -174,7 +174,7 @@ class WinMLAutoModel:
         else:
             import tempfile
 
-            cache_dir_path = Path(tempfile.mkdtemp(prefix="wmk_"))
+            cache_dir_path = Path(tempfile.mkdtemp(prefix="winml_"))
             output_dir = cache_dir_path
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", output_dir)
@@ -324,7 +324,7 @@ class WinMLAutoModel:
             # No cache -- use temp directory, always rebuild
             import tempfile
 
-            cache_dir_path = Path(tempfile.mkdtemp(prefix="wmk_"))
+            cache_dir_path = Path(tempfile.mkdtemp(prefix="winml_"))
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 

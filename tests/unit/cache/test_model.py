@@ -160,7 +160,7 @@ class TestListCachedModels:
 
 
 class TestCallerConvergence:
-    """Verify that from_pretrained and wmk build --use-cache produce identical paths."""
+    """Verify that from_pretrained and winml build --use-cache produce identical paths."""
 
     def test_same_output_dir(self) -> None:
         """Both callers compute the same output_dir for a given model_id."""
