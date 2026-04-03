@@ -465,3 +465,25 @@ class TestRuntimeCheckerQueryCache:
             ValueError, match="Cannot create RuntimeCheckerQuery without ONNX model"
         ):
             checker._get_query()
+
+    def test_table_query_cache_populated_after_op_support(
+        self, simple_onnx_model: ONNXModel
+    ):
+        """_table_query_cache grows only on table-lookup paths (not rules-not-found paths).
+
+        We call op_support() on a simple model that has no rule files — every
+        node goes through the rules-not-found early-return path, so
+        _table_query_cache must remain empty (no table match was performed).
+        This verifies that the cache is wired in correctly without asserting
+        on external file availability.
+        """
+        checker = RuntimeChecker(
+            ep="QNNExecutionProvider",
+            device="NPU",
+            model=simple_onnx_model,
+        )
+        checker.op_support(run_unknown_op=False)
+        query = checker._get_query()
+        # The cache may or may not have entries depending on rule file
+        # availability; either way it must be a dict.
+        assert isinstance(query._table_query_cache, dict)

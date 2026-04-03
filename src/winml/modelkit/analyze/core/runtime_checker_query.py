@@ -102,7 +102,8 @@ def _build_column_index(df: pd.DataFrame) -> dict[str, dict[Any, set[int]]]:
             try:
                 is_na = bool(pd.isna(val))  # type: ignore[arg-type]
             except (TypeError, ValueError):
-                # pd.isna may raise on some sequence-like types; treat as non-null
+                # pd.isna() raises on array-like inputs (e.g. numpy arrays)
+                # that can sneak in before sanitization.  Treat as non-null.
                 is_na = False
             key = None if is_na else val
             if key not in col_map:
@@ -149,7 +150,8 @@ def query_table_exact_match(
             else:
                 matching_positions &= candidates
             if not matching_positions:
-                return df.iloc[[]]  # early-exit: no rows can match
+                # Return an empty slice of df (preserves column schema).
+                return df.iloc[[]]  # type: ignore[call-overload]
         if matching_positions is None:
             return df
         return df.iloc[sorted(matching_positions)]

@@ -1755,9 +1755,7 @@ class PatternMatcher:
                     # models and do not affect match correctness for
                     # well-formed (non-adversarial) models.
                     if len(edge_partial_matching_results[out_edge]) > _PARTIAL_MATCH_PRUNING_LIMIT:
-                        edge_partial_matching_results[out_edge] = edge_partial_matching_results[
-                            out_edge
-                        ][:_PARTIAL_MATCH_PRUNING_LIMIT]
+                        del edge_partial_matching_results[out_edge][_PARTIAL_MATCH_PRUNING_LIMIT:]
 
                 if valid_merged_mappings and subgraph_node in exit_nodes:
                     # print(f"    (is exit node)")
