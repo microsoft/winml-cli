@@ -24,7 +24,7 @@ from ..registry import BoolCapability, CapabilityCategory
 LAYER_NORM_FUSION = BoolCapability(
     name="layer-norm-fusion",
     ort_name="LayerNormFusionL2",
-    description="Fuse LayerNorm computation (ReduceMean→Sub→Pow→Sqrt→Div→Mul→Add)",
+    description="Fuse LayerNorm computation (ReduceMean->Sub->Pow->Sqrt->Div->Mul->Add)",
     category=CapabilityCategory.LAYER_NORM,
     default=False,
 )
@@ -78,7 +78,7 @@ BIAS_SKIP_LAYER_NORM_FUSION = BoolCapability(
 FUSE_RMSNORM = BoolCapability(
     name="fuse-rmsnorm",
     ort_name=None,  # Custom implementation, not ORT optimizer
-    description="Fuse RMSNorm (Pow→ReduceMean→Add→Sqrt→Div→Mul) into LpNormalization(p=2)",
+    description="Fuse RMSNorm (Pow->ReduceMean->Add->Sqrt->Div->Mul) into LpNormalization(p=2)",
     category=CapabilityCategory.LAYER_NORM,
     default=False,
 )

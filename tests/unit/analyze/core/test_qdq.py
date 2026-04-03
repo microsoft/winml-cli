@@ -52,6 +52,15 @@ class TestQDQGenerator:
         assert isinstance(qdq_generator.dq_output_onnx_types, list)
         assert isinstance(qdq_generator.q_input_onnx_types, list)
 
+    def test_initialization_does_not_print_to_stdout(self, capsys) -> None:
+        """QDQGenerator.__init__ must not write to stdout (regression: #231)."""
+        QDQGenerator(opset_version=17, domain=ONNXDomain.AI_ONNX)
+        captured = capsys.readouterr()
+        assert captured.out == "", (
+            "QDQGenerator printed to stdout during init — "
+            "debug print() statements must be converted to logger.debug()"
+        )
+
     def test_type_lists_validity(self, qdq_generator: QDQGenerator) -> None:
         """Test that type lists contain valid quantization types."""
         assert len(qdq_generator.weight_onnx_types) > 0
