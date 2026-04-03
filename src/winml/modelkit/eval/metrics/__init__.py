@@ -7,6 +7,7 @@
 
 from .mean_average_precision import MAPMetric
 from .mean_iou import IGNORE_INDEX, MeanIoUMetric
+from .spearman_correlation import SpearmanCorrelationMetric
 
 
-__all__ = ["IGNORE_INDEX", "MAPMetric", "MeanIoUMetric"]
+__all__ = ["IGNORE_INDEX", "MAPMetric", "MeanIoUMetric", "SpearmanCorrelationMetric"]
