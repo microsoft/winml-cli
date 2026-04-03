@@ -30,7 +30,7 @@ dependencies = [
   "jsonschema>=4.23",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  "onnx==1.21.0",
   "onnx-ir>=0.1",
   "onnxruntime-windowsml>=1.23.2,<1.24.0",
   "onnxscript>=0.2",
