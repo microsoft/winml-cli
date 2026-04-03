@@ -316,6 +316,7 @@ def generate_html_report(
     output_path: Path,
     registry_path: Path | None = None,
 ) -> None:
+    from .accuracy import format_delta
     """Generate interactive HTML report with Perf and Accuracy tabs."""
     results = report_data.get("results", [])
 
@@ -356,8 +357,8 @@ def generate_html_report(
                     if acc is not None
                     else None
                 ),
-                "delta_relative": (
-                    acc.get("delta_relative") if acc and not acc.get("skipped") else None
+                "delta_display": (
+                    format_delta(acc) if acc and not acc.get("skipped") else ""
                 ),
             }
         )
@@ -510,12 +511,6 @@ function formatNum(n) {{
   return n.toLocaleString();
 }}
 function formatDate(iso) {{ return iso ? new Date(iso).toLocaleDateString('en-CA') : '-'; }}
-function formatDelta(v) {{
-  if (v == null) return '-';
-  const pct = (v * 100).toFixed(1);
-  const cls = Math.abs(v) < 0.05 ? 'badge-acc-pass' : Math.abs(v) < 0.10 ? 'badge-acc-risk' : 'badge-acc-reg';  // yellow ≥5%, red ≥10%
-  return `<span class="badge ${{cls}}">${{pct}}%</span>`;
-}}
 
 let filters = {{
   task: new Set(), model_type: new Set(), priority: new Set(),
@@ -628,7 +623,7 @@ function renderTable(items) {{
       <td class="col-sep">${{d.accuracy_verdict
         ? `<span class="badge ${{verdictCls}}">${{d.accuracy_verdict}}</span>`
         : '<span style="color:var(--text2);font-size:11px">N/A</span>'}}</td>
-      <td>${{formatDelta(d.delta_relative)}}</td>` : '';
+      <td>${{d.delta_display || '-'}}</td>` : '';
     return `<tr${{errTip ? ` title="${{errTip}}"` : ''}}>
       <td><a class="hf-link" href="https://huggingface.co/${{d.hf_id}}" target="_blank">${{d.hf_id}}</a></td>
       <td><span class="badge badge-task">${{d.task||'-'}}</span></td>

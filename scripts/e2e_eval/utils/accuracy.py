@@ -63,8 +63,8 @@ def compute_delta(
     Returns (None, None) if either is missing or baseline value is zero.
 
     Note: For error-rate metrics (WER — lower is better) a positive delta
-    means the WinML pipeline is *worse*.  The threshold in derive_verdict()
-    uses abs(delta_relative) to handle both directions uniformly.
+    means the WinML pipeline is *worse*.  derive_verdict() normalizes the
+    sign using higher_is_better from METRIC_COMPARE_STRATEGY.
     """
     if winml_metric is None or baseline_metric is None:
         return None, None
@@ -76,6 +76,24 @@ def compute_delta(
     if base_val == 0:
         return round(delta_abs, 6), None
     return round(delta_abs, 6), round(delta_abs / base_val, 6)
+
+
+def format_delta(accuracy: dict) -> str:
+    """Format the comparison delta as a display string using the metric strategy.
+
+    Returns e.g. ``"-6.0%"`` for relative metrics or ``"-1.27pts"`` for absolute.
+    Returns ``""`` if delta is unavailable.
+    """
+    metric_name = (accuracy.get("dataset_config") or {}).get("metric")
+    delta_key = METRIC_COMPARE_STRATEGY.get(
+        metric_name, METRIC_COMPARE_STRATEGY["default"]
+    )[0]
+    d = accuracy.get(delta_key)
+    if d is None:
+        return ""
+    if delta_key == "delta_absolute":
+        return f"{d:+.2f}pts"
+    return f"{d:.1%}"
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +232,6 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
         v = (acc.get(key) or {}).get("value")
         return f"{v:.4f}" if isinstance(v, float) else str(v) if v is not None else "N/A"
 
-    def _pct(acc: dict) -> str:
-        d = acc.get("delta_relative")
-        return f"{d:.1%}" if d is not None else "N/A"
-
     lines = [
         "# Accuracy Evaluation Summary",
         "",
@@ -256,15 +270,15 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
     lines += ["", "## Accuracy Regressions", ""]
     if regressions:
         lines += [
-            "| Model | Task | WinML | Baseline | Delta% |",
-            "|-------|------|-----|----------|--------|",
+            "| Model | Task | WinML | Baseline | Delta |",
+            "|-------|------|-------|----------|-------|",
         ]
         for r in regressions:
             acc = r["accuracy"]
             lines.append(
                 f"| {r['model']} | {r.get('task', '')} "
                 f"| {_val(acc, 'winml_metric')} | {_val(acc, 'pytorch_baseline_metric')} "
-                f"| {_pct(acc)} |"
+                f"| {format_delta(acc)} |"
             )
     else:
         lines.append("_No regressions._")
@@ -277,15 +291,15 @@ def _build_accuracy_md_lines(results: list[dict], summary: dict) -> list[str]:
     lines += ["", "## At-Risk Models", ""]
     if at_risk:
         lines += [
-            "| Model | Task | WinML | Baseline | Delta% |",
-            "|-------|------|-----|----------|--------|",
+            "| Model | Task | WinML | Baseline | Delta |",
+            "|-------|------|-------|----------|-------|",
         ]
         for r in at_risk:
             acc = r["accuracy"]
             lines.append(
                 f"| {r['model']} | {r.get('task', '')} "
                 f"| {_val(acc, 'winml_metric')} | {_val(acc, 'pytorch_baseline_metric')} "
-                f"| {_pct(acc)} |"
+                f"| {format_delta(acc)} |"
             )
     else:
         lines.append("_No at-risk models._")
