@@ -537,5 +537,311 @@
         "annotation_column": "semantic_segmentation"
       }
     }
+  },
+  {
+    "hf_id": "BAAI/bge-base-en-v1.5",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "Intel/bert-base-uncased-mrpc",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch16",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-small-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
   }
 ]

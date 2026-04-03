@@ -59,7 +59,7 @@ def build_dataset(output_dir: Path) -> None:
     print("Done.")
 
 
-def main() -> None:  # noqa: D103
+def main() -> None:
     parser = argparse.ArgumentParser(description="Build ai4privacy PII dataset")
     parser.add_argument("--output", type=Path, required=True, help="Output directory")
     args = parser.parse_args()
