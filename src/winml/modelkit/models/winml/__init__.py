@@ -47,6 +47,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "text2text-generation": "WinMLModelForSeq2SeqLM",
     "fill-mask": "WinMLModelForMaskedLM",
     "feature-extraction": "WinMLModelForFeatureExtraction",
+    "sentence-similarity": "WinMLModelForFeatureExtraction",
 }
 
 # Level 2: (model_type, task) -> Specialized class (exceptions only)
@@ -72,6 +73,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         ImportError: If class is not implemented yet
     """
     from .base import WinMLModelForGenericTask
+    from .feature_extraction import WinMLModelForFeatureExtraction
     from .image_classification import WinMLModelForImageClassification
     from .image_segmentation import (
         WinMLModelForImageSegmentation,
@@ -82,6 +84,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
 
     # Map class names to modules
     class_map: dict[str, type] = {
+        "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
@@ -170,6 +173,7 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
 # =============================================================================
 
 from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
+from .feature_extraction import WinMLModelForFeatureExtraction
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
     ImageSegmentationOutput,
@@ -184,6 +188,7 @@ __all__ = [
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
     "ImageSegmentationOutput",
+    "WinMLModelForFeatureExtraction",
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",

@@ -117,7 +117,7 @@ def _fmt_model_id(model_id: str) -> Text:
     Returns:
         Rich Text with org in dim and model name in cyan bold.
     """
-    t = Text(overflow="ellipsis", no_wrap=True)
+    t = Text(overflow="crop", no_wrap=True)
     if "/" in model_id:
         org, name = model_id.split("/", 1)
         t.append(org + "/", style="dim")
@@ -171,9 +171,9 @@ def _build_list_renderable(models: list[dict[str, Any]]) -> Group:
         show_edge=False,
         expand=True,
     )
-    table.add_column("Model", no_wrap=True, max_width=38)
-    table.add_column("Task", no_wrap=True)
-    table.add_column("Model Type", no_wrap=True, style="magenta")
+    table.add_column("Model", no_wrap=True, max_width=38, overflow="crop")
+    table.add_column("Task", no_wrap=True, overflow="crop")
+    table.add_column("Model Type", no_wrap=True, style="magenta", overflow="crop")
 
     for m in models:
         table.add_row(

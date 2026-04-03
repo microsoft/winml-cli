@@ -350,7 +350,7 @@ class RuntimeChecker:
                     PatternRuntime(
                         pattern_id=op_r.pattern_id,  # keep original op pattern_id
                         result=pr.result,  # use subgraph-level result
-                        alternatives=pr.alternatives,
+                        alternatives=[],  # subgraph alternatives belong to the subgraph, not the op
                         pattern_match=op_r.pattern_match,
                     )
                 )

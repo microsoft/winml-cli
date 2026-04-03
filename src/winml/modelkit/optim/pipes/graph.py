@@ -593,8 +593,9 @@ class ORTGraphPipe(BasePipe):
                 ) from e
 
         finally:
-            # Clean up temporary files (always execute)
-            if input_file and input_file.exists():
-                input_file.unlink(missing_ok=True)
-            if output_file and output_file.exists():
-                output_file.unlink(missing_ok=True)
+            # Clean up temporary files and their external data sidecars
+            for tmp in (input_file, output_file):
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)
+                    data_sidecar = tmp.parent / f"{tmp.name}.data"
+                    data_sidecar.unlink(missing_ok=True)
