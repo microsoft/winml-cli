@@ -41,6 +41,8 @@ def _sparse_clone(clone_url: str, dest: Path) -> bool:
             "1",
             "--filter=blob:none",
             "--sparse",
+            "--branch",
+            "main",
             clone_url,
             str(dest),
         ],
