@@ -138,7 +138,7 @@ class LazyDomainTables:
         import zipfile
 
         if not self._zip_path.exists():
-            logger.debug(
+            logger.warning(
                 "Rule zip not found: %s. "
                 "Run 'uv run python scripts/download_rules.py' to download rule files.",
                 self._zip_path,
