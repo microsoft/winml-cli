@@ -72,6 +72,12 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         ImportError: If class is not implemented yet
     """
     from .base import WinMLModelForGenericTask
+    from .generation_mixin import (
+        DummyEncoder,
+        OnnxEncoder,
+        OnnxGenerativeInputs,
+        WinMLGenerationMixin,
+    )
     from .image_classification import WinMLModelForImageClassification
     from .image_segmentation import (
         WinMLModelForImageSegmentation,
@@ -90,6 +96,9 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
         "WinMLModelForSequenceClassification": WinMLModelForSequenceClassification,
         "WinMLModelForGenericTask": WinMLModelForGenericTask,
+        # Base classes for generative models (not used directly by auto model)
+        "WinMLGenerationMixin": WinMLGenerationMixin,
+        "OnnxGenerativeInputs": OnnxGenerativeInputs,
     }
 
     if class_name not in class_map:
@@ -172,12 +181,19 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
 # =============================================================================
 
 from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
+from .generation_mixin import (
+    DummyEncoder,
+    OnnxEncoder,
+    OnnxGenerativeInputs,
+    WinMLGenerationMixin,
+)
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
     ImageSegmentationOutput,
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .image_to_text import WinMLModelForImageToText
 from .object_detection import WinMLModelForObjectDetection
 from .sequence_classification import WinMLModelForSequenceClassification
 
@@ -185,10 +201,15 @@ from .sequence_classification import WinMLModelForSequenceClassification
 __all__ = [
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
+    "DummyEncoder",
     "ImageSegmentationOutput",
+    "OnnxEncoder",
+    "OnnxGenerativeInputs",
+    "WinMLGenerationMixin",
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
+    "WinMLModelForImageToText",
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",
