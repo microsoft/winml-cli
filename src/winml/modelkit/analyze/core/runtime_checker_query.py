@@ -1844,11 +1844,6 @@ class RuntimeCheckerQuery:
                                 f" keys: {avail}"
                             )
 
-                    ret = query_table_exact_match(
-                        table_df,
-                        filter_v,
-                        index=domain_tables.get_index(node.op_type),
-                    )
                     cache_key = (
                         node.op_type,
                         op_domain,
@@ -1865,6 +1860,12 @@ class RuntimeCheckerQuery:
                             pattern_match=pattern_match,
                         )
                     _tq_cache_key = cache_key
+
+                    ret = query_table_exact_match(
+                        table_df,
+                        filter_v,
+                        index=domain_tables.get_index(node.op_type),
+                    )
                     if not ret.empty:
                         compile_result = ret.iloc[0]["compile_run_success"][0]
                         run_result = ret.iloc[0]["compile_run_success"][1]

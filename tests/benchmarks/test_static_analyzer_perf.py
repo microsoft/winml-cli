@@ -185,17 +185,15 @@ class TestStaticAnalyzerPerf:
         )
 
     def test_repeated_layer_cache_speedup(self) -> None:
-        """Verify that repeated-layer caching provides a measurable speedup.
+        """Verify that repeated-layer caching keeps analysis time well within target.
 
-        Build two models: one with 200 unique op configurations and one with
-        the same configuration repeated 200 times.  The repeated model must be
-        at least 30% faster due to _table_query_cache reuse.
+        A model with 200 identical Add nodes (same shape, same dtype) exercises
+        the _table_query_cache path: after the first node is evaluated, every
+        subsequent identical node should hit the cache.  The elapsed time must
+        remain well within the small (100-ops) ADR-017 target.
         """
-        # All-identical layers: same op, same shape → identical filter_v → cache hits
-        elapsed_repeated = _run_op_support(200)
-
-        # Sanity: repeated model finishes quickly (well within the small target)
-        assert elapsed_repeated < _TARGET_SMALL_S, (
-            f"Repeated-layer model (200 identical ops) took {elapsed_repeated:.2f}s, "
-            f"exceeds {_TARGET_SMALL_S}s"
+        elapsed = _run_op_support(200)
+        assert elapsed < _TARGET_SMALL_S, (
+            f"Repeated-layer model (200 identical ops) took {elapsed:.2f}s, "
+            f"exceeds ADR-017 small target of {_TARGET_SMALL_S}s"
         )
