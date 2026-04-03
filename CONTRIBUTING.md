@@ -16,10 +16,9 @@ See the [README](./README.md#getting-started) for prerequisites and installation
 ```bash
 uv sync
 uv run pre-commit install
-uv run python scripts/download_rules.py
 ```
 
-This installs all dependencies, enables [pre-commit hooks](https://pre-commit.com/), and downloads runtime check rule files needed by the static analyzer. The rule zips are hosted in a separate repo and not tracked by git — see [runtime_check_rules/README.md](src/winml/modelkit/analyze/rules/runtime_check_rules/README.md) for details.
+This installs all dependencies and enables [pre-commit hooks](https://pre-commit.com/) that automatically check license headers, formatting (Ruff), trailing whitespace, and YAML syntax on every commit.
 
 ## Coding conventions and standards
 
