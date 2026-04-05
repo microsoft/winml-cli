@@ -127,6 +127,28 @@ def mock_pipeline():
     compile_result = MagicMock()
     compile_result.output_path = None
 
+    def _loop_side_effect(*args, **kwargs):
+        """Mock run_optimize_analyze_loop: create output file, return 5-tuple."""
+        optimized_path = kwargs.get("optimized_path") or (args[1] if len(args) > 1 else None)
+        if optimized_path is not None:
+            Path(optimized_path).write_text("mock")
+        return (
+            optimized_path,
+            0.1,  # elapsed
+            1,  # analyze_count
+            0,  # unsupported_node_count
+            {
+                "lint": {
+                    "errors": 0,
+                    "warnings": 0,
+                    "passed": True,
+                    "error_patterns": [],
+                    "warning_patterns": [],
+                },
+                "autoconf": {},
+            },
+        )
+
     with (
         patch("winml.modelkit.build.hf._load_model", return_value=mock_model) as m_load,
         patch(
@@ -134,8 +156,8 @@ def mock_pipeline():
             side_effect=_create_file_side_effect("output_path"),
         ) as m_export,
         patch(
-            "winml.modelkit.build.common.optimize_onnx",
-            side_effect=_create_file_side_effect("output"),
+            "winml.modelkit.build.hf.run_optimize_analyze_loop",
+            side_effect=_loop_side_effect,
         ) as m_optimize,
         patch(
             "winml.modelkit.build.hf.quantize_onnx",
@@ -146,17 +168,9 @@ def mock_pipeline():
             side_effect=_create_file_side_effect("output_path", compile_result),
         ) as m_compile,
         patch(
-            "winml.modelkit.build.common.analyze_onnx",
-            return_value=_default_analyze_result(),
-        ) as m_analyze,
-        patch(
             "winml.modelkit.build.hf.is_quantized_onnx",
             return_value=False,
         ) as m_has_qdq,
-        patch(
-            "winml.modelkit.build.common.copy_onnx_model",
-            side_effect=lambda src, dst: Path(dst).write_text("mock"),
-        ),
         patch(
             "winml.modelkit.build.hf.copy_onnx_model",
             side_effect=lambda src, dst: Path(dst).write_text("mock"),
@@ -168,7 +182,7 @@ def mock_pipeline():
             "optimize": m_optimize,
             "quantize": m_quantize,
             "compile": m_compile,
-            "analyze": m_analyze,
+            "analyze": m_optimize,  # alias for backward compat
             "is_quantized_onnx": m_has_qdq,
             "model": mock_model,
         }
@@ -445,7 +459,7 @@ class TestCacheKey:
             cache_key="imgcls_abc123",
         )
         opt_call = mock_pipeline["optimize"].call_args
-        assert opt_call.kwargs["output"] == tmp_path / "imgcls_abc123_optimized.onnx"
+        assert opt_call.kwargs["optimized_path"] == tmp_path / "imgcls_abc123_optimized.onnx"
 
     def test_cache_key_none_uses_unprefixed_names(
         self, tmp_path: Path, sample_config, mock_pipeline
@@ -591,135 +605,131 @@ class TestBuildManifest:
 
 
 class TestBuildAnalyzerLoop:
-    """Tests for the analyzer autoconf loop (stage 3.5)."""
+    """Tests for the analyzer autoconf loop (stage 3.5).
 
-    def _make_analyze_result(
-        self,
+    These tests mock run_optimize_analyze_loop at the hf module level
+    and verify behaviour observable from build_hf_model's perspective.
+    """
+
+    @staticmethod
+    def _make_loop_side_effect(
         *,
-        has_opportunities: bool = False,
-        has_errors: bool = False,
-        error_patterns: list[str] | None = None,
-        optimization_config: dict | None = None,
+        analyze_count: int = 1,
+        unsupported: int = 0,
+        autoconf: dict | None = None,
+        raise_error: bool = False,
     ):
-        """Build a mock AnalyzeResult."""
-        from winml.modelkit.analyze import AnalyzeResult, LintResult
-        from winml.modelkit.optim import WinMLOptimizationConfig
+        """Return a side_effect for run_optimize_analyze_loop."""
 
-        config = WinMLOptimizationConfig(**(optimization_config or {}))
-        lint = LintResult(
-            errors=len(error_patterns) if error_patterns else (1 if has_errors else 0),
-            warnings=1 if has_opportunities else 0,
-            info=0,
-            passed=not has_errors and not has_opportunities,
-            error_patterns=error_patterns or (["BlackNode"] if has_errors else []),
-            warning_patterns=["SUBGRAPH/GeluPattern"] if has_opportunities else [],
-            information=[],
-            optimization_config=config,
-        )
-        return AnalyzeResult(lint=lint, optimization_config=config)
+        def side_effect(*args, **kwargs):
+            optimized_path = kwargs.get("optimized_path") or (args[1] if len(args) > 1 else None)
+            if optimized_path is not None:
+                Path(optimized_path).write_text("mock")
+
+            if raise_error:
+                raise RuntimeError(
+                    f"Unsupported nodes persist after {analyze_count} analyze "
+                    f"pass(es): ['UnsupportedOp']"
+                )
+
+            details = {
+                "lint": {
+                    "errors": unsupported,
+                    "warnings": 0,
+                    "passed": unsupported == 0,
+                    "error_patterns": ["UnsupportedOp"] * unsupported,
+                    "warning_patterns": [],
+                },
+                "autoconf": autoconf or {},
+            }
+            return (optimized_path, 0.1, analyze_count, unsupported, details)
+
+        return side_effect
 
     def test_autoconf_converges_in_one_iteration(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
         """Autoconf finds no opportunities -> single iteration."""
-        result_no_opps = self._make_analyze_result(has_opportunities=False)
-
-        with patch("winml.modelkit.build.common.analyze_onnx", return_value=result_no_opps) as m:
-            result = build_hf_model(
-                config=sample_config_no_quant_compile,
-                output_dir=tmp_path,
-                model_id="test",
-                ep="qnn",
-                device="NPU",
-            )
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            analyze_count=1,
+        )
+        result = build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            ep="qnn",
+            device="NPU",
+        )
 
         # Autoconf is part of optimize, not a separate stage
         assert "optimize" in result.stages_completed
-        # Single analyze call (no autoconf suggestions, no loop)
-        assert m.call_count == 1
+        # run_optimize_analyze_loop called once (not pre-quantized path)
+        mock_pipeline["optimize"].assert_called_once()
 
     def test_autoconf_discovers_and_reoptimizes(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
         """Autoconf finds gelu_fusion -> re-optimizes -> converges on 2nd iteration."""
-        result_with_gelu = self._make_analyze_result(
-            has_opportunities=True,
-            optimization_config={"gelu_fusion": True},
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            analyze_count=2,
+            autoconf={"gelu_fusion": True},
         )
-        result_converged = self._make_analyze_result(has_opportunities=False)
-
-        with patch(
-            "winml.modelkit.build.common.analyze_onnx",
-            side_effect=[result_with_gelu, result_converged],
-        ) as m_analyze:
-            result = build_hf_model(
-                config=sample_config_no_quant_compile,
-                output_dir=tmp_path,
-                model_id="test",
-                ep="qnn",
-                device="NPU",
-            )
+        result = build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            ep="qnn",
+            device="NPU",
+        )
 
         assert "optimize" in result.stages_completed
-        # 2 analyze calls: initial (found gelu) + after re-optimize (converged)
-        assert m_analyze.call_count == 2
-        # optimize_onnx called: once initial + once re-optimize in autoconf
-        assert mock_pipeline["optimize"].call_count == 2
+        # Verify loop was called with ep and device
+        call_kwargs = mock_pipeline["optimize"].call_args.kwargs
+        assert call_kwargs["ep"] == "qnn"
 
     def test_autoconf_runs_without_ep(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
         """Autoconf runs even without EP (portable-first: all-EP aggregation)."""
-        result_no_opps = self._make_analyze_result(has_opportunities=False)
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            analyze_count=1,
+        )
+        build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+        )
 
-        with patch("winml.modelkit.build.common.analyze_onnx", return_value=result_no_opps) as m:
-            build_hf_model(
-                config=sample_config_no_quant_compile,
-                output_dir=tmp_path,
-                model_id="test",
-            )
-
-        call_kwargs = m.call_args.kwargs
+        call_kwargs = mock_pipeline["optimize"].call_args.kwargs
         assert call_kwargs["ep"] is None
 
     def test_autoconf_max_iterations_stops_loop(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
         """Loop stops at hack_max_optim_iterations even if not converged."""
-        result_always_has_opps = self._make_analyze_result(
-            has_opportunities=True,
-            optimization_config={"gelu_fusion": True},
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            analyze_count=4,
+            autoconf={"gelu_fusion": True},
+        )
+        build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            ep="qnn",
+            hack_max_optim_iterations=3,
         )
 
-        with patch(
-            "winml.modelkit.build.common.analyze_onnx",
-            return_value=result_always_has_opps,
-        ) as m:
-            build_hf_model(
-                config=sample_config_no_quant_compile,
-                output_dir=tmp_path,
-                model_id="test",
-                ep="qnn",
-                hack_max_optim_iterations=3,
-            )
-
-        # 4 analyze calls: 1 initial + 3 re-analyze after autoconf re-optimizations
-        assert m.call_count == 4
+        call_kwargs = mock_pipeline["optimize"].call_args.kwargs
+        assert call_kwargs["max_optim_iterations"] == 3
 
     def test_autoconf_unsupported_nodes_raise(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
         """Unsupported nodes after convergence raise RuntimeError."""
-        result_with_errors = self._make_analyze_result(
-            has_opportunities=False,
-            has_errors=True,
-            error_patterns=["UnsupportedOp"],
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            raise_error=True,
         )
-
-        with (
-            patch("winml.modelkit.build.common.analyze_onnx", return_value=result_with_errors),
-            pytest.raises(RuntimeError, match="Unsupported nodes persist"),
-        ):
+        with pytest.raises(RuntimeError, match="Unsupported nodes persist"):
             build_hf_model(
                 config=sample_config_no_quant_compile,
                 output_dir=tmp_path,
@@ -731,22 +741,16 @@ class TestBuildAnalyzerLoop:
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
         """Manifest has analyze_details with lint + autoconf (no separate stage)."""
-        result_with_gelu = self._make_analyze_result(
-            has_opportunities=True,
-            optimization_config={"gelu_fusion": True},
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            analyze_count=2,
+            autoconf={"gelu_fusion": True},
         )
-        result_converged = self._make_analyze_result(has_opportunities=False)
-
-        with patch(
-            "winml.modelkit.build.common.analyze_onnx",
-            side_effect=[result_with_gelu, result_converged],
-        ):
-            result = build_hf_model(
-                config=sample_config_no_quant_compile,
-                output_dir=tmp_path,
-                model_id="test",
-                ep="qnn",
-            )
+        result = build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            ep="qnn",
+        )
 
         data = json.loads(result.manifest_path.read_text())
         assert data["analyze_iterations"] == 2
@@ -765,26 +769,28 @@ class TestBuildAnalyzerLoop:
     def test_autoconf_merges_config_for_downstream(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
     ) -> None:
-        """Autoconf flags are merged into config.optim for downstream stages."""
-        result_with_flags = self._make_analyze_result(
-            has_opportunities=True,
-            optimization_config={"gelu_fusion": True, "layer_norm_fusion": True},
+        """Autoconf flags are merged into config.optim for downstream stages.
+
+        Note: config merging happens inside run_optimize_analyze_loop, which is
+        mocked. This test verifies that build_hf_model records autoconf in the
+        manifest when the loop reports discovered flags.
+        """
+        mock_pipeline["optimize"].side_effect = self._make_loop_side_effect(
+            analyze_count=2,
+            autoconf={"gelu_fusion": True, "layer_norm_fusion": True},
         )
-        result_converged = self._make_analyze_result(has_opportunities=False)
+        result = build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            ep="qnn",
+        )
 
-        with patch(
-            "winml.modelkit.build.common.analyze_onnx",
-            side_effect=[result_with_flags, result_converged],
-        ):
-            build_hf_model(
-                config=sample_config_no_quant_compile,
-                output_dir=tmp_path,
-                model_id="test",
-                ep="qnn",
-            )
-
-        assert sample_config_no_quant_compile.optim.get("gelu_fusion") is True
-        assert sample_config_no_quant_compile.optim.get("layer_norm_fusion") is True
+        data = json.loads(result.manifest_path.read_text())
+        assert data["analyze_details"]["autoconf"] == {
+            "gelu_fusion": True,
+            "layer_norm_fusion": True,
+        }
 
 
 # =============================================================================

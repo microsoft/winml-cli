@@ -105,6 +105,7 @@ class TestConfigOnnxAutoDetect:
             result = runner.invoke(
                 config_command,
                 ["-m", str(onnx_file), "-o", str(output_file)],
+                obj={},
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -132,6 +133,7 @@ class TestConfigOnnxAutoDetect:
             result = runner.invoke(
                 config_command,
                 ["-m", str(onnx_file), "--device", "npu", "-o", str(output_file)],
+                obj={},
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -167,6 +169,7 @@ class TestConfigOnnxAutoDetect:
             result = runner.invoke(
                 config_command,
                 ["-m", "nonexistent.onnx", "-o", str(output_file)],
+                obj={},
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"

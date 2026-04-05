@@ -251,7 +251,7 @@ class TestListCapabilitiesCommand:
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 0})
 
         assert result.exit_code == 0
 
@@ -262,7 +262,7 @@ class TestListCapabilitiesCommand:
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 0})
 
         # Compact mode shows lowercase category names
         assert "gelu:" in result.output
@@ -275,44 +275,44 @@ class TestListCapabilitiesCommand:
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 0})
 
         # Should show --enable-xxx for capabilities that default to False
         assert "--enable-gelu-fusion" in result.output
         assert "Available optimization flags" in result.output
 
     def test_list_capabilities_compact_shows_verbose_hint(self) -> None:
-        """--list-capabilities (compact mode) shows hint to use --verbose."""
+        """--list-capabilities (compact mode) shows hint to use -v."""
         from click.testing import CliRunner
 
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 0})
 
-        assert "--list-capabilities --verbose" in result.output
+        assert "--list-capabilities" in result.output
 
     def test_list_capabilities_verbose_shows_categories(self) -> None:
-        """--list-capabilities --verbose shows category headers."""
+        """--list-capabilities with verbose=1 shows category headers."""
         from click.testing import CliRunner
 
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities", "--verbose"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 1})
 
         # Verbose mode shows uppercase category headers
         assert "GELU" in result.output
         assert "ATTENTION" in result.output
 
     def test_list_capabilities_verbose_shows_defaults(self) -> None:
-        """--list-capabilities --verbose shows default values."""
+        """--list-capabilities with verbose=1 shows default values."""
         from click.testing import CliRunner
 
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities", "--verbose"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 1})
 
         # Should show "Default:" labels
         assert "Default:" in result.output
@@ -320,13 +320,13 @@ class TestListCapabilitiesCommand:
         assert "disabled" in result.output or "enabled" in result.output
 
     def test_list_capabilities_verbose_shows_ort_names(self) -> None:
-        """--list-capabilities --verbose shows ORT optimizer names."""
+        """--list-capabilities with verbose=1 shows ORT optimizer names."""
         from click.testing import CliRunner
 
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities", "--verbose"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 1})
 
         # Should show ORT names in brackets
         assert "[ORT:" in result.output
@@ -338,7 +338,7 @@ class TestListCapabilitiesCommand:
         from winml.modelkit.commands.optimize import optimize
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["-l"])
+        result = runner.invoke(optimize, ["-l"], obj={"verbose": 0})
 
         assert result.exit_code == 0
         # Compact mode shows flags
@@ -352,21 +352,21 @@ class TestListCapabilitiesCommand:
 
         runner = CliRunner()
         # Should NOT require model when listing capabilities
-        result = runner.invoke(optimize, ["--list-capabilities"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 0})
 
         assert result.exit_code == 0
         # Should NOT show "Missing option '--model'" error
         assert "Missing option" not in result.output
 
     def test_list_capabilities_verbose_shows_descriptions(self) -> None:
-        """--list-capabilities --verbose shows capability descriptions."""
+        """--list-capabilities with verbose=1 shows capability descriptions."""
         from click.testing import CliRunner
 
         from winml.modelkit.commands.optimize import optimize
         from winml.modelkit.optim.pipes import get_all_capabilities
 
         runner = CliRunner()
-        result = runner.invoke(optimize, ["--list-capabilities", "--verbose"])
+        result = runner.invoke(optimize, ["--list-capabilities"], obj={"verbose": 1})
 
         # Get one capability description to verify it appears
         all_caps = get_all_capabilities()

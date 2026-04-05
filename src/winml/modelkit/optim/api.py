@@ -28,7 +28,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import onnx
+from onnx import ModelProto, helper
 
 from ..onnx import load_onnx, save_onnx
 from .errors import ConfigurationError, ModelValidationError
@@ -41,7 +41,7 @@ from .registry import auto_enable_dependencies, validate, validate_dependencies
 logger = logging.getLogger(__name__)
 
 
-def _load_model(model: str | Path | onnx.ModelProto) -> tuple[onnx.ModelProto, str | None]:
+def _load_model(model: str | Path | ModelProto) -> tuple[ModelProto, str | None]:
     """Load ONNX model from path or return if already loaded.
 
     Args:
@@ -54,7 +54,7 @@ def _load_model(model: str | Path | onnx.ModelProto) -> tuple[onnx.ModelProto, s
         FileNotFoundError: If model path does not exist.
         ModelValidationError: If model cannot be loaded.
     """
-    if isinstance(model, onnx.ModelProto):
+    if isinstance(model, ModelProto):
         return model, None
 
     model_path = Path(model)
@@ -160,13 +160,26 @@ def _convert_to_kwargs(config: dict[str, Any], all_caps: dict[str, Any]) -> dict
     return result
 
 
+def _hack_inject_quant_preprocess_metadata(model: ModelProto) -> None:
+    """Inject metadata that signals pre-processing was done.
+
+    Suppresses the ORT quantization warning:
+    'Please consider to run pre-processing before quantization.'
+    """
+    metadata = {"onnx.quant.pre_process": "onnxruntime.quant"}
+    if model.metadata_props:
+        for prop in model.metadata_props:
+            metadata[prop.key] = prop.value
+    helper.set_model_props(model, metadata)
+
+
 def optimize_onnx(
-    model: str | Path | onnx.ModelProto,
+    model: str | Path | ModelProto,
     output: str | Path | None = None,
     *,
     config: str | Path | dict[str, Any] | None = None,
     **capabilities: Any,
-) -> onnx.ModelProto:
+) -> ModelProto:
     """Optimize an ONNX model with capability-based control.
 
     This is the main public API for ONNX optimization. It provides a simple,
@@ -258,6 +271,9 @@ def optimize_onnx(
     # More than one "optimize" call is necessary for certain models for thorough optimization
     optimized_model = optimizer.optimize(loaded_model, **optimizer_kwargs)
     optimized_model = optimizer.optimize(optimized_model, **optimizer_kwargs)
+
+    # Step 9.5: Inject quant pre-processing metadata to suppress ORT warning
+    _hack_inject_quant_preprocess_metadata(optimized_model)
 
     # Step 10: Save if output path provided
     if output is not None:

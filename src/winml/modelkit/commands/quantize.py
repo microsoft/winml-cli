@@ -92,11 +92,10 @@ console = Console()
     help="Use symmetric quantization",
 )
 @click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
+    "--task",
+    type=str,
+    default=None,
+    help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.pass_context
 def quantize(
@@ -110,7 +109,7 @@ def quantize(
     activation_type: str | None,
     per_channel: bool,
     symmetric: bool,
-    verbose: bool,
+    task: str | None,
 ) -> None:
     r"""Quantize ONNX model by inserting QDQ nodes.
 
@@ -135,11 +134,8 @@ def quantize(
         # Explicit types with entropy calibration
         winml quantize -m model.onnx --weight-type int8 --method entropy
     """
-    # Inherit debug mode from parent
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    configure_logging(verbose=verbose)
+    verbose = ctx.obj.get("verbose", 0)
+    configure_logging(verbose=bool(verbose))
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -171,7 +167,17 @@ def quantize(
         activation_type=resolved_activation,
         per_channel=per_channel,
         symmetric=symmetric,
+        task=task,
     )
+
+    # Display dataset info from config
+    if config.dataset_name:
+        _dataset_display = config.dataset_name
+    elif config.task and config.task != "random":
+        _dataset_display = f"Default for task '{config.task}'"
+    else:
+        _dataset_display = "Random data (synthetic from ONNX I/O specs)"
+    console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     try:
         console.print("\n[bold]Running quantization...[/bold]")

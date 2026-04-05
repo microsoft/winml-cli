@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..optim.config import WinMLOptimizationConfig
 from ..utils.constants import normalize_ep_name
@@ -785,6 +785,8 @@ def analyze_onnx(
     ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
+    on_ep_start: Any = None,
+    on_node_result: Any = None,
 ) -> AnalyzeResult:
     """Analyze an ONNX model and return lint + autoconf results.
 

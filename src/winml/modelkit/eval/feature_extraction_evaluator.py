@@ -50,15 +50,21 @@ class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
 
         return [
             SchemaColumn(
-                "sentence1", "Value(string)", "input_column_1",
+                "sentence1",
+                "Value(string)",
+                "input_column_1",
                 description="first sentence of the pair",
             ),
             SchemaColumn(
-                "sentence2", "Value(string)", "input_column_2",
+                "sentence2",
+                "Value(string)",
+                "input_column_2",
                 description="second sentence of the pair",
             ),
             SchemaColumn(
-                "score", "Value(float64)", "score_column",
+                "score",
+                "Value(float64)",
+                "score_column",
                 description="ground-truth similarity score (e.g. [0, 5] for STS-B)",
             ),
         ]

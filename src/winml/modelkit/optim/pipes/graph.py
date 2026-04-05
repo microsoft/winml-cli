@@ -20,11 +20,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ...onnx import load_onnx, save_onnx
-from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 
 
 if TYPE_CHECKING:
-    import onnx
+    from onnx import ModelProto
 
 # Import all capability modules to build capabilities dict
 from ..capabilities import (
@@ -40,6 +39,7 @@ from ..capabilities import (
 )
 from ..capabilities import graph as graph_caps
 from ..registry import BoolCapability
+from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
 
 
 logger = logging.getLogger(__name__)
@@ -488,7 +488,7 @@ class ORTGraphPipe(BasePipe):
         """
         return config.optimization_level > 0
 
-    def process(self, model: onnx.ModelProto, config: ORTGraphPipeConfig) -> onnx.ModelProto:
+    def process(self, model: ModelProto, config: ORTGraphPipeConfig) -> ModelProto:
         """Apply graph optimizations using ORT SessionOptions.
 
         This method:

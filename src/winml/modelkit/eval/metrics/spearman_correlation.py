@@ -49,8 +49,7 @@ class SpearmanCorrelationMetric:
 
         if len(predictions) < 3:
             raise ValueError(
-                f"At least 3 samples required for Spearman correlation, "
-                f"got {len(predictions)}."
+                f"At least 3 samples required for Spearman correlation, got {len(predictions)}."
             )
 
         corr, _ = spearmanr(predictions, references)

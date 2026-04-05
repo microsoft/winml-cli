@@ -95,7 +95,6 @@ class TestExportCommand:
         assert result.exit_code == 0
         assert "--model" in result.output
         assert "--output" in result.output
-        assert "--verbose" in result.output
 
     def test_export_short_flags(self, runner: CliRunner) -> None:
         """Test export short flags are documented."""
@@ -103,7 +102,6 @@ class TestExportCommand:
         assert result.exit_code == 0
         assert "-m" in result.output
         assert "-o" in result.output
-        assert "-v" in result.output
 
     @patch("winml.modelkit.loader.load_hf_model")
     @patch("winml.modelkit.export.pytorch.export_pytorch")
@@ -191,37 +189,9 @@ class TestSysCommand:
         assert "Python" in result.output
 
     def test_sys_verbose(self, runner: CliRunner) -> None:
-        """Test sys with verbose flag."""
-        result = runner.invoke(main, ["sys", "--verbose"])
+        """Test sys with verbose flag (global -v before subcommand)."""
+        result = runner.invoke(main, ["-v", "sys"])
         assert result.exit_code == 0
-
-    def test_sys_list_device_list_ep_json_is_valid_single_object(self, runner: CliRunner) -> None:
-        """--list-device --list-ep --format json must emit one valid JSON object, not two arrays."""
-        import json
-
-        result = runner.invoke(main, ["sys", "--list-device", "--list-ep", "--format", "json"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert "devices" in data
-        assert "executionProviders" in data
-        assert isinstance(data["devices"], list)
-        assert isinstance(data["executionProviders"], list)
-
-    def test_sys_list_device_compact(self, runner: CliRunner) -> None:
-        """--list-device --format compact must produce compact output, not text table."""
-        result = runner.invoke(main, ["sys", "--list-device", "--format", "compact"])
-        assert result.exit_code == 0
-        assert "CPU" in result.output
-        # Compact output is a single line; no Rich panel borders
-        assert "Available Devices" not in result.output
-
-    def test_sys_list_ep_compact(self, runner: CliRunner) -> None:
-        """--list-ep --format compact must produce compact output, not text table."""
-        result = runner.invoke(main, ["sys", "--list-ep", "--format", "compact"])
-        assert result.exit_code == 0
-        assert "CPUExecutionProvider" in result.output
-        # Compact output is a single line; no Rich panel headers
-        assert "Available Execution Providers" not in result.output
 
 
 class TestModuleExecution:

@@ -44,15 +44,41 @@ def _configure() -> None:
         def filter(self, record: logging.LogRecord) -> bool:
             return "Multiple distributions found" not in record.getMessage()
 
-    logging.getLogger("diffusers.utils.import_utils").addFilter(
-        _DiffusersDistributionFilter()
-    )
+    logging.getLogger("diffusers.utils.import_utils").addFilter(_DiffusersDistributionFilter())
+
+    class _PipelineNoiseFilter(logging.Filter):
+        """Filter noisy HF Pipeline warnings.
+
+        - 'The model X is not supported for Y' — WinML models are duck-type
+          compatible but not in HF's supported list.
+        - 'Device set to use cpu' — HF Pipeline forces CPU, we handle device.
+        - 'Using a slow image processor' — cosmetic deprecation notice.
+        """
+
+        _SUPPRESSED = (
+            "is not supported for",
+            "Device set to use",
+            "Using a slow image processor",
+        )
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return not any(s in msg for s in self._SUPPRESSED)
+
+    logging.getLogger("transformers.pipelines.base").addFilter(_PipelineNoiseFilter())
 
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
     # =========================================================================
-    warnings.filterwarnings("ignore", category=FutureWarning, module=r"transformers.*")
-    warnings.filterwarnings("ignore", category=UserWarning, module=r"torch.*")
+    # Transformers: suppress all warnings (FutureWarning, UserWarning,
+    # DeprecationWarning, TracerWarning during ONNX export, etc.)
+    warnings.filterwarnings("ignore", module=r"transformers\..*")
+
+    # PyTorch: suppress all warnings from torch.* (UserWarning, FutureWarning,
+    # TracerWarning from torch.jit, etc.)
+    warnings.filterwarnings("ignore", module=r"torch\..*")
+
+    # Diffusers
     warnings.filterwarnings(
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )

@@ -17,15 +17,6 @@ from .config import (
     WinMLExportConfig,
     resolve_export_config,
 )
-from .io import (
-    MaxLengthTextInputGenerator,
-    ONNXConfigNotFoundError,
-    generate_dummy_inputs,
-    register_onnx_overwrite,
-    resolve_io_specs,
-)
-from .pytorch import export_pytorch
-from .pytorch import export_pytorch as export_onnx
 
 
 __version__ = "2.1.0"
@@ -43,3 +34,45 @@ __all__ = [
     "resolve_export_config",
     "resolve_io_specs",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy-load heavy exports to avoid importing optimum at package init."""
+    if name in (
+        "MaxLengthTextInputGenerator",
+        "ONNXConfigNotFoundError",
+        "generate_dummy_inputs",
+        "register_onnx_overwrite",
+        "resolve_io_specs",
+    ):
+        from .io import (
+            MaxLengthTextInputGenerator,
+            ONNXConfigNotFoundError,
+            generate_dummy_inputs,
+            register_onnx_overwrite,
+            resolve_io_specs,
+        )
+
+        globals().update(
+            {
+                "MaxLengthTextInputGenerator": MaxLengthTextInputGenerator,
+                "ONNXConfigNotFoundError": ONNXConfigNotFoundError,
+                "generate_dummy_inputs": generate_dummy_inputs,
+                "register_onnx_overwrite": register_onnx_overwrite,
+                "resolve_io_specs": resolve_io_specs,
+            }
+        )
+        return globals()[name]
+
+    if name in ("export_pytorch", "export_onnx"):
+        from .pytorch import export_pytorch
+
+        globals()["export_pytorch"] = export_pytorch
+        globals()["export_onnx"] = export_pytorch
+        return export_pytorch
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return __all__

@@ -37,7 +37,7 @@ class TestCompileCommand:
         assert result.exit_code == 0
         assert "--model" in result.output
         assert "--device" in result.output
-        assert "--quantize" in result.output
+        assert "--no-quant" in result.output
         assert "--compiler" in result.output
         assert "--qnn-sdk-root" in result.output
 
@@ -56,13 +56,13 @@ class TestCompileCommand:
         assert result.exit_code == 0
 
     @patch("winml.modelkit.compiler.compile_onnx")
-    def test_compile_no_quantize_is_noop(
+    def test_compile_no_quant_is_noop(
         self,
         mock_compile_onnx: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Test --no-quantize is accepted but has no effect on compile config.
+        """Test --no-quant is accepted but has no effect on compile config.
 
         Quantization is now handled by quant module, not compiler.
         The flag is kept for backward compat CLI but is a no-op.
@@ -83,7 +83,7 @@ class TestCompileCommand:
                 "compile",
                 "--model",
                 str(model_path),
-                "--no-quantize",
+                "--no-quant",
             ],
         )
 

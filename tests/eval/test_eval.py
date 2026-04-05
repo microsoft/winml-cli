@@ -12,8 +12,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval import EvalResult, WinMLEvaluationConfig
+from winml.modelkit.datasets.config import DatasetConfig
+from winml.modelkit.eval.config import WinMLEvaluationConfig
+from winml.modelkit.eval.evaluate import EvalResult
 
 
 class TestEvaluationConfig:
@@ -147,7 +148,7 @@ class TestWinMLEvaluator:
         mock_hf_eval,
     ):
         """When requested samples exceed dataset size, select uses actual size."""
-        from winml.modelkit.eval import WinMLEvaluator
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 50
@@ -183,7 +184,7 @@ class TestWinMLEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval import WinMLEvaluator
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 1000
@@ -239,7 +240,7 @@ class TestWinMLEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval import WinMLEvaluator
+        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 1000
@@ -294,7 +295,7 @@ class TestSequenceClassificationEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval import (
+        from winml.modelkit.eval.text_classification_evaluator import (
             WinMLTextClassificationEvaluator,
         )
 
@@ -338,7 +339,7 @@ class TestSequenceClassificationEvaluator:
         mock_pipeline,
         mock_hf_eval,
     ):
-        from winml.modelkit.eval import (
+        from winml.modelkit.eval.text_classification_evaluator import (
             WinMLTextClassificationEvaluator,
         )
 
@@ -385,7 +386,7 @@ class TestTokenClassificationEvaluator:
         mock_hf_eval,
     ):
         """Padding is set via tokenizer_params dict, not top-level."""
-        from winml.modelkit.eval import (
+        from winml.modelkit.eval.token_classification_evaluator import (
             WinMLTokenClassificationEvaluator,
         )
 
@@ -432,7 +433,7 @@ class TestTokenClassificationEvaluator:
         mock_hf_eval,
     ):
         """No tokenizer → no padding config."""
-        from winml.modelkit.eval import (
+        from winml.modelkit.eval.token_classification_evaluator import (
             WinMLTokenClassificationEvaluator,
         )
 
@@ -475,7 +476,7 @@ class TestTokenClassificationEvaluator:
         mock_hf_eval,
     ):
         """Missing input_shapes in io_config → no padding config."""
-        from winml.modelkit.eval import (
+        from winml.modelkit.eval.token_classification_evaluator import (
             WinMLTokenClassificationEvaluator,
         )
 
@@ -542,7 +543,6 @@ class TestEvalCli:
                     "label_column=lbl",
                 ],
                 catch_exceptions=False,
-                obj={},
             )
 
             assert result.exit_code == 0, result.output
@@ -577,7 +577,6 @@ class TestEvalCli:
                     "imagenet-1k",
                 ],
                 catch_exceptions=False,
-                obj={},
             )
 
             assert result.exit_code == 0, result.output
@@ -602,7 +601,6 @@ class TestEvalCli:
                 "--dataset",
                 "imagenet-1k",
             ],
-            obj={},
         )
 
         assert result.exit_code != 0
@@ -613,7 +611,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        result = runner.invoke(eval_cmd, ["--dataset", "imagenet-1k"], obj={})
+        result = runner.invoke(eval_cmd, ["--dataset", "imagenet-1k"])
 
         assert result.exit_code != 0
         assert "model is required" in result.output.lower()
@@ -634,7 +632,6 @@ class TestEvalCli:
                 "--dataset",
                 "imagenet-1k",
             ],
-            obj={},
         )
 
         assert result.exit_code != 0
@@ -653,7 +650,6 @@ class TestEvalCli:
                 "--column",
                 "bad_format",
             ],
-            obj={},
         )
 
         assert result.exit_code != 0
@@ -673,7 +669,6 @@ class TestEvalCli:
                     "--dataset",
                     "imagenet-1k",
                 ],
-                obj={},
             )
 
         assert result.exit_code != 0
@@ -781,6 +776,56 @@ class TestDefaultDatasetImmutability:
             DatasetConfig(path="my-dataset", samples=100),
         ), "Caller's DatasetConfig was mutated"
 
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_dataset")
+    def test_cli_overrides_merged_into_default_dataset(
+        self,
+        mock_load_ds,
+        mock_pipeline,
+        mock_hf_eval,
+    ):
+        """User-provided --samples/--split override defaults when --dataset omitted."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_ds = MagicMock()
+        mock_ds.__len__ = lambda self: 10000
+        mock_ds.shuffle.return_value = mock_ds
+        mock_ds.select.return_value = mock_ds
+        mock_load_ds.return_value = mock_ds
+        mock_pipeline.return_value = MagicMock()
+
+        mock_eval_inst = MagicMock()
+        mock_eval_inst.compute.return_value = {"accuracy": 0.8}
+        mock_hf_eval.return_value = mock_eval_inst
+
+        # User provides samples=5000 but no dataset path → default kicks in
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            dataset=DatasetConfig(path=None, samples=5000, split="train"),
+        )
+
+        with (
+            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            patch.object(
+                eval_mod,
+                "_resolve_task",
+                return_value="image-classification",
+            ),
+        ):
+            result = eval_mod.evaluate(config)
+
+        # Default dataset path should be used
+        assert result.config.dataset.path == "timm/mini-imagenet"
+        # But user's samples and split should override the defaults
+        assert result.config.dataset.samples == 5000
+        assert result.config.dataset.split == "train"
+
 
 class TestLoadModel:
     """Tests for _load_model."""
@@ -814,7 +859,7 @@ class TestLoadModel:
 
         with patch.dict(
             "sys.modules",
-            {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            {"modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
         ):
             result = eval_mod._load_model(config)
 

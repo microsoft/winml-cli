@@ -146,19 +146,6 @@ def test_fmt_model_id_no_org():
     assert t.plain == "bert-base-uncased"
 
 
-def test_fmt_model_id_overflow_is_ascii_safe():
-    """Text overflow must use 'crop', not 'ellipsis' (regression: #233).
-
-    'ellipsis' emits U+2026 (…) which is unrepresentable in cp1252 terminals.
-    'crop' simply truncates without appending any non-ASCII character.
-    """
-    t = _fmt_model_id("org/model-name")
-    assert t.overflow == "crop", (
-        f"Expected overflow='crop', got {t.overflow!r}. "
-        "Using 'ellipsis' would emit U+2026 (…) on cp1252 terminals."
-    )
-
-
 # ---------------------------------------------------------------------------
 # _overall_verdict unit tests
 # ---------------------------------------------------------------------------

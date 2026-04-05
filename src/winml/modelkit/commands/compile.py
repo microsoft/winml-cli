@@ -62,21 +62,16 @@ console = Console()
     help="Force specific EP. Overrides device-to-provider mapping.",
 )
 @click.option(
-    "--quantize/--no-quantize",
-    default=True,
-    help="Enable/disable quantization (default: enabled)",
-)
-@click.option(
-    "--validate/--no-validate",
-    default=True,
-    help="Validate compiled model (default: enabled)",
-)
-@click.option(
-    "--verbose",
-    "-v",
+    "--no-quant",
     is_flag=True,
     default=False,
-    help="Enable verbose output",
+    help="Skip quantization (overrides default behavior)",
+)
+@click.option(
+    "--no-validate",
+    is_flag=True,
+    default=False,
+    help="Skip compiled model validation",
 )
 @click.option(
     "--compiler",
@@ -110,9 +105,8 @@ def compile(
     output_dir: Path | None,
     device: str,
     ep: str | None,
-    quantize: bool,
-    validate: bool,
-    verbose: bool,
+    no_quant: bool,
+    no_validate: bool,
     compiler: str,
     qnn_sdk_root: Path | None,
     embed: bool,
@@ -141,11 +135,8 @@ def compile(
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
     """
-    # Inherit debug mode from parent
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
-    configure_logging(verbose=verbose)
+    verbose = ctx.obj.get("verbose", 0)
+    configure_logging(verbose=bool(verbose))
 
     # Handle --list
     if list_compilers_flag:
@@ -166,18 +157,18 @@ def compile(
     provider = _resolve_compile_provider(device, ep)
     config = WinMLCompileConfig.for_provider(provider)
 
-    config.validate = validate
-    config.verbose = verbose
+    config.validate = not no_validate
+    config.verbose = bool(verbose)
 
     # Set compiler options
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
 
-    # Deprecation notice for --no-quantize
-    if not quantize:
+    # Note for --no-quant
+    if no_quant:
         console.print(
-            "[yellow]Note:[/yellow] --no-quantize has no effect. "
+            "[yellow]Note:[/yellow] --no-quant has no effect during compile. "
             "Quantization is no longer performed during compile. "
             "Use 'winml quantize' before 'winml compile' to control quantization."
         )

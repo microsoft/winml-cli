@@ -208,6 +208,7 @@ class TestAnalyzeCommandExecution:
                 "--device",
                 "NPU",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         assert result.exit_code == 0
@@ -240,6 +241,7 @@ class TestAnalyzeCommandExecution:
                 "--device",
                 "NPU",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         assert result.exit_code == 1
@@ -267,6 +269,7 @@ class TestAnalyzeCommandExecution:
                 "--device",
                 "NPU",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         assert result.exit_code == 2
@@ -302,6 +305,7 @@ class TestAnalyzeCommandOptions:
                 "NPU",
                 "--information",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         # Verify analyze was called with enable_information=True
@@ -335,6 +339,7 @@ class TestAnalyzeCommandOptions:
                 "NPU",
                 "--no-information",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         # Verify analyze was called with enable_information=False
@@ -349,7 +354,7 @@ class TestAnalyzeCommandOptions:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test that --verbose flag enables debug output."""
+        """Test that verbose (now global) enables debug output via ctx.obj."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -366,8 +371,8 @@ class TestAnalyzeCommandOptions:
                 "QNNExecutionProvider",
                 "--device",
                 "NPU",
-                "--verbose",
             ],
+            obj={"verbose": 1, "quiet": 0},
         )
 
         # Should complete successfully
@@ -381,7 +386,7 @@ class TestAnalyzeCommandOptions:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test that --quiet flag suppresses non-error output."""
+        """Test that quiet (now global) suppresses non-error output via ctx.obj."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -398,8 +403,8 @@ class TestAnalyzeCommandOptions:
                 "QNNExecutionProvider",
                 "--device",
                 "NPU",
-                "--quiet",
             ],
+            obj={"verbose": 0, "quiet": 1},
         )
 
         assert result.exit_code == 0
@@ -434,6 +439,7 @@ class TestAnalyzeCommandOutput:
                 "--device",
                 "NPU",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         # Output should contain formatted report (not JSON by default)
@@ -470,6 +476,7 @@ class TestAnalyzeCommandOutput:
                 "--output",
                 str(output_file),
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         assert result.exit_code == 0
@@ -504,6 +511,7 @@ class TestAnalyzeCommandOutput:
                 "--output",
                 str(output_file),
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         assert result.exit_code == 2
@@ -542,6 +550,7 @@ class TestAnalyzeCommandIntegration:
                     "--device",
                     "NPU",
                 ],
+                obj={"verbose": 0, "quiet": 0},
             )
             assert result.exit_code == 0, f"Failed for EP: {ep}"
 
@@ -574,6 +583,7 @@ class TestAnalyzeCommandIntegration:
                     "--device",
                     device,
                 ],
+                obj={"verbose": 0, "quiet": 0},
             )
             assert result.exit_code == 0, f"Failed for device: {device}"
 
@@ -604,6 +614,7 @@ class TestAnalyzeCommandIntegration:
                 "GPU",
                 "--information",
             ],
+            obj={"verbose": 0, "quiet": 0},
         )
 
         # Verify analyze was called with correct parameters

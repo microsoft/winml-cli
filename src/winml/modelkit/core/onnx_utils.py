@@ -18,20 +18,18 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import torch
+from ..onnx import load_onnx
 
 
 if TYPE_CHECKING:
-    import onnx
-
-from ..onnx import load_onnx
+    from onnx import ModelProto
 
 
 class ONNXUtils:
     """Utilities for ONNX model manipulation and analysis."""
 
     @staticmethod
-    def load_and_validate(onnx_path: str) -> onnx.ModelProto:
+    def load_and_validate(onnx_path: str) -> ModelProto:
         """Load and validate ONNX model from file.
 
         Args:
@@ -48,7 +46,7 @@ class ONNXUtils:
 
     @staticmethod
     def inject_hierarchy_metadata(
-        onnx_model: onnx.ModelProto,
+        onnx_model: ModelProto,
         node_tags: dict[str, dict[str, Any]],
         method: str = "unknown",
     ) -> int:
@@ -92,7 +90,7 @@ class ONNXUtils:
 
     @staticmethod
     def extract_hierarchy_metadata(
-        onnx_model: onnx.ModelProto,
+        onnx_model: ModelProto,
     ) -> dict[str, dict[str, Any]]:
         """Extract hierarchy metadata from ONNX node doc_strings.
 
@@ -131,7 +129,7 @@ class ONNXUtils:
         return node_hierarchy
 
     @staticmethod
-    def analyze_model_structure(onnx_model: onnx.ModelProto) -> dict[str, Any]:
+    def analyze_model_structure(onnx_model: ModelProto) -> dict[str, Any]:
         """Analyze ONNX model structure and provide statistics.
 
         Args:
@@ -170,7 +168,7 @@ class ONNXUtils:
         }
 
     @staticmethod
-    def _analyze_hierarchy_coverage(onnx_model: onnx.ModelProto) -> dict[str, Any]:
+    def _analyze_hierarchy_coverage(onnx_model: ModelProto) -> dict[str, Any]:
         """Analyze hierarchy coverage in the model."""
         total_nodes = len(onnx_model.graph.node)
         tagged_nodes = 0
@@ -356,7 +354,7 @@ def infer_output_names(outputs: Any) -> list[str] | None:
 
         for field_name in outputs.__dataclass_fields__:
             field_value = getattr(outputs, field_name, None)
-            if field_value is not None and isinstance(field_value, torch.Tensor):
+            if field_value is not None and type(field_value).__name__ == "Tensor":
                 output_names.append(field_name)
 
         # Only return names if we found simple tensor outputs
@@ -367,7 +365,7 @@ def infer_output_names(outputs: Any) -> list[str] | None:
     return None
 
 
-def get_io_config(model_proto: onnx.ModelProto) -> dict:
+def get_io_config(model_proto: ModelProto) -> dict:
     """Extract I/O configuration from ONNX model.
 
     Args:
@@ -436,7 +434,7 @@ def get_io_config(model_proto: onnx.ModelProto) -> dict:
     return io_config
 
 
-def get_epcontext_info(model_or_path: onnx.ModelProto | str | Path) -> dict[str, Any] | None:
+def get_epcontext_info(model_or_path: ModelProto | str | Path) -> dict[str, Any] | None:
     """Extract EPContext information from a compiled ONNX model.
 
     Returns detailed information about the EPContext nodes including

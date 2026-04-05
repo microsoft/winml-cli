@@ -61,8 +61,6 @@ class TestExportCLIInterface:
         assert "-o" in result.output
 
         # Optional flags
-        assert "--verbose" in result.output
-        assert "-v" in result.output
         assert "--with-report" in result.output
         assert "--clean-onnx" in result.output
         assert "--dynamo" in result.output
@@ -130,18 +128,17 @@ class TestExportUsesExportOnnx:
         mock_load_hf_model: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Test --verbose flag is passed to export_onnx."""
-        from winml.modelkit.commands.export import export
+        """Test -v global flag propagates verbose to export_onnx."""
+        from winml.modelkit.cli import main
 
         output_path = tmp_path / "model.onnx"
         runner.invoke(
-            export,
-            ["--model", "test-model", "--output", str(output_path), "--verbose"],
-            obj={"debug": False},
+            main,
+            ["-v", "export", "--model", "test-model", "--output", str(output_path)],
         )
 
         call_kwargs = mock_export_onnx.call_args.kwargs
-        assert call_kwargs["verbose"] is True
+        assert call_kwargs["verbose"]
 
     def test_export_passes_with_report_flag(
         self,
@@ -547,18 +544,22 @@ class TestExportDebugMode:
         mock_load_hf_model: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Test export inherits debug mode from parent context."""
+        """Test export inherits debug/verbose from parent context.
+
+        In the new CLI spec, main sets ctx.obj['verbose'] = 2 when --debug
+        is used.  Subcommands read ctx.obj['verbose'] directly.
+        """
         from winml.modelkit.commands.export import export
 
         output_path = tmp_path / "model.onnx"
 
-        # Pass debug=True in context
+        # Simulate what main does when --debug is passed
         runner.invoke(
             export,
             ["--model", "test-model", "--output", str(output_path)],
-            obj={"debug": True},
+            obj={"debug": True, "verbose": 2},
         )
 
-        # verbose should be True due to debug mode
+        # verbose should be truthy (int >= 1) due to debug mode
         call_kwargs = mock_export_onnx.call_args.kwargs
-        assert call_kwargs["verbose"] is True
+        assert call_kwargs["verbose"]

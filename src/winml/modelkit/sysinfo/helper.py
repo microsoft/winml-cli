@@ -47,8 +47,7 @@ class CimInstance:
                     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                     + f"Get-CimInstance -ClassName {class_name} | "
                     + "ConvertTo-Json -Depth 99",
-                ],
-                stderr=subprocess.DEVNULL,
+                ]
             )
         except subprocess.CalledProcessError:
             # This will throw if no matching device is found
@@ -96,8 +95,7 @@ class PnpDevice:
                     "-Command",
                     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                     + f"Get-PnpDevice -Class {class_name} | ConvertTo-Json -Depth 99",
-                ],
-                stderr=subprocess.DEVNULL,
+                ]
             )
         except subprocess.CalledProcessError:
             return []
@@ -124,8 +122,7 @@ class PnpDevice:
                     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                     + f"Get-PnpDeviceProperty -InstanceId '{self._pnp_id}' | "
                     + "ConvertTo-Json -Depth 99",
-                ],
-                stderr=subprocess.DEVNULL,
+                ]
             )
         except subprocess.CalledProcessError:
             # This may happen if the device has no extra properties
@@ -186,8 +183,7 @@ class AppxPackage:
                     "-Command",
                     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                     + f"Get-AppxPackage {hint} | ConvertTo-Json -Depth 99",
-                ],
-                stderr=subprocess.DEVNULL,
+                ]
             )
         except subprocess.CalledProcessError:
             return []

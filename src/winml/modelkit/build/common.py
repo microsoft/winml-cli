@@ -35,6 +35,11 @@ def run_optimize_analyze_loop(
     ep: str | None = None,
     device: str | None = None,
     max_optim_iterations: int = 0,
+    on_ep_start: Any = None,
+    on_node_result: Any = None,
+    on_iteration_start: Any = None,
+    on_patterns_discovered: Any = None,
+    on_reoptimize: Any = None,
     **onnx_kwargs: Any,
 ) -> tuple[Path, float, int, int, dict]:
     """Optimize an ONNX model, analyze, and optionally re-optimize via autoconf.
@@ -74,7 +79,13 @@ def run_optimize_analyze_loop(
     )
 
     # 2. Analyze
-    analysis = analyze_onnx(optimized_path, ep=ep, device=device)
+    analysis = analyze_onnx(
+        optimized_path,
+        ep=ep,
+        device=device,
+        on_ep_start=on_ep_start,
+        on_node_result=on_node_result,
+    )
     analyze_count = 1
     discovered_optim: dict[str, bool] = {}
 
@@ -87,6 +98,13 @@ def run_optimize_analyze_loop(
             if not analysis.autoconf:
                 break
 
+            # Notify: iteration starting
+            if on_iteration_start is not None:
+                on_iteration_start(
+                    _iteration + 1,
+                    max_optim_iterations,
+                )
+
             logger.info(
                 "Autoconf iteration %d: discovered %s",
                 _iteration + 1,
@@ -97,6 +115,16 @@ def run_optimize_analyze_loop(
                 copy_onnx_model(optimized_path, iter_model)
                 copied = True
 
+            autoconf_dict = dict(analysis.optimization_config)
+
+            # Notify: patterns discovered
+            if on_patterns_discovered is not None:
+                on_patterns_discovered(autoconf_dict)
+
+            # Notify: re-optimizing with discovered flags
+            if on_reoptimize is not None:
+                on_reoptimize(autoconf_dict)
+
             optimize_onnx(
                 model=iter_model,
                 output=iter_model,
@@ -105,7 +133,13 @@ def run_optimize_analyze_loop(
             )
             discovered_optim.update(analysis.optimization_config)
 
-            analysis = analyze_onnx(iter_model, ep=ep, device=device)
+            analysis = analyze_onnx(
+                iter_model,
+                ep=ep,
+                device=device,
+                on_ep_start=on_ep_start,
+                on_node_result=on_node_result,
+            )
             analyze_count += 1
 
         if copied:

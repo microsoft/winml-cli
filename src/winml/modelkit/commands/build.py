@@ -20,11 +20,22 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
-from rich.console import Console
+from rich.logging import RichHandler
+
+from ..utils.console import (
+    detect_model_source,
+    get_console,
+    print_error,
+    print_final,
+    print_setup,
+    print_stage_skip,
+    print_stages_header,
+)
 
 
 if TYPE_CHECKING:
@@ -36,7 +47,7 @@ if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
 
 logger = logging.getLogger(__name__)
-console = Console(stderr=True)
+console = get_console()
 
 
 # =============================================================================
@@ -304,13 +315,6 @@ def _build_modules(
     default=None,
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose logging",
-)
 @click.pass_context
 def build(
     ctx: click.Context,
@@ -327,7 +331,6 @@ def build(
     device: str | None,
     no_analyze: bool,
     max_optim_iterations: int | None,
-    verbose: bool,
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
@@ -358,9 +361,7 @@ def build(
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
     """
-    # Inherit debug flag from parent context
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
+    verbose = ctx.obj.get("verbose", 0)
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -425,11 +426,15 @@ def build(
             if not configs:
                 raise click.UsageError("Module config array is empty -- nothing to build.")
 
-            console.print()
-            console.print("[bold]winml build[/bold] (module mode)")
-            console.print(f"  Config:     {Path(config_file).name}")
-            console.print(f"  Modules:    {len(configs)}")
-            console.print(f"  Output:     {resolved_dir}")
+            print_setup(
+                console,
+                model=model_id or "random-init",
+                config=Path(config_file).name,
+                output=str(resolved_dir),
+                source="HuggingFace",
+            )
+            print_stages_header(console)
+            console.print(f"   \U0001f9e9 [bold]Modules:[/bold] {len(configs)}")
             console.print()
 
             results = _build_modules(
@@ -501,60 +506,17 @@ def build(
             else:
                 resolved_dir = Path(output_dir)
 
-            # Report build plan
-            model_label = f"{model_id} (random-init)" if random_init else model_id
-            console.print()
-            console.print("[bold]winml build[/bold]")
-            console.print(f"  Config:     {Path(config_file).name}")
-            console.print(f"  Model:      {model_label}")
-            console.print(f"  Output:     {resolved_dir}")
-            console.print()
-
-            # Call build API (late import to speed up CLI startup)
-            from .config import _is_onnx_file
-
-            if model_id and _is_onnx_file(model_id):
-                from ..build import build_onnx_model
-
-                result = build_onnx_model(
-                    onnx_path=Path(model_id),
-                    config=config,
-                    output_dir=resolved_dir,
-                    rebuild=rebuild,
-                    ep=ep,
-                    device=device,
-                    **extra_kwargs,
-                )
-            else:
-                from ..build import build_hf_model
-
-                result = build_hf_model(
-                    config=config,
-                    output_dir=resolved_dir,
-                    model_id=model_id,
-                    rebuild=rebuild,
-                    random_init=random_init,
-                    cache_key=cache_key,
-                    ep=ep,
-                    device=device,
-                    **extra_kwargs,
-                )
-
-            # Report results
-            if result.reused:
-                console.print(f"  Existing artifact: {result.final_onnx_path}")
-                console.print("  Use --rebuild to force rebuild.")
-            else:
-                for stage in result.stages_completed:
-                    t = result.stage_timings.get(stage, 0)
-                    console.print(f"  {stage:<12} done  ({t:.1f}s)")
-                for stage in result.stages_skipped:
-                    console.print(f"  {stage:<12} skipped")
-                console.print()
-                console.print(f"  Build complete in {result.elapsed:.1f}s")
-                console.print(f"  Final artifact: {result.final_onnx_path}")
-
-            console.print()
+            _run_single_build(
+                config=config,
+                config_file=config_file,
+                model_id=model_id,
+                resolved_dir=resolved_dir,
+                rebuild=rebuild,
+                cache_key=cache_key,
+                ep=ep,
+                device=device,
+                extra_kwargs=extra_kwargs,
+            )
 
     except click.UsageError:
         raise  # Let click handle its own errors
@@ -563,4 +525,686 @@ def build(
     except Exception as e:
         if verbose:
             logger.exception("Build failed")
+
+        # Map common errors to actionable hints
+        err_str = str(e)
+        hint = None
+        if "Quantization failed" in err_str:
+            hint = "Try: --no-quant to skip quantization"
+        elif "Compilation failed" in err_str:
+            hint = "Try: --no-compile to skip compilation"
+        elif "Black nodes persist" in err_str:
+            hint = "Try: wmk analyze -m <model> --ep <ep> to investigate operator support"
+        elif isinstance(e, FileNotFoundError):
+            hint = "Check: model path or HuggingFace model ID"
+
+        if hint:
+            console.print()
+            print_error(console, f"Build failed: {e}", hint=hint)
+            console.print()
+
         raise click.ClickException(f"Build failed: {e}") from e
+
+
+# =============================================================================
+# SINGLE MODEL BUILD — CLI-level stage orchestration
+# =============================================================================
+
+
+def _run_single_build(
+    *,
+    config: WinMLBuildConfig,
+    config_file: str,
+    model_id: str | None,
+    resolved_dir: Path,
+    rebuild: bool,
+    cache_key: str | None,
+    ep: str | None,
+    device: str | None,
+    extra_kwargs: dict[str, Any],
+) -> None:
+    """Run single-model build with Rich Live progress per stage."""
+    from .config import _is_onnx_file
+
+    _is_onnx = model_id is not None and _is_onnx_file(model_id)
+    # Derive source from _is_onnx to guarantee header label matches pipeline
+    source = "ONNX" if _is_onnx else detect_model_source(model_id)
+
+    # Gap 1: (pretrained) suffix; Gap 2: ONNX file size
+    if model_id is None:
+        model_label = "random-init"
+    elif _is_onnx:
+        _sz = _safe_size(Path(model_id))
+        from ..utils.console import fmt_size
+
+        model_label = f"{model_id}  [dim]({fmt_size(_sz)})[/dim]" if _sz else model_id
+    else:
+        model_label = f"{model_id}  [dim](pretrained)[/dim]"
+
+    # ── Setup section ────────────────────────────────────────
+    print_setup(
+        console,
+        model=model_label,
+        config=Path(config_file).name,
+        output=str(resolved_dir),
+        source=source,
+    )
+    print_stages_header(console)
+
+    # ── Redirect logging + warnings through Rich during Live stages ──
+    # This ensures log messages and warnings.warn() render above the
+    # Live area instead of breaking it (same pattern as wmk analyze).
+    root_logger = logging.getLogger()
+    old_handlers = root_logger.handlers[:]
+    rich_handler = RichHandler(
+        console=console,
+        show_path=False,
+        show_time=True,
+        rich_tracebacks=False,
+    )
+    rich_handler.setLevel(root_logger.level)
+    root_logger.handlers = [rich_handler]
+    # Route warnings.warn() (e.g., TracerWarning) through logging -> Rich
+    logging.captureWarnings(True)
+
+    start_time = time.monotonic()
+
+    try:
+        if _is_onnx:
+            stage_timings = _build_onnx_pipeline(
+                config=config,
+                onnx_path=Path(model_id),
+                output_dir=resolved_dir,
+                rebuild=rebuild,
+                ep=ep,
+                device=device,
+                extra_kwargs=extra_kwargs,
+            )
+        else:
+            stage_timings = _build_hf_pipeline(
+                config=config,
+                model_id=model_id,
+                output_dir=resolved_dir,
+                rebuild=rebuild,
+                cache_key=cache_key,
+                ep=ep,
+                device=device,
+                extra_kwargs=extra_kwargs,
+            )
+
+        elapsed = time.monotonic() - start_time
+        final_path = resolved_dir / "model.onnx"
+        if final_path.exists() and stage_timings:
+            print_final(
+                console,
+                elapsed,
+                str(final_path),
+                stage_timings=stage_timings,
+            )
+    finally:
+        logging.captureWarnings(False)
+        root_logger.handlers = old_handlers
+
+
+def _print_reused(artifact_path: Path) -> None:
+    """Print reused artifact message."""
+    console.print()
+    console.print(
+        f"   \u267b\ufe0f  [bold cyan]Existing artifact found:[/bold cyan] {artifact_path}"
+    )
+    console.print("   \U0001f4a1 [dim]Use --rebuild to force rebuild.[/dim]")
+    console.print()
+
+
+def _safe_size(path: Path) -> int:
+    """Get file size including ONNX external data, return 0 if unavailable."""
+    try:
+        if path.suffix == ".onnx":
+            from ..utils.console import get_onnx_total_size
+
+            return get_onnx_total_size(path)
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _show_io(sl: Any, config: WinMLBuildConfig) -> None:
+    """Show I/O tensors in a StageLive."""
+    export_cfg = config.export
+    if not export_cfg:
+        return
+    inputs = export_cfg.input_tensors or []
+    outputs = export_cfg.output_tensors or []
+    for i, t in enumerate(inputs):
+        name = t.name or "(unnamed)"
+        shape = str(list(t.shape)) if getattr(t, "shape", None) else "dynamic"
+        dtype = getattr(t, "dtype", None) or "?"
+        sl.io_input(name, shape, dtype, first=(i == 0))
+    for i, t in enumerate(outputs):
+        name = t.name or "(unnamed)"
+        # OutputTensorSpec has name only — show name, no shape/dtype
+        label = "Output:       " if i == 0 else "              "
+        sl.detail(f"{label}[cyan]{name}[/cyan]")
+
+
+# =============================================================================
+# SHARED PIPELINE STAGE HELPERS
+# =============================================================================
+
+
+def _run_optimize_stage(
+    *,
+    config: WinMLBuildConfig,
+    model_path: Path,
+    optimized_path: Path,
+    ep: str | None,
+    device: str | None,
+    max_iters: int,
+    stage_timings: list[tuple[str, float | None]],
+    show_io_first: bool = False,
+) -> tuple[Path, float]:
+    """Run the optimize stage inside a StageLive context.
+
+    Creates all 5 analyzer callbacks bound to the live display, calls
+    run_optimize_analyze_loop, shows convergence message and artifact.
+
+    Args:
+        config: Build configuration.
+        model_path: Input model path.
+        optimized_path: Output path for optimized model.
+        ep: Execution provider for analyzer.
+        device: Target device for analyzer.
+        max_iters: Maximum analyzer iterations.
+        stage_timings: List to append (stage_name, elapsed) tuple to.
+        show_io_first: If True, show I/O tensors at the start of the stage
+            (used in ONNX mode where there is no export stage).
+
+    Returns:
+        Tuple of (current_path, opt_elapsed).
+    """
+    from ..build.common import run_optimize_analyze_loop
+    from ..utils.console import StageLive
+
+    with StageLive("optimize", console) as sl:
+        sl.set_status("Optimizing ONNX graph...")
+
+        if show_io_first:
+            _show_io(sl, config)
+
+        # Analyzer callback state for live EP bars
+        _ep_bars: dict[str, int] = {}
+        _ep_counts: dict[str, dict[str, int]] = {}
+        _ep_totals: dict[str, int] = {}
+        _current_ep = [""]
+        _current_iter = [0, 0]  # [iteration, max_iter]
+        _header_shown = [False]
+
+        def _on_iteration_start(iteration: int, max_iter: int) -> None:
+            _ep_bars.clear()
+            _ep_counts.clear()
+            _ep_totals.clear()
+            _current_iter[0] = iteration
+            _current_iter[1] = max_iter
+            _header_shown[0] = False
+
+        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
+            _current_ep[0] = ep_name
+            _ep_counts[ep_name] = {}
+            total = sum(operator_counts.values())
+            _ep_totals[ep_name] = total
+            # Show "Analyzing N nodes (iter X/Y)" on first EP of each iter
+            if not _header_shown[0]:
+                _header_shown[0] = True
+                sl.detail(
+                    f"[bold]Analyzing[/bold] [cyan]{total}[/cyan] nodes  "
+                    f"[dim](iter {_current_iter[0]}/{_current_iter[1]})[/dim]"
+                )
+            _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
+
+        def _on_node_result(pattern_runtime: Any) -> None:
+            ep_name = _current_ep[0]
+            level = pattern_runtime.result.classification.value
+            counts = _ep_counts.setdefault(ep_name, {})
+            counts[level] = counts.get(level, 0) + 1
+            s = counts.get("white", 0)
+            p = counts.get("gray", 0)
+            u = counts.get("black", 0)
+            idx = _ep_bars.get(ep_name)
+            if idx is not None:
+                sl.ep_bar_update(
+                    idx,
+                    ep_name,
+                    s,
+                    p,
+                    u,
+                    total=_ep_totals.get(ep_name, 0),
+                )
+
+        def _on_patterns(autoconf_dict: dict) -> None:
+            sl.detail("[bold]Patterns[/bold]")
+            for key in autoconf_dict:
+                name = key.replace("disable_", "").replace("_fusion", "").replace("_", " ").title()
+                sl.detail(f"  [yellow]{name}[/yellow]  [dim]\u2192 {key}[/dim]")
+
+        def _on_reoptimize(autoconf_dict: dict) -> None:
+            sl.detail("[bold]Optimizing[/bold]  [dim](applying autoconf)[/dim]")
+            sl.detail(f"  [dim]{autoconf_dict}[/dim]")
+
+        t0 = time.monotonic()
+        current_path, _, analyze_iters, _, analyze_details = run_optimize_analyze_loop(
+            model_path=model_path,
+            optimized_path=optimized_path,
+            config=config,
+            ep=ep,
+            device=device,
+            max_optim_iterations=max_iters,
+            on_ep_start=_on_ep_start,
+            on_node_result=_on_node_result,
+            on_iteration_start=_on_iteration_start,
+            on_patterns_discovered=_on_patterns,
+            on_reoptimize=_on_reoptimize,
+            use_external_data=True,
+        )
+        opt_elapsed = time.monotonic() - t0
+
+        if analyze_iters > 0:
+            converged = not analyze_details.get("autoconf_not_converged", False)
+            conv_str = "converged" if converged else "NOT converged"
+            # Show pattern result even when none found
+            autoconf = analyze_details.get("autoconf", {})
+            if not autoconf:
+                sl.detail("[bold]Patterns[/bold]")
+                sl.detail("  [dim]No optimization patterns found[/dim]")
+            sl.detail(f"[dim]Autoconf {conv_str} after {analyze_iters} iteration(s)[/dim]")
+
+        sl.set_done(opt_elapsed)
+        sl.artifact(str(optimized_path), _safe_size(optimized_path))
+        sl.blank()
+
+    stage_timings.append(("Optimize", opt_elapsed))
+    return current_path, opt_elapsed
+
+
+def _run_quantize_stage(
+    *,
+    config: WinMLBuildConfig,
+    current_path: Path,
+    quantized_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+) -> Path:
+    """Run the quantize stage inside a StageLive context (if quant is configured).
+
+    Handles QDQ skip detection, shows dataset/calibration/precision details,
+    and appends timing to stage_timings.
+
+    Args:
+        config: Build configuration.
+        current_path: Input model path.
+        quantized_path: Output path for quantized model.
+        stage_timings: List to append (stage_name, elapsed) tuple to.
+
+    Returns:
+        Updated current_path (quantized_path if quantization ran, else unchanged).
+    """
+    from ..onnx import is_quantized_onnx
+    from ..quant import quantize_onnx
+    from ..utils.console import StageLive
+
+    if config.quant is None:
+        return current_path
+
+    if is_quantized_onnx(current_path):
+        print_stage_skip(console, "quantize", "(QDQ nodes already present)")
+        stage_timings.append(("Quantize", None))
+        return current_path
+
+    with StageLive("quantize", console) as sl:
+        wt = config.quant.weight_type or "?"
+        sl.set_status(f"Quantizing ({wt})...")
+        # Calibration info before blocking call
+        ds = config.quant.dataset_name or "default"
+        sl.kv(
+            "Dataset:",
+            f"[cyan]{ds}[/cyan]  [dim]({config.quant.task or 'unknown'})[/dim]",
+        )
+        sl.kv(
+            "Calibration:",
+            f"[cyan]{config.quant.samples}[/cyan] samples"
+            f"  [dim]({config.quant.calibration_method})[/dim]",
+        )
+        # Suppress tqdm/datasets progress bars during quantize
+        # to keep Live display clean
+        try:
+            import datasets
+
+            datasets.disable_progress_bars()
+        except ImportError:
+            pass  # datasets not installed; tqdm suppression not needed
+
+        t0 = time.monotonic()
+        try:
+            quant_result = quantize_onnx(
+                model_path=current_path,
+                output_path=quantized_path,
+                config=config.quant,
+                use_external_data=True,
+            )
+        finally:
+            try:
+                datasets.enable_progress_bars()
+            except Exception:
+                pass  # best-effort re-enable; non-critical if datasets unavailable
+        if not quant_result.success:
+            errors = ", ".join(quant_result.errors) if quant_result.errors else "Unknown"
+            sl.set_error(errors)
+            raise RuntimeError(f"Quantization failed: {errors}")
+        current_path = quantized_path
+        _quant_elapsed = time.monotonic() - t0
+        sl.set_done(_quant_elapsed)
+        sl.kv(
+            "Precision:",
+            f"[cyan]{config.quant.weight_type}/"
+            f"{config.quant.activation_type}[/cyan]"
+            f"  [dim](weight/activation)[/dim]",
+        )
+        sl.artifact(
+            str(quantized_path),
+            _safe_size(quantized_path),
+        )
+        sl.blank()
+    stage_timings.append(("Quantize", _quant_elapsed))
+    return current_path
+
+
+def _run_compile_stage(
+    *,
+    config: WinMLBuildConfig,
+    current_path: Path,
+    compiled_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+) -> Path:
+    """Run the compile stage inside a StageLive context (if compile is configured).
+
+    Shows graph summary after compilation and appends timing to stage_timings.
+
+    Args:
+        config: Build configuration.
+        current_path: Input model path.
+        compiled_path: Output path for compiled model.
+        stage_timings: List to append (stage_name, elapsed) tuple to.
+
+    Returns:
+        Updated current_path (compiled_path if compilation ran, else unchanged).
+    """
+    from ..compiler import compile_onnx
+    from ..onnx import copy_onnx_model
+    from ..utils.console import StageLive, get_onnx_graph_summary
+
+    if config.compile is None:
+        return current_path
+
+    with StageLive("compile", console) as sl:
+        _cp = ""
+        if hasattr(config.compile, "ep_config") and config.compile.ep_config:
+            _cp = f" for {config.compile.ep_config.provider.upper()}"
+        sl.set_status(f"Compiling{_cp}...")
+        t0 = time.monotonic()
+        compile_result = compile_onnx(
+            model_path=current_path,
+            output_path=compiled_path,
+            config=config.compile,
+        )
+        if hasattr(compile_result, "success") and not compile_result.success:
+            errors = ", ".join(compile_result.errors) if compile_result.errors else "Unknown"
+            sl.set_error(errors)
+            raise RuntimeError(f"Compilation failed: {errors}")
+        if (
+            compile_result.output_path
+            and Path(compile_result.output_path).resolve() != compiled_path.resolve()
+        ):
+            copy_onnx_model(compile_result.output_path, compiled_path)
+        current_path = compiled_path
+        _compile_elapsed = time.monotonic() - t0
+        sl.set_done(_compile_elapsed)
+
+        # Graph summary
+        try:
+            summary = get_onnx_graph_summary(compiled_path)
+            op_parts = ", ".join(
+                f"[cyan]{op}[/cyan] ({count})"
+                for op, count in list(summary["op_counts"].items())[:8]
+            )
+            sl.detail(f"[bold]Graph:[/bold]  {op_parts}")
+        except Exception:
+            logger.debug("Could not load graph summary", exc_info=True)
+
+        sl.artifact(
+            str(compiled_path),
+            _safe_size(compiled_path),
+        )
+    stage_timings.append(("Compile", _compile_elapsed))
+    return current_path
+
+
+# =============================================================================
+# PIPELINE FUNCTIONS
+# =============================================================================
+
+
+def _build_hf_pipeline(
+    *,
+    config: WinMLBuildConfig,
+    model_id: str | None,
+    output_dir: Path,
+    rebuild: bool,
+    cache_key: str | None,
+    ep: str | None,
+    device: str | None,
+    extra_kwargs: dict[str, Any],
+) -> list[tuple[str, float | None]] | None:
+    """HF build pipeline with cascading StageLive per stage.
+
+    Returns list of (stage_name, elapsed_seconds | None) for summary,
+    or None if build was reused.
+    """
+    from ..build.hf import _load_model
+    from ..export import export_onnx
+    from ..onnx import copy_onnx_model
+    from ..utils.console import StageLive
+
+    max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+    model_label = model_id or "random-init"
+
+    # ── Validate + setup ─────────────────────────────────────────
+    try:
+        config.validate()
+    except ValueError as e:
+        raise ValueError(f"Config validation failed: {e}") from e
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _name(base: str) -> str:
+        return f"{cache_key}_{base}" if cache_key else base
+
+    export_path = output_dir / _name("export.onnx")
+    optimized_path = output_dir / _name("optimized.onnx")
+    quantized_path = output_dir / _name("quantized.onnx")
+    compiled_path = output_dir / _name("compiled.onnx")
+    final_path = output_dir / _name("model.onnx")
+    config_path = output_dir / _name("winml_build_config.json")
+
+    # Reuse check
+    if final_path.exists() and not rebuild:
+        _print_reused(final_path)
+        return None
+
+    stage_timings: list[tuple[str, float | None]] = []
+
+    # Clean old artifacts on rebuild
+    if rebuild:
+        pattern = f"{cache_key}_*.onnx" if cache_key else "*.onnx"
+        for old in output_dir.glob(pattern):
+            old.unlink()
+
+    current_path = export_path
+
+    # ── Export stage ──────────────────────────────────────────────
+    import warnings
+
+    with StageLive("export", console) as sl:
+        sl.set_status("Exporting to ONNX...")
+
+        # Load + export (blocking)
+        # Suppress TracerWarning and other transformer warnings
+        # during export to keep Live display clean.
+        pytorch_model = _load_model(config, model_id, trust_remote_code=False)
+        t0 = time.monotonic()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            export_onnx(
+                model=pytorch_model,
+                output_path=export_path,
+                export_config=config.export,
+                model_id=model_label,
+                task=config.loader.task,
+                verbose=False,
+                use_external_data=True,
+            )
+        _export_elapsed = time.monotonic() - t0
+        sl.set_done(_export_elapsed)
+        # Meta shown after export completes (avoids duplicate in Live frame)
+        if config.loader.model_class:
+            sl.kv("Model class:", f"[cyan]{config.loader.model_class}[/cyan]")
+        if config.loader.task:
+            sl.kv("Task:", f"[cyan]{config.loader.task}[/cyan]")
+        _show_io(sl, config)
+        sl.artifact(str(export_path), _safe_size(export_path))
+        sl.blank()
+
+    stage_timings.append(("Export", _export_elapsed))
+
+    # ── Optimize stage ───────────────────────────────────────────
+    current_path, _ = _run_optimize_stage(
+        config=config,
+        model_path=current_path,
+        optimized_path=optimized_path,
+        ep=ep,
+        device=device,
+        max_iters=max_iters,
+        stage_timings=stage_timings,
+        show_io_first=False,
+    )
+
+    # Persist config after autoconf
+    config_path.write_text(json.dumps(config.to_dict(), indent=2))
+
+    # ── Quantize stage ───────────────────────────────────────────
+    current_path = _run_quantize_stage(
+        config=config,
+        current_path=current_path,
+        quantized_path=quantized_path,
+        stage_timings=stage_timings,
+    )
+
+    # ── Compile stage ────────────────────────────────────────────
+    current_path = _run_compile_stage(
+        config=config,
+        current_path=current_path,
+        compiled_path=compiled_path,
+        stage_timings=stage_timings,
+    )
+
+    # ── Finalize ─────────────────────────────────────────────────
+    if current_path != final_path:
+        copy_onnx_model(current_path, final_path)
+
+    return stage_timings
+
+
+def _build_onnx_pipeline(
+    *,
+    config: WinMLBuildConfig,
+    onnx_path: Path,
+    output_dir: Path,
+    rebuild: bool,
+    ep: str | None,
+    device: str | None,
+    extra_kwargs: dict[str, Any],
+) -> list[tuple[str, float | None]] | None:
+    """ONNX build pipeline with cascading StageLive per stage.
+
+    Returns list of (stage_name, elapsed_seconds | None) for summary,
+    or None if build was reused.
+    """
+    from ..onnx import copy_onnx_model
+
+    max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
+
+    # ── Validate + setup ─────────────────────────────────────────
+    if not onnx_path.exists():
+        raise FileNotFoundError(f"ONNX file not found: {onnx_path}")
+    try:
+        config.validate()
+    except ValueError as e:
+        raise ValueError(f"Config validation failed: {e}") from e
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = onnx_path.stem
+    optimized_path = output_dir / f"{stem}_optimized.onnx"
+    quantized_path = output_dir / f"{stem}_quantized.onnx"
+    compiled_path = output_dir / f"{stem}_compiled.onnx"
+    final_path = output_dir / "model.onnx"
+    config_path = output_dir / "winml_build_config.json"
+
+    # Reuse check
+    if final_path.exists() and not rebuild:
+        _print_reused(final_path)
+        return None
+
+    stage_timings: list[tuple[str, float | None]] = []
+
+    if rebuild:
+        for old in output_dir.glob("*.onnx"):
+            old.unlink()
+
+    # Copy input ONNX to output dir
+    current_path = output_dir / onnx_path.name
+    if current_path.resolve() != onnx_path.resolve():
+        copy_onnx_model(onnx_path, current_path)
+
+    # ── Optimize stage (first stage for ONNX — show I/O here) ────
+    current_path, _ = _run_optimize_stage(
+        config=config,
+        model_path=current_path,
+        optimized_path=optimized_path,
+        ep=ep,
+        device=device,
+        max_iters=max_iters,
+        stage_timings=stage_timings,
+        show_io_first=True,
+    )
+
+    config_path.write_text(json.dumps(config.to_dict(), indent=2))
+
+    # ── Quantize stage ───────────────────────────────────────────
+    current_path = _run_quantize_stage(
+        config=config,
+        current_path=current_path,
+        quantized_path=quantized_path,
+        stage_timings=stage_timings,
+    )
+
+    # ── Compile stage ────────────────────────────────────────────
+    current_path = _run_compile_stage(
+        config=config,
+        current_path=current_path,
+        compiled_path=compiled_path,
+        stage_timings=stage_timings,
+    )
+
+    # ── Finalize ─────────────────────────────────────────────────
+    if current_path != final_path:
+        copy_onnx_model(current_path, final_path)
+
+    return stage_timings

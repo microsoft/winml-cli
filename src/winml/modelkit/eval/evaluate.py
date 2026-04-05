@@ -13,10 +13,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 from ..datasets.config import DatasetConfig
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
-from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
@@ -35,22 +38,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "token-classification": WinMLTokenClassificationEvaluator,
     "object-detection": WinMLObjectDetectionEvaluator,
     "image-segmentation": WinMLImageSegmentationEvaluator,
-    "feature-extraction": WinMLFeatureExtractionEvaluator,
-    "sentence-similarity": WinMLFeatureExtractionEvaluator,
 }
-
-_FE_DEFAULT = DatasetConfig(
-    path="mteb/stsbenchmark-sts",
-    split="test",
-    samples=100,
-    shuffle=True,
-    streaming=True,
-    columns_mapping={
-        "input_column_1": "sentence1",
-        "input_column_2": "sentence2",
-        "score_column": "score",
-    },
-)
 
 _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
     "image-classification": DatasetConfig(
@@ -91,8 +79,6 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
             "box_format": "xyxy",
         },
     ),
-    "feature-extraction": _FE_DEFAULT,
-    "sentence-similarity": _FE_DEFAULT,
 }
 
 
@@ -154,12 +140,21 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
     return _detect_task_from_config(hf_config)
 
 
-def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
+def evaluate(
+    config: WinMLEvaluationConfig,
+    *,
+    on_ready: Callable[[Any, WinMLEvaluationConfig], None] | None = None,
+) -> EvalResult:
     """Run model evaluation.
 
     This function does not mutate the caller's config. It creates internal
     copies via ``dataclasses.replace`` and ``deepcopy`` so the original
     config and any module-level defaults remain untouched.
+
+    Args:
+        config: Evaluation configuration.
+        on_ready: Optional callback fired after model + dataset loaded,
+            before evaluation starts. Receives (model, resolved_config).
     """
     config = replace(config, task=_resolve_task(config), dataset=deepcopy(config.dataset))
     model = _load_model(config)
@@ -170,15 +165,35 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."
             )
-        config.dataset = deepcopy(default)
+        # Merge user-provided overrides (--samples, --split, --shuffle)
+        # into the default dataset config instead of discarding them.
+        merged = deepcopy(default)
+        user_ds = config.dataset
+        if user_ds.samples != DatasetConfig().samples:
+            merged.samples = user_ds.samples
+        if user_ds.split != DatasetConfig().split:
+            merged.split = user_ds.split
+        if user_ds.shuffle != DatasetConfig().shuffle:
+            merged.shuffle = user_ds.shuffle
+        if user_ds.seed != DatasetConfig().seed:
+            merged.seed = user_ds.seed
+        if user_ds.columns_mapping:
+            merged.columns_mapping.update(user_ds.columns_mapping)
+        if user_ds.streaming != DatasetConfig().streaming:
+            merged.streaming = user_ds.streaming
+        config.dataset = merged
         logger.info(
             "Using default dataset for %s: %s",
             config.task,
-            default.path,
+            merged.path,
         )
 
     cls = _EVALUATOR_REGISTRY.get(config.task, WinMLEvaluator)
     task_evaluator = cls(config, model)
+
+    if on_ready is not None:
+        on_ready(model, config)
+
     metrics = task_evaluator.compute()
 
     return EvalResult(config=config, metrics=metrics)

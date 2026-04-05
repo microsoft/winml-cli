@@ -10,10 +10,14 @@ plotext for chart rendering and Rich Live for terminal refresh.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
+
+
+logger = logging.getLogger(__name__)
 
 
 # Moving window size for the x-axis (seconds)
@@ -103,7 +107,7 @@ class LiveMonitorDisplay:
             self._last_panel = panel
             self._live.update(panel)
         except Exception:
-            pass  # Don't let display errors interrupt the benchmark
+            logger.debug("Live display update failed", exc_info=True)
 
     def _render_chart(
         self, util_samples: list[float], cpu_samples: list[float] | None = None

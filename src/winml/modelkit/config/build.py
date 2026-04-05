@@ -56,9 +56,7 @@ from ..export.config import (
     WinMLExportConfig,
     _resolve_export_config_from_specs,
 )
-from ..export.io import ONNXConfigNotFoundError
-from ..loader import resolve_loader_config
-from ..loader.config import WinMLLoaderConfig
+from ..loader.config import WinMLLoaderConfig, resolve_loader_config
 from ..optim.config import WinMLOptimizationConfig
 from ..quant.config import WinMLQuantizationConfig
 from ..utils.config_utils import merge_config
@@ -465,11 +463,10 @@ def generate_hf_build_config(
     Orchestration Flow:
         1. loader.resolve_loader_config()   -> (WinMLLoaderConfig, hf_config, resolved_class)
            (includes sub-config consolidation for multimodal)
-        2. MODEL_BUILD_CONFIGS.get() — registry lookup
-        3. Try Optimum export config; on failure use empty placeholder
-        4. Merge registered export on top (registry always wins)
-        5. _assemble_config() + merge -> WinMLBuildConfig
-        6. If module: specialize for each matching submodule
+        2. MODEL_BUILD_CONFIGS.get() — registry lookup (may short-circuit step 3)
+        3. export._resolve_export_config_from_specs() OR registered export config
+        4. _assemble_config() + merge -> WinMLBuildConfig
+        5. If module: specialize for each matching submodule
 
     Args:
         model_id: HuggingFace model ID (e.g., "bert-base-uncased") or local path.
@@ -522,9 +519,26 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 3: Generate export config
     # =========================================================================
-    # Try Optimum first; if model is unsupported, use empty placeholder.
-    # Then always merge registered export config on top (registry wins).
-    try:
+    # Priority: registered config with I/O specs > Optimum lookup.
+    # Models not in Optimum's TasksManager (e.g., BLIP) crash at
+    # _resolve_export_config_from_specs(). If the registry already has
+    # input_tensors, use them directly and skip the Optimum path.
+    # Note: None means "not configured" (fall through to Optimum);
+    # [] would mean "explicitly no inputs" (use as-is, skip Optimum).
+    _registered_export = registered.export if registered else None
+    if _registered_export is not None and _registered_export.input_tensors is not None:
+        # deepcopy to avoid mutating the shared registry singleton
+        export_config = copy.deepcopy(_registered_export)
+        logger.info(
+            "Using registered export config for '%s' (skipping Optimum lookup)",
+            _registry_key,
+        )
+    else:
+        # Standard path: resolve I/O specs from Optimum's OnnxConfig
+        logger.debug(
+            "No registered export config for '%s'; resolving via Optimum",
+            _registry_key,
+        )
         export_config = _resolve_export_config_from_specs(
             model_type=loader_config.model_type,
             task=loader_config.task,
@@ -533,24 +547,6 @@ def generate_hf_build_config(
             model_id=model_id,
             batch_size=WinMLExportConfig().batch_size,
             **(shape_config or {}),
-        )
-    except ONNXConfigNotFoundError:
-        logger.info(
-            "Optimum has no OnnxConfig for '%s'; using empty export config",
-            _registry_key,
-        )
-        export_config = WinMLExportConfig()
-
-    # Merge registered export on top — registered always wins.
-    # Use WinMLExportConfig.merge() to properly handle nested
-    # InputTensorSpec/OutputTensorSpec lists (merge_config converts
-    # dataclass lists to dicts which breaks __post_init__).
-    _registered_export = registered.export if registered else None
-    if _registered_export is not None:
-        export_config = _merge_export_config(export_config, _registered_export)
-        logger.info(
-            "Merged registered export config for '%s'",
-            _registry_key,
         )
 
     # =========================================================================
@@ -587,6 +583,57 @@ def generate_hf_build_config(
     # User override has highest priority — applied last
     if override:
         parent_config = merge_config(parent_config, override)
+
+    # =========================================================================
+    # STEP 4.5: Apply device/precision policy (affects quant + compile only)
+    # =========================================================================
+    from ..sysinfo import resolve_device
+    from .precision import resolve_precision
+
+    # ALWAYS detect hardware — even when device="auto" — so we don't
+    # blindly default to QNN on machines without an NPU (#412).
+    resolved_device, available_devices = resolve_device(device=device)
+    logger.info(
+        "Device resolved: %s (available: %s)",
+        resolved_device,
+        ", ".join(available_devices),
+    )
+
+    policy = resolve_precision(
+        device=resolved_device,
+        precision=precision,
+        ep=ep,
+        available_devices=available_devices,
+        task=parent_config.loader.task,
+    )
+
+    # Apply policy: set compile provider from detected hardware
+    if policy.device != "auto":
+        # Quant config (weight_type and activation_type are always both-None or both-set)
+        if policy.weight_type is not None:
+            if parent_config.quant is None:
+                parent_config.quant = WinMLQuantizationConfig()
+            parent_config.quant.weight_type = policy.weight_type
+            parent_config.quant.activation_type = policy.activation_type
+        else:
+            parent_config.quant = None
+
+        # Compile config
+        parent_config.compile = WinMLCompileConfig.for_provider(
+            policy.compile_provider,
+        )
+    else:
+        # Even in auto/auto mode, set compile provider from detected hardware
+        # instead of preserving the hardcoded EPConfig default (#412).
+        from .precision import get_provider_for_device
+
+        hw_provider = get_provider_for_device(resolved_device)
+        if hw_provider is not None:
+            parent_config.compile = WinMLCompileConfig.for_provider(
+                hw_provider,
+            )
+        # When hw_provider is None (CPU-only), keep the default compile config
+        # so the pipeline still has a valid compile section.
 
     # =========================================================================
     # STEP 5: Specialize for submodules if requested
@@ -807,51 +854,6 @@ def _build_submodule_config(
     )
 
 
-def _merge_export_config(
-    base: WinMLExportConfig,
-    override: WinMLExportConfig,
-) -> WinMLExportConfig:
-    """Merge registered export config on top of Optimum-resolved config.
-
-    Override fields replace base fields when non-None.
-    Handles InputTensorSpec/OutputTensorSpec lists correctly
-    (unlike generic merge_config which converts them to dicts).
-
-    Args:
-        base: Optimum-resolved export config (or empty placeholder).
-        override: Registered export config from MODEL_BUILD_CONFIGS.
-
-    Returns:
-        New WinMLExportConfig with override fields applied.
-    """
-    # Pick input/output tensors: override wins when non-None.
-    # Deep-copy lists to avoid sharing references with the registry singleton.
-    input_tensors = (
-        override.input_tensors if override.input_tensors is not None else base.input_tensors
-    )
-    output_tensors = (
-        override.output_tensors if override.output_tensors is not None else base.output_tensors
-    )
-
-    return WinMLExportConfig(
-        opset_version=(
-            override.opset_version
-            if override.opset_version != WinMLExportConfig().opset_version
-            else base.opset_version
-        ),
-        batch_size=(
-            override.batch_size
-            if override.batch_size != WinMLExportConfig().batch_size
-            else base.batch_size
-        ),
-        input_tensors=(copy.deepcopy(input_tensors) if input_tensors is not None else None),
-        output_tensors=(copy.deepcopy(output_tensors) if output_tensors is not None else None),
-        dynamic_axes=(
-            override.dynamic_axes if override.dynamic_axes is not None else base.dynamic_axes
-        ),
-    )
-
-
 def _assemble_config(
     loader_config: WinMLLoaderConfig,
     export_config: WinMLExportConfig,
@@ -867,8 +869,8 @@ def _assemble_config(
 
     Args:
         loader_config: Resolved WinMLLoaderConfig (from resolve_loader_config).
-        export_config: Resolved WinMLExportConfig (Optimum baseline
-            merged with registered export config).
+        export_config: Resolved WinMLExportConfig
+            (from registry or _resolve_export_config_from_specs).
         registered: Registered config from MODEL_BUILD_CONFIGS (or None).
         model_id: HuggingFace model ID (for quant model_name), or None.
         model_type: Parent HF model type (for quant fallback name).

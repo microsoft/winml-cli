@@ -818,8 +818,9 @@ class SplitInputGenerator(OpInputGenerator):
             split_array = np.array(item["attr_split"])
             item["num_outputs"] = len(split_array)
         else:
-            # caller is get_query_conditions_for_*, "n_outputs" must be present
-            item["num_outputs"] = item["n_outputs"]
+            raise ValueError(
+                "Shouldn't reach here: either split_value or attr_num_outputs must be present."
+            )
         # num_outputs may already be set from the combination
         return item
 

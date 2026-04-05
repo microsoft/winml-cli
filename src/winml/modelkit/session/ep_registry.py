@@ -128,7 +128,8 @@ class WinMLEPRegistry:
                 self._registered_eps.append(name)
                 logger.debug("Registered EP: %s -> %s", name, dll_path)
             except Exception as e:
-                logger.warning("Failed to register EP %s: %s", name, e)
+                # "already registered" is expected on repeated calls — not a real failure
+                logger.debug("Failed to register EP %s: %s", name, e)
 
         return self._registered_eps.copy()
 

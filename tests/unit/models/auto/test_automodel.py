@@ -39,6 +39,7 @@ def _make_mock_model(num_labels: int = 1000):
     }
     mock_session.is_compiled = True
 
+    mock_session.device = "cpu"
     model._session = mock_session
     model.config = MagicMock()
     model.config.num_labels = num_labels

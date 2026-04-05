@@ -279,7 +279,7 @@ def _build_rewrite_capabilities() -> dict[str, Any]:
         caps[name] = BoolCapability(
             name=name,
             ort_name=None,
-            description=f"Rewrite [{sources_str}] -> {group.target_class}",
+            description=f"Rewrite [{sources_str}] → {group.target_class}",
             category=CapabilityCategory.REWRITE,
             default=False,
         )
@@ -291,7 +291,7 @@ def _build_rewrite_capabilities() -> dict[str, Any]:
                     caps[src_flag] = BoolCapability(
                         name=src_flag,
                         ort_name=None,
-                        description=f"Rewrite {src} -> {group.target_class}",
+                        description=f"Rewrite {src} → {group.target_class}",
                         category=CapabilityCategory.REWRITE,
                         default=False,
                     )

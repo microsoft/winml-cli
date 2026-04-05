@@ -100,8 +100,6 @@ class TestConfigCliInterface:
             "--output",
             "-o",
             "--library",
-            "--verbose",
-            "-v",
             "--no-quant",
             "--no-compile",
             "--trust-remote-code",
@@ -140,7 +138,7 @@ class TestConfigCliInterface:
         """All valid device choices should be accepted without error."""
         from winml.modelkit.commands.config import config
 
-        result = runner.invoke(config, ["-m", "test", "--device", device])
+        result = runner.invoke(config, ["-m", "test", "--device", device], obj={"verbose": 0})
         assert result.exit_code == 0, (
             f"Device '{device}' should be accepted, got exit_code={result.exit_code}: "
             f"{result.output}"
@@ -156,7 +154,7 @@ class TestConfigCliInterface:
         """All valid precision choices should be accepted without error."""
         from winml.modelkit.commands.config import config
 
-        result = runner.invoke(config, ["-m", "test", "--precision", precision])
+        result = runner.invoke(config, ["-m", "test", "--precision", precision], obj={"verbose": 0})
         assert result.exit_code == 0, (
             f"Precision '{precision}' should be accepted, "
             f"got exit_code={result.exit_code}: {result.output}"
@@ -172,7 +170,7 @@ class TestConfigCliInterface:
         from winml.modelkit.commands.config import config
 
         output_file = tmp_path / "out.json"
-        result = runner.invoke(config, ["-m", "test", "-o", str(output_file)])
+        result = runner.invoke(config, ["-m", "test", "-o", str(output_file)], obj={"verbose": 0})
         assert result.exit_code == 0, f"Output to file should succeed: {result.output}"
 
     def test_model_type_without_model(
@@ -183,7 +181,9 @@ class TestConfigCliInterface:
         """--model-type bert --task fill-mask should be a valid entry point (no -m needed)."""
         from winml.modelkit.commands.config import config
 
-        result = runner.invoke(config, ["--model-type", "bert", "--task", "fill-mask"])
+        result = runner.invoke(
+            config, ["--model-type", "bert", "--task", "fill-mask"], obj={"verbose": 0}
+        )
         assert result.exit_code == 0, f"model-type without model should succeed: {result.output}"
 
     def test_config_file_override(
@@ -198,7 +198,7 @@ class TestConfigCliInterface:
         override_file = tmp_path / "override.json"
         override_file.write_text('{"loader": {"task": "text-classification"}}')
 
-        result = runner.invoke(config, ["-m", "test", "-c", str(override_file)])
+        result = runner.invoke(config, ["-m", "test", "-c", str(override_file)], obj={"verbose": 0})
         assert result.exit_code == 0, f"Config file override should succeed: {result.output}"
 
     def test_shape_config_file(
@@ -213,7 +213,9 @@ class TestConfigCliInterface:
         shapes_file = tmp_path / "shapes.json"
         shapes_file.write_text('{"height": 224, "width": 224}')
 
-        result = runner.invoke(config, ["-m", "test", "--shape-config", str(shapes_file)])
+        result = runner.invoke(
+            config, ["-m", "test", "--shape-config", str(shapes_file)], obj={"verbose": 0}
+        )
         assert result.exit_code == 0, f"Shape config file should succeed: {result.output}"
 
     def test_no_quant_sets_quant_none(
@@ -224,7 +226,7 @@ class TestConfigCliInterface:
         """--no-quant should set quant=None on the generated config."""
         from winml.modelkit.commands.config import config
 
-        result = runner.invoke(config, ["-m", "test", "--no-quant"])
+        result = runner.invoke(config, ["-m", "test", "--no-quant"], obj={"verbose": 0})
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert mock_generate_config.return_value.quant is None
 
@@ -236,7 +238,7 @@ class TestConfigCliInterface:
         """--no-compile should set compile=None on the generated config."""
         from winml.modelkit.commands.config import config
 
-        result = runner.invoke(config, ["-m", "test", "--no-compile"])
+        result = runner.invoke(config, ["-m", "test", "--no-compile"], obj={"verbose": 0})
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert mock_generate_config.return_value.compile is None
 
@@ -248,7 +250,7 @@ class TestConfigCliInterface:
         """--trust-remote-code should be passed to generate_hf_build_config."""
         from winml.modelkit.commands.config import config
 
-        result = runner.invoke(config, ["-m", "test", "--trust-remote-code"])
+        result = runner.invoke(config, ["-m", "test", "--trust-remote-code"], obj={"verbose": 0})
         assert result.exit_code == 0, f"Failed: {result.output}"
         mock_generate_config.assert_called_once()
         call_kwargs = mock_generate_config.call_args.kwargs
@@ -263,14 +265,23 @@ class TestConfigCliInterface:
 def _extract_json(output: str) -> dict:
     """Extract JSON object from mixed CLI output (Rich stderr + JSON stdout).
 
-    CliRunner in Click 8.x mixes stderr and stdout. The JSON block starts
-    at the first '{' and ends at the last '}'.
+    CliRunner in Click 8.x mixes stderr and stdout. Logging errors from
+    prior tests may also leak into the output. We find the outermost valid
+    JSON object by trying successive '{' positions until one parses.
     """
     import json
 
-    start = output.index("{")
-    end = output.rindex("}") + 1
-    return json.loads(output[start:end])
+    pos = 0
+    while True:
+        try:
+            start = output.index("{", pos)
+        except ValueError:
+            raise ValueError(f"No valid JSON found in output: {output[:200]!r}") from None
+        end = output.rindex("}") + 1
+        try:
+            return json.loads(output[start:end])
+        except json.JSONDecodeError:
+            pos = start + 1
 
 
 class TestConfigOnnxOverrides:
@@ -288,7 +299,7 @@ class TestConfigOnnxOverrides:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file), "--no-quant"])
+            result = runner.invoke(config, ["-m", str(onnx_file), "--no-quant"], obj={"verbose": 0})
         assert result.exit_code == 0, f"Failed: {result.output}"
 
         data = _extract_json(result.output)
@@ -305,7 +316,9 @@ class TestConfigOnnxOverrides:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file), "--no-compile"])
+            result = runner.invoke(
+                config, ["-m", str(onnx_file), "--no-compile"], obj={"verbose": 0}
+            )
         assert result.exit_code == 0, f"Failed: {result.output}"
 
         data = _extract_json(result.output)
@@ -331,7 +344,7 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file)])
+            result = runner.invoke(config, ["-m", str(onnx_file)], obj={"verbose": 0})
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)
@@ -350,7 +363,7 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file)])
+            result = runner.invoke(config, ["-m", str(onnx_file)], obj={"verbose": 0})
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)
@@ -368,7 +381,9 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file), "-d", "npu", "-p", "int8"])
+            result = runner.invoke(
+                config, ["-m", str(onnx_file), "-d", "npu", "-p", "int8"], obj={"verbose": 0}
+            )
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)
@@ -385,7 +400,7 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file)])
+            result = runner.invoke(config, ["-m", str(onnx_file)], obj={"verbose": 0})
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)

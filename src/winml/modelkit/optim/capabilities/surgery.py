@@ -22,7 +22,7 @@ from ..registry import BoolCapability, CapabilityCategory
 CLAMP_CONSTANT_VALUES = BoolCapability(
     name="clamp-constant-values",
     ort_name=None,  # Custom implementation, not ORT optimizer
-    description="Clamp extreme float constants (e.g., -inf -> -1e3) to prevent quantization issues",
+    description="Clamp extreme float constants (e.g., -inf → -1e3) to prevent quantization issues",
     category=CapabilityCategory.SURGERY,
     default=False,
 )

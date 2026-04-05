@@ -76,6 +76,9 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         self.config = config
         self._device = device
 
+        # Set by WinMLAutoModel.from_pretrained() after construction
+        self._build_config: Any = None
+
         # Create WinMLSession (delegates ORT operations)
         self._session = WinMLSession(
             onnx_path=self._onnx_path,
@@ -169,15 +172,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         """Inference entry point."""
         return self.forward(**kwargs)
 
-    def to(self, *args: Any, **kwargs: Any) -> WinMLPreTrainedModel:
-        """No-op for HF pipeline compatibility.
-
-        FIXME: HF pipeline calls model.to(torch.device(...)) to move the model.
-        WinML models are ORT-backed — device placement is handled by the EP
-        policy set at session creation, not by moving tensors.  We ignore
-        .to() calls so the pipeline doesn't break compiled EPContext models
-        by trying to recreate the session on CPU.
-        """
+    def to(self, device: str | object) -> WinMLPreTrainedModel:
+        """No-op: WinML models run on the device chosen at build time."""
         return self
 
     def perf(self, warmup: int = 0) -> contextlib.AbstractContextManager:
@@ -200,8 +196,26 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
 
     @property
     def device(self) -> str:
-        """Current device."""
-        return self._device
+        """Current device (delegates to session, resolved after compile)."""
+        return self._session.device
+
+    @property
+    def task(self) -> str | None:
+        """Resolved task from build config, or None if unavailable."""
+        build_config = getattr(self, "_build_config", None)
+        if build_config is not None:
+            loader = getattr(build_config, "loader", None)
+            if loader:
+                return loader.task
+        return None
+
+    @property
+    def precision(self) -> str | None:
+        """Resolved precision from build config, or None if unavailable.
+
+        TODO: derive from _build_config.quant.weight_type when ready.
+        """
+        return None
 
     @property
     def dtype(self) -> torch.dtype:

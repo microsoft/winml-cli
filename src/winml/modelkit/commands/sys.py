@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import logging
 import platform
-import sys
 from typing import Any
 
 import click
@@ -46,7 +45,7 @@ def _get_python_info() -> dict[str, Any]:
     """Gather Python environment information."""
     return {
         "version": platform.python_version(),
-        "executable": sys.executable,
+        "executable": __import__("sys").executable,
         "implementation": platform.python_implementation(),
     }
 
@@ -449,6 +448,11 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             )
 
 
+def _output_device_json(devices: list[dict[str, Any]]) -> None:
+    """Display device list as JSON."""
+    click.echo(json.dumps(devices, indent=2))
+
+
 # --- EP listing ---
 
 
@@ -515,6 +519,11 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
             console.print("    [dim](built-in)[/dim]")
 
 
+def _output_ep_json(eps: list[dict[str, Any]]) -> None:
+    """Display EP list as JSON."""
+    click.echo(json.dumps(eps, indent=2))
+
+
 @click.command()  # type: ignore[misc]
 @click.option(  # type: ignore[misc]
     "--format",
@@ -523,13 +532,6 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     type=click.Choice(["text", "json", "compact"], case_sensitive=False),
     default="text",
     help="Output format: text (human-readable), json, or compact",
-)
-@click.option(  # type: ignore[misc]
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Include additional diagnostic information",
 )
 @click.option(  # type: ignore[misc]
     "--list-device",
@@ -547,7 +549,6 @@ def _output_ep_text(eps: list[dict[str, Any]]) -> None:
 def sysinfo(
     ctx: click.Context,
     output_format: str,
-    verbose: bool,
     list_device: bool,
     list_ep: bool,
 ) -> None:
@@ -580,9 +581,7 @@ def sysinfo(
         # List execution providers as JSON
         winml sys --list-ep --format json
     """
-    # Inherit debug mode from parent
-    if ctx.obj.get("debug"):
-        verbose = True
+    verbose = ctx.obj.get("verbose", 0)
 
     # Route winml.modelkit logs through Rich so they never interleave with CLI output.
     # In normal mode suppress everything below WARNING; in debug mode show all levels.
@@ -604,60 +603,29 @@ def sysinfo(
 
         # Handle --list-device and/or --list-ep (combinable)
         if list_device or list_ep:
-            if use_json:
-                # Combine both into a single JSON object so output is always valid JSON
-                result: dict[str, Any] = {}
-                if list_device:
-                    try:
-                        result["devices"] = _gather_device_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        result["executionProviders"] = _gather_ep_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-                click.echo(json.dumps(result, indent=2))
-            elif output_format.lower() == "compact":
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
-                        click.echo(" | ".join(parts) if parts else "No devices found")
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        parts = [f"{ep['name']}({ep['device']})" for ep in eps]
-                        click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
-            else:
-                if list_device:
-                    try:
-                        devices = _gather_device_info()
+            if list_device:
+                try:
+                    devices = _gather_device_info()
+                    if use_json:
+                        _output_device_json(devices)
+                    else:
                         _output_device_text(devices)
-                    except Exception as e:
-                        console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        eps = _gather_ep_info()
+                except Exception as e:
+                    console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
+                    logger.exception("Failed to detect devices")
+                    raise click.ClickException(f"Error detecting devices: {e}") from e
+
+            if list_ep:
+                try:
+                    eps = _gather_ep_info()
+                    if use_json:
+                        _output_ep_json(eps)
+                    else:
                         _output_ep_text(eps)
-                    except Exception as e:
-                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        console.print(err_msg)
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
+                except Exception as e:
+                    console.print(f"[bold red]Error detecting execution providers:[/bold red] {e}")
+                    logger.exception("Failed to detect execution providers")
+                    raise click.ClickException(f"Error detecting execution providers: {e}") from e
             return
 
         # Default: full sysinfo including devices and EPs

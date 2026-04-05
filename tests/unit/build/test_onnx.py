@@ -111,8 +111,9 @@ def _default_analyze_result():
 def mock_onnx_pipeline():
     """Mock all pipeline stage functions for ONNX builds.
 
-    Mocks optimize_onnx, analyze_onnx (via common.py), quantize_onnx,
-    compile_onnx, copy_onnx_model, and is_quantized_onnx.
+    Mocks run_optimize_analyze_loop at the onnx module level (same pattern
+    as test_hf.py), plus quantize_onnx, compile_onnx, copy_onnx_model,
+    and is_quantized_onnx.
     """
     quant_result = MagicMock()
     quant_result.success = True
@@ -126,15 +127,33 @@ def mock_onnx_pipeline():
     compile_result.output_path = None
     compile_result.success = True
 
+    def _loop_side_effect(*args, **kwargs):
+        """Mock run_optimize_analyze_loop: create output file, return 5-tuple."""
+        optimized_path = kwargs.get("optimized_path") or (args[1] if len(args) > 1 else None)
+        if optimized_path is not None:
+            Path(optimized_path).write_text("mock")
+        return (
+            optimized_path,
+            0.1,  # elapsed
+            1,  # analyze_count
+            0,  # unsupported_node_count
+            {
+                "lint": {
+                    "errors": 0,
+                    "warnings": 0,
+                    "passed": True,
+                    "error_patterns": [],
+                    "warning_patterns": [],
+                },
+                "autoconf": {},
+            },
+        )
+
     with (
         patch(
-            "winml.modelkit.build.common.optimize_onnx",
-            side_effect=_create_file_side_effect("output"),
+            "winml.modelkit.build.onnx.run_optimize_analyze_loop",
+            side_effect=_loop_side_effect,
         ) as m_optimize,
-        patch(
-            "winml.modelkit.build.common.analyze_onnx",
-            return_value=_default_analyze_result(),
-        ) as m_analyze,
         patch(
             "winml.modelkit.build.onnx.quantize_onnx",
             side_effect=_create_file_side_effect("output_path", quant_result),
@@ -151,19 +170,14 @@ def mock_onnx_pipeline():
             "winml.modelkit.build.onnx.copy_onnx_model",
             side_effect=lambda src, dst: Path(dst).write_text("mock"),
         ) as m_copy,
-        patch(
-            "winml.modelkit.build.common.copy_onnx_model",
-            side_effect=lambda src, dst: Path(dst).write_text("mock"),
-        ) as m_copy_common,
     ):
         yield {
             "optimize": m_optimize,
-            "analyze": m_analyze,
+            "analyze": m_optimize,  # alias for backward compat
             "quantize": m_quantize,
             "compile": m_compile,
             "is_quantized_onnx": m_has_qdq,
             "copy": m_copy,
-            "copy_common": m_copy_common,
             "quant_result": quant_result,
             "compile_result": compile_result,
         }

@@ -22,6 +22,7 @@ def model_option(required=True):
     """
     return click.option(
         "--model",
+        "-m",
         required=required,
         type=click.Path(exists=True, path_type=Path),
         help="Path to ONNX model file to analyze",
@@ -86,8 +87,11 @@ def device_option(required=True, optional_message=None, default="NPU"):
 def verbosity_options(f):
     """Add verbose and quiet logging options to a Click command.
 
-    Adds --verbose/-v and --quiet/-q flags that control logging verbosity.
-    These options are automatically passed to the decorated function.
+    Adds --verbose/-v (stackable: -v, -vv, -vvv) and --quiet/-q flags.
+    The decorated function receives ``verbose`` (int, count of -v flags)
+    and ``quiet`` (bool).
+
+    See :mod:`modelkit.utils.logging` for the verbosity convention.
 
     Args:
         f: Click command function to decorate
@@ -105,8 +109,7 @@ def verbosity_options(f):
     f = click.option(
         "--verbose",
         "-v",
-        is_flag=True,
-        default=False,
-        help="Enable verbose logging to stderr",
+        count=True,
+        help="Increase verbosity (-v=INFO, -vv=DEBUG)",
     )(f)
     return f  # noqa: RET504

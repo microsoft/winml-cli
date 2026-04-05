@@ -41,14 +41,17 @@ def create_mock_model():
 class TestWinMLModelForFeatureExtractionBasic:
     def test_class_importable(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
+
         assert WinMLModelForFeatureExtraction is not None
 
     def test_inherits_from_base(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction, WinMLPreTrainedModel
+
         assert issubclass(WinMLModelForFeatureExtraction, WinMLPreTrainedModel)
 
     def test_exported_from_winml_package(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
+
         assert WinMLModelForFeatureExtraction is not None
 
 

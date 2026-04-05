@@ -65,7 +65,7 @@ def mock_inspect_result() -> MagicMock:
 #
 # Since `from X import Y` resolves Y from X at import time, we must
 # patch at the SOURCE modules so the deferred import picks up the mock.
-_INSPECT_MODEL = "winml.modelkit.inspect.inspect_model"
+_INSPECT_MODEL = "winml.modelkit.commands.inspect._inspect_model_v2"
 _OUTPUT_JSON = "winml.modelkit.inspect.formatter.output_json"
 _OUTPUT_TABLE = "winml.modelkit.inspect.formatter.output_table"
 
@@ -88,8 +88,6 @@ class TestInspectCliInterface:
             "-m",
             "--format",
             "-f",
-            "--verbose",
-            "-v",
             "--task",
             "-t",
             "--hierarchy",
@@ -175,7 +173,7 @@ class TestInspectFlagCombinations:
         ):
             result = runner.invoke(
                 inspect,
-                ["-m", "test", "-v", "-H", "-t", "fill-mask", "-f", "json"],
+                ["-m", "test", "-H", "-t", "fill-mask", "-f", "json"],
                 obj={},
             )
             assert result.exit_code == 0, f"Failed: {result.output}"
@@ -228,8 +226,9 @@ class TestInspectFlagCombinations:
             runner.invoke(inspect, ["-m", "test"], obj={})
             mock_table.assert_called_once()
             # output_table(console, result, verbose=verbose)
+            # verbose is now an int (0) from ctx.obj, not a bool
             _, call_kwargs = mock_table.call_args
-            assert call_kwargs["verbose"] is False
+            assert not call_kwargs["verbose"]
 
 
 # =============================================================================

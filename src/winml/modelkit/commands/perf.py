@@ -25,10 +25,9 @@ from typing import TYPE_CHECKING, Any
 import click
 import numpy as np
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
-from .live_chart import LiveMonitorDisplay
+from ._live_chart import LiveMonitorDisplay
 
 
 if TYPE_CHECKING:
@@ -178,8 +177,8 @@ def generate_random_inputs(
 ) -> dict[str, np.ndarray]:
     """Generate random inputs based on model io_config.
 
-    Uses modelkit.core.model_input_generator for spec-driven generation,
-    then converts torch tensors to numpy for ONNX Runtime.
+    Uses modelkit.core.model_input_generator for spec-driven generation.
+    Returns numpy arrays directly (no torch dependency).
 
     Args:
         io_config: Model I/O configuration from WinMLSession.io_config.
@@ -217,8 +216,7 @@ def generate_random_inputs(
             "shape": list(resolved_shape),
         }
 
-    torch_inputs = generate_dummy_inputs_from_specs(specs)
-    return {name: tensor.numpy() for name, tensor in torch_inputs.items()}
+    return generate_dummy_inputs_from_specs(specs)
 
 
 def _resolve_shape(
@@ -291,6 +289,16 @@ class PerfBenchmark:
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
+
+        # Compile session early so model.device is resolved for display
+        self._model._session.compile()
+
+        # Print model info before benchmark starts
+        _print_model_info(
+            self._model.io_config,
+            task=self._model.task or self.config.task,
+            device=self._model.device,
+        )
 
         # [3] Run benchmark
         logger.info(
@@ -719,24 +727,20 @@ def _perf_modules(
 
 def display_console_report(result: BenchmarkResult, console: Console) -> None:
     """Display benchmark results in formatted console output."""
-    # Header
+    # Info section — show "requested (resolved)" when they differ
     console.print()
-    console.print(
-        Panel.fit(
-            f"[bold]Benchmark: {result.config.model_id}[/bold]",
-            border_style="blue",
-        )
-    )
 
-    # Info section
-    console.print()
-    console.print(f"[dim]Device:[/dim]      {result.actual_device}")
+    req_device = result.config.device
+    act_device = result.actual_device
+    device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    console.print(f"[dim]Device:[/dim]      {device_str}")
+
     console.print(f"[dim]Precision:[/dim]   {result.config.precision}")
-    console.print(f"[dim]Task:[/dim]        {result.actual_task}")
-    console.print(
-        f"[dim]Iterations:[/dim]  {result.config.iterations} (+ {result.config.warmup} warmup)"
-    )
-    console.print(f"[dim]Batch Size:[/dim]  {result.config.batch_size}")
+
+    req_task = result.config.task or "auto"
+    act_task = result.actual_task
+    task_str = f"{req_task} ({act_task})" if req_task != act_task else act_task
+    console.print(f"[dim]Task:[/dim]        {task_str}")
 
     # Latency table
     console.print()
@@ -812,6 +816,51 @@ def generate_output_path(model_id: str) -> Path:
         return Path(f"{p.stem}_perf.json")
     slug = model_id.replace("/", "_").replace("\\", "_")
     return Path(f"{slug}_perf.json")
+
+
+# =============================================================================
+# Shared benchmark helpers
+# =============================================================================
+
+
+def _print_model_info(
+    io_config: dict,
+    *,
+    task: str | None = None,
+    device: str = "auto",
+) -> None:
+    """Print model I/O metadata before the benchmark starts."""
+    console = Console(stderr=True)
+    console.print()
+    console.print(f"[dim]Device:[/dim]      {device}")
+    # TODO: show resolved precision once WinMLPreTrainedModel.precision
+    # is implemented (derive from _build_config.quant.weight_type)
+    if task:
+        console.print(f"[dim]Task:[/dim]        {task}")
+
+    names = io_config.get("input_names", [])
+    shapes = io_config.get("input_shapes", [])
+    types = io_config.get("input_types", [])
+    if names:
+        label = "[dim]Inputs:[/dim]      "
+        pad = "             "
+        for i, name in enumerate(names):
+            shape = shapes[i] if i < len(shapes) else []
+            dtype = str(types[i]) if i < len(types) else ""
+            shape_str = f"{shape!s}"
+            line = f"{name:<20s} {shape_str:<22s} {dtype}"
+            console.print(f"{label if i == 0 else pad}{line}")
+
+    out_names = io_config.get("output_names", [])
+    out_shapes = io_config.get("output_shapes", [])
+    if out_names:
+        label = "[dim]Outputs:[/dim]     "
+        pad = "             "
+        for i, name in enumerate(out_names):
+            shape = out_shapes[i] if i < len(out_shapes) else []
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+
+    console.print()
 
 
 # =============================================================================
@@ -945,13 +994,6 @@ def generate_output_path(model_id: str) -> Path:
     default=None,
     help="Compare benchmark across devices (e.g., 'cpu,npu'). Not yet implemented.",
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -973,7 +1015,6 @@ def perf(
     monitor: bool,
     op_tracing: str | None,
     compare_devices: str | None,
-    verbose: bool,
 ) -> None:
     r"""Benchmark model inference performance.
 
@@ -1023,8 +1064,10 @@ def perf(
 
     hf_model = model_id
 
+    verbose = ctx.obj.get("verbose", 0)
+
     # Setup logging
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
+    if verbose:
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     console = Console()

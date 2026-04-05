@@ -10,11 +10,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import click
+from rich.console import Console
 
 
 logger = logging.getLogger(__name__)
+_console = Console(stderr=True)
 
 
 @click.command("eval")
@@ -53,8 +56,8 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--device",
-    type=click.Choice(["cpu", "gpu", "npu"], case_sensitive=False),
-    default="cpu",
+    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
+    default="auto",
     show_default=True,
     help="Device to run on.",
 )
@@ -103,13 +106,6 @@ logger = logging.getLogger(__name__)
     help="Output JSON file path.",
 )
 @click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output.",
-)
-@click.option(
     "--schema",
     "show_schema",
     is_flag=True,
@@ -132,7 +128,6 @@ def eval(
     column: tuple[str, ...],
     label_mapping: Path | None,
     output: Path | None,
-    verbose: bool,
     show_schema: bool,
 ) -> None:
     r"""Evaluate model accuracy on a dataset.
@@ -154,7 +149,8 @@ def eval(
             --dataset glue --dataset-name mrpc \\
             --column input_column=sentence1
     """
-    if verbose or (ctx.obj and ctx.obj.get("debug")):
+    verbose = ctx.obj.get("verbose", 0)
+    if verbose:
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     if show_schema:
@@ -234,18 +230,99 @@ def eval(
     )
 
     try:
-        result = evaluate(config)
-        logger.info("Evaluation results: %s", result.to_dict())
+
+        def _on_ready(model: Any, resolved_config: Any) -> None:
+            """Compile session for device resolution, then print header."""
+            model._session.compile()
+            _print_eval_header(model, resolved_config)
+
+        with _console.status("[bold]Evaluating...", spinner="dots"):
+            result = evaluate(config, on_ready=_on_ready)
+
+        _console.print()
+        _print_eval_results(result)
 
         if output is not None:
             output.parent.mkdir(parents=True, exist_ok=True)
             with output.open("w") as f:
                 json.dump(result.to_dict(), f, indent=2, default=_json_default)
-            logger.info("Results saved to: %s", output)
+            _console.print(f"  Results saved to: {output}")
+            _console.print()
 
     except Exception as e:
         logger.exception("Evaluation failed")
         raise click.ClickException(f"Evaluation failed: {e}") from e
+
+
+def _print_eval_header(model: Any, config: Any) -> None:
+    """Print evaluation header with model and dataset info."""
+    _console.print()
+    _console.print("[bold]" + "=" * 80 + "[/bold]")
+    _console.print("[bold]EVALUATION[/bold]")
+    _console.print("[bold]" + "=" * 80 + "[/bold]")
+    _console.print(f"   Model:    [bold cyan]{config.model_id}[/bold cyan]")
+    _console.print(f"   Device:   [green]{model.device}[/green]")
+    _console.print(f"   Task:     {config.task}")
+
+    ds = config.dataset
+    ds_label = ds.path or "default"
+    if ds.name:
+        ds_label += f"/{ds.name}"
+    _console.print(f"   Dataset:  {ds_label} ({ds.split})")
+    _console.print(f"   Samples:  {ds.samples:,}")
+
+    io = model.io_config
+    names = io.get("input_names", [])
+    shapes = io.get("input_shapes", [])
+    types = io.get("input_types", [])
+    if names:
+        label = "   Inputs:   "
+        pad = "             "
+        for i, name in enumerate(names):
+            shape = shapes[i] if i < len(shapes) else []
+            dtype = str(types[i]) if i < len(types) else ""
+            _console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s:<22s} {dtype}")
+
+    out_names = io.get("output_names", [])
+    out_shapes = io.get("output_shapes", [])
+    if out_names:
+        label = "   Outputs:  "
+        pad = "             "
+        for i, name in enumerate(out_names):
+            shape = out_shapes[i] if i < len(out_shapes) else []
+            _console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+
+    _console.print()
+
+
+def _print_eval_results(result: Any) -> None:
+    """Print evaluation results with metrics."""
+    _console.print("[bold]" + "=" * 80 + "[/bold]")
+    _console.print("[bold]RESULTS[/bold]")
+    _console.print("[bold]" + "=" * 80 + "[/bold]")
+    _console.print()
+
+    metrics = result.metrics
+    for key, value in sorted(metrics.items()):
+        if key.startswith(("total_time", "latency")):
+            continue
+        if isinstance(value, float):
+            if 0 <= value <= 1:
+                _console.print(f"  [bold]{key.title()}:[/bold]    {value * 100:.2f}%")
+            else:
+                _console.print(f"  [bold]{key.title()}:[/bold]    {value:.4f}")
+        else:
+            _console.print(f"  [bold]{key.title()}:[/bold]    {value}")
+
+    total_time = metrics.get("total_time_in_seconds")
+    if total_time is not None:
+        samples = result.config.dataset.samples
+        throughput = samples / total_time if total_time > 0 else 0
+        _console.print()
+        _console.print(f"  [bold]Throughput:[/bold]  {throughput:.2f} samples/sec")
+        _console.print(f"  [bold]Total time:[/bold]  {total_time:.2f}s ({samples:,} samples)")
+
+    _console.print()
 
 
 def _json_default(obj: object) -> object:

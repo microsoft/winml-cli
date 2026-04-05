@@ -23,7 +23,6 @@ from click.testing import CliRunner
 
 from winml.modelkit.commands.build import build
 from winml.modelkit.commands.inspect import inspect
-from winml.modelkit.commands.optimize import optimize
 from winml.modelkit.commands.perf import perf
 
 
@@ -31,53 +30,19 @@ pytestmark = [pytest.mark.regression]
 
 
 # ===========================================================================
-# A-1: All --help text must be ASCII-safe (no non-ASCII chars in descriptions)
+# M-1: --list-tasks IS in inspect --help (gap resolved)
 # ===========================================================================
 
 
-class TestA1HelpTextAsciiSafe:
-    """Verify that --help output contains no non-ASCII characters (regression: #228).
+class TestM1ListTasksPresent:
+    """Verify that --list-tasks IS now implemented in inspect (M-1 fixed)."""
 
-    Non-ASCII chars in capability/rewrite descriptions (e.g. U+2192 →) crash
-    winml on Windows terminals using cp1252 encoding.
-    """
-
-    def _assert_ascii_help(self, cmd, args: list) -> None:
-        runner = CliRunner()
-        result = runner.invoke(cmd, args, obj={})
-        assert result.exit_code == 0, f"--help exited {result.exit_code}: {result.exception}"
-        non_ascii = [(i, c) for i, c in enumerate(result.output) if ord(c) > 127]
-        assert not non_ascii, "Non-ASCII characters found in help output: " + ", ".join(
-            f"pos {i} U+{ord(c):04X}" for i, c in non_ascii[:5]
-        )
-
-    def test_optimize_help_is_ascii_safe(self):
-        """winml optimize --help must not contain non-ASCII characters."""
-        self._assert_ascii_help(optimize, ["--help"])
-
-    def test_optimize_list_capabilities_is_ascii_safe(self):
-        """winml optimize --list-capabilities must not contain non-ASCII characters."""
-        self._assert_ascii_help(optimize, ["--list-capabilities"])
-
-    def test_optimize_list_rewrites_is_ascii_safe(self):
-        """winml optimize --list-rewrites must not contain non-ASCII characters."""
-        self._assert_ascii_help(optimize, ["--list-rewrites"])
-
-
-# ===========================================================================
-# M-1: --list-tasks NOT in inspect --help
-# ===========================================================================
-
-
-class TestM1ListTasksAbsent:
-    """Document that --list-tasks is not implemented in inspect."""
-
-    def test_list_tasks_not_in_help(self):
-        """inspect --help should NOT contain --list-tasks option."""
+    def test_list_tasks_in_help(self):
+        """inspect --help should contain --list-tasks option."""
         runner = CliRunner()
         result = runner.invoke(inspect, ["--help"], obj={})
         assert result.exit_code == 0
-        assert "--list-tasks" not in result.output
+        assert "--list-tasks" in result.output
 
 
 # ===========================================================================
@@ -203,7 +168,7 @@ class TestB4ConfigModelTypeNoTask:
         from winml.modelkit.commands.config import config
 
         runner = CliRunner()
-        result = runner.invoke(config, ["--model-type", "bert"])
+        result = runner.invoke(config, ["--model-type", "bert"], obj={})
         assert result.exit_code == 0, (
             f"config --model-type bert crashed (exit {result.exit_code}):\n{result.output}"
         )

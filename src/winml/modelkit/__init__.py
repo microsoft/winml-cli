@@ -28,15 +28,13 @@ Usage:
     model = WinMLAutoModel.from_pretrained("facebook/convnext-tiny-224", config=config)
 """
 
+import logging
 from importlib.metadata import PackageNotFoundError, version
 
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
+
 from . import _warnings  # Configure warning filters before importing subpackages
-from .config import WinMLBuildConfig
-from .models import (
-    WinMLAutoModel,
-    WinMLModelForImageClassification,
-    WinMLPreTrainedModel,
-)
 
 
 try:
@@ -51,3 +49,39 @@ __all__ = [
     "WinMLPreTrainedModel",
     "__version__",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy-load heavy exports on first access (PEP 562).
+
+    This avoids importing torch/transformers/optimum (~30s) when only
+    lightweight operations are needed (e.g., ``wmk --help``).
+    """
+    if name == "WinMLBuildConfig":
+        from .config import WinMLBuildConfig
+
+        globals()["WinMLBuildConfig"] = WinMLBuildConfig
+        return WinMLBuildConfig
+
+    if name in ("WinMLAutoModel", "WinMLPreTrainedModel", "WinMLModelForImageClassification"):
+        from .models import (
+            WinMLAutoModel,
+            WinMLModelForImageClassification,
+            WinMLPreTrainedModel,
+        )
+
+        globals().update(
+            {
+                "WinMLAutoModel": WinMLAutoModel,
+                "WinMLPreTrainedModel": WinMLPreTrainedModel,
+                "WinMLModelForImageClassification": WinMLModelForImageClassification,
+            }
+        )
+        return globals()[name]
+
+    raise AttributeError(f"module 'modelkit' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """Include lazy attributes in dir() for debugger/IPython compatibility."""
+    return list(set(list(globals()) + __all__))

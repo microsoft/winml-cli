@@ -161,11 +161,13 @@ class WinMLAutoModel:
             logger.info("Skipping build (compiled model or explicit skip). Using original ONNX.")
             # TODO: run analyze_onnx for validation/lint
             winml_class = get_winml_class(None, resolved_task)
-            return winml_class(
+            model = winml_class(
                 onnx_path=onnx_path,
                 config=None,
                 device=device,
             )
+            model._build_config = config
+            return model
 
         # Resolve output directory
         if use_cache:
@@ -196,11 +198,13 @@ class WinMLAutoModel:
         winml_class = get_winml_class(None, resolved_task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
 
-        return winml_class(
+        model = winml_class(
             onnx_path=result.final_onnx_path,
             config=None,  # No HF PretrainedConfig for bare ONNX builds
             device=device,
         )
+        model._build_config = config
+        return model
 
     @classmethod
     def from_pretrained(
@@ -353,11 +357,13 @@ class WinMLAutoModel:
         winml_class = get_winml_class(model_type, task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
 
-        return winml_class(
+        model = winml_class(
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
         )
+        model._build_config = build_config
+        return model
 
     @classmethod
     def supported_tasks(cls) -> list[str]:

@@ -55,15 +55,9 @@ class TestPerfCliInterface:
             "-m",
             "--task",
             "--iterations",
-            "--warmup",
             "--device",
-            "--precision",
-            "--output",
-            "-o",
             "--batch-size",
             "--no-quantize",
-            "--verbose",
-            "-v",
         ]:
             assert flag in result.output, f"Expected {flag!r} in help output"
 

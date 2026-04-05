@@ -217,13 +217,6 @@ def capability_options(func: Callable) -> Callable:
     default=None,
     help="Configuration file (YAML/JSON)",
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output",
-)
 @capability_options
 @click.pass_context
 def optimize(
@@ -234,7 +227,6 @@ def optimize(
     output: Path | None,
     preset: str | None,
     config: Path | None,
-    verbose: bool,
     **kwargs: Any,
 ) -> None:
     r"""Optimize ONNX model with capability-driven optimizer.
@@ -274,6 +266,8 @@ def optimize(
         # Use config file
         winml optimize -m model.onnx -c config.toml
     """
+    verbose = ctx.obj.get("verbose", 0)
+
     # Import capabilities (late import to speed up CLI)
     from ..optim.pipes import get_all_capabilities
     from ..optim.registry import (
@@ -382,10 +376,6 @@ def optimize(
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
 
-    # Inherit debug mode from parent
-    if ctx.obj and ctx.obj.get("debug"):
-        verbose = True
-
     # Configure logging
     if verbose:
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
@@ -419,6 +409,8 @@ def optimize(
     # 3. Apply config file if specified (overrides preset/defaults)
     if config:
         file_config = load_config(config)
+        # Normalize snake_case keys to kebab-case (accept both formats)
+        file_config = {k.replace("_", "-"): v for k, v in file_config.items()}
         final_config.update(file_config)
         console.print(f"[dim]Loaded config from: {config}[/dim]")
 

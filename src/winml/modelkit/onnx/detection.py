@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..compiler.utils import QDQ_OP_TYPES
 from .persistence import load_onnx
 
 
@@ -42,6 +41,8 @@ def _load_model_lightweight(model_path: Path, operation: str) -> onnx.ModelProto
 
 def is_quantized_onnx(model_path: Path) -> bool:
     """Check if ONNX model is quantized (contains QuantizeLinear/DequantizeLinear nodes)."""
+    from ..compiler.utils import QDQ_OP_TYPES  # lazy to avoid onnx↔compiler cycle
+
     model = _load_model_lightweight(model_path, "quantization check")
     return any(n.op_type in QDQ_OP_TYPES for n in model.graph.node)
 

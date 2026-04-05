@@ -41,7 +41,6 @@ logger = logging.getLogger(__name__)
 @cli_utils.device_option(
     required=False, optional_message="If not specified, uses NPU as default", default="NPU"
 )
-@cli_utils.verbosity_options
 @click.option(  # type: ignore[misc]
     "--output",
     type=click.Path(path_type=Path),
@@ -71,14 +70,14 @@ logger = logging.getLogger(__name__)
     help="Save specific node types for further analysis. Can be specified multiple times "
     "(e.g., --save-node partial --save-node unsupported).",
 )
+@click.pass_context
 def analyze(
+    ctx: click.Context,
     model: Path,
     ep: str | None,
     device: str | None,
     output: Path | None,
     information: bool,
-    verbose: bool,
-    quiet: bool,
     htp_metadata: Path | None,
     run_unknown_op: bool,
     save_node: tuple[str, ...],
@@ -123,8 +122,11 @@ def analyze(
         winml analyze --model model.onnx
             --ep OpenVINOExecutionProvider --driver GPU --information --htp-metadata metadata.json
     """
+    verbose = ctx.obj.get("verbose", 0)
+    quiet = ctx.obj.get("quiet", 0)
+
     # Configure logging
-    configure_logging(verbose=verbose, quiet=quiet)
+    configure_logging(verbose=bool(verbose), quiet=bool(quiet))
 
     try:
         # Import core components

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 
 if TYPE_CHECKING:
-    import onnx
+    from onnx import ModelProto
 
 from ...onnx import save_onnx
 
@@ -207,7 +207,7 @@ class ORTFusionPipe(BasePipe):
             ]
         )
 
-    def process(self, model: onnx.ModelProto, config: ORTFusionPipeConfig) -> onnx.ModelProto:
+    def process(self, model: ModelProto, config: ORTFusionPipeConfig) -> ModelProto:
         """Apply fusion optimizations using ORT transformer optimizer.
 
         Args:

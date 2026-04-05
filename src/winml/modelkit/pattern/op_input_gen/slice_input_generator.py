@@ -221,20 +221,8 @@ class SliceInputGenerator(OpInputGenerator):
 
         # Normalize negative axes to positive for comparison
         normalized_axes = np.where(axes_array < 0, axes_array + data_dim, axes_array)
-
-        # Filter to axes whose dimensions are fixed (int, not string/symbolic)
-        fixed_mask = np.array(
-            [
-                isinstance(data_shape[int(ax)], int) and data_shape[int(ax)] >= 0
-                for ax in normalized_axes
-            ]
-        )
-
-        # Get dimension sizes only for fixed-shape axes
-        axis_dims = np.array(
-            [data_shape[int(ax)] if fixed_mask[i] else 0 for i, ax in enumerate(normalized_axes)],
-            dtype=np.int64,
-        )
+        # Get dimension sizes for the sliced axes
+        axis_dims = np.array([data_shape[int(ax)] for ax in normalized_axes], dtype=np.int64)
 
         # Derive starts-related properties
         starts_value = item.get("starts_value")
@@ -243,7 +231,7 @@ class SliceInputGenerator(OpInputGenerator):
         else:
             starts_array = np.array(starts_value, dtype=np.int64)
 
-        # Normalize negative starts: add axis_dim if negative (only meaningful for fixed axes)
+        # Normalize negative starts: add axis_dim if negative
         normalized_starts = np.where(starts_array < 0, starts_array + axis_dims, starts_array)
 
         # Derive ends-related properties
@@ -253,19 +241,16 @@ class SliceInputGenerator(OpInputGenerator):
         else:
             ends_array = np.array(ends_value, dtype=np.int64)
 
-        # Normalize negative ends: add axis_dim if negative (only meaningful for fixed axes)
+        # Normalize negative ends: add axis_dim if negative
         normalized_ends = np.where(ends_array < 0, ends_array + axis_dims, ends_array)
 
-        # Check starts_equal_shape and slice_all only on fixed-shape axes
-        if np.any(fixed_mask):
-            fixed_starts = normalized_starts[fixed_mask]
-            fixed_ends = normalized_ends[fixed_mask]
-            fixed_dims = axis_dims[fixed_mask]
-            item["starts_equal_shape"] = bool(np.all(fixed_starts == fixed_dims - 1))
-            item["slice_all"] = bool(np.all(fixed_starts == 0) and np.all(fixed_ends >= fixed_dims))
-        else:
-            item["starts_equal_shape"] = False
-            item["slice_all"] = False
+        # Check if starts are at the last element of each sliced axis
+        item["starts_equal_shape"] = bool(np.all(normalized_starts == axis_dims - 1))
+
+        # Check if this is a full slice (starts at 0, ends at dimension size)
+        item["slice_all"] = bool(
+            np.all(normalized_starts == 0) and np.all(normalized_ends >= axis_dims)
+        )
 
         # Derive steps-related properties
         steps_value = item.get("steps_value")
