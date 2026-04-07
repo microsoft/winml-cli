@@ -41,6 +41,41 @@ from ...export import register_onnx_overwrite
 
 
 # =============================================================================
+# Capturing StaticCache — eliminates gather from ONNX output
+# =============================================================================
+
+
+class _CapturingStaticCache(StaticCache):
+    """StaticCache that captures each layer's new-token KV from ``update()``.
+
+    Standard ``StaticCache.update()`` does ``index_copy_`` (ScatterElements in
+    ONNX) to write the new KV into the full buffer, then returns the full
+    buffer for attention. The old approach then used ``gather``
+    (GatherElements) to extract the same KV back from the buffer — a
+    pointless round-trip.
+
+    This subclass intercepts ``update()`` to save the *incoming*
+    ``key_states`` / ``value_states`` before they enter the buffer, so the
+    wrapper can return them directly as ONNX outputs.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+
+    def update(
+        self,
+        key_states: torch.Tensor,
+        value_states: torch.Tensor,
+        layer_idx: int,
+        cache_kwargs: dict[str, Any] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Capture new-token KV, then delegate to parent ``index_copy_``."""
+        self.captured[layer_idx] = (key_states, value_states)
+        return super().update(key_states, value_states, layer_idx, cache_kwargs)
+
+
+# =============================================================================
 # Wrapper nn.Modules (with from_pretrained, like SAM2 wrappers)
 # =============================================================================
 
@@ -130,10 +165,11 @@ class T5DecoderWrapper(nn.Module):
         cache_position = args[4]
         kv_start = 5
 
-        # Build StaticCache from input KV tensors.
-        # StaticCache.update() uses index_copy_ at cache_position — traces
-        # correctly and preserves KV_index = sequence_position invariant.
-        self_attn_cache = StaticCache(self.config, max_cache_len=args[kv_start].size(2))
+        # Build CapturingStaticCache from input KV tensors.
+        # update() uses index_copy_ at cache_position for correct attention,
+        # and captures the incoming key/value states for direct output
+        # (eliminating the old scatter→gather round-trip in the ONNX graph).
+        self_attn_cache = _CapturingStaticCache(self.config, max_cache_len=args[kv_start].size(2))
         self_attn_cache.early_initialization(
             batch_size=decoder_input_ids.size(0),
             num_heads=args[kv_start].size(1),
@@ -145,6 +181,11 @@ class T5DecoderWrapper(nn.Module):
             self_attn_cache.layers[i].keys = args[kv_start + i * 2]
             self_attn_cache.layers[i].values = args[kv_start + i * 2 + 1]
 
+        # EncoderDecoderCache is structurally required: T5Attention routes
+        # self-attention → self_attention_cache, cross-attention → cross_attention_cache.
+        # Without the wrapper, both would share the same cache + layer indices.
+        # DynamicCache for cross-attn is a no-op during export (each layer
+        # computes fresh from encoder_hidden_states, never reuses).
         cross_attn_cache = DynamicCache()
         cache = EncoderDecoderCache(self_attn_cache, cross_attn_cache)
 
@@ -158,17 +199,13 @@ class T5DecoderWrapper(nn.Module):
             cache_position=cache_position,
         )
 
-        # Extract only the new token's KV at cache_position.
-        # After index_copy_, the value at cache_position is the newly
-        # computed KV. Use gather to extract it → [batch, heads, 1, d_kv].
+        # Return new-token KV directly from the capturing cache.
+        # The old approach did gather(ScatterElements output) — a round-trip.
+        # _CapturingStaticCache already saved the incoming key/value states.
         result: list[torch.Tensor] = [out.logits]
-        updated_self_attn = out.past_key_values.self_attention_cache
         for i in range(self.num_layers):
-            layer = updated_self_attn.layers[i]
-            idx = cache_position.reshape(1, 1, -1, 1).expand(
-                layer.keys.size(0), layer.keys.size(1), -1, layer.keys.size(3)
-            )
-            result.extend([layer.keys.gather(2, idx), layer.values.gather(2, idx)])
+            k, v = self_attn_cache.captured[i]
+            result.extend([k, v])
         return tuple(result)
 
 
