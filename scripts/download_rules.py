@@ -72,11 +72,20 @@ def main() -> None:
         print(f"Cloning {SOURCE_REPO} (sparse: {SOURCE_PATH})...")
 
         if not _sparse_clone(SOURCE_URL, tmp_path):
-            print(
-                f"ERROR: Failed to clone {SOURCE_REPO}.\n"
-                "Make sure git credentials are configured for the gim-home org.",
-                file=sys.stderr,
-            )
+            msg = f"ERROR: Failed to clone {SOURCE_REPO}.\n"
+            if not shutil.which("gh"):
+                msg += (
+                    "GitHub CLI (gh) is not installed.\n"
+                    "Install from https://cli.github.com, then run:\n"
+                    "  gh auth login\n"
+                    "  gh auth setup-git\n"
+                )
+            else:
+                msg += (
+                    "Make sure git credentials are configured for the gim-home org.\n"
+                    "Try running: gh auth setup-git\n"
+                )
+            print(msg, file=sys.stderr)
             sys.exit(1)
 
         src_dir = tmp_path / SOURCE_PATH
