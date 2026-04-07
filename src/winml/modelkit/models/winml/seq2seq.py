@@ -4,26 +4,64 @@
 # --------------------------------------------------------------------------
 """WinML Pipeline Models for multi-component architectures.
 
-Provides a three-level class hierarchy for multi-ONNX-model inference:
+Class hierarchy::
 
-- WinMLPipelineModel: Base for any model composed of multiple WinMLAutoModel
-  sub-components (e.g., encoder+decoder, text_encoder+unet+vae).
-- WinMLEncoderDecoderModel: Adds GenerationMixin support (encoder/decoder generate
-  loop, KV cache management).
-- WinMLT5Model: T5-specific sub-model tasks and generation config.
+    WinMLPipelineModel(PreTrainedModel)          — multi-component base
+      └─ WinMLEncoderDecoderModel(GenerationMixin)  — encoder-decoder with StaticCache
+           └─ WinMLT5Model                          — T5 tasks + generation config
+
+How it works:
+
+1. Each pipeline model declares ``_SUB_MODEL_CONFIG = {"encoder": "feature-extraction",
+   "decoder": "text2text-generation"}``. ``from_pretrained()`` builds each component
+   via ``WinMLAutoModel`` (export → optimize → compile) independently.
+
+2. The encoder is wrapped in ``_EncoderWithInputPadding`` which reads ONNX input
+   names/shapes from ``io_config`` and zero-pads any undersized inputs. This wrapper
+   IS ``self._encoder`` — used by both ``get_encoder()`` (GenerationMixin) and the
+   fallback path in ``forward()``.
+
+3. ``forward()`` takes ``(*, encoder_outputs, past_key_values, input_ids, **model_kwargs)``
+   where ``model_kwargs`` carries decoder inputs like ``decoder_input_ids`` and
+   ``attention_mask``. Feeds are built from model_kwargs + generated inputs
+   (encoder_hidden_states, decoder_attention_mask, cache_position, KV cache),
+   filtered to decoder ONNX input names, and auto-padded.
+
+4. KV cache uses HF ``StaticCache`` — same class for both export (``index_copy_``
+   traces correctly in ``torch.onnx.export``) and inference (mutated in-place via
+   ``cache.update()``). The ONNX decoder takes the full static buffer as input
+   and outputs only the new token's KV ``[batch, heads, 1, d_kv]``.
+
+5. ``@register_pipeline_model("t5", "translation")`` hooks into ``winml config``
+   so that ``winml config -m google-t5/t5-small --task translation -o t5.json``
+   generates ``t5_encoder.json`` + ``t5_decoder.json`` automatically.
+
+Key findings from T5 KV cache study (see ``docs/t5_kv_cache_study.md``):
+
+- HF's ``DynamicCache`` is stateful (same object, mutated in-place via ``cat``).
+  ``GenerationMixin._update_model_kwargs_for_generation`` reads ``past_key_values``
+  from the output and reassigns it in ``model_kwargs`` — but for stateful caches
+  it's the same reference.
+- ``StaticCache`` uses ``index_copy_`` at ``cache_position`` (traces correctly).
+  ``StaticCache.get_seq_length()`` counts non-zero positions automatically.
+- ``EncoderDecoderCache`` with empty cross-attn cache → ``is_updated`` dict is
+  empty → cross-attention always recomputed from ``encoder_hidden_states`` →
+  prevents constant-folding during ONNX export.
+- ``GenerationMixin`` may wrap our ``StaticCache`` in an ``EncoderDecoderCache``
+  before passing it back. ``forward()`` must unwrap to find the ``StaticCache``.
+- ``TranslationPipeline`` passes its own ``generation_config`` with ``num_beams=4``
+  to ``generate()``. Use ``num_beams=1`` at call time or override in subclass.
 
 Design principles:
+
 - NEVER guard config access with default values. Use ``self.config.param``
   directly and let AttributeError raise if the config is missing a field.
-  Silent defaults hide bugs and make misconfiguration invisible.
 - ONNX I/O names and shapes are read from ``io_config``, never hardcoded.
-  Encoder/decoder input names are not assumed — kwargs are matched against
-  ONNX metadata at runtime.
-- Inputs smaller than the ONNX expected shape are zero-padded automatically.
-  Inputs larger than expected are NOT truncated — the ONNX runtime will raise
-  a clear shape mismatch error.
+- Inputs smaller than ONNX expected shape are zero-padded automatically.
+  Inputs larger than expected are NOT truncated — let ORT raise the error.
 
-Usage:
+Usage::
+
     from winml.modelkit.models.winml.seq2seq import WinMLT5Model
     from transformers import AutoTokenizer, pipeline
 
