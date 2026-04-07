@@ -6,11 +6,11 @@
 """PyTorch baseline inference for accuracy evaluation (Signal 2).
 
 Performs native PyTorch inference on a HuggingFace model using the same
-dataset configuration as ``wmk eval``, so both sides are always evaluated on
+dataset configuration as ``winml eval``, so both sides are always evaluated on
 identical inputs.
 
 Dataset config is read from ``utils/dataset_config.py`` — the authoritative
-source shared with run_eval.py.  When ``wmk eval`` is implemented inside
+source shared with run_eval.py.  When ``winml eval`` is implemented inside
 ModelKit, it should import from the same location.
 
 Output: prints a single JSON object as the last line on stdout:
@@ -51,21 +51,6 @@ def _emit_result(metric: str, value: float, num_samples: int) -> None:
     print(json.dumps({"metric": metric, "value": round(value, 6), "num_samples": num_samples}))
 
 
-# ---------------------------------------------------------------------------
-# Task → HuggingFace auto model class
-# ---------------------------------------------------------------------------
-
-_TASK_AUTO_MODEL_CLS: dict[str, str] = {
-    "image-classification": "AutoModelForImageClassification",
-    "text-classification": "AutoModelForSequenceClassification",
-    "sequence-classification": "AutoModelForSequenceClassification",
-    "token-classification": "AutoModelForTokenClassification",
-    "question-answering": "AutoModelForQuestionAnswering",
-    "automatic-speech-recognition": "AutoModelForSpeechSeq2Seq",
-    "object-detection": "AutoModelForObjectDetection",
-    "image-segmentation": "AutoModelForSemanticSegmentation",
-}
-
 # Primary metric key returned by the HuggingFace ``evaluate`` library per task.
 _TASK_HF_METRIC_KEY: dict[str, str] = {
     "image-classification": "accuracy",
@@ -76,6 +61,8 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
     "question-answering": "f1",
     "object-detection": "map",
     "image-segmentation": "mean_iou",
+    "feature-extraction": "cosine_spearman",
+    "sentence-similarity": "cosine_spearman",
 }
 
 
@@ -86,14 +73,14 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
 
 def _load_pytorch_model(model_id: str, task: str, device_str: str):
     """Load a native PyTorch model with the task-appropriate AutoModel class."""
-    import importlib
-
     import torch
 
-    cls_name = _TASK_AUTO_MODEL_CLS.get(task, "AutoModel")
-    transformers = importlib.import_module("transformers")
-    cls = getattr(transformers, cls_name)
-    _out(f"Loading {cls_name} for {model_id} on {device_str}")
+    from transformers import AutoConfig
+    from winml.modelkit.loader.task import resolve_task_and_model_class
+
+    config = AutoConfig.from_pretrained(model_id)
+    _, cls = resolve_task_and_model_class(config, task=task)
+    _out(f"Loading {cls.__name__} for {model_id} on {device_str}")
     device = torch.device(
         device_str if device_str != "cuda" or torch.cuda.is_available() else "cpu"
     )

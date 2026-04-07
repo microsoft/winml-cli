@@ -128,7 +128,7 @@ class TestConstantFoldingValidator:
         # Check that explanation mentions constant-only nodes
         assert "constant inputs" in info.explanation
         # Check that details contain tool recommendations (JSON format)
-        assert "wmk optimize" in info.actions[0].details
+        assert "winml optimize" in info.actions[0].details
 
     def test_no_constant_only_nodes(self):
         """Test that models without constant-only nodes return None."""
@@ -185,7 +185,7 @@ class TestConstantFoldingValidator:
         # Check explanation mentions constant inputs
         assert "constant inputs" in info.explanation
         # Check details contain tool recommendations
-        assert "wmk optimize" in info.actions[0].details
+        assert "winml optimize" in info.actions[0].details
 
     def test_explanation_contains_node_count(self):
         """Test that explanation mentions correct node count."""

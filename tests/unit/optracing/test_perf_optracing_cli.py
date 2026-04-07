@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for the --op-tracing CLI option on wmk perf."""
+"""Tests for the --op-tracing CLI option on winml perf."""
 
 from __future__ import annotations
 

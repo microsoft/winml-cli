@@ -298,5 +298,185 @@
     },
     "elapsed": 711.6,
     "command": "python.exe run_pytorch_baseline.py --model segformer-b0-finetuned-cityscapes-1024-1024 --task image-segmentation --device cpu --num-samples 500 --dataset cityscapes --split validation --columns-mapping {\"annotation_column\": \"semantic_segmentation\"} --label-mapping-file cityscapes_label_to_train_id.json"
+  },
+  "sentence-transformers/all-MiniLM-L6-v2|feature-extraction|mteb/stsbenchmark-sts||test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 81.3502,
+      "num_samples": 100
+    },
+    "elapsed": 19.1,
+    "command": "python.exe run_pytorch_baseline.py --model all-MiniLM-L6-v2 --task feature-extraction --device cpu --num-samples 100 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/all-MiniLM-L6-v2|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 81.9722,
+      "num_samples": 1000
+    },
+    "elapsed": 35.0,
+    "command": "python.exe run_pytorch_baseline.py --model all-MiniLM-L6-v2 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 84.2763,
+      "num_samples": 1000
+    },
+    "elapsed": 57.2,
+    "command": "python.exe run_pytorch_baseline.py --model paraphrase-multilingual-MiniLM-L12-v2 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-small-en-v1.5|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.6245,
+      "num_samples": 1000
+    },
+    "elapsed": 53.9,
+    "command": "python.exe run_pytorch_baseline.py --model bge-small-en-v1.5 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "Intel/bert-base-uncased-mrpc|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 40.6543,
+      "num_samples": 1000
+    },
+    "elapsed": 133.2,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased-mrpc --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "google-bert/bert-base-multilingual-cased|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 50.7072,
+      "num_samples": 1000
+    },
+    "elapsed": 132.8,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-cased --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-base-en-v1.5|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.8972,
+      "num_samples": 1000
+    },
+    "elapsed": 138.4,
+    "command": "python.exe run_pytorch_baseline.py --model bge-base-en-v1.5 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/all-mpnet-base-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 83.068,
+      "num_samples": 1000
+    },
+    "elapsed": 127.7,
+    "command": "python.exe run_pytorch_baseline.py --model all-mpnet-base-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/multi-qa-mpnet-base-dot-v1|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 72.7122,
+      "num_samples": 1000
+    },
+    "elapsed": 128.3,
+    "command": "python.exe run_pytorch_baseline.py --model multi-qa-mpnet-base-dot-v1 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/paraphrase-multilingual-mpnet-base-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.9678,
+      "num_samples": 1000
+    },
+    "elapsed": 126.5,
+    "command": "python.exe run_pytorch_baseline.py --model paraphrase-multilingual-mpnet-base-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-base-en-v1.5|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.8972,
+      "num_samples": 1000
+    },
+    "elapsed": 122.2,
+    "command": "python.exe run_pytorch_baseline.py --model bge-base-en-v1.5 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-large-en-v1.5|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 88.1202,
+      "num_samples": 1000
+    },
+    "elapsed": 439.4,
+    "command": "python.exe run_pytorch_baseline.py --model bge-large-en-v1.5 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-small-en-v1.5|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.6245,
+      "num_samples": 1000
+    },
+    "elapsed": 52.1,
+    "command": "python.exe run_pytorch_baseline.py --model bge-small-en-v1.5 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/all-MiniLM-L6-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 81.9722,
+      "num_samples": 1000
+    },
+    "elapsed": 33.9,
+    "command": "python.exe run_pytorch_baseline.py --model all-MiniLM-L6-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 84.2763,
+      "num_samples": 1000
+    },
+    "elapsed": 54.5,
+    "command": "python.exe run_pytorch_baseline.py --model paraphrase-multilingual-MiniLM-L12-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "laion/CLIP-ViT-B-32-laion2B-s34B-b79K|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 70.2973,
+      "num_samples": 1000
+    },
+    "elapsed": 75.8,
+    "command": "python.exe run_pytorch_baseline.py --model CLIP-ViT-B-32-laion2B-s34B-b79K --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "openai/clip-vit-base-patch16|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 64.5723,
+      "num_samples": 1000
+    },
+    "elapsed": 75.7,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch16 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "openai/clip-vit-base-patch32|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 61.7897,
+      "num_samples": 1000
+    },
+    "elapsed": 85.0,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch32 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
   }
 }

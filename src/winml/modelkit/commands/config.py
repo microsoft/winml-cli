@@ -11,13 +11,13 @@ When -m points to an existing .onnx file, generates a simpler config with
 export=None (marking it as an ONNX build that skips the export stage).
 
 Usage:
-    wmk config -m microsoft/resnet-50
-    wmk config -m bert-base-uncased --task text-classification
-    wmk config -m model.onnx
-    wmk config --model-type bert
-    wmk config --model-type bert --task fill-mask
-    wmk config -m microsoft/resnet-50 --module ResNetConvLayer
-    wmk config -m bert-base-uncased -o config.json
+    winml config -m microsoft/resnet-50
+    winml config -m bert-base-uncased --task text-classification
+    winml config -m model.onnx
+    winml config --model-type bert
+    winml config --model-type bert --task fill-mask
+    winml config -m microsoft/resnet-50 --module ResNetConvLayer
+    winml config -m bert-base-uncased -o config.json
 """
 
 from __future__ import annotations
@@ -35,9 +35,7 @@ logger = logging.getLogger(__name__)
 console = Console(stderr=True)
 
 
-def _apply_stage_overrides(
-    cfg: Any, *, no_quant: bool, no_compile: bool
-) -> None:
+def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> None:
     """Apply --no-quant and --no-compile CLI overrides to a config."""
     if no_quant:
         cfg.quant = None
@@ -99,7 +97,7 @@ def _is_onnx_file(model_input: str) -> bool:
     type=click.Path(exists=True),
     default=None,
     help="JSON file with shape overrides passed to dummy input generation. "
-    "Valid keys — text: sequence_length; "
+    "Valid keys -- text: sequence_length; "
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
@@ -109,8 +107,7 @@ def _is_onnx_file(model_input: str) -> bool:
     "device",
     type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
     default="auto",
-    help="Target device (affects quant/compile config). "
-    "Default: auto (no changes to config).",
+    help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )
 @click.option(
     "--ep",
@@ -199,34 +196,34 @@ def config(
     \b
     Examples:
         # Basic usage - auto-detect everything
-        wmk config -m microsoft/resnet-50
+        winml config -m microsoft/resnet-50
 
         # Override task
-        wmk config -m bert-base-uncased --task text-classification
+        winml config -m bert-base-uncased --task text-classification
 
         # Target NPU with int8 quantization
-        wmk config -m microsoft/resnet-50 --device npu --precision int8
+        winml config -m microsoft/resnet-50 --device npu --precision int8
 
         # Target GPU with fp16 (no quantization)
-        wmk config -m bert-base-uncased --device gpu --precision fp16
+        winml config -m bert-base-uncased --device gpu --precision fp16
 
         # Model type only (uses default HF config, auto-detects task)
-        wmk config --model-type bert
+        winml config --model-type bert
 
         # Model type + task
-        wmk config --model-type bert --task fill-mask
+        winml config --model-type bert --task fill-mask
 
         # Override with JSON config file
-        wmk config -m bert-base-uncased -c overrides.json
+        winml config -m bert-base-uncased -c overrides.json
 
         # Vision model with shape overrides ({"height": 224, "width": 224})
-        wmk config --model-type resnet -t image-classification --shape-config shapes.json
+        winml config --model-type resnet -t image-classification --shape-config shapes.json
 
         # Save to file
-        wmk config -m bert-base-uncased -o config.json
+        winml config -m bert-base-uncased -o config.json
 
         # Generate configs for submodules
-        wmk config -m microsoft/resnet-50 --module ResNetConvLayer
+        winml config -m microsoft/resnet-50 --module ResNetConvLayer
     """
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -260,9 +257,7 @@ def config(
                     )
                 override = WinMLBuildConfig.from_dict(data)
             except json.JSONDecodeError as e:
-                raise click.UsageError(
-                    f"Invalid JSON in config file {config_path}: {e}"
-                ) from e
+                raise click.UsageError(f"Invalid JSON in config file {config_path}: {e}") from e
             console.print(f"[dim]Loaded overrides from {config_path.name}[/dim]")
 
         # Load shape_config (shape overrides) from JSON file if provided
@@ -330,9 +325,7 @@ def config(
                 # Apply --no-quant / --no-compile overrides to each config
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
-                console.print(
-                    f"[green]Found {len(configs)} submodules matching '{module}'[/green]"
-                )
+                console.print(f"[green]Found {len(configs)} submodules matching '{module}'[/green]")
                 output_data = [cfg.to_dict() for cfg in configs]
             else:
                 # Normal mode: result is WinMLBuildConfig
@@ -343,10 +336,7 @@ def config(
                 if not task and not module:
                     auto_task = config_obj.loader.task
                     source = model_type or hf_model
-                    console.print(
-                        f"[dim]Auto-selected task: {auto_task} "
-                        f"(from '{source}')[/dim]"
-                    )
+                    console.print(f"[dim]Auto-selected task: {auto_task} (from '{source}')[/dim]")
                 console.print(
                     f"[green]Generated config for task '{config_obj.loader.task}'[/green]"
                 )

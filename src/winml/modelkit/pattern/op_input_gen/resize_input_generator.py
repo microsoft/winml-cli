@@ -95,6 +95,22 @@ class ResizeInputGenerator(OpInputGenerator):
                 }
             )
 
+            # p1 model - segmentation
+            combinations.append(
+                {
+                    "coordinate_transformation_mode": "pytorch_half_pixel",
+                    "cubic_coeff_a": -0.75,
+                    "mode": "linear",
+                    "nearest_mode": "floor",
+                    "X": InputShapeConstraint(x_shape),
+                    # Explicit roi to avoid empty-optional rejection on older schemas
+                    "roi": InputValueConstraint(np.zeros(2 * ndim, dtype=np.float32)),
+                    "scales": InputValueConstraint(scales_up),
+                    "extrapolation_value": 0.0,
+                    "axes": list(range(ndim)),  # All axes
+                }
+            )
+
             # Combination using scales (downsample) - empty sizes
             combinations.append(
                 {

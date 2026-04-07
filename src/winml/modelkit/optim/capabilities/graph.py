@@ -27,7 +27,7 @@ CONCAT_SLICE_ELIMINATION = BoolCapability(
 DOUBLE_QDQ_PAIRS_REMOVER = BoolCapability(
     name="double-qdq-pairs-remover",
     ort_name="DoubleQDQPairsRemover",
-    description="Remove consecutive QuantizeLinear→DequantizeLinear pairs",
+    description="Remove consecutive QuantizeLinear->DequantizeLinear pairs",
     category=CapabilityCategory.GRAPH,
     default=False,
 )

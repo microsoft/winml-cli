@@ -52,6 +52,15 @@ class TestQDQGenerator:
         assert isinstance(qdq_generator.dq_output_onnx_types, list)
         assert isinstance(qdq_generator.q_input_onnx_types, list)
 
+    def test_initialization_does_not_print_to_stdout(self, capsys) -> None:
+        """QDQGenerator.__init__ must not write to stdout (regression: #231)."""
+        QDQGenerator(opset_version=17, domain=ONNXDomain.AI_ONNX)
+        captured = capsys.readouterr()
+        assert captured.out == "", (
+            "QDQGenerator printed to stdout during init — "
+            "debug print() statements must be converted to logger.debug()"
+        )
+
     def test_type_lists_validity(self, qdq_generator: QDQGenerator) -> None:
         """Test that type lists contain valid quantization types."""
         assert len(qdq_generator.weight_onnx_types) > 0
@@ -827,8 +836,9 @@ class TestIterQDQCombinationsTagSchema:
     - Optional QDQ input not provided: present in 'qdq_types' as ''
 
     Note: When an operator has pass-through inputs, 'input_is_constant' contains only
-    those pass-through inputs (Gather). When no pass-through inputs exist, all inputs
-    are in 'input_is_constant' from the outer constant-combination loop (Gemm).
+    those pass-through inputs (Gather). When an optional input supports both QDQ and
+    non-QDQ (pass-through) modes (Gemm C), 'input_is_constant' contains that input only
+    in the non-QDQ combination; pure QDQ inputs (A, B) never appear in 'input_is_constant'.
     """
 
     @pytest.fixture
@@ -970,29 +980,41 @@ class TestIterQDQCombinationsTagSchema:
             assert final_tags["qdq_types"]["B"] != ""
 
     def test_gemm_qdq_inputs_not_in_input_is_constant(self, gemm_gen) -> None:
-        """A (activation) and B (weight) not exist in input_is_constant.
+        """A (activation) and B (weight) never appear in input_is_constant.
 
-        Gemm has no pass-through inputs, so input_is_constant does not exist.
+        C may appear in input_is_constant for its non-QDQ (pass-through) combination,
+        but pure QDQ inputs A and B are never pass-through.
         """
         gen = gemm_gen
         kwargs, tags = self._gemm_float_c_provided_kwargs_tags(gen)
         results = list(gen.iter_const_and_dynamic_models(kwargs, tags))
         assert len(results) > 0
         for _, final_tags in results:
-            assert "input_is_constant" not in final_tags
+            ic = final_tags.get("input_is_constant", {})
+            assert "A" not in ic
+            assert "B" not in ic
 
     # ---- Gemm: optional QDQ input (C) ----
 
     def test_gemm_optional_c_provided_has_int32_type(self, gemm_gen) -> None:
-        """When optional C is provided as constant, qdq_types['C'] is INT32 annotation."""
+        """When optional C is provided and quantized, qdq_types['C'] is INT32 annotation.
+
+        C supports both QDQ (INT32) and non-QDQ (pass-through) modes. In the non-QDQ
+        combination qdq_types['C'] is None; when quantized it must be INT32.
+        """
         gen = gemm_gen
         int32_ann = dtypes.SupportedONNXType.INT32.annotation
         kwargs, tags = self._gemm_float_c_provided_kwargs_tags(gen)
         results = list(gen.iter_const_and_dynamic_models(kwargs, tags))
         assert len(results) > 0
+        int32_seen = False
         for _, final_tags in results:
             assert "C" in final_tags["qdq_types"]
-            assert final_tags["qdq_types"]["C"] == int32_ann
+            c_type = final_tags["qdq_types"]["C"]
+            if c_type is not None:
+                assert c_type == int32_ann
+                int32_seen = True
+        assert int32_seen, "Expected at least one result with C quantized as INT32"
 
     def test_gemm_optional_c_not_provided_recorded_as_empty_in_qdq_types(self, gemm_gen) -> None:
         """When optional C is not provided (None), qdq_types['C'] is '' (not omitted)."""
@@ -1045,8 +1067,8 @@ class TestIterQDQCombinations:
             ("Concat", 240),  # 15 base shapes/axes * 4 variadic counts * 4 activation types
             (
                 "Conv",
-                1536,
-            ),  # shape 3 * auto_pad 4 * group_opts 2 * kernel shape 2 * optional b 2 * 16 = 1536
+                1536 * 4,
+            ),  # shape 3 * attrs 4 * 2 * kernel shape 2 * opt B 2 * 16 * B/Y non qdq 4
             (
                 "ConvTranspose",
                 3072,
@@ -1071,8 +1093,8 @@ class TestIterQDQCombinations:
             ("Gelu", unary_input_shapes * 4 * 2),  # 64
             (
                 "Gemm",
-                2304,
-            ),  # attributes 2 * 2 * 3 * 3 * C dim 4 * 16 = 2304
+                36 * 16 * (4 + 3 * 2),
+            ),  # attributes (2 * 2 * 3 * 3) * QDQ * C (qdq + non-qdq * opt)
             ("GlobalAveragePool", 3 * 4),  # 12
             ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
@@ -1094,9 +1116,9 @@ class TestIterQDQCombinations:
             ("Reshape", 36 * 4 * 2 * 2),  # allowzero 2 * is_constant 2
             (
                 "Resize",
-                2880,
+                3456,
             ),  # shape 4 * T2 3 * QDQ 4 * antialias 2
-            # * attribute 5 * (optional input 4 + 2)
+            # * attribute 6 * (optional input 4 + 2)
             (
                 "ScatterND",
                 1680,
@@ -1112,7 +1134,7 @@ class TestIterQDQCombinations:
             # All unary use this and it is enough
             ("Tanh", unary_input_shapes * 4),  # 32
             ("TopK", 768),  # QDQ 4 * example 12 * k is_constant 2 * parameter 8
-            ("Transpose", 11 * 4 * 2),  # 88
+            ("Transpose", 11 * 4 * 2 * 2),  # cases * QDQ * opt perm * non_qdq data
             ("Unsqueeze", 208),  # 26 * 4 QDQ types * 2 is_constant axes
             (
                 "Where",

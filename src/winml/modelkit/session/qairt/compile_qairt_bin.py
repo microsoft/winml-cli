@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""QAIRT SDK compilation script - executed in isolated venv-wmk subprocess.
+"""QAIRT SDK compilation script - executed in isolated venv-winml subprocess.
 
 This script is invoked by qnn_compiler._compile_qairt() and runs in a separate
 Python 3.10 virtual environment with QAIRT SDK dependencies installed.

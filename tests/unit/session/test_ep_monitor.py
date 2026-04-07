@@ -275,11 +275,9 @@ class TestPdhModule:
         assert "test_cpu" in query.counter_names
 
         query.prime()
-        time.sleep(0.1)
         values = query.collect()
         assert "test_cpu" in values
-        # CPU utilization should be a valid number
-        assert values["test_cpu"] is not None
+        assert values["test_cpu"] is not None, f"PDH returned None for CPU counter: {values}"
 
         query.close()
 

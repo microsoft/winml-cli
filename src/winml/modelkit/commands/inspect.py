@@ -8,10 +8,10 @@ Displays detailed information about a HuggingFace model's compatibility
 with ModelKit, including loader, exporter, and WinML configurations.
 
 Usage:
-    wmk inspect -m openai/clip-vit-base-patch32
-    wmk inspect -m google-bert/bert-base-uncased --format json
-    wmk inspect -m facebook/detr-resnet-50 --verbose
-    wmk inspect -m openai/clip-vit-base-patch32 --hierarchy
+    winml inspect -m openai/clip-vit-base-patch32
+    winml inspect -m google-bert/bert-base-uncased --format json
+    winml inspect -m facebook/detr-resnet-50 --verbose
+    winml inspect -m openai/clip-vit-base-patch32 --hierarchy
 """
 
 from __future__ import annotations
@@ -84,19 +84,19 @@ def inspect(
     \b
     Examples:
         # Basic inspection
-        wmk inspect -m openai/clip-vit-base-patch32
+        winml inspect -m openai/clip-vit-base-patch32
 
         # JSON output for scripting
-        wmk inspect -m google-bert/bert-base-uncased --format json
+        winml inspect -m google-bert/bert-base-uncased --format json
 
         # Show full build configuration
-        wmk inspect -m facebook/detr-resnet-50 --verbose
+        winml inspect -m facebook/detr-resnet-50 --verbose
 
         # Include HF module hierarchy (no weight download)
-        wmk inspect -m openai/clip-vit-base-patch32 --hierarchy
+        winml inspect -m openai/clip-vit-base-patch32 --hierarchy
 
         # Combined verbose + hierarchy
-        wmk inspect -m google-bert/bert-base-uncased -v -H
+        winml inspect -m google-bert/bert-base-uncased -v -H
     """
     # Import here to defer heavy transformers/torch imports
     from ..inspect import (

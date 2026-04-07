@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Build a local HF-compatible dataset for indonlp/indonlu (posp subset).
 
 The upstream ``indonlp/indonlu`` dataset uses a legacy loading script
@@ -12,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
 
 _PARQUET_REVISION = "refs/convert/parquet"
 _PARQUET_PATH = "posp/validation/0000.parquet"

@@ -83,8 +83,13 @@ class LiveMonitorDisplay:
         try:
             chart_renderable = self._render_chart(util_samples, cpu_samples)
             status_line = self._render_status(
-                iteration, latency_ms, util_samples,
-                memory_local_mb, memory_shared_mb, cpu_pct, ram_mb,
+                iteration,
+                latency_ms,
+                util_samples,
+                memory_local_mb,
+                memory_shared_mb,
+                cpu_pct,
+                ram_mb,
             )
 
             from rich.console import Group
@@ -130,15 +135,12 @@ class LiveMonitorDisplay:
         total_npu = len(util_samples) if util_samples else 0
 
         # Absolute elapsed time for each sample in the window
-        # e.g., at 15s elapsed with 10s window: x-axis shows 5.0 → 15.0
+        # e.g., at 15s elapsed with 10s window: x-axis shows 5.0 -> 15.0
         npu_window = util_samples[-window_samples:] if util_samples else [0]
         window_start_idx = max(0, total_npu - len(npu_window))
-        npu_times = [
-            (window_start_idx + i) * self._poll_interval_s
-            for i in range(len(npu_window))
-        ]
+        npu_times = [(window_start_idx + i) * self._poll_interval_s for i in range(len(npu_window))]
 
-        # Plot NPU in green (no label — legend is in the title)
+        # Plot NPU in green (no label -- legend is in the title)
         plt.plot(npu_times, npu_window, marker="braille", color="green")
 
         # Plot CPU in cyan (distinct from NPU)
@@ -149,12 +151,11 @@ class LiveMonitorDisplay:
             cpu_window = cpu_samples[-window_samples:]
             cpu_start_idx = max(0, total_cpu - len(cpu_window))
             cpu_times = [
-                (cpu_start_idx + i) * self._poll_interval_s
-                for i in range(len(cpu_window))
+                (cpu_start_idx + i) * self._poll_interval_s for i in range(len(cpu_window))
             ]
             plt.plot(cpu_times, cpu_window, marker="braille", color="cyan")
 
-        # No plotext title — we render our own Rich-colored title with legend
+        # No plotext title -- we render our own Rich-colored title with legend
         plt.ylabel("Usage %")
 
         # Fixed y-axis: 0 to 100 with ticks at 0, 20, 40, 60, 80, 100
@@ -176,13 +177,10 @@ class LiveMonitorDisplay:
         # Rich-colored title line with legend swatches
         if has_cpu:
             title = Text.from_markup(
-                "  Utilization ([green]\u2588\u2588[/green] NPU %  "
-                "[cyan]\u2588\u2588[/cyan] CPU %)"
+                "  Utilization ([green]\u2588\u2588[/green] NPU %  [cyan]\u2588\u2588[/cyan] CPU %)"
             )
         else:
-            title = Text.from_markup(
-                "  Utilization ([green]\u2588\u2588[/green] NPU %)"
-            )
+            title = Text.from_markup("  Utilization ([green]\u2588\u2588[/green] NPU %)")
 
         ansi_output = plt.build()
         chart_lines = [Text.from_ansi(line) for line in ansi_output.splitlines()]
@@ -204,9 +202,7 @@ class LiveMonitorDisplay:
         total_bench = self._total - self._warmup
 
         current_util = util_samples[-1] if util_samples else 0.0
-        mean_util = (
-            sum(util_samples) / len(util_samples) if util_samples else 0.0
-        )
+        mean_util = sum(util_samples) / len(util_samples) if util_samples else 0.0
 
         pct = iteration / self._total if self._total > 0 else 0
         bar_len = int(pct * 20)

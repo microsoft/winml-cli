@@ -5,7 +5,7 @@
 """Cache management for ModelKit.
 
 Provides deterministic path computation for cached build artifacts.
-Both ``from_pretrained()`` and ``wmk build --use-cache`` use these
+Both ``from_pretrained()`` and ``winml build --use-cache`` use these
 functions to guarantee identical paths for the same model+config.
 
 Usage::
