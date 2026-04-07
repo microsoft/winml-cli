@@ -109,8 +109,9 @@ def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     Apply make_hashable to convert lists/dicts to tuples.
     """
     for col in df.columns:
-        # Make values hashable (lists -> tuples, floats -> DUMMY_FLOAT)
-        df[col] = df[col].apply(make_hashable)
+        # Bypass pandas .apply() overhead — iterate directly over the numpy array.
+        raw = df[col].to_numpy()
+        df[col] = [make_hashable(v) for v in raw]
     return df
 
 
