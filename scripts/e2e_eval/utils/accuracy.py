@@ -81,7 +81,7 @@ def compute_delta(
 def format_delta(accuracy: dict) -> str:
     """Format the comparison delta as a display string using the metric strategy.
 
-    Returns e.g. ``"-6.0%"`` for relative metrics or ``"-1.27pts"`` for absolute.
+    Returns e.g. ``"-6.0%"`` for relative metrics or ``"-1.27"`` for absolute.
     Returns ``""`` if delta is unavailable.
     """
     metric_name = (accuracy.get("dataset_config") or {}).get("metric")
@@ -92,7 +92,7 @@ def format_delta(accuracy: dict) -> str:
     if d is None:
         return ""
     if delta_key == "delta_absolute":
-        return f"{d:+.2f}pts"
+        return f"{d:+.2f}"
     return f"{d:.1%}"
 
 
