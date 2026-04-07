@@ -39,6 +39,10 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
         "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
         classmethod(lambda cls: None),
     )
+    monkeypatch.setattr(
+        "winml.modelkit.analyze.core.runtime_checker_query.RuntimeCheckerQuery._is_ep_available_locally",
+        lambda self: False,
+    )
 
 
 # =============================================================================
