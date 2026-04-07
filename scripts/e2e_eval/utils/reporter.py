@@ -511,6 +511,10 @@ function formatNum(n) {{
   return n.toLocaleString();
 }}
 function formatDate(iso) {{ return iso ? new Date(iso).toLocaleDateString('en-CA') : '-'; }}
+function formatDelta(display, verdictCls) {{
+  if (!display) return '-';
+  return `<span class="badge ${{verdictCls}}">${{display}}</span>`;
+}}
 
 let filters = {{
   task: new Set(), model_type: new Set(), priority: new Set(),
@@ -623,7 +627,7 @@ function renderTable(items) {{
       <td class="col-sep">${{d.accuracy_verdict
         ? `<span class="badge ${{verdictCls}}">${{d.accuracy_verdict}}</span>`
         : '<span style="color:var(--text2);font-size:11px">N/A</span>'}}</td>
-      <td>${{d.delta_display || '-'}}</td>` : '';
+      <td>${{formatDelta(d.delta_display, verdictCls)}}</td>` : '';
     return `<tr${{errTip ? ` title="${{errTip}}"` : ''}}>
       <td><a class="hf-link" href="https://huggingface.co/${{d.hf_id}}" target="_blank">${{d.hf_id}}</a></td>
       <td><span class="badge badge-task">${{d.task||'-'}}</span></td>
