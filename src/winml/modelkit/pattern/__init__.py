@@ -51,6 +51,7 @@ from .gelu_patterns import (
     SingleGeluPattern,
 )
 from .gemm_patterns import (
+    MATMUL_ADD_SCHEMA,
     MatMulAddPattern,
     MatMulAddPatternInputGenerator,
     ReshapeGemmReshapePattern,
@@ -83,6 +84,7 @@ from .transpose_patterns import (
 
 
 __all__ = [
+    "MATMUL_ADD_SCHEMA",
     "Conv2DInplaceLinear2DPattern",
     "Conv2DInplaceLinear2DPatternInputGenerator",
     "Conv2DInplaceLinear3DPattern",

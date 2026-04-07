@@ -36,7 +36,7 @@ from .base import (
     Skeleton,
     register_pattern_input_generator,
 )
-from .gemm_patterns import _MATMUL_ADD_SCHEMA
+from .gemm_patterns import MATMUL_ADD_SCHEMA
 from .match import PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 
@@ -124,9 +124,12 @@ class Conv2DInplaceLinear4DPattern(Pattern):
 
         Raises PatternMismatchedError if A is not 4D.
         """
-        if "A" in inputs and inputs["A"] is not None and inputs["A"].ndim != 4:
+        a = inputs.get("A")
+        if a is None:
+            raise PatternMismatchedError("Conv2DInplaceLinear4D: input A is missing")
+        if a.ndim != 4:
             raise PatternMismatchedError(
-                f"Conv2DInplaceLinear4D requires 4D input A, got {inputs['A'].ndim}D"
+                f"Conv2DInplaceLinear4D requires 4D input A, got {a.ndim}D"
             )
 
         internal_constants: list[tuple[int, int, np.ndarray]] = []
@@ -145,7 +148,7 @@ class Conv2DInplaceLinear4DPattern(Pattern):
 
     def get_schema(self) -> PatternSchema:
         """Return shared MatMulAdd schema."""
-        return _MATMUL_ADD_SCHEMA
+        return MATMUL_ADD_SCHEMA
 
     def check_skeleton_result(
         self, skeleton_match_result: SkeletonMatchResult,
@@ -207,9 +210,12 @@ class Conv2DInplaceLinear3DPattern(Pattern):
 
         Raises PatternMismatchedError if A is not 3D.
         """
-        if "A" in inputs and inputs["A"] is not None and inputs["A"].ndim != 3:
+        a = inputs.get("A")
+        if a is None:
+            raise PatternMismatchedError("Conv2DInplaceLinear3D: input A is missing")
+        if a.ndim != 3:
             raise PatternMismatchedError(
-                f"Conv2DInplaceLinear3D requires 3D input A, got {inputs['A'].ndim}D"
+                f"Conv2DInplaceLinear3D requires 3D input A, got {a.ndim}D"
             )
 
         internal_constants: list[tuple[int, int, np.ndarray]] = [
@@ -231,7 +237,7 @@ class Conv2DInplaceLinear3DPattern(Pattern):
 
     def get_schema(self) -> PatternSchema:
         """Return shared MatMulAdd schema."""
-        return _MATMUL_ADD_SCHEMA
+        return MATMUL_ADD_SCHEMA
 
     def check_skeleton_result(
         self, skeleton_match_result: SkeletonMatchResult,
@@ -283,9 +289,12 @@ class Conv2DInplaceLinear2DPattern(Pattern):
 
         Raises PatternMismatchedError if A is not 2D.
         """
-        if "A" in inputs and inputs["A"] is not None and inputs["A"].ndim != 2:
+        a = inputs.get("A")
+        if a is None:
+            raise PatternMismatchedError("Conv2DInplaceLinear2D: input A is missing")
+        if a.ndim != 2:
             raise PatternMismatchedError(
-                f"Conv2DInplaceLinear2D requires 2D input A, got {inputs['A'].ndim}D"
+                f"Conv2DInplaceLinear2D requires 2D input A, got {a.ndim}D"
             )
 
         internal_constants: list[tuple[int, int, np.ndarray]] = [
@@ -305,7 +314,7 @@ class Conv2DInplaceLinear2DPattern(Pattern):
 
     def get_schema(self) -> PatternSchema:
         """Return shared MatMulAdd schema."""
-        return _MATMUL_ADD_SCHEMA
+        return MATMUL_ADD_SCHEMA
 
     def check_skeleton_result(
         self, skeleton_match_result: SkeletonMatchResult,
