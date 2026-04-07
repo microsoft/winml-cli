@@ -8,7 +8,7 @@ Provides a three-level class hierarchy for multi-ONNX-model inference:
 
 - WinMLPipelineModel: Base for any model composed of multiple WinMLAutoModel
   sub-components (e.g., encoder+decoder, text_encoder+unet+vae).
-- WinMLGenerationModel: Adds GenerationMixin support (encoder/decoder generate
+- WinMLEncoderDecoderModel: Adds GenerationMixin support (encoder/decoder generate
   loop, KV cache management).
 - WinMLT5Model: T5-specific sub-model tasks and generation config.
 
@@ -150,11 +150,11 @@ class WinMLPipelineModel(PreTrainedModel):
 
 
 # =========================================================================
-# Layer 2: WinMLGenerationModel — encoder-decoder generation
+# Layer 2: WinMLEncoderDecoderModel — encoder-decoder generation
 # =========================================================================
 
 
-class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
+class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
     """Pipeline model with HF GenerationMixin support.
 
     Expects sub-components ``"encoder"`` and ``"decoder"`` in
@@ -216,7 +216,7 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
             self._expected = expected
 
         def forward(self, **kwargs: Any) -> BaseModelOutput:
-            feeds = WinMLGenerationModel._pad_inputs(kwargs, self._expected)
+            feeds = WinMLEncoderDecoderModel._pad_inputs(kwargs, self._expected)
             return self._encoder(**feeds)
 
     def get_encoder(self) -> torch.nn.Module:
@@ -359,11 +359,11 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
 
 
 @register_pipeline_model("t5", "translation")
-class WinMLT5Model(WinMLGenerationModel):
+class WinMLT5Model(WinMLEncoderDecoderModel):
     """T5 encoder-decoder model.
 
     Declares T5 sub-component tasks and generation config defaults.
-    All encoder-decoder forward/cache logic lives in ``WinMLGenerationModel``.
+    All encoder-decoder forward/cache logic lives in ``WinMLEncoderDecoderModel``.
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
