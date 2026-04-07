@@ -8,20 +8,13 @@ The zip files are **not tracked by git**. They are hosted in a separate repo.
 
 ### Option 1: Download script (recommended)
 
-First, configure git credentials for the `gim-home` org (one-time setup):
+Requires [GitHub CLI](https://cli.github.com) (`gh`) with an account that has access to `gim-home`.
 
 ```bash
-gh auth switch --user <your_gim-home_account>
-gh auth setup-git
+uv run python scripts/download_rules.py --account <your_gim-home_account>
 ```
 
-Then download:
-
-```bash
-uv run python scripts/download_rules.py
-```
-
-The script does a sparse checkout (downloads only the zip folder, not the full repo) and copies files here.
+The script uses the specified `gh` account's token to authenticate, does a sparse checkout (downloads only the zip folder, not the full repo), and copies files here.
 
 Use `--force` to re-download all files even if they already exist locally.
 

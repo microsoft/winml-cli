@@ -4,12 +4,15 @@
 # --------------------------------------------------------------------------
 """Download runtime check rule zips from gim-home/ModelKitArtifacts.
 
+Requires gh CLI with an account that has access to gim-home org.
+
 Usage:
-    uv run python scripts/download_rules.py          # download missing zips
-    uv run python scripts/download_rules.py --force   # re-download all zips
+    uv run python scripts/download_rules.py --account <account>
+    uv run python scripts/download_rules.py --account <account> --force
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -18,7 +21,6 @@ from pathlib import Path
 
 
 SOURCE_REPO = "gim-home/ModelKitArtifacts"
-SOURCE_URL = f"https://github.com/{SOURCE_REPO}.git"
 SOURCE_PATH = "op_check_results/rules"
 RULES_DIR = (
     Path(__file__).resolve().parent.parent
@@ -29,6 +31,43 @@ RULES_DIR = (
     / "rules"
     / "runtime_check_rules"
 )
+
+
+def _get_clone_url(account: str | None = None) -> str:
+    """Build clone URL using gh account token."""
+    gh_account = account or os.environ.get("GH_ACCOUNT")
+    if not gh_account:
+        print(
+            "ERROR: gh account is required.\n"
+            "Specify via --account or GH_ACCOUNT env var:\n"
+            "  uv run python scripts/download_rules.py --account <account>\n"
+            "  GH_ACCOUNT=<account> uv run python scripts/download_rules.py",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not shutil.which("gh"):
+        print(
+            "ERROR: gh CLI is not installed.\nInstall from https://cli.github.com",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    result = subprocess.run(
+        ["gh", "auth", "token", "--user", gh_account],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"ERROR: Could not get token for account '{gh_account}'.\nRun 'gh auth login' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    token = result.stdout.strip()
+    print(f"Using gh account: {gh_account}", flush=True)
+    return f"https://x-access-token:{token}@github.com/{SOURCE_REPO}.git"
 
 
 def _sparse_clone(clone_url: str, dest: Path) -> bool:
@@ -63,29 +102,22 @@ def _sparse_clone(clone_url: str, dest: Path) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download runtime check rule zips")
     parser.add_argument("--force", action="store_true", help="Re-download all zips")
+    parser.add_argument("--account", type=str, help="gh CLI account with access to gim-home org")
     args = parser.parse_args()
 
+    clone_url = _get_clone_url(args.account)
     existing = set() if args.force else {f.name for f in RULES_DIR.glob("*.zip")}
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp) / "repo"
-        print(f"Cloning {SOURCE_REPO} (sparse: {SOURCE_PATH})...")
+        print(f"Downloading rules from {SOURCE_REPO}...", flush=True)
 
-        if not _sparse_clone(SOURCE_URL, tmp_path):
-            msg = f"ERROR: Failed to clone {SOURCE_REPO}.\n"
-            if not shutil.which("gh"):
-                msg += (
-                    "GitHub CLI (gh) is not installed.\n"
-                    "Install from https://cli.github.com, then run:\n"
-                    "  gh auth login\n"
-                    "  gh auth setup-git\n"
-                )
-            else:
-                msg += (
-                    "Make sure git credentials are configured for the gim-home org.\n"
-                    "Try running: gh auth setup-git\n"
-                )
-            print(msg, file=sys.stderr)
+        if not _sparse_clone(clone_url, tmp_path):
+            print(
+                f"ERROR: Failed to clone {SOURCE_REPO}.\n"
+                "Make sure the GH_ACCOUNT has access to the gim-home org.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         src_dir = tmp_path / SOURCE_PATH
