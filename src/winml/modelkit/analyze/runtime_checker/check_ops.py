@@ -15,7 +15,6 @@ Usage:
         python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -32,100 +31,18 @@ from ...pattern.op_input_gen import (
     OpInputGenerator,
     get_registered_operators,
     get_runtime_checker_op,
-    normalize_constraint_dict,
 )
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..utils.model_utils import get_op_since_version
+from ..utils.op_utils import compute_case_signature, hash_case_signature
 from .ep_checker import EPChecker
 
 
 # Register WinML EPs at module level before any ORT session is created.
 # This must stay at the top of the file so EPs are available for all downstream usage.
 winml.register_execution_providers(ort=True)
-
-
-def _compute_case_signature(case: dict, *, namespace: str) -> str:
-    """Compute a signature for a test case based on its content.
-
-    The signature is used to match test cases across different runs,
-    allowing delta detection when the input generator changes.
-
-    Args:
-        case: Test case dictionary containing type_vars, attrs, input_constraints, etc.
-
-    Returns:
-        A string signature that uniquely identifies the test case.
-    """
-    # Extract the key fields that define a test case
-    sig_parts = []
-
-    if namespace:
-        # Namespacing keeps case_index stable per output file when signatures collide across files
-        sig_parts.append(f"ns:{namespace}")
-
-    def _safe_dump(obj: Any) -> str:
-        def _default(o: Any):
-            if isinstance(o, onnx.TensorProto):
-                return json.loads(json_format.MessageToJson(o))
-            if isinstance(o, np.ndarray):
-                return o.tolist()
-            if isinstance(o, np.generic):
-                return o.item()
-            raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
-
-        return json.dumps(obj, sort_keys=True, default=_default)
-
-    def _is_empty_top_level(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, (dict, list, tuple, set)):
-            return len(value) == 0
-        return False
-
-    # Type variables (e.g., T=FLOAT)
-    if "type_vars" in case:
-        type_vars = case["type_vars"]
-        sig_parts.append(f"types:{_safe_dump(type_vars)}")
-
-    # Attributes
-    if "attrs" in case:
-        attrs = case["attrs"]
-        if not _is_empty_top_level(attrs):
-            sig_parts.append(f"attrs:{_safe_dump(attrs)}")
-
-    # Input constraints (shapes/values)
-    if "input_constraints" in case:
-        constraints = {
-            k: normalize_constraint_dict(v) if isinstance(v, dict) else v
-            for k, v in case["input_constraints"].items()
-        }
-        sig_parts.append(f"inputs:{_safe_dump(constraints)}")
-
-    # Input is constant flags
-    if "input_is_constant" in case:
-        is_const = case["input_is_constant"]
-        sig_parts.append(f"const:{_safe_dump(is_const)}")
-
-    # Dynamic axes configuration
-    if "dynamic_axes" in case:
-        dynamic_axes = case["dynamic_axes"]
-        if not _is_empty_top_level(dynamic_axes):
-            sig_parts.append(f"dynamic:{_safe_dump(dynamic_axes)}")
-
-    # QDQ configuration: include only when present to keep non-QDQ signatures stable.
-    if "qdq_types" in case:
-        qdq_types = case["qdq_types"]
-        if not _is_empty_top_level(qdq_types):
-            sig_parts.append(f"qdq:{_safe_dump(qdq_types)}")
-
-    return "|".join(sig_parts)
-
-
-def _hash_case_signature(signature: str) -> str:
-    """Return a stable hash value for a case signature."""
-    return hashlib.sha256(signature.encode("utf-8")).hexdigest()
 
 
 class CheckResultWriter:
@@ -195,7 +112,7 @@ class CheckResultWriter:
                     if self._contains_not_run_reason(case):
                         continue
 
-                    sig = _compute_case_signature(case, namespace=self.case_namespace)
+                    sig = compute_case_signature(case, namespace=self.case_namespace)
                     self.existing_signatures[sig] = case
 
                     check_result = case.get("check_result", {})
@@ -221,10 +138,10 @@ class CheckResultWriter:
         Returns:
             True if the case should be skipped.
         """
-        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        sig = compute_case_signature(case, namespace=self.case_namespace)
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
-            return _hash_case_signature(sig) not in self._filter_case_index_set
+            return hash_case_signature(sig) not in self._filter_case_index_set
 
         if self.delta_only:
             # Only run brand-new cases; skip anything we already have
@@ -243,7 +160,7 @@ class CheckResultWriter:
         Args:
             case: Test case dictionary
         """
-        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        sig = compute_case_signature(case, namespace=self.case_namespace)
         if sig in self.output_signatures:
             self.duplicate_skipped_count += 1
             return
@@ -266,10 +183,10 @@ class CheckResultWriter:
         Returns:
             True if existing result was found and reused, False otherwise.
         """
-        sig = _compute_case_signature(case, namespace=self.case_namespace)
+        sig = compute_case_signature(case, namespace=self.case_namespace)
         if self.filter_case_indices is not None:
             assert self._filter_case_index_set is not None
-            if _hash_case_signature(sig) not in self._filter_case_index_set:
+            if hash_case_signature(sig) not in self._filter_case_index_set:
                 return False
 
         existing_case = self.existing_signatures.get(sig)
@@ -286,8 +203,8 @@ class CheckResultWriter:
 
     def _set_case_index_signature(self, case: dict[str, Any]) -> None:
         """Set case_index to a stable hash derived from normalized signature."""
-        signature = _compute_case_signature(case, namespace=self.case_namespace)
-        case["case_index"] = _hash_case_signature(signature)
+        signature = compute_case_signature(case, namespace=self.case_namespace)
+        case["case_index"] = hash_case_signature(signature)
 
     def _contains_not_run_reason(self, case: dict[str, Any]) -> bool:
         """Check whether compile/run reason contains a not_run placeholder."""
