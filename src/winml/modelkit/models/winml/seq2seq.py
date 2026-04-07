@@ -10,7 +10,18 @@ Provides a three-level class hierarchy for multi-ONNX-model inference:
   sub-components (e.g., encoder+decoder, text_encoder+unet+vae).
 - WinMLGenerationModel: Adds GenerationMixin support (encoder/decoder generate
   loop, KV cache management).
-- WinMLT5Model: T5-specific config, cache shapes, and forward logic.
+- WinMLT5Model: T5-specific sub-model tasks and generation config.
+
+Design principles:
+- NEVER guard config access with default values. Use ``self.config.param``
+  directly and let AttributeError raise if the config is missing a field.
+  Silent defaults hide bugs and make misconfiguration invisible.
+- ONNX I/O names and shapes are read from ``io_config``, never hardcoded.
+  Encoder/decoder input names are not assumed — kwargs are matched against
+  ONNX metadata at runtime.
+- Inputs smaller than the ONNX expected shape are zero-padded automatically.
+  Inputs larger than expected are NOT truncated — the ONNX runtime will raise
+  a clear shape mismatch error.
 
 Usage:
     from winml.modelkit.models.winml.seq2seq import WinMLT5Model
@@ -131,6 +142,9 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
     ``_SUB_MODEL_CONFIG``. Provides the full interface required by
     ``GenerationMixin.generate()`` for encoder-decoder models with
     static KV cache.
+
+    Input/output names and shapes are read from ONNX I/O metadata — no
+    model-specific names are assumed.
     """
 
     main_input_name = "input_ids"
@@ -144,59 +158,51 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
         config: PretrainedConfig,
     ) -> None:
         super().__init__(sub_models, config)
-        self._encoder = sub_models["encoder"]
+        raw_encoder = sub_models["encoder"]
         self._decoder = sub_models["decoder"]
 
-        # Read shapes from ONNX I/O metadata
+        # Build {name: shape} lookups from ONNX I/O metadata
+        enc_io = raw_encoder.io_config
+        enc_expected = dict(
+            zip(enc_io.get("input_names", []), enc_io.get("input_shapes", []), strict=False)
+        )
+        # Wrap encoder with auto-padding so all callsites just use self._encoder(...)
+        self._encoder = self._EncoderWithInputPadding(raw_encoder, enc_expected)
+
         dec_io = self._decoder.io_config
-        dec_shapes = dict(
+        self._dec_expected = dict(
             zip(dec_io.get("input_names", []), dec_io.get("input_shapes", []), strict=False)
         )
-        kv_shape = dec_shapes.get("past_0_key", [1, 8, 32, 64])
-        self._max_dec = kv_shape[2] if len(kv_shape) > 2 else 32
 
-        enc_io = self._encoder.io_config
-        enc_shapes = enc_io.get("input_shapes", [])
-        self._enc_seq = enc_shapes[0][1] if enc_shapes and len(enc_shapes[0]) > 1 else 16
+        # Max decode length from decoder ONNX KV input shape
+        self._max_dec = self._dec_expected["past_0_key"][2]
+        self._num_kv_layers = sum(
+            1 for n in self._dec_expected if n.startswith("past_") and n.endswith("_key")
+        )
 
     # ----- Encoder -----
 
-    def _run_encoder(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """Run encoder sub-model, return hidden states."""
-        out = self._encoder(
-            input_ids=self._pad_to(input_ids, self._enc_seq, 0),
-            attention_mask=self._pad_to(attention_mask, self._enc_seq, 0),
-        )
-        # WinMLAutoModel may wrap output in BaseModelOutput (last_hidden_state)
-        # or return a raw dict (encoder_hidden_states). Handle both.
-        if hasattr(out, "last_hidden_state"):
-            return out.last_hidden_state
-        return out["encoder_hidden_states"]
+    class _EncoderWithInputPadding(torch.nn.Module):
+        """Wraps an encoder sub-model with auto-padding to ONNX expected shapes.
 
-    class _EncoderProxy(torch.nn.Module):
-        """Proxy returned by get_encoder() for GenerationMixin."""
+        Matches kwargs against ONNX input names, pads undersized tensors,
+        and forwards to the underlying WinMLAutoModel. Used as both
+        ``self._encoder`` (direct calls) and the return value of
+        ``get_encoder()`` (GenerationMixin contract).
+        """
 
-        def __init__(self, model: WinMLGenerationModel) -> None:
+        def __init__(self, encoder: Any, expected: dict[str, list[int]]) -> None:
             super().__init__()
-            self._model = model
+            self._encoder = encoder
+            self._expected = expected
 
-        def forward(
-            self,
-            input_ids: torch.Tensor,
-            attention_mask: torch.Tensor | None = None,
-            **kw: Any,
-        ) -> BaseModelOutput:
-            return BaseModelOutput(
-                last_hidden_state=self._model._run_encoder(input_ids, attention_mask),
-            )
+        def forward(self, **kwargs: Any) -> BaseModelOutput:
+            feeds = WinMLGenerationModel._pad_inputs(kwargs, self._expected)
+            return self._encoder(**feeds)
 
     def get_encoder(self) -> torch.nn.Module:
-        """Return encoder proxy for GenerationMixin."""
-        return self._EncoderProxy(self)
+        """Return encoder for GenerationMixin (already wrapped with padding)."""
+        return self._encoder
 
     def can_generate(self) -> bool:  # noqa: D102
         return True
@@ -221,36 +227,32 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
 
     def forward(
         self,
-        decoder_input_ids: torch.Tensor | None = None,
+        *,
         encoder_outputs: BaseModelOutput | tuple | None = None,
-        attention_mask: torch.Tensor | None = None,
         past_key_values: Cache | None = None,
         input_ids: torch.Tensor | None = None,
-        **kwargs: Any,
+        **model_kwargs: Any,
     ) -> Seq2SeqLMOutput:
         """Run decoder with static KV cache.
 
-        ``past_key_values`` is a HF ``StaticCache`` — a pre-allocated
-        fixed-size buffer mutated in-place via ``index_copy_`` at
-        ``cache_position``. The same object flows through GenerationMixin's
-        loop across steps.
+        Args:
+            encoder_outputs: Pre-computed encoder hidden states.
+            past_key_values: StaticCache (or wrapper) from previous step.
+            input_ids: Fallback — run encoder if encoder_outputs is None.
+            **model_kwargs: Remaining kwargs forwarded to the decoder ONNX
+                (e.g., decoder_input_ids, attention_mask). Each tensor is
+                auto-padded to match the ONNX model's expected input shape.
         """
         # Encoder hidden states
-        if encoder_outputs is not None:
-            enc_h = (
-                encoder_outputs[0]
-                if isinstance(encoder_outputs, tuple)
-                else encoder_outputs.last_hidden_state
-            )
-        elif input_ids is not None:
-            enc_h = self._run_encoder(input_ids, attention_mask)
-        else:
+        if encoder_outputs is None and input_ids is not None:
+            encoder_outputs = self._encoder(input_ids=input_ids, **model_kwargs)
+        if encoder_outputs is None:
             raise ValueError("Either encoder_outputs or input_ids required")
+        enc_h = encoder_outputs["last_hidden_state"]
 
         # Resolve the self-attention cache.
         # GenerationMixin may pass None, a StaticCache, or an
         # EncoderDecoderCache wrapping a DynamicCache (auto-created).
-        # We need our own StaticCache for the static-buffer ONNX decoder.
         cache = None
         if isinstance(past_key_values, StaticCache):
             cache = past_key_values
@@ -273,25 +275,22 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
         dec_mask = torch.zeros(1, self._max_dec, dtype=torch.int64)
         dec_mask[0, : fc + 1] = 1
 
-        # Build feeds for decoder WinMLAutoModel
-        feeds: dict[str, torch.Tensor] = {
-            "decoder_input_ids": decoder_input_ids,
-            "encoder_hidden_states": enc_h.detach(),
-            "attention_mask": self._pad_to(attention_mask, self._enc_seq, 0),
-            "decoder_attention_mask": dec_mask,
-            "cache_position": torch.tensor([fc], dtype=torch.int64),
-        }
-        for i in range(self.config.num_layers):
+        # Build feeds: model_kwargs first, then fill in generated inputs
+        feeds: dict[str, Any] = dict(model_kwargs)
+        feeds.setdefault("encoder_hidden_states", enc_h.detach())
+        feeds.setdefault("decoder_attention_mask", dec_mask)
+        feeds.setdefault("cache_position", torch.tensor([fc], dtype=torch.int64))
+        for i in range(self._num_kv_layers):
             layer = cache.layers[i]
             feeds[f"past_{i}_key"] = layer.keys.detach()
             feeds[f"past_{i}_value"] = layer.values.detach()
 
-        outputs = self._decoder(**feeds)
+        # Filter to decoder ONNX inputs and pad any undersized tensors
+        outputs = self._decoder(**self._pad_inputs(feeds, self._dec_expected))
 
-        # Write new token's KV into the StaticCache in-place.
-        # StaticCache.update() calls index_copy_ at cache_position.
+        # Write new token's KV into the StaticCache in-place
         cache_kwargs = {"cache_position": torch.tensor([fc], dtype=torch.int64)}
-        for i in range(self.config.num_layers):
+        for i in range(self._num_kv_layers):
             cache.update(
                 outputs[f"present_{i}_key"],
                 outputs[f"present_{i}_value"],
@@ -307,13 +306,32 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
     # ----- Helpers -----
 
     @staticmethod
-    def _pad_to(t: torch.Tensor, target_len: int, pad_value: int = 0) -> torch.Tensor:
-        s = t.shape[-1]
-        if s == target_len:
-            return t
-        if s > target_len:
-            return t[..., :target_len]
-        return torch.nn.functional.pad(t, (0, target_len - s), value=pad_value)
+    def _pad_inputs(
+        source: dict[str, Any],
+        expected: dict[str, list[int]],
+    ) -> dict[str, Any]:
+        """Filter *source* to keys in *expected* and pad undersized tensors.
+
+        For each name in *expected*, if *source* has a tensor for it, pad
+        any dimension smaller than the ONNX expected shape (skips batch dim).
+        Non-tensor values are passed through. Missing names are skipped.
+        """
+        result: dict[str, Any] = {}
+        for name, expected_shape in expected.items():
+            val = source.get(name)
+            if val is None:
+                continue
+            if isinstance(val, torch.Tensor):
+                # TODO: support dynamic shape ONNX models (None in expected_shape)
+                ndim = min(len(val.shape), len(expected_shape))
+                pad: list[int] = []
+                for dim in reversed(range(1, ndim)):
+                    deficit = expected_shape[dim] - val.shape[dim]
+                    pad.extend([0, max(deficit, 0)])
+                if any(p > 0 for p in pad):
+                    val = torch.nn.functional.pad(val, pad)
+            result[name] = val
+        return result
 
 
 # =========================================================================
