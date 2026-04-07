@@ -53,6 +53,25 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================================
+# Pipeline Model Registry
+# =========================================================================
+
+# Maps (model_type, task) → pipeline class with _SUB_MODEL_CONFIG.
+# Used by `wmk config` to generate one config file per sub-component.
+PIPELINE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
+
+
+def register_pipeline_model(model_type: str, task: str):
+    """Class decorator that registers a pipeline model for `wmk config`."""
+
+    def decorator(cls: type) -> type:
+        PIPELINE_MODEL_REGISTRY[(model_type, task)] = cls
+        return cls
+
+    return decorator
+
+
+# =========================================================================
 # Layer 1: WinMLPipelineModel — multi-component base
 # =========================================================================
 
@@ -339,6 +358,7 @@ class WinMLGenerationModel(WinMLPipelineModel, GenerationMixin):
 # =========================================================================
 
 
+@register_pipeline_model("t5", "translation")
 class WinMLT5Model(WinMLGenerationModel):
     """T5 encoder-decoder model.
 
