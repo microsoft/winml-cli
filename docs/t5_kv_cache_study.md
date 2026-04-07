@@ -545,7 +545,7 @@ model = WinMLModelForSeq2SeqLM.from_pretrained("google-t5/t5-small")
 tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
 
 pipe = pipeline("translation_en_to_fr", model=model, tokenizer=tokenizer)
-result = pipe("Hello, how are you?")
+result = pipe("Hello, how are you?", num_beams=1)
 print(result[0]["translation_text"])
 # Output: Bonjour, comment êtes-vous?
 ```
