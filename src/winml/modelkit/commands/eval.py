@@ -142,15 +142,15 @@ def eval(
     \b
     Examples:
         # Use default dataset (auto-detected from task)
-        wmk eval -m microsoft/resnet-50
-        wmk eval -m model.onnx --model-id dslim/bert-base-NER
+        winml eval -m microsoft/resnet-50
+        winml eval -m model.onnx --model-id dslim/bert-base-NER
 
         # Specify dataset explicitly
-        wmk eval -m microsoft/resnet-50 --dataset imagenet-1k
-        wmk eval -m model.onnx --model-id microsoft/resnet-50 --dataset imagenet-1k
+        winml eval -m microsoft/resnet-50 --dataset imagenet-1k
+        winml eval -m model.onnx --model-id microsoft/resnet-50 --dataset imagenet-1k
 
         # Multi-config dataset with column overrides
-        wmk eval -m model.onnx --model-id Intel/bert-base-uncased-mrpc \\
+        winml eval -m model.onnx --model-id Intel/bert-base-uncased-mrpc \\
             --dataset glue --dataset-name mrpc \\
             --column input_column=sentence1
     """
@@ -163,7 +163,7 @@ def eval(
 
         if task is None:
             raise click.UsageError(
-                "--schema requires --task. Example: wmk eval --schema --task object-detection"
+                "--schema requires --task. Example: winml eval --schema --task object-detection"
             )
         cls = _EVALUATOR_REGISTRY.get(task, WinMLEvaluator)
         _print_schema(task, cls.schema_info())
@@ -174,7 +174,7 @@ def eval(
             "A model is required. Provide -m with a HuggingFace model ID or path to an .onnx file."
         )
 
-    # Detect: -m as HF model ID (not an ONNX file) → treat as model_id
+    # Detect: -m as HF model ID (not an ONNX file) -> treat as model_id
     model_path = None
     if model is not None:
         p = Path(model)

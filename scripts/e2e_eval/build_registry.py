@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Generate models.json registry from HuggingFace Hub.
 
 Queries HuggingFace Hub API for popular models per task, enriches with

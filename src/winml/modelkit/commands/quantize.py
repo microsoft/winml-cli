@@ -2,19 +2,19 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Quantize command for wmk CLI.
+"""Quantize command for winml CLI.
 
 This module provides the quantize command that inserts QDQ (Quantize-Dequantize)
 nodes into ONNX models for quantization-aware inference.
 
 Usage:
-    wmk quantize --model MODEL [OPTIONS]
+    winml quantize --model MODEL [OPTIONS]
 
 Examples:
-    wmk quantize -m model.onnx
-    wmk quantize -m model.onnx --precision int8
-    wmk quantize -m model.onnx -o model_qdq.onnx --samples 100
-    wmk quantize -m model.onnx --weight-type int8 --activation-type uint8
+    winml quantize -m model.onnx
+    winml quantize -m model.onnx --precision int8
+    winml quantize -m model.onnx -o model_qdq.onnx --samples 100
+    winml quantize -m model.onnx --weight-type int8 --activation-type uint8
 """
 
 from __future__ import annotations
@@ -121,19 +121,19 @@ def quantize(
     \b
     Examples:
         # Basic quantization with defaults (10 samples, uint8)
-        wmk quantize -m model.onnx
+        winml quantize -m model.onnx
 
         # Use precision shorthand (same as --weight-type uint8 --activation-type uint8)
-        wmk quantize -m model.onnx --precision int8
+        winml quantize -m model.onnx --precision int8
 
         # Int16 quantization
-        wmk quantize -m model.onnx --precision int16
+        winml quantize -m model.onnx --precision int16
 
         # Custom output path and more samples
-        wmk quantize -m model.onnx -o quantized.onnx --samples 100
+        winml quantize -m model.onnx -o quantized.onnx --samples 100
 
         # Explicit types with entropy calibration
-        wmk quantize -m model.onnx --weight-type int8 --method entropy
+        winml quantize -m model.onnx --weight-type int8 --method entropy
     """
     # Inherit debug mode from parent
     if ctx.obj and ctx.obj.get("debug"):
@@ -180,12 +180,8 @@ def quantize(
         if result.success:
             console.print("\n[bold green]Success![/bold green] Model quantized")
             console.print(f"[dim]Output: {result.output_path}[/dim]")
-            console.print(
-                f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]"
-            )
-            console.print(
-                f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]"
-            )
+            console.print(f"[dim]QDQ nodes inserted: {result.nodes_quantized}[/dim]")
+            console.print(f"[dim]Total time: {result.total_time_seconds:.2f}s[/dim]")
         else:
             console.print("\n[bold red]Quantization failed:[/bold red]")
             for error in result.errors:

@@ -41,6 +41,8 @@ TASK_DATASET_MAPPING = {
     "object-detection": ObjectDetectionDataset,
     "text-classification": TextDataset,
     "text-feature-extraction": TextDataset,
+    "feature-extraction": TextDataset,
+    "sentence-similarity": TextDataset,
     "next-sentence-prediction": TextDataset,
     "fill-mask": TextDataset,
     "image-segmentation": ImageSegmentationDataset,

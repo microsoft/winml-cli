@@ -19,9 +19,9 @@ class TestQuantizationE2E:
         temp_dir = tmp_path_factory.mktemp("quantization_e2e")
         model_path = temp_dir / "resnet-50.onnx"
 
-        # Export ResNet-50 model using wmk export
+        # Export ResNet-50 model using winml export
         cmd = [
-            "wmk",
+            "winml",
             "export",
             "-m",
             "microsoft/resnet-50",
@@ -46,8 +46,8 @@ class TestQuantizationE2E:
 
         output_path = tmp_path / f"resnet50_{test_name}_quantized.onnx"
 
-        # Build quantization command using actual wmk quantize CLI flags
-        cmd = ["wmk", "quantize", "--model", str(test_model_path), "--output", str(output_path)]
+        # Build quantization command using actual winml quantize CLI flags
+        cmd = ["winml", "quantize", "--model", str(test_model_path), "--output", str(output_path)]
 
         if precision:
             cmd.extend(["--precision", precision])

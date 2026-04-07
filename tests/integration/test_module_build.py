@@ -18,7 +18,7 @@ class TestModuleConfigE2E:
     """End-to-end: generate_build_config(module=...) produces valid configs."""
 
     def test_config_module_generates_array_with_module_path(self) -> None:
-        """Verify wmk config --module outputs a JSON array with module_path."""
+        """Verify winml config --module outputs a JSON array with module_path."""
         from winml.modelkit.config import generate_build_config
 
         # Use model_type only (no download, uses default HF config with random weights)

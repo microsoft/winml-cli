@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""CLI integration tests for wmk command.
+"""CLI integration tests for winml command.
 
 Tests the CLI interface using Click's CliRunner to ensure commands work
 correctly without executing actual model exports (which are slow).
@@ -42,7 +42,7 @@ class TestCLIBasics:
         """Test --version flag shows version info."""
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "wmk" in result.output.lower()
+        assert "winml" in result.output.lower()
 
     def test_help(self, runner: CliRunner) -> None:
         """Test --help shows usage information."""
@@ -194,6 +194,34 @@ class TestSysCommand:
         """Test sys with verbose flag."""
         result = runner.invoke(main, ["sys", "--verbose"])
         assert result.exit_code == 0
+
+    def test_sys_list_device_list_ep_json_is_valid_single_object(self, runner: CliRunner) -> None:
+        """--list-device --list-ep --format json must emit one valid JSON object, not two arrays."""
+        import json
+
+        result = runner.invoke(main, ["sys", "--list-device", "--list-ep", "--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "devices" in data
+        assert "executionProviders" in data
+        assert isinstance(data["devices"], list)
+        assert isinstance(data["executionProviders"], list)
+
+    def test_sys_list_device_compact(self, runner: CliRunner) -> None:
+        """--list-device --format compact must produce compact output, not text table."""
+        result = runner.invoke(main, ["sys", "--list-device", "--format", "compact"])
+        assert result.exit_code == 0
+        assert "CPU" in result.output
+        # Compact output is a single line; no Rich panel borders
+        assert "Available Devices" not in result.output
+
+    def test_sys_list_ep_compact(self, runner: CliRunner) -> None:
+        """--list-ep --format compact must produce compact output, not text table."""
+        result = runner.invoke(main, ["sys", "--list-ep", "--format", "compact"])
+        assert result.exit_code == 0
+        assert "CPUExecutionProvider" in result.output
+        # Compact output is a single line; no Rich panel headers
+        assert "Available Execution Providers" not in result.output
 
 
 class TestModuleExecution:

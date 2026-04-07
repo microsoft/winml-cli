@@ -22,10 +22,10 @@ from .types import InspectResult, ModuleInfo, SupportLevel
 
 # Status icons
 STATUS_ICONS = {
-    SupportLevel.SUPPORTED: "[green]✓[/green]",
-    SupportLevel.DEFAULT: "[yellow]○[/yellow]",
-    SupportLevel.GENERIC: "[blue]◇[/blue]",
-    SupportLevel.UNSUPPORTED: "[red]✗[/red]",
+    SupportLevel.SUPPORTED: "[green]+[/green]",
+    SupportLevel.DEFAULT: "[yellow]-[/yellow]",
+    SupportLevel.GENERIC: "[blue]*[/blue]",
+    SupportLevel.UNSUPPORTED: "[red]x[/red]",
 }
 
 STATUS_LABELS = {
@@ -73,12 +73,14 @@ def _output_processor_table(console: Console, result: InspectResult) -> None:
         processor_table.add_row("Feature Extractor", processor.feature_extractor_class)
 
     # Only show panel if we have at least one processor class
-    if any([
-        processor.processor_class,
-        processor.tokenizer_class,
-        processor.image_processor_class,
-        processor.feature_extractor_class,
-    ]):
+    if any(
+        [
+            processor.processor_class,
+            processor.tokenizer_class,
+            processor.image_processor_class,
+            processor.feature_extractor_class,
+        ]
+    ):
         console.print(Panel(processor_table, title="Data Processing", border_style="dim"))
 
 
@@ -168,10 +170,10 @@ def _output_cache_table(console: Console, result: InspectResult) -> None:
 
     for stage in cache.stages:
         if stage.cached:
-            icon = "[green]✓[/green]"
+            icon = "[green]+[/green]"
             info = f"{stage.size_mb} MB"
         else:
-            icon = "[dim]○[/dim]"
+            icon = "[dim]-[/dim]"
             info = "[dim]not cached[/dim]"
         cache_table.add_row(f"  {icon} {stage.stage}", info)
 

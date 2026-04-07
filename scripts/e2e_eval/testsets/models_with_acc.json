@@ -155,7 +155,7 @@
       "path": "timm/mini-imagenet",
       "split": "test",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy"
+      "winml_metric_key": "accuracy"
     }
   },
   {
@@ -168,7 +168,7 @@
       "path": "timm/mini-imagenet",
       "split": "test",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy"
+      "winml_metric_key": "accuracy"
     }
   },
   {
@@ -181,7 +181,7 @@
       "build_script": "scripts/e2e_eval/datasets/build_fairface.py",
       "path": "~/.cache/winml/eval_datasets/build_fairface",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy",
+      "winml_metric_key": "accuracy",
       "columns_mapping": {
         "label_column": "gender"
       }
@@ -197,7 +197,7 @@
       "path": "timm/mini-imagenet",
       "split": "test",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy"
+      "winml_metric_key": "accuracy"
     }
   },
   {
@@ -210,7 +210,7 @@
       "path": "timm/mini-imagenet",
       "split": "test",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy"
+      "winml_metric_key": "accuracy"
     }
   },
   {
@@ -239,7 +239,7 @@
       "path": "timm/mini-imagenet",
       "split": "test",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy"
+      "winml_metric_key": "accuracy"
     }
   },
   {
@@ -252,7 +252,7 @@
       "build_script": "scripts/e2e_eval/datasets/build_fairface.py",
       "path": "~/.cache/winml/eval_datasets/build_fairface",
       "metric": "top1_accuracy",
-      "wmk_metric_key": "accuracy",
+      "winml_metric_key": "accuracy",
       "columns_mapping": {
         "label_column": "age"
       }
@@ -268,7 +268,7 @@
       "path": "detection-datasets/coco",
       "split": "val",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",
@@ -287,7 +287,7 @@
       "path": "detection-datasets/coco",
       "split": "val",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",
@@ -306,7 +306,7 @@
       "path": "detection-datasets/coco",
       "split": "val",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "label_mapping_file": "scripts/e2e_eval/datasets/coco_to_rtdetr_labels.json",
       "columns_mapping": {
         "annotation_column": "objects",
@@ -326,7 +326,7 @@
       "path": "detection-datasets/coco",
       "split": "val",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "label_mapping_file": "scripts/e2e_eval/datasets/coco_to_rtdetr_labels.json",
       "columns_mapping": {
         "annotation_column": "objects",
@@ -346,7 +346,7 @@
       "path": "detection-datasets/coco",
       "split": "val",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "label_mapping_file": "scripts/e2e_eval/datasets/coco_to_rtdetr_labels.json",
       "columns_mapping": {
         "annotation_column": "objects",
@@ -366,7 +366,7 @@
       "path": "detection-datasets/fashionpedia",
       "split": "val",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",
@@ -386,7 +386,7 @@
       "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
       "split": "validation",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",
@@ -406,7 +406,7 @@
       "path": "~/.cache/winml/eval_datasets/build_pubtables1m_detection",
       "split": "validation",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "label_mapping_file": "scripts/e2e_eval/datasets/pubtables_to_table_labels.json",
       "columns_mapping": {
         "annotation_column": "objects",
@@ -427,7 +427,7 @@
       "path": "~/.cache/winml/eval_datasets/build_pubtables1m_structure",
       "split": "validation",
       "metric": "map",
-      "wmk_metric_key": "map",
+      "winml_metric_key": "map",
       "columns_mapping": {
         "annotation_column": "objects",
         "bbox_key": "bbox",
@@ -446,7 +446,7 @@
       "path": "danjacobellis/scene_parse_150",
       "split": "validation",
       "metric": "mean_iou",
-      "wmk_metric_key": "mean_iou",
+      "winml_metric_key": "mean_iou",
       "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
       "columns_mapping": {
         "annotation_column": "annotation"
@@ -463,7 +463,7 @@
       "path": "danjacobellis/scene_parse_150",
       "split": "validation",
       "metric": "mean_iou",
-      "wmk_metric_key": "mean_iou",
+      "winml_metric_key": "mean_iou",
       "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
       "columns_mapping": {
         "annotation_column": "annotation"
@@ -480,7 +480,7 @@
       "path": "danjacobellis/scene_parse_150",
       "split": "validation",
       "metric": "mean_iou",
-      "wmk_metric_key": "mean_iou",
+      "winml_metric_key": "mean_iou",
       "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
       "columns_mapping": {
         "annotation_column": "annotation"
@@ -497,7 +497,7 @@
       "path": "danjacobellis/scene_parse_150",
       "split": "validation",
       "metric": "mean_iou",
-      "wmk_metric_key": "mean_iou",
+      "winml_metric_key": "mean_iou",
       "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json",
       "columns_mapping": {
         "annotation_column": "annotation"
@@ -514,7 +514,7 @@
       "path": "mattmdjaga/human_parsing_dataset",
       "split": "train",
       "metric": "mean_iou",
-      "wmk_metric_key": "mean_iou",
+      "winml_metric_key": "mean_iou",
       "columns_mapping": {
         "annotation_column": "mask"
       }
@@ -531,10 +531,316 @@
       "split": "validation",
       "samples": 500,
       "metric": "mean_iou",
-      "wmk_metric_key": "mean_iou",
+      "winml_metric_key": "mean_iou",
       "label_mapping_file": "scripts/e2e_eval/datasets/cityscapes_label_to_train_id.json",
       "columns_mapping": {
         "annotation_column": "semantic_segmentation"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-base-en-v1.5",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "Intel/bert-base-uncased-mrpc",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch16",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "BAAI/bge-small-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
+      }
+    }
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "mteb/stsbenchmark-sts",
+      "split": "test",
+      "metric": "cosine_spearman",
+      "wmk_metric_key": "cosine_spearman",
+      "columns_mapping": {
+        "input_column_1": "sentence1",
+        "input_column_2": "sentence2",
+        "score_column": "score"
       }
     }
   }

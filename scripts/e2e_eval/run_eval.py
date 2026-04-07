@@ -1,11 +1,16 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """E2E evaluation runner — unified perf + accuracy.
 
-Batch-runs wmk perf (and optionally wmk eval + pytorch baseline) for models
+Batch-runs winml perf (and optionally winml eval + pytorch baseline) for models
 in a JSON registry, writes unified eval_result.json per model, and generates
 combined reports.
 
-Strategy B cache sharing: wmk perf runs first (build + benchmark, populates
-model cache). wmk eval then reuses the cache — no redundant build step.
+Strategy B cache sharing: winml perf runs first (build + benchmark, populates
+model cache). winml eval then reuses the cache — no redundant build step.
 
 Usage:
     # Perf only (default)
@@ -14,7 +19,7 @@ Usage:
     # Both perf and accuracy in one batch
     python scripts/e2e_eval/run_eval.py --eval-type both --priority P0
 
-    # Accuracy only (wmk perf is skipped; wmk eval will build the model if cache is missing)
+    # Accuracy only (winml perf is skipped; winml eval will build the model if cache is missing)
     python scripts/e2e_eval/run_eval.py --eval-type accuracy --hf-model microsoft/resnet-50
 
     # Single model
@@ -66,7 +71,7 @@ from utils.reporter import (
 # Constants
 # ---------------------------------------------------------------------------
 
-WMK = [sys.executable, "-m", "winml.modelkit.cli"]
+WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
 BASELINE_SCRIPT = Path(__file__).parent / "run_pytorch_baseline.py"
 BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
 EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
@@ -102,10 +107,10 @@ def _get_timeout_skip_reason(hf_id: str, task: str) -> str:
 
 # Patterns that indicate the disk is full (cross-platform).
 _NO_SPACE_PATTERNS = (
-    "no space left on device",          # Linux/macOS OSError
-    "oserror: [errno 28]",              # Python errno string
+    "no space left on device",  # Linux/macOS OSError
+    "oserror: [errno 28]",  # Python errno string
     "there is not enough space on the disk",  # Windows
-    "winerror 112",                     # Windows disk-full error code
+    "winerror 112",  # Windows disk-full error code
     "disk full",
 )
 
@@ -167,7 +172,8 @@ def _kill_process_tree(pid: int) -> None:
         # Fallback: taskkill on Windows, killpg on Unix
         if platform.system() == "Windows":
             subprocess.run(  # noqa: S603
-                ["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True
+                ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+                capture_output=True,
             )
         else:
             import signal
@@ -309,22 +315,31 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 
 
 def _run_build(
-    entry: ModelEntry, device: str, precision: str, timeout: int, model_dir: Path,
+    entry: ModelEntry,
+    device: str,
+    precision: str,
+    timeout: int,
+    model_dir: Path,
 ) -> dict:
-    """Run wmk config + wmk build for one model. Returns build result dict.
+    """Run winml config + winml build for one model. Returns build result dict.
 
-    Flow: wmk config → config.json → wmk build --use-cache → ONNX path.
+    Flow: winml config → config.json → winml build --use-cache → ONNX path.
     """
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: wmk config
+    # Step 1: winml config
     config_args = [
-        *WMK, "config",
-        "-m", entry.hf_id,
-        "--device", device,
-        "--precision", precision,
-        "-o", str(config_path),
+        *WINML_CLI,
+        "config",
+        "-m",
+        entry.hf_id,
+        "--device",
+        device,
+        "--precision",
+        precision,
+        "-o",
+        str(config_path),
     ]
     if entry.task:
         config_args += ["--task", entry.task]
@@ -338,11 +353,14 @@ def _run_build(
             "proc": config_proc,
         }
 
-    # Step 2: wmk build --use-cache
+    # Step 2: winml build --use-cache
     build_args = [
-        *WMK, "build",
-        "-c", str(config_path),
-        "-m", entry.hf_id,
+        *WINML_CLI,
+        "build",
+        "-c",
+        str(config_path),
+        "-m",
+        entry.hf_id,
         "--use-cache",
     ]
 
@@ -356,7 +374,7 @@ def _run_build(
         }
 
     # Extract ONNX path from build output
-    # wmk build prints "Final artifact: <path>" in stderr
+    # winml build prints "Final artifact: <path>" in stderr
     onnx_path = None
     for line in build_proc["stderr"].splitlines():
         if "Final artifact:" in line:
@@ -372,7 +390,7 @@ def _run_build(
 
     if not onnx_path or not Path(onnx_path).exists():
         # Last resort: find _model.onnx in the cache
-        onnx_path = _find_cached_model(entry.hf_id, build_proc)
+        onnx_path = _find_cached_model(entry.hf_id, build_proc, entry.task)
 
     return {
         "success": onnx_path is not None,
@@ -383,15 +401,26 @@ def _run_build(
     }
 
 
-def _find_cached_model(hf_id: str, build_proc: dict) -> str | None:
-    """Try to find the built ONNX model in the WinML cache."""
+def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) -> str | None:
+    """Try to find the built ONNX model in the WinML cache.
+
+    Requires task to safely identify the correct artifact when a model has
+    multiple cached tasks (e.g. feat_* and txtcls_*). Returns None if task is
+    not provided to avoid picking the wrong model.
+    """
+    if not task:
+        return None
+
     slug = hf_id.replace("/", "_").replace("\\", "_")
     cache_dir = Path.home() / ".cache" / "winml" / "artifacts" / slug
     if not cache_dir.exists():
         return None
-    # Find the most recent *_model.onnx file
+
+    from winml.modelkit.loader.task import get_task_abbrev
+    prefix = get_task_abbrev(task) + "_"
+
     model_files = sorted(
-        cache_dir.glob("*_model.onnx"),
+        (p for p in cache_dir.glob("*_model.onnx") if p.name.startswith(prefix)),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -404,19 +433,28 @@ def _find_cached_model(hf_id: str, build_proc: dict) -> str | None:
 
 
 def run_model(
-    entry: ModelEntry, device: str, timeout: int, onnx_path: str | None = None,
+    entry: ModelEntry,
+    device: str,
+    timeout: int,
+    onnx_path: str | None = None,
 ) -> dict:
-    """Execute wmk perf for one model. Returns raw subprocess result dict.
+    """Execute winml perf for one model. Returns raw subprocess result dict.
 
     When onnx_path is provided, benchmarks the pre-built ONNX directly
     (skips internal build). Otherwise falls back to HF model ID.
     """
     if onnx_path:
-        args = [*WMK, "perf", "-m", onnx_path, "--device", device]
+        args = [*WINML_CLI, "perf", "-m", onnx_path, "--device", device]
     else:
         args = [
-            *WMK, "perf", "-m", entry.hf_id,
-            "--device", device, "--precision", _DEFAULT_PRECISION,
+            *WINML_CLI,
+            "perf",
+            "-m",
+            entry.hf_id,
+            "--device",
+            device,
+            "--precision",
+            _DEFAULT_PRECISION,
         ]
         if entry.task:
             args += ["--task", entry.task]
@@ -458,10 +496,10 @@ def _parse_metric_from_stdout(stdout: str) -> dict | None:
     return None
 
 
-def _parse_metric_from_wmk_output(
+def _parse_metric_from_winml_output(
     output_path: Path, metric_name: str, num_samples: int
 ) -> dict | None:
-    """Parse wmk eval --output JSON file into the canonical metric dict."""
+    """Parse winml eval --output JSON file into the canonical metric dict."""
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -500,7 +538,7 @@ def _build_dataset(ds_config: dict, timeout: int) -> None:
                 safe_print(f"      {line}")
 
 
-def _run_wmk_eval(
+def _run_winml_eval(
     entry: ModelEntry,
     device: str,
     timeout: int,
@@ -508,27 +546,36 @@ def _run_wmk_eval(
     model_dir: Path,
     onnx_path: str | None = None,
 ) -> dict:
-    """Invoke wmk eval for one model. Returns process result + parsed metric."""
-    output_path = model_dir / "wmk_eval_output.json"
+    """Invoke winml eval for one model. Returns process result + parsed metric."""
+    output_path = model_dir / "winml_eval_output.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # wmk eval requires explicit device ('cpu'/'gpu'/'npu'); 'auto' is not accepted
+    # winml eval requires explicit device ('cpu'/'gpu'/'npu'); 'auto' is not accepted
     eval_device = "npu" if device == "auto" else device
     if onnx_path:
         args = [
-            *WMK, "eval", "-m", onnx_path,
-            "--model-id", entry.hf_id,
-            "--device", eval_device,
+            *WINML_CLI,
+            "eval",
+            "-m",
+            onnx_path,
+            "--model-id",
+            entry.hf_id,
+            "--device",
+            eval_device,
         ]
     else:
         args = [
-            *WMK, "eval", "-m", entry.hf_id,
-            "--device", eval_device,
+            *WINML_CLI,
+            "eval",
+            "-m",
+            entry.hf_id,
+            "--device",
+            eval_device,
         ]
     if entry.task:
         args += ["--task", entry.task]
     # When ds_config is provided, pass explicit dataset args;
-    # otherwise wmk eval uses its built-in task defaults.
+    # otherwise winml eval uses its built-in task defaults.
     if ds_config.get("dataset"):
         args += ["--dataset", ds_config["dataset"]]
     if ds_config.get("split"):
@@ -550,14 +597,9 @@ def _run_wmk_eval(
 
     metric = None
     if proc["exit_code"] == 0 and output_path.exists():
-        wmk_key = (
-            ds_config.get("wmk_metric_key")
-            or ds_config.get("metric", "accuracy")
-        )
+        winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric", "accuracy")
         num_samples = ds_config.get("num_samples", _DEFAULT_SAMPLES)
-        metric = _parse_metric_from_wmk_output(
-            output_path, wmk_key, num_samples
-        )
+        metric = _parse_metric_from_winml_output(output_path, winml_key, num_samples)
     status = "PASS" if (proc["exit_code"] == 0 and metric is not None) else "FAIL"
 
     return {
@@ -606,9 +648,7 @@ def _save_baseline_cache(cache: dict) -> None:
     )
 
 
-def _lookup_baseline_cache(
-    hf_id: str, task: str, ds_config: dict
-) -> dict | None:
+def _lookup_baseline_cache(hf_id: str, task: str, ds_config: dict) -> dict | None:
     """Return cached baseline result dict, or None if not cached."""
     cache = _load_baseline_cache()
     key = _baseline_cache_key(hf_id, task, ds_config)
@@ -631,9 +671,7 @@ def _shorten_command(cmd: str) -> str:
     return " ".join(shortened)
 
 
-def _store_baseline_cache(
-    hf_id: str, task: str, ds_config: dict, result: dict
-) -> None:
+def _store_baseline_cache(hf_id: str, task: str, ds_config: dict, result: dict) -> None:
     """Store a successful baseline result in cache."""
     if result.get("status") != "PASS":
         return
@@ -695,13 +733,13 @@ def _run_accuracy_phase(
     model_dir: Path,
     onnx_path: str | None = None,
 ) -> dict:
-    """Run wmk eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
+    """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
 
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    wmk = _run_wmk_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
+    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -712,17 +750,17 @@ def _run_accuracy_phase(
         baseline = _run_pytorch_baseline(entry, device, timeout)
         _store_baseline_cache(entry.hf_id, entry.task, ds_config, baseline)
 
-    delta_abs, delta_rel = compute_delta(wmk["metric"], baseline["metric"])
+    delta_abs, delta_rel = compute_delta(winml["metric"], baseline["metric"])
 
     return {
         "skipped": False,
         "skip_reason": None,
-        "wmk_eval_status": wmk["status"],
-        "wmk_metric": wmk["metric"],
-        "wmk_eval_exit_code": wmk.get("exit_code"),
-        "wmk_eval_stdout": wmk.get("stdout", ""),
-        "wmk_eval_stderr": wmk.get("stderr", ""),
-        "elapsed_wmk": wmk["elapsed"],
+        "winml_eval_status": winml["status"],
+        "winml_metric": winml["metric"],
+        "winml_eval_exit_code": winml.get("exit_code"),
+        "winml_eval_stdout": winml.get("stdout", ""),
+        "winml_eval_stderr": winml.get("stderr", ""),
+        "elapsed_winml": winml["elapsed"],
         "pytorch_baseline_status": baseline["status"],
         "pytorch_baseline_metric": baseline["metric"],
         "pytorch_baseline_exit_code": baseline.get("exit_code"),
@@ -731,7 +769,7 @@ def _run_accuracy_phase(
         "delta_absolute": delta_abs,
         "delta_relative": delta_rel,
         "dataset_config": {k: v for k, v in ds_config.items() if k != "hf_token_required"},
-        "wmk_eval_command": wmk["command"],
+        "winml_eval_command": winml["command"],
         "pytorch_baseline_command": baseline["command"],
     }
 
@@ -752,14 +790,16 @@ def save_environment_info(path: Path) -> None:
         try:
             mod = __import__(pkg)
             info[f"{pkg}_version"] = getattr(mod, "__version__", "unknown")
-        except ImportError:  # noqa: PERF203
+        except ImportError:
             info[f"{pkg}_version"] = "not installed"
 
     # Git HEAD commit info
     try:
         result = subprocess.run(
-            ["git", "log", "-1", "--format=%H%n%s%n%ai"],  # noqa: S603, S607
-            capture_output=True, text=True, timeout=5,
+            ["git", "log", "-1", "--format=%H%n%s%n%ai"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             lines = result.stdout.strip().splitlines()
@@ -807,6 +847,7 @@ def model_result_dir(output_dir: Path, hf_id: str, task: str = "") -> Path:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="E2E evaluation runner — unified perf + accuracy")
     parser.add_argument(
         "--registry",
@@ -822,8 +863,8 @@ def parse_args() -> argparse.Namespace:
         default="perf",
         help=(
             "Evaluation signals to run (default: perf). "
-            "accuracy/both: wmk perf runs first to populate cache, "
-            "then wmk eval + pytorch baseline."
+            "accuracy/both: winml perf runs first to populate cache, "
+            "then winml eval + pytorch baseline."
         ),
     )
     parser.add_argument("--task", help="Filter by HF task")
@@ -878,6 +919,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run E2E evaluation pipeline."""
     args = parse_args()
 
     # 1. Load registry
@@ -887,9 +929,15 @@ def main() -> None:
         try:
             registry_entries = load_registry(args.registry)
             for e in registry_entries:
-                if e.hf_id == args.hf_model:
+                if e.hf_id == args.hf_model and (not args.task or e.task == args.task):
                     matched_entry = e
                     break
+            # Fallback: match by hf_id only if task-specific match not found
+            if matched_entry is None:
+                for e in registry_entries:
+                    if e.hf_id == args.hf_model:
+                        matched_entry = e
+                        break
         except Exception:
             pass  # Registry is optional for single-model mode; proceed without enrichment
         if matched_entry is not None:
@@ -928,13 +976,7 @@ def main() -> None:
         safe_print(f"Registry: {len(entries)} models  (eval-type: {args.eval_type})")
         for e in entries:
             ds = get_dataset_config(e.hf_id, e.task)
-            skip_acc = (
-                ""
-                if args.eval_type == "perf"
-                else "  [task_default]"
-                if ds is None
-                else ""
-            )
+            skip_acc = "" if args.eval_type == "perf" else "  [task_default]" if ds is None else ""
             safe_print(
                 f"  [{e.priority}] {e.hf_id} / {e.task}  ({e.model_type}, {e.group}){skip_acc}"
             )
@@ -963,9 +1005,9 @@ def main() -> None:
     save_environment_info(output_dir / "environment.json")
 
     # eval_types_run reflects what actually runs for each model:
-    #   "perf"     → wmk perf only
-    #   "accuracy" → wmk eval + pytorch baseline only (perf skipped)
-    #   "both"     → Strategy B: wmk perf first (populates cache), then wmk eval + baseline
+    #   "perf"     → winml perf only
+    #   "accuracy" → winml eval + pytorch baseline only (perf skipped)
+    #   "both"     → Strategy B: winml perf first (populates cache), then winml eval + baseline
     eval_types_run = (
         ["accuracy"]
         if args.eval_type == "accuracy"
@@ -1010,9 +1052,7 @@ def main() -> None:
         # Timeout skip list: skip known-timeout models and write a TIMEOUT result
         if (entry.hf_id, entry.task or "") in timeout_skip_set:
             reason = _get_timeout_skip_reason(entry.hf_id, entry.task or "")
-            safe_print(
-                f"\n[{i}/{len(entries)}] {label}  (SKIP - TIMEOUT: {reason})"
-            )
+            safe_print(f"\n[{i}/{len(entries)}] {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -1085,12 +1125,16 @@ def main() -> None:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
 
-            # Build phase: wmk config + wmk build → ONNX path
+            # Build phase: winml config + winml build → ONNX path
             # Build is shared by perf and eval, avoiding redundant builds.
             onnx_path: str | None = None
             if args.eval_type in ("perf", "both"):
                 build_result = _run_build(
-                    entry, args.device, _DEFAULT_PRECISION, args.timeout, model_dir,
+                    entry,
+                    args.device,
+                    _DEFAULT_PRECISION,
+                    args.timeout,
+                    model_dir,
                 )
                 if build_result["success"]:
                     onnx_path = build_result["onnx_path"]
@@ -1098,12 +1142,20 @@ def main() -> None:
             if args.eval_type == "accuracy":
                 # Accuracy-only: build + eval (no perf)
                 build_result = _run_build(
-                    entry, args.device, _DEFAULT_PRECISION, args.timeout, model_dir,
+                    entry,
+                    args.device,
+                    _DEFAULT_PRECISION,
+                    args.timeout,
+                    model_dir,
                 )
                 if build_result["success"]:
                     onnx_path = build_result["onnx_path"]
                     accuracy_result = _run_accuracy_phase(
-                        entry, args.device, args.timeout, model_dir, onnx_path,
+                        entry,
+                        args.device,
+                        args.timeout,
+                        model_dir,
+                        onnx_path,
                     )
                 else:
                     accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
@@ -1124,7 +1176,11 @@ def main() -> None:
                         accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
                     else:
                         accuracy_result = _run_accuracy_phase(
-                            entry, args.device, args.timeout, model_dir, onnx_path,
+                            entry,
+                            args.device,
+                            args.timeout,
+                            model_dir,
+                            onnx_path,
                         )
                 else:
                     # Build failed
