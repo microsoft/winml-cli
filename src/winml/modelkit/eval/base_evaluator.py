@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Tasks not supported as HF pipeline tasks, mapped to their pipeline equivalent.
+_PIPELINE_TASK_MAP: dict[str, str] = {
+    "sentence-similarity": "feature-extraction",
+}
+
 
 class WinMLEvaluator:
     """Base evaluator. Loads dataset, creates pipeline, runs HF evaluator."""
@@ -124,8 +129,9 @@ class WinMLEvaluator:
         """Create HF pipeline for inference. Subclasses override to configure."""
         from transformers import pipeline
 
+        pipeline_task = _PIPELINE_TASK_MAP.get(self.config.task, self.config.task)
         return pipeline(
-            self.config.task,
+            pipeline_task,
             model=self.model,
             framework="pt",
             tokenizer=self.config.model_id,
