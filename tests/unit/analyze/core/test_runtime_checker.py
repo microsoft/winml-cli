@@ -13,7 +13,6 @@ Tests verify:
 """
 
 import time
-from unittest.mock import patch
 
 import pytest
 from onnx import TensorProto, helper
@@ -30,21 +29,6 @@ from winml.modelkit.pattern import (
     PatternType,
     SkeletonMatchResult,
 )
-
-
-@pytest.fixture(autouse=True)
-def mock_ep_not_available():
-    """Prevent hardware probing in unit tests.
-
-    Mocks _is_ep_available_locally() to return False so that unit tests never
-    trigger winml.register_execution_providers() or ort.get_ep_devices(), both
-    of which can hang indefinitely on CI runners without QNN/WinML hardware.
-    """
-    with patch(
-        "winml.modelkit.analyze.core.runtime_checker_query.RuntimeCheckerQuery._is_ep_available_locally",
-        return_value=False,
-    ):
-        yield
 
 
 @pytest.fixture
