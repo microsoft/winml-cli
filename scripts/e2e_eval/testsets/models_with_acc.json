@@ -843,5 +843,195 @@
         "score_column": "score"
       }
     }
+  },
+  {
+    "hf_id": "distilbert/distilbert-base-cased-distilled-squad",
+    "task": "question-answering",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "distilbert/distilbert-base-uncased-distilled-squad",
+    "task": "question-answering",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "deepset/roberta-base-squad2",
+    "task": "question-answering",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad_v2",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "deepset/tinyroberta-squad2",
+    "task": "question-answering",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad_v2",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+    "task": "question-answering",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+    "task": "question-answering",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad_v2",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "ahotrod/electra_large_discriminator_squad2_512",
+    "task": "question-answering",
+    "model_type": "electra",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad_v2",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "timpal0l/mdeberta-v3-base-squad2",
+    "task": "question-answering",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad_v2",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+    "task": "question-answering",
+    "model_type": "electra",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "tau/splinter-base",
+    "task": "question-answering",
+    "model_type": "splinter",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "rajpurkar/squad",
+      "split": "validation",
+      "metric": "f1",
+      "wmk_metric_key": "f1",
+      "columns_mapping": {
+        "question_column": "question",
+        "context_column": "context",
+        "id_column": "id",
+        "label_column": "answers"
+      }
+    }
   }
 ]
