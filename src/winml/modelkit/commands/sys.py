@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import logging
 import platform
-import sys as _stdlib_sys
 from typing import Any
 
 import click
@@ -44,9 +43,11 @@ console = Console()
 
 def _get_python_info() -> dict[str, Any]:
     """Gather Python environment information."""
+    import sys as stdlib_sys  # local import to avoid CodeQL "module imports itself"
+
     return {
         "version": platform.python_version(),
-        "executable": _stdlib_sys.executable,
+        "executable": stdlib_sys.executable,
         "implementation": platform.python_implementation(),
     }
 
