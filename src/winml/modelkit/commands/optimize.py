@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 import click
 from rich.console import Console
 
-from ..onnx import load_onnx, save_onnx
+from ..onnx import is_compiled_onnx, load_onnx, save_onnx
 
 
 if TYPE_CHECKING:
@@ -453,6 +453,12 @@ def optimize(
     # Pass verbose to pipes
     if verbose:
         optimizer_kwargs["verbose"] = True
+
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is a compiled EPContext model and cannot be optimized. "
+            "Run 'winml optimize' on the original ONNX model before compilation."
+        )
 
     try:
         console.print("\n[bold]Loading model...[/bold]")
