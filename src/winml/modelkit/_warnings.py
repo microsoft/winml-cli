@@ -44,9 +44,20 @@ def _configure() -> None:
         def filter(self, record: logging.LogRecord) -> bool:
             return "Multiple distributions found" not in record.getMessage()
 
-    logging.getLogger("diffusers.utils.import_utils").addFilter(
-        _DiffusersDistributionFilter()
-    )
+    logging.getLogger("diffusers.utils.import_utils").addFilter(_DiffusersDistributionFilter())
+
+    class _WinMLPipelineFilter(logging.Filter):
+        """Filter false-alarm 'WinMLModel* is not supported' from transformers pipeline.
+
+        HuggingFace's pipeline emits an error-level log when the model class is not
+        in its built-in registry. WinML wrapper classes are intentionally not
+        registered with HF; evaluation works correctly regardless.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "WinMLModel" not in record.getMessage()
+
+    logging.getLogger("transformers.pipelines.base").addFilter(_WinMLPipelineFilter())
 
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
