@@ -382,6 +382,12 @@ def optimize(
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
 
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is a compiled EPContext model and cannot be optimized. "
+            "Run 'winml optimize' on the original ONNX model before compilation."
+        )
+
     # Inherit debug mode from parent
     if ctx.obj and ctx.obj.get("debug"):
         verbose = True
@@ -453,12 +459,6 @@ def optimize(
     # Pass verbose to pipes
     if verbose:
         optimizer_kwargs["verbose"] = True
-
-    if is_compiled_onnx(model):
-        raise click.ClickException(
-            f"{model} is a compiled EPContext model and cannot be optimized. "
-            "Run 'winml optimize' on the original ONNX model before compilation."
-        )
 
     try:
         console.print("\n[bold]Loading model...[/bold]")

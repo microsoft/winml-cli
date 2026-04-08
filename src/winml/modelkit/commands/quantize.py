@@ -142,6 +142,12 @@ def quantize(
 
     configure_logging(verbose=verbose)
 
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is a compiled EPContext model and cannot be quantized. "
+            "Run 'winml quantize' on the original ONNX model before compilation."
+        )
+
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
 
@@ -173,12 +179,6 @@ def quantize(
         per_channel=per_channel,
         symmetric=symmetric,
     )
-
-    if is_compiled_onnx(model):
-        raise click.ClickException(
-            f"{model} is a compiled EPContext model and cannot be quantized. "
-            "Run 'winml quantize' on the original ONNX model before compilation."
-        )
 
     try:
         console.print("\n[bold]Running quantization...[/bold]")
