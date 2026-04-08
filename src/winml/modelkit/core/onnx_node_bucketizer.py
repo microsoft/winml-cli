@@ -111,7 +111,7 @@ def demonstrate_bucketization():
 
         # Verify expectation
         status = "✅" if actual_scope == expected_scope else "❌"
-        print(f"{status} {node_name:50} → {actual_scope}")
+        print(f"{status} {node_name:50} -> {actual_scope}")
 
     print("\n📊 Scope Buckets:")
     print("-" * 30)
