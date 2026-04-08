@@ -188,6 +188,11 @@ class ResizeInputGenerator(OpInputGenerator):
                 }
             )
 
+        if "scales" not in self.optional_input_names:
+            for combo in combinations:
+                if "scales" not in combo:
+                    combo["scales"] = InputValueConstraint(np.array([], dtype=np.float32))
+
         if "roi" in self.optional_input_names:
             # duplicate combinations with roi dropped
             new_combinations = []
