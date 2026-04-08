@@ -43,9 +43,13 @@ console = Console()
 
 def _get_python_info() -> dict[str, Any]:
     """Gather Python environment information."""
+    import importlib
+
+    # Explicitly load the standard-library 'sys' module to avoid importing this 'sys' module.
+    stdlib_sys = importlib.import_module("sys")
     return {
         "version": platform.python_version(),
-        "executable": __import__("sys").executable,
+        "executable": stdlib_sys.executable,
         "implementation": platform.python_implementation(),
     }
 
