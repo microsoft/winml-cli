@@ -199,6 +199,15 @@ def compile(
         result = compile_onnx(model, output_path=output_dir, config=config)
 
         if result.success:
+            if config.ep_config.enable_ep_context and not result.output_path:
+                console.print(
+                    "\n[bold yellow]Warning:[/bold yellow] Compilation finished "
+                    "but no output file was written to the output directory."
+                )
+                raise click.ClickException(
+                    "No output file produced. Check EP context support for "
+                    f"provider '{config.ep_config.provider}'."
+                )
             console.print("\n[bold green]Success![/bold green] Model compiled")
             if result.output_path:
                 console.print(f"[dim]Output: {result.output_path}[/dim]")
