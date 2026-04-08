@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 import re
 from enum import Enum
+from typing import ClassVar
 
 from .helper import CimInstance, PnpDevice
 
@@ -179,10 +180,16 @@ class GPU:
 class NPU:
     """Represents NPU (Neural Processing Unit) information."""
 
+    # Extra PnP properties that NPU needs from Get-PnpDeviceProperty.
+    _EXTRA_PROPERTY_KEYS: ClassVar[list[str]] = ["DEVPKEY_Device_DriverVersion"]
+
     @staticmethod
     def get_all() -> list["NPU"]:
         """Get all NPUs in the system."""
-        pnp_devices = PnpDevice.get_by_class_name("ComputeAccelerator")
+        pnp_devices = PnpDevice.get_by_class_name(
+            "ComputeAccelerator",
+            extra_property_keys=NPU._EXTRA_PROPERTY_KEYS,
+        )
         return [NPU(pnp_device) for pnp_device in pnp_devices]
 
     def __init__(self, pnp_device: PnpDevice) -> None:

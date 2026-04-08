@@ -35,7 +35,7 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
-from ..sysinfo import OS, get_ep_device_map
+from ..sysinfo import get_ep_device_map
 
 
 logger = logging.getLogger(__name__)
@@ -51,23 +51,28 @@ def _get_python_info() -> dict[str, Any]:
     }
 
 
+def _is_windows_11() -> bool:
+    """Detect Windows 11 from the build number in platform.version().
+
+    platform.version() returns e.g. '10.0.26200'.  Build >= 22000 is Win 11.
+    This avoids the expensive PowerShell/WMI call that OS.get() requires.
+    """
+    try:
+        build = int(platform.version().split(".")[2])
+        return build >= 22000
+    except (IndexError, ValueError):
+        return False
+
+
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
     system = platform.system()
     release = platform.release()
 
-    # For Windows, use OS class for accurate Windows 11 detection
-    # platform.release() may incorrectly report '10' on some Python versions
-    if system == "Windows":
-        try:
-            os_info = OS.get()
-            # Only override if it's actually Windows 11
-            # Otherwise keep the original platform.release() value
-            if os_info.is_windows_11():
-                release = "11"
-        except Exception:
-            # Fallback to platform.release() if OS detection fails
-            pass
+    # platform.release() may incorrectly report '10' on Windows 11.
+    # Detect via build number (pure Python, no PowerShell) instead.
+    if system == "Windows" and _is_windows_11():
+        release = "11"
 
     return {
         "system": system,
@@ -366,40 +371,66 @@ def _output_compact(info: dict[str, Any]) -> None:
 def _gather_device_info() -> list[dict[str, Any]]:
     """Gather available device information in priority order.
 
+    Runs a single PowerShell process to query all CIM classes (CPU, GPU)
+    and PnP devices (NPU) with their extra properties at once.
+
     Returns:
         List of device dicts with type, priority, and details.
     """
     from ..sysinfo import CPU, GPU, NPU
+    from ..sysinfo.helper import query_all_hardware
 
+    hw = query_all_hardware(
+        cim_class_names=["Win32_Processor", "Win32_VideoController"],
+        pnp_class_name="ComputeAccelerator",
+        pnp_extra_keys=NPU._EXTRA_PROPERTY_KEYS,
+    )
+
+    cim_map = hw["cim"]
+
+    cpu_items: list[CPU] = []
+    try:
+        cpu_items = [CPU(ci) for ci in cim_map.get("Win32_Processor", [])]
+    except Exception as e:
+        logger.warning("Failed to parse CPU info: %s", e)
+
+    gpu_items: list[GPU] = []
+    try:
+        gpu_items = [
+            GPU(ci)
+            for ci in cim_map.get("Win32_VideoController", [])
+            if ci.try_get_property("PNPDeviceID", str, "").startswith(("PCI\\", "ACPI\\"))
+        ]
+    except Exception as e:
+        logger.warning("Failed to parse GPU info: %s", e)
+
+    npu_items: list[NPU] = []
+    try:
+        npu_items = [NPU(pnp) for pnp in hw["pnp"]]
+    except Exception as e:
+        logger.warning("Failed to get NPU details: %s", e)
+
+    # --- build result list in NPU > GPU > CPU priority order ---
     result: list[dict[str, Any]] = []
     priority = 1
 
-    # Query hardware directly in NPU > GPU > CPU priority order.
-    # This avoids depending on _get_available_devices() and eliminates
-    # redundant PowerShell queries (we need the details anyway).
-    hw_queries: list[tuple[str, type]] = [
-        ("NPU", NPU),
-        ("GPU", GPU),
-        ("CPU", CPU),
+    hw_groups: list[tuple[str, list]] = [
+        ("NPU", npu_items),
+        ("GPU", gpu_items),
+        ("CPU", cpu_items),
     ]
 
-    for device_label, hw_class in hw_queries:
-        try:
-            items = hw_class.get_all()
-        except Exception as e:
-            logger.warning("Failed to get %s details: %s", device_label, e)
-            # Only append an error entry if this was expected to have results
-            # CPU always exists, NPU/GPU may not
-            if device_label == "CPU":
-                result.append(
-                    {
-                        "priority": priority,
-                        "type": device_label,
-                        "name": "(detection error)",
-                        "details": {"error": str(e)},
-                    }
-                )
-                priority += 1
+    for device_label, items in hw_groups:
+        if not items and device_label == "CPU":
+            result.append(
+                {
+                    "priority": priority,
+                    "type": device_label,
+                    "name": "(detection error)",
+                    "details": {"error": "No CPU detected"},
+                }
+            )
+            priority += 1
             continue
 
         for item in items:
@@ -607,91 +638,108 @@ def sysinfo(
             if use_json:
                 # Combine both into a single JSON object so output is always valid JSON
                 result: dict[str, Any] = {}
-                if list_device:
-                    try:
-                        result["devices"] = _gather_device_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
-                if list_ep:
-                    try:
-                        result["executionProviders"] = _gather_ep_info()
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
+                with console.status("[bold blue]Detecting devices...[/bold blue]"):
+                    if list_device:
+                        try:
+                            result["devices"] = _gather_device_info()
+                        except Exception as e:
+                            logger.exception("Failed to detect devices")
+                            raise click.ClickException(f"Error detecting devices: {e}") from e
+                    if list_ep:
+                        try:
+                            result["executionProviders"] = _gather_ep_info()
+                        except Exception as e:
+                            logger.exception("Failed to detect execution providers")
+                            msg = f"Error detecting execution providers: {e}"
+                            raise click.ClickException(msg) from e
                 click.echo(json.dumps(result, indent=2))
             elif output_format.lower() == "compact":
+                with console.status("[bold blue]Detecting devices...[/bold blue]"):
+                    if list_device:
+                        try:
+                            devices = _gather_device_info()
+                            parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
+                        except Exception as e:
+                            logger.exception("Failed to detect devices")
+                            raise click.ClickException(f"Error detecting devices: {e}") from e
+                    if list_ep:
+                        try:
+                            eps = _gather_ep_info()
+                            ep_parts = [f"{ep['name']}({ep['device']})" for ep in eps]
+                        except Exception as e:
+                            logger.exception("Failed to detect execution providers")
+                            msg = f"Error detecting execution providers: {e}"
+                            raise click.ClickException(msg) from e
                 if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        parts = [f"{d['type']}: {d['name'].strip()}" for d in devices]
-                        click.echo(" | ".join(parts) if parts else "No devices found")
-                    except Exception as e:
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
+                    click.echo(" | ".join(parts) if parts else "No devices found")
                 if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        parts = [f"{ep['name']}({ep['device']})" for ep in eps]
-                        click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
-                    except Exception as e:
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
+                    click.echo("EPs: " + ", ".join(ep_parts) if ep_parts else "EPs: none")
             else:
+                with console.status("[bold blue]Detecting devices...[/bold blue]"):
+                    if list_device:
+                        try:
+                            devices = _gather_device_info()
+                        except Exception as e:
+                            console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
+                            logger.exception("Failed to detect devices")
+                            raise click.ClickException(f"Error detecting devices: {e}") from e
+                    if list_ep:
+                        try:
+                            eps = _gather_ep_info()
+                        except Exception as e:
+                            err_msg = (
+                                f"[bold red]Error detecting execution providers:[/bold red] {e}"
+                            )
+                            console.print(err_msg)
+                            logger.exception("Failed to detect execution providers")
+                            msg = f"Error detecting execution providers: {e}"
+                            raise click.ClickException(msg) from e
                 if list_device:
-                    try:
-                        devices = _gather_device_info()
-                        _output_device_text(devices)
-                    except Exception as e:
-                        console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
-                        logger.exception("Failed to detect devices")
-                        raise click.ClickException(f"Error detecting devices: {e}") from e
+                    _output_device_text(devices)
                 if list_ep:
-                    try:
-                        eps = _gather_ep_info()
-                        _output_ep_text(eps)
-                    except Exception as e:
-                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        console.print(err_msg)
-                        logger.exception("Failed to detect execution providers")
-                        msg = f"Error detecting execution providers: {e}"
-                        raise click.ClickException(msg) from e
+                    _output_ep_text(eps)
             return
 
-        # Default: full sysinfo including devices and EPs
+        # Default: full sysinfo including devices and EPs.
+        # Kick off hardware detection (PowerShell) in a background thread
+        # so it overlaps with the Python-side work (torch import, library
+        # version scanning, etc.).
         try:
-            info = _gather_system_info(verbose=verbose)
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                hw_future = pool.submit(_gather_device_info)
+                ep_future = pool.submit(_gather_ep_info)
+
+                # Python-side work runs on the main thread while PS runs
+                info = _gather_system_info(verbose=verbose)
+
+            # Collect results
+            try:
+                devices = hw_future.result()
+            except Exception:
+                devices = []
+                logger.debug("Device detection failed in default output")
+            try:
+                eps = ep_future.result()
+            except Exception:
+                eps = []
+                logger.debug("EP detection failed in default output")
 
             if use_json:
-                # Add devices and EPs to JSON output
-                try:
-                    info["devices"] = _gather_device_info()
-                except Exception:
-                    info["devices"] = []
-                try:
-                    info["executionProviders"] = _gather_ep_info()
-                except Exception:
-                    info["executionProviders"] = []
+                info["devices"] = devices
+                info["executionProviders"] = eps
                 _output_json(info)
             elif output_format.lower() == "compact":
                 _output_compact(info)
             else:
                 _output_text(info, verbose=verbose)
-                # Append devices and EPs to text output
                 console.print()
-                try:
-                    devices = _gather_device_info()
+                if devices:
                     _output_device_text(devices)
-                except Exception:
-                    logger.debug("Device detection failed in default output")
                 console.print()
-                try:
-                    eps = _gather_ep_info()
+                if eps:
                     _output_ep_text(eps)
-                except Exception:
-                    logger.debug("EP detection failed in default output")
 
         except Exception as e:
             console.print(f"[bold red]Error gathering system information:[/bold red] {e}")
