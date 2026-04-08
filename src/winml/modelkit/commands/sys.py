@@ -654,6 +654,8 @@ def sysinfo(
                             raise click.ClickException(msg) from e
                 click.echo(json.dumps(result, indent=2))
             elif output_format.lower() == "compact":
+                parts: list[str] = []
+                ep_parts: list[str] = []
                 with console.status("[bold blue]Detecting devices...[/bold blue]"):
                     if list_device:
                         try:
@@ -673,8 +675,10 @@ def sysinfo(
                 if list_device:
                     click.echo(" | ".join(parts) if parts else "No devices found")
                 if list_ep:
-                    click.echo("EPs: " + ", ".join(ep_parts) if ep_parts else "EPs: none")
+                    click.echo(("EPs: " + ", ".join(ep_parts)) if ep_parts else "EPs: none")
             else:
+                devices = None
+                eps = None
                 with console.status("[bold blue]Detecting devices...[/bold blue]"):
                     if list_device:
                         try:
@@ -694,9 +698,9 @@ def sysinfo(
                             logger.exception("Failed to detect execution providers")
                             msg = f"Error detecting execution providers: {e}"
                             raise click.ClickException(msg) from e
-                if list_device:
+                if devices is not None:
                     _output_device_text(devices)
-                if list_ep:
+                if eps is not None:
                     _output_ep_text(eps)
             return
 

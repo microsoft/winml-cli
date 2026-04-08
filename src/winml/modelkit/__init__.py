@@ -66,16 +66,13 @@ _LAZY_IMPORT_MAP: dict[str, str] = {
     "WinMLPreTrainedModel": ".models",
 }
 
-_warnings_configured = False
-
 
 def __getattr__(name: str) -> object:
-    global _warnings_configured
     module_path = _LAZY_IMPORT_MAP.get(name)
     if module_path is not None:
-        # Configure warning filters before the first heavy import
-        if not _warnings_configured:
-            _warnings_configured = True
+        # Configure warning filters once before the first heavy import
+        if not globals().get("_warnings_loaded"):
+            globals()["_warnings_loaded"] = True
             from . import _warnings
         mod = importlib.import_module(module_path, __name__)
         attr = getattr(mod, name)
