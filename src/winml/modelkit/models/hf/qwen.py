@@ -1,0 +1,371 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+"""Qwen3 HuggingFace Model Configuration.
+
+Provides decoder export wrappers and OnnxConfig registrations for
+Qwen3 decoder-only models with static KV cache, split into prefill
+and generation sub-models.
+
+Export Strategy (split by task):
+- QwenDecoderWrapper + QwenPrefillIOConfig: ``feature-extraction`` task
+  → prefill ONNX (input_ids [1, 64] → logits [1, 64, vocab] + KV [1, kv_heads, 64, head_dim])
+- QwenDecoderWrapper + QwenGenIOConfig: ``text-generation`` task
+  → generation ONNX (input_ids [1, 1] → logits [1, 1, vocab] + KV [1, kv_heads, 1, head_dim])
+
+Both tasks share the same wrapper class; OnnxConfig determines static shapes.
+Uses ``CapturingStaticCache`` (from ``kv_cache.py``) to return new-token KV
+directly as ONNX outputs, eliminating the scatter→gather round-trip.
+
+How it works:
+
+1. ``QwenDecoderWrapper.forward()`` takes positional args (order matches
+   OnnxConfig.inputs): input_ids, attention_mask, position_ids, cache_position,
+   past_0_key, past_0_value, ...  It builds a ``CapturingStaticCache`` from the
+   input KV buffers, runs ``Qwen3ForCausalLM``, and returns logits + captured KV.
+
+2. Decoder-only models need NO ``EncoderDecoderCache`` wrapping —
+   ``StaticCache`` is passed directly as ``past_key_values``.  (Contrast with
+   T5 where ``EncoderDecoderCache`` is required to route self-attention and
+   cross-attention to separate caches.)
+
+3. Logits are returned for ALL input positions (not just last token).
+   This matches HF convention and enables both generation (last-token logits)
+   and perplexity evaluation (all-position logits with shifted labels).
+
+4. ``dynamo=True`` is required for Qwen3 ONNX export — the TorchScript
+   exporter fails with an internal error.  Dynamo produces opset 18 models;
+   opset 17 downconversion currently fails for these graphs.
+
+Task name constraints (Optimum compatibility):
+
+- Task names must exist in ``TasksManager.get_all_tasks()`` to pass
+  validation in ``register_onnx_overwrite``.  Custom names like
+  ``"causal-lm-prefill"`` require pre-registration in
+  ``TasksManager._LIBRARY_TO_TASKS_TO_MODEL_LOADER_MAP``.
+- ``"causal-lm"`` is a synonym for ``"text-generation"`` in Optimum's
+  ``_SYNONYM_TASK_MAP`` — registering an OnnxConfig under ``"causal-lm"``
+  silently resolves to ``"text-generation"`` at lookup time.
+- ``"text-generation-with-past"`` requires the OnnxConfig to implement
+  ``with_past`` support (raises ``ValueError`` otherwise).
+- We use ``"feature-extraction"`` (prefill) and ``"text-generation"`` (gen)
+  as they are standard tasks with no normalization surprises.
+
+Model: Qwen/Qwen3-0.6B, Qwen/Qwen3-1.7B, etc.
+
+Usage::
+
+    # Generate both configs (pipeline mode)
+    winml config -m Qwen/Qwen3-0.6B --task text-generation -o qwen.json
+
+    # Build both sub-models
+    from winml.modelkit.models.winml.decoder_only import WinMLQwen3Model
+    model = WinMLQwen3Model.from_pretrained("Qwen/Qwen3-0.6B")
+
+    # Or load pre-built ONNX directly (skip_build=True avoids re-optimization)
+    from winml.modelkit.models.auto import WinMLAutoModel
+    prefill = WinMLAutoModel.from_pretrained("prefill.onnx", skip_build=True)
+    gen = WinMLAutoModel.from_pretrained("gen.onnx", skip_build=True)
+    model = WinMLQwen3Model(sub_models={...}, config=hf_config)
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+import torch.nn as nn
+from optimum.exporters.onnx import OnnxConfig
+from optimum.utils import NormalizedConfig
+from optimum.utils.input_generators import DummyInputGenerator
+from transformers import AutoModelForCausalLM
+
+from ...config import WinMLBuildConfig
+from ...export import register_onnx_overwrite
+from ...export.config import WinMLExportConfig
+from .kv_cache import CapturingStaticCache as _CapturingStaticCache
+
+
+# =============================================================================
+# Wrapper nn.Module
+# =============================================================================
+
+
+class QwenDecoderWrapper(nn.Module):
+    """Wraps Qwen3ForCausalLM with static KV cache I/O.
+
+    Used for both prefill and generation ONNX export — same forward logic,
+    different OnnxConfig determines the static input shapes.
+
+    Input KV: full static buffer ``[batch, kv_heads, max_cache_len, head_dim]``.
+    Output KV: new positions only ``[batch, kv_heads, seq_len, head_dim]``.
+    Logits: last position only ``[batch, 1, vocab_size]`` (both prefill and gen).
+    """
+
+    def __init__(self, model: nn.Module, num_layers: int) -> None:
+        super().__init__()
+        self.model = model
+        self.num_layers = num_layers
+        self.config = model.config
+
+    @classmethod
+    def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> QwenDecoderWrapper:
+        """Load Qwen3ForCausalLM and wrap for export."""
+        model = AutoModelForCausalLM.from_pretrained(model_name_or_path, **kwargs)
+        wrapper = cls(model, model.config.num_hidden_layers)
+        wrapper.eval()
+        return wrapper
+
+    def get_export_args(self, inputs: dict[str, torch.Tensor]) -> tuple[torch.Tensor, ...]:
+        """Convert dict inputs to positional args for torch.onnx.export."""
+        return tuple(inputs.values())
+
+    def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        """Run decoder with static KV cache.
+
+        Positional args (order matches OnnxConfig.inputs):
+            input_ids, attention_mask, position_ids, cache_position,
+            past_0_key, past_0_value, past_1_key, past_1_value, ...
+
+        Returns:
+            (logits, present_0_key, present_0_value, ...) where:
+            - logits is ``[batch, 1, vocab_size]`` (last position only)
+            - present KV is ``[batch, kv_heads, seq_len, head_dim]``
+        """
+        input_ids = args[0]
+        attention_mask = args[1]
+        position_ids = args[2]
+        cache_position = args[3]
+        kv_start = 4
+
+        # Build CapturingStaticCache from input KV tensors.
+        # Decoder-only: pass StaticCache directly (no EncoderDecoderCache needed).
+        cache = _CapturingStaticCache(self.config, max_cache_len=args[kv_start].size(2))
+        cache.early_initialization(
+            batch_size=input_ids.size(0),
+            num_heads=args[kv_start].size(1),
+            head_dim=args[kv_start].size(3),
+            dtype=args[kv_start].dtype,
+            device=input_ids.device,
+        )
+        for i in range(self.num_layers):
+            cache.layers[i].keys = args[kv_start + i * 2]
+            cache.layers[i].values = args[kv_start + i * 2 + 1]
+
+        out = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=cache,
+            use_cache=True,
+            cache_position=cache_position,
+        )
+
+        # All logits + captured KV directly (no gather).
+        # forward() selects the right position for padded prefill inputs.
+        result: list[torch.Tensor] = [out.logits]
+        for i in range(self.num_layers):
+            k, v = cache.captured[i]
+            result.extend([k, v])
+        return tuple(result)
+
+
+# =============================================================================
+# Custom DummyInputGenerators
+# =============================================================================
+
+
+class QwenBaseInputGenerator(DummyInputGenerator):
+    """Generates base inputs: input_ids, attention_mask, position_ids, cache_position."""
+
+    SUPPORTED_INPUT_NAMES = (
+        "input_ids",
+        "attention_mask",
+        "position_ids",
+        "cache_position",
+    )
+
+    # Subclasses override seq_len for prefill (64) vs gen (1).
+    seq_len: int = 64
+    max_cache_len: int = 256
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedConfig,
+        batch_size: int = 1,
+        **kwargs: Any,
+    ) -> None:
+        self.batch_size = batch_size
+        self.vocab_size = normalized_config.vocab_size
+
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> torch.Tensor:
+        if input_name == "input_ids":
+            return self.random_int_tensor(
+                (self.batch_size, self.seq_len),
+                max_value=self.vocab_size,
+                framework=framework,
+                dtype=int_dtype,
+            )
+        if input_name == "attention_mask":
+            mask = torch.zeros(self.batch_size, self.max_cache_len, dtype=torch.int64)
+            mask[:, : self.seq_len] = 1
+            return mask
+        if input_name == "position_ids":
+            return torch.arange(self.seq_len, dtype=torch.int64).unsqueeze(0)
+        if input_name == "cache_position":
+            return torch.arange(self.seq_len, dtype=torch.int64)
+        raise ValueError(f"Unknown input: {input_name}")
+
+
+class QwenGenBaseInputGenerator(QwenBaseInputGenerator):
+    """Base input generator for generation (seq_len=1)."""
+
+    seq_len: int = 1
+
+
+class QwenKVCacheInputGenerator(DummyInputGenerator):
+    """Generates KV cache tensors: past_{i}_key, past_{i}_value."""
+
+    SUPPORTED_INPUT_NAMES = ()  # dynamic — handled via supports()
+
+    max_cache_len: int = 256
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedConfig,
+        batch_size: int = 1,
+        **kwargs: Any,
+    ) -> None:
+        self.batch_size = batch_size
+        self.num_layers = normalized_config.num_layers
+        self.num_kv_heads = normalized_config.num_attention_heads  # GQA: uses num_key_value_heads
+        self.head_dim = getattr(normalized_config, "head_dim", 128)
+        self.SUPPORTED_INPUT_NAMES = tuple(
+            name for i in range(self.num_layers) for name in (f"past_{i}_key", f"past_{i}_value")
+        )
+
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> torch.Tensor:
+        return self.random_float_tensor(
+            (self.batch_size, self.num_kv_heads, self.max_cache_len, self.head_dim),
+            framework=framework,
+            dtype=float_dtype,
+        )
+
+
+# =============================================================================
+# OnnxConfig Registrations (using standard Optimum task names)
+# =============================================================================
+
+_QWEN_NORMALIZED = NormalizedConfig.with_args(
+    hidden_size="hidden_size",
+    num_layers="num_hidden_layers",
+    num_attention_heads="num_key_value_heads",  # KV cache uses GQA heads
+    head_dim="head_dim",
+    vocab_size="vocab_size",
+    allow_new=True,
+)
+
+
+def _qwen_io_inputs(num_layers: int) -> dict[str, dict[int, str]]:
+    result: dict[str, dict[int, str]] = {
+        "input_ids": {0: "batch_size"},
+        "attention_mask": {0: "batch_size"},
+        "position_ids": {0: "batch_size"},
+        "cache_position": {},
+    }
+    for i in range(num_layers):
+        result[f"past_{i}_key"] = {0: "batch_size"}
+        result[f"past_{i}_value"] = {0: "batch_size"}
+    return result
+
+
+def _qwen_io_outputs(num_layers: int) -> dict[str, dict[int, str]]:
+    result: dict[str, dict[int, str]] = {"logits": {0: "batch_size"}}
+    for i in range(num_layers):
+        result[f"present_{i}_key"] = {0: "batch_size"}
+        result[f"present_{i}_value"] = {0: "batch_size"}
+    return result
+
+
+@register_onnx_overwrite("qwen3", "feature-extraction", library_name="transformers")
+class QwenPrefillIOConfig(OnnxConfig):
+    """ONNX config for Qwen3 prefill (feature-extraction task).
+
+    Inputs: input_ids [1, 64], attention_mask [1, 256], position_ids [1, 64],
+            cache_position [64], past_{i}_key/value [1, 8, 256, 128]
+    Outputs: logits [1, 1, vocab], present_{i}_key/value [1, 8, 64, 128]
+    """
+
+    NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
+    DUMMY_INPUT_GENERATOR_CLASSES = (QwenBaseInputGenerator, QwenKVCacheInputGenerator)
+
+    @property
+    def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
+        return _qwen_io_inputs(self._normalized_config.num_layers)
+
+    @property
+    def outputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
+        return _qwen_io_outputs(self._normalized_config.num_layers)
+
+
+@register_onnx_overwrite("qwen3", "text-generation", library_name="transformers")
+class QwenGenIOConfig(OnnxConfig):
+    """ONNX config for Qwen3 generation (text-generation task).
+
+    Inputs: input_ids [1, 1], attention_mask [1, 256], position_ids [1, 1],
+            cache_position [1], past_{i}_key/value [1, 8, 256, 128]
+    Outputs: logits [1, 1, vocab], present_{i}_key/value [1, 8, 1, 128]
+    """
+
+    NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
+    DUMMY_INPUT_GENERATOR_CLASSES = (QwenGenBaseInputGenerator, QwenKVCacheInputGenerator)
+
+    @property
+    def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
+        return _qwen_io_inputs(self._normalized_config.num_layers)
+
+    @property
+    def outputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
+        return _qwen_io_outputs(self._normalized_config.num_layers)
+
+
+# =============================================================================
+# Build Config (dynamo=True required for Qwen3)
+# =============================================================================
+
+QWEN_CONFIG = WinMLBuildConfig(
+    export=WinMLExportConfig(dynamo=True, opset_version=18),
+)
+
+
+# =============================================================================
+# Model Class Mapping
+# =============================================================================
+
+MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+    ("qwen3", "feature-extraction"): QwenDecoderWrapper,
+    ("qwen3", "text-generation"): QwenDecoderWrapper,
+}
+
+__all__ = [
+    "MODEL_CLASS_MAPPING",
+    "QWEN_CONFIG",
+    "QwenDecoderWrapper",
+    "QwenGenIOConfig",
+    "QwenPrefillIOConfig",
+]
