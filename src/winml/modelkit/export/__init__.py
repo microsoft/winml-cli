@@ -31,15 +31,16 @@ def __getattr__(name: str):
     if name in _io_names:
         from . import io
 
-        return getattr(io, name)
+        resolved = getattr(io, name)
+        globals()[name] = resolved
+        return resolved
 
     _pytorch_names = {"export_pytorch", "export_onnx"}
     if name in _pytorch_names:
         from .pytorch import export_pytorch
 
-        if name == "export_onnx":
-            return export_pytorch
-        return export_pytorch
+        globals().update(export_pytorch=export_pytorch, export_onnx=export_pytorch)
+        return globals()[name]
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
