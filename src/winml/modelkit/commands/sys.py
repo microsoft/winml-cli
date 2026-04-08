@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import platform
-import sys
+import sys as _stdlib_sys
 from typing import Any
 
 import click
@@ -46,7 +46,7 @@ def _get_python_info() -> dict[str, Any]:
     """Gather Python environment information."""
     return {
         "version": platform.python_version(),
-        "executable": sys.executable,
+        "executable": _stdlib_sys.executable,
         "implementation": platform.python_implementation(),
     }
 
