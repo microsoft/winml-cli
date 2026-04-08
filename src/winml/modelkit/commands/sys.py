@@ -43,11 +43,9 @@ console = Console()
 
 def _get_python_info() -> dict[str, Any]:
     """Gather Python environment information."""
-    import sys as stdlib_sys  # local import to avoid CodeQL "module imports itself"
-
     return {
         "version": platform.python_version(),
-        "executable": stdlib_sys.executable,
+        "executable": __import__("sys").executable,
         "implementation": platform.python_implementation(),
     }
 
