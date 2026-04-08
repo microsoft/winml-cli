@@ -78,7 +78,7 @@ def device_option(required=True, optional_message=None, default="NPU"):
         "--device",
         required=required,
         default=default if not required else None,
-        type=click.Choice(SUPPORTED_DEVICES, case_sensitive=True),
+        type=click.Choice(SUPPORTED_DEVICES, case_sensitive=False),
         help=help_text,
     )
 
