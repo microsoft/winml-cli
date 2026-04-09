@@ -200,7 +200,7 @@ class SurgeryPipe(BasePipe):
 
                 if verbose:
                     logger.info(
-                        "Clamped tensor '%s': [%.2e, %.2e] → [%.2e, %.2e]",
+                        "Clamped tensor '%s': [%.2e, %.2e] -> [%.2e, %.2e]",
                         initializer.name,
                         original_min,
                         original_max,
