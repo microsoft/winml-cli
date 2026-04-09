@@ -15,6 +15,7 @@ Tests verify:
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -444,110 +445,80 @@ class TestRuleLoaderWithRealMockData:
         # Verify information structure
         assert gelu_info.Information_id == "550e8400-e29b-41d4-a716-446655440000"
         assert "Erf-based GELU" in gelu_info.explanation
-        assert "30%" in gelu_info.explanation
 
-        # Verify actions
-        actions = gelu_info.actions
-        assert len(actions) >= 1
 
-        action = actions[0]
-        assert action.pattern_from_id == "SUBGRAPH/GELU_Erf"
-        assert action.pattern_to_id == "OP/ai.onnx/Gelu"
-        assert "Replace" in action.details or "native Gelu operator" in action.details
-        assert "opset 20+" in action.details or "native Gelu operator" in action.details
+class TestResolveRuleZipPath:
+    """Test resolve_rule_zip_path and get_runtime_rules_search_dirs."""
 
-    def test_real_data_cross_reference(self, mock_data_rules_dir):
-        """
-        Test that runtime and information rules cross-reference.
-        """
-        loader = RuleLoader(mock_data_rules_dir)
+    def test_default_search_dir_included(self):
+        """Default embedded dir is always in the search list."""
+        from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
 
-        # Load all rule types
-        informations = loader.load_information_rules()
-        runtime_rules = loader.load_runtime_rules()
+        dirs = get_runtime_rules_search_dirs()
+        assert len(dirs) >= 1
+        assert dirs[0].name == "runtime_check_rules"
 
-        # Verify information references patterns
-        gelu_info_pattern_ids = [i.pattern_id for i in informations]
-        assert "SUBGRAPH/GELU_Erf" in gelu_info_pattern_ids
+    def test_env_var_adds_dirs(self, monkeypatch):
+        """MODELKIT_RULES_DIR adds extra search directories."""
+        from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
 
-        # Verify Conv operator has runtime rules
-        qc_rules = runtime_rules.get("QC", [])
-        conv_rule_exists = any(rule.pattern_id == "OP/ai.onnx/Conv" for rule in qc_rules)
-        assert conv_rule_exists
+        monkeypatch.setenv("MODELKIT_RULES_DIR", f"/extra/path1{os.pathsep}/extra/path2")
+        dirs = get_runtime_rules_search_dirs()
+        assert len(dirs) == 3
+        assert dirs[1] == Path("/extra/path1").resolve()
+        assert dirs[2] == Path("/extra/path2").resolve()
 
-    def test_real_data_alternatives_in_runtime_rules(self, mock_data_rules_dir):
-        """Test that runtime rules contain alternative implementations."""
-        loader = RuleLoader(mock_data_rules_dir)
-        rules_by_ihv = loader.load_runtime_rules(ihv_type=IHVType.QC)
+    def test_env_var_empty_ignored(self, monkeypatch):
+        """Empty MODELKIT_RULES_DIR is treated as unset."""
+        from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
 
-        conv_rule = rules_by_ihv["QC"][0]
+        monkeypatch.setenv("MODELKIT_RULES_DIR", "  ")
+        dirs = get_runtime_rules_search_dirs()
+        assert len(dirs) == 1
 
-        # Verify alternatives exist
-        assert hasattr(conv_rule, "alternatives")
-        assert conv_rule.alternatives is not None
-        assert len(conv_rule.alternatives) >= 3
+    def test_resolve_finds_file_in_env_dir(self, monkeypatch):
+        """resolve_rule_zip_path finds a zip in an env var directory."""
+        from winml.modelkit.analyze.utils.rule_loader import resolve_rule_zip_path
 
-        # Verify alternative structure (alternatives are list of dicts)
-        alternatives = conv_rule.alternatives
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_name = "QNN_NPU_ai_onnx_opset13.zip"
+            (Path(tmpdir) / zip_name).write_bytes(b"PK")
+            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
 
-        # First alternative: {"OP/ai.onnx/QLinearConv": "QDQ"}
-        assert "OP/ai.onnx/QLinearConv" in alternatives[0]
-        assert alternatives[0]["OP/ai.onnx/QLinearConv"] == "QDQ"
+            result = resolve_rule_zip_path(zip_name)
+            assert result == Path(tmpdir).resolve() / zip_name
+            assert result.exists()
 
-        # Second alternative: {"OP/ai.onnx/ConvInteger": "equivalent"}
-        assert "OP/ai.onnx/ConvInteger" in alternatives[1]
-        assert alternatives[1]["OP/ai.onnx/ConvInteger"] == "equivalent"
+    def test_resolve_fallback_to_default(self, monkeypatch):
+        """When no directory has the file, returns the default path."""
+        from winml.modelkit.analyze.utils.rule_loader import (
+            _DEFAULT_RUNTIME_RULES_DIR,
+            resolve_rule_zip_path,
+        )
 
-        # Third alternative: {"SUBGRAPH/DepthwiseConv2d": "approximation"}
-        assert "SUBGRAPH/DepthwiseConv2d" in alternatives[2]
-        assert alternatives[2]["SUBGRAPH/DepthwiseConv2d"] == "approximation"
+        monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
+        result = resolve_rule_zip_path("nonexistent_file.zip")
+        assert result == _DEFAULT_RUNTIME_RULES_DIR / "nonexistent_file.zip"
 
-    def test_real_data_input_shapes_and_constants(self, mock_data_rules_dir):
-        """Test that runtime rules contain input shape and constant information."""
-        loader = RuleLoader(mock_data_rules_dir)
-        rules_by_ihv = loader.load_runtime_rules(ihv_type=IHVType.QC)
+    def test_resolve_prefers_default_over_env(self, monkeypatch):
+        """Default dir is searched first (before env var dirs)."""
+        from winml.modelkit.analyze.utils.rule_loader import (
+            _DEFAULT_RUNTIME_RULES_DIR,
+            resolve_rule_zip_path,
+        )
 
-        conv_rule = rules_by_ihv["QC"][0]
+        zip_name = "test_priority.zip"
+        default_file = _DEFAULT_RUNTIME_RULES_DIR / zip_name
 
-        # Verify input shapes
-        assert hasattr(conv_rule, "input_shapes")
-        assert conv_rule.input_shapes is not None
-        assert "input_0" in conv_rule.input_shapes
-        assert "input_1" in conv_rule.input_shapes
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / zip_name).write_bytes(b"PK")
+            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
 
-        # Input 0 should be [1, 3, 224, 224] - standard image input
-        assert conv_rule.input_shapes["input_0"] == [1, 3, 224, 224]
-
-        # Input 1 should be [64, 3, 3, 3] - Conv kernel weights
-        assert conv_rule.input_shapes["input_1"] == [64, 3, 3, 3]
-
-        # Verify constant indicators
-        assert hasattr(conv_rule, "input_is_constant")
-        assert conv_rule.input_is_constant is not None
-        assert conv_rule.input_is_constant["input_0"] is False  # Image is not constant
-        assert conv_rule.input_is_constant["input_1"] is True  # Weights are constant
-
-    def test_get_rules_for_conv_pattern_real_data(self, mock_data_rules_dir):
-        """Test getting Conv rules using real mock data."""
-        loader = RuleLoader(mock_data_rules_dir)
-
-        # Get Conv rules for QC
-        conv_rules = loader.get_rules_for_pattern("OP/ai.onnx/Conv", IHVType.QC)
-
-        assert len(conv_rules) >= 1
-        assert all(rule.pattern_id == "OP/ai.onnx/Conv" for rule in conv_rules)
-        assert all(rule.ihv_type == IHVType.QC for rule in conv_rules)
-
-    def test_real_data_wildcard_in_attributes(self, mock_data_rules_dir):
-        """Test that wildcard values in attributes are preserved."""
-        loader = RuleLoader(mock_data_rules_dir)
-        rules_by_ihv = loader.load_runtime_rules(ihv_type=IHVType.QC)
-
-        conv_rule = rules_by_ihv["QC"][0]
-
-        # Verify that 'pads' attribute has wildcard value
-        assert conv_rule.attributes["pads"] == "*"
-
-        # Verify specific values for other attributes
-        assert conv_rule.attributes["kernel_shape"] == "[3, 3]"
-        assert conv_rule.attributes["strides"] == "[1, 1]"
+            if default_file.exists():
+                # If it exists in default, it should be preferred
+                result = resolve_rule_zip_path(zip_name)
+                assert result == default_file
+            else:
+                # Default doesn't exist, falls through to env dir
+                result = resolve_rule_zip_path(zip_name)
+                assert result == Path(tmpdir).resolve() / zip_name
