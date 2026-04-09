@@ -100,7 +100,7 @@ class TestCompileConfig:
         """Test OpenVINO factory method."""
         config = WinMLCompileConfig.for_openvino()
         assert config.ep_config.provider == "openvino"
-        assert config.ep_config.enable_ep_context is False
+        assert config.ep_config.enable_ep_context is True
 
     def test_for_vitisai(self):
         """Test Vitis AI factory method."""
