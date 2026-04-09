@@ -30,20 +30,21 @@ def get_runtime_rules_search_dirs() -> list[Path]:
     """Return ordered list of directories to search for runtime check rule zips.
 
     The search order is:
-      1. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
-      2. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
+      1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
          (separated by ``os.pathsep``).
+      2. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
 
     Returns:
         List of directory Paths (may include non-existent ones; callers filter).
     """
-    dirs: list[Path] = [_DEFAULT_RUNTIME_RULES_DIR]
+    dirs: list[Path] = []
     env_val = os.environ.get(MODELKIT_RULES_DIR_ENV, "").strip()
     if env_val:
         for entry in env_val.split(os.pathsep):
             entry = entry.strip()
             if entry:
                 dirs.append(Path(entry).resolve())
+    dirs.append(_DEFAULT_RUNTIME_RULES_DIR)
     return dirs
 
 

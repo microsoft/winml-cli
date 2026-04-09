@@ -450,10 +450,11 @@ class TestRuleLoaderWithRealMockData:
 class TestResolveRuleZipPath:
     """Test resolve_rule_zip_path and get_runtime_rules_search_dirs."""
 
-    def test_default_search_dir_included(self):
+    def test_default_search_dir_included(self, monkeypatch):
         """Default embedded dir is always in the search list."""
         from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
 
+        monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) >= 1
         assert dirs[0].name == "runtime_check_rules"
@@ -465,8 +466,9 @@ class TestResolveRuleZipPath:
         monkeypatch.setenv("MODELKIT_RULES_DIR", f"/extra/path1{os.pathsep}/extra/path2")
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) == 3
-        assert dirs[1] == Path("/extra/path1").resolve()
-        assert dirs[2] == Path("/extra/path2").resolve()
+        assert dirs[0] == Path("/extra/path1").resolve()
+        assert dirs[1] == Path("/extra/path2").resolve()
+        assert dirs[2].name == "runtime_check_rules"
 
     def test_env_var_empty_ignored(self, monkeypatch):
         """Empty MODELKIT_RULES_DIR is treated as unset."""
@@ -500,25 +502,15 @@ class TestResolveRuleZipPath:
         result = resolve_rule_zip_path("nonexistent_file.zip")
         assert result == _DEFAULT_RUNTIME_RULES_DIR / "nonexistent_file.zip"
 
-    def test_resolve_prefers_default_over_env(self, monkeypatch):
-        """Default dir is searched first (before env var dirs)."""
-        from winml.modelkit.analyze.utils.rule_loader import (
-            _DEFAULT_RUNTIME_RULES_DIR,
-            resolve_rule_zip_path,
-        )
+    def test_resolve_prefers_env_over_default(self, monkeypatch):
+        """Env var dirs are searched first (before default dir)."""
+        from winml.modelkit.analyze.utils.rule_loader import resolve_rule_zip_path
 
         zip_name = "test_priority.zip"
-        default_file = _DEFAULT_RUNTIME_RULES_DIR / zip_name
 
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / zip_name).write_bytes(b"PK")
             monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
 
-            if default_file.exists():
-                # If it exists in default, it should be preferred
-                result = resolve_rule_zip_path(zip_name)
-                assert result == default_file
-            else:
-                # Default doesn't exist, falls through to env dir
-                result = resolve_rule_zip_path(zip_name)
-                assert result == Path(tmpdir).resolve() / zip_name
+            result = resolve_rule_zip_path(zip_name)
+            assert result == Path(tmpdir).resolve() / zip_name

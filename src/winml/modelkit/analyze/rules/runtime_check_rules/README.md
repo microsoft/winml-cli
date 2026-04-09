@@ -22,6 +22,24 @@ Use `--force` to re-download all files even if they already exist locally.
 
 Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/op_check_results/rules/`](https://github.com/gim-home/ModelKitArtifacts/tree/main/op_check_results/rules) into this directory.
 
+### Option 3: Use external rules directory via environment variable
+
+Set `MODELKIT_RULES_DIR` to one or more directories containing runtime rule zip files.
+
+- Windows (PowerShell): `$env:MODELKIT_RULES_DIR="D:\\rules;E:\\more_rules"`
+- Linux/macOS (bash/zsh): `export MODELKIT_RULES_DIR="/opt/rules:/data/more_rules"`
+
+Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
+
+## Rule zip lookup order
+
+The analyzer searches zip files in this order:
+
+1. Directories listed in `MODELKIT_RULES_DIR` (left to right)
+2. This embedded directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
+
+This means `MODELKIT_RULES_DIR` takes precedence over the embedded default directory when the same zip filename exists in both locations.
+
 ## What happens if zips are missing
 
 The analyzer will log a warning and treat affected operators as unknown. Analysis results will be incomplete but will not crash.
