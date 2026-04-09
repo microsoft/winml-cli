@@ -8,8 +8,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from jsonschema import validate
-
 
 def validate_json_schema(data: dict[str, Any], schema_path: Path) -> bool:
     """Validate JSON data against a JSON schema file.
@@ -29,6 +27,8 @@ def validate_json_schema(data: dict[str, Any], schema_path: Path) -> bool:
         raise FileNotFoundError(f"Schema file not found: {schema_path}")
 
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    from jsonschema import validate
 
     validate(instance=data, schema=schema)
     return True

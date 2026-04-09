@@ -5,7 +5,6 @@
 """Core utilities for ModelKit."""
 
 # New API - pure torch, no external dependencies
-from .model_input_generator import generate_dummy_inputs_from_specs
 from .node_metadata import (
     NodeMetadata,
     add_metadata_to_node,
@@ -20,6 +19,16 @@ from .onnx_utils import (
     get_epcontext_info,
     get_io_config,
 )
+
+
+def __getattr__(name: str):
+    """Lazy-load generate_dummy_inputs_from_specs to avoid importing torch at startup."""
+    if name == "generate_dummy_inputs_from_specs":
+        from .model_input_generator import generate_dummy_inputs_from_specs
+
+        globals()["generate_dummy_inputs_from_specs"] = generate_dummy_inputs_from_specs
+        return generate_dummy_inputs_from_specs
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

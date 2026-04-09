@@ -30,6 +30,15 @@ from .base import (
     opschema_to_pattern_schema,
     register_pattern_input_generator,
 )
+from .conv2d_inplace_linear_patterns import (
+    Conv2DInplaceLinear2DPattern,
+    Conv2DInplaceLinear2DPatternInputGenerator,
+    Conv2DInplaceLinear3DPattern,
+    Conv2DInplaceLinear3DPatternInputGenerator,
+    Conv2DInplaceLinear4DPattern,
+    Conv2DInplaceLinear4DPatternInputGenerator,
+    Conv2DInplaceLinearInputGeneratorBase,
+)
 from .gelu_patterns import (
     Gelu1Pattern,
     Gelu1PatternInputGenerator,
@@ -42,6 +51,7 @@ from .gelu_patterns import (
     SingleGeluPattern,
 )
 from .gemm_patterns import (
+    MATMUL_ADD_SCHEMA,
     MatMulAddPattern,
     MatMulAddPatternInputGenerator,
     ReshapeGemmReshapePattern,
@@ -74,6 +84,14 @@ from .transpose_patterns import (
 
 
 __all__ = [
+    "MATMUL_ADD_SCHEMA",
+    "Conv2DInplaceLinear2DPattern",
+    "Conv2DInplaceLinear2DPatternInputGenerator",
+    "Conv2DInplaceLinear3DPattern",
+    "Conv2DInplaceLinear3DPatternInputGenerator",
+    "Conv2DInplaceLinear4DPattern",
+    "Conv2DInplaceLinear4DPatternInputGenerator",
+    "Conv2DInplaceLinearInputGeneratorBase",
     "ExpandedAttentionPattern",
     "ExpandedAttentionPatternInputGenerator",
     "Gelu1Pattern",

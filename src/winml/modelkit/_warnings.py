@@ -48,6 +48,29 @@ def _configure() -> None:
         _DiffusersDistributionFilter()
     )
 
+    class _HFPipelineFalsePositiveFilter(logging.Filter):
+        """Filter false-positive HF pipeline warnings when using WinML models.
+
+        HF pipeline emits these because WinMLModel wraps ONNX via ORT, not a
+        native HF model class. These are expected and not actionable.
+        """
+
+        _FALSE_POSITIVES = (
+            "WinMLModel",  # False positive warning which says WinML is not native HF model class
+            "Device set to use",  # PyTorch tensor device, not ONNX device
+            "Using a slow image processor",  # expected when using processor with pipeline.
+        )
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return not any(phrase in msg for phrase in self._FALSE_POSITIVES)
+
+    for _name in (
+        "transformers.pipelines.base",
+        "transformers.models.auto.image_processing_auto",
+    ):
+        logging.getLogger(_name).addFilter(_HFPipelineFalsePositiveFilter())
+
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
     # =========================================================================

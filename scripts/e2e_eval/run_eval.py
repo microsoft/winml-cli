@@ -51,6 +51,7 @@ from utils.accuracy import (
     compute_delta,
     derive_verdict,
     derive_verdicts,
+    format_delta,
 )
 from utils.dataset_config import get_dataset_config, register_from_registry
 from utils.registry import ModelEntry, filter_registry, load_registry, make_adhoc_entry
@@ -1264,8 +1265,9 @@ def main() -> None:
                 acc_tag = f"  acc=SKIP/{accuracy_result['skip_reason']}"
             else:
                 verdict = derive_verdict(accuracy_result).value
-                delta_rel = accuracy_result.get("delta_relative")
-                delta_str = f" {delta_rel:.1%}" if delta_rel is not None else ""
+                delta_str = format_delta(accuracy_result)
+                if delta_str:
+                    delta_str = f" {delta_str}"
                 acc_tag = f"  acc={verdict}{delta_str}"
 
         if perf_proc is not None:
