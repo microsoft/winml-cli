@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 import click
 from rich.console import Console
 
-from ..onnx import load_onnx, save_onnx
+from ..onnx import is_compiled_onnx, load_onnx, save_onnx
 
 
 if TYPE_CHECKING:
@@ -381,6 +381,12 @@ def optimize(
     # Require model if not listing capabilities/rewrites
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
+
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is a compiled EPContext model and cannot be optimized. "
+            "Run 'winml optimize' on the original ONNX model before compilation."
+        )
 
     # Inherit debug mode from parent
     if ctx.obj and ctx.obj.get("debug"):
