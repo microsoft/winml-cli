@@ -21,7 +21,7 @@ from .op_input_gen import InputShapeConstraint, InputValueConstraint
 
 # Shared schema for MatMulAdd and ReshapeGemmReshape patterns
 # Both patterns perform the same computation: Y = MatMul(A, B) + C
-_MATMUL_ADD_SCHEMA = PatternSchema(
+MATMUL_ADD_SCHEMA = PatternSchema(
     name="GemmPattern",
     doc=(
         "MatMul followed by Add pattern (common in linear layers).\n"
@@ -212,7 +212,7 @@ class MatMulAddPattern(Pattern):
         Returns:
             PatternSchema defining the MatMulAdd pattern's input/output types.
         """
-        return _MATMUL_ADD_SCHEMA
+        return MATMUL_ADD_SCHEMA
 
 
 class ReshapeGemmReshapePattern(Pattern):
@@ -381,7 +381,7 @@ class ReshapeGemmReshapePattern(Pattern):
         Returns:
             PatternSchema defining the pattern's input/output types.
         """
-        return _MATMUL_ADD_SCHEMA
+        return MATMUL_ADD_SCHEMA
 
 
 class GemmPatternInputGenerator(PatternInputGenerator):
