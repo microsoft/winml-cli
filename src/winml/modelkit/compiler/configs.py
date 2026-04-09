@@ -202,7 +202,7 @@ class WinMLCompileConfig:
                 stacklevel=2,
             )
         return cls(
-            ep_config=EPConfig(provider="openvino", enable_ep_context=False),
+            ep_config=EPConfig(provider="openvino", enable_ep_context=True),
         )
 
     @classmethod
@@ -246,9 +246,7 @@ class WinMLCompileConfig:
             "embed_context": self.ep_config.embed_context,
             "compiler": self.ep_config.compiler,
             "qnn_sdk_root": (
-                str(self.ep_config.qnn_sdk_root)
-                if self.ep_config.qnn_sdk_root
-                else None
+                str(self.ep_config.qnn_sdk_root) if self.ep_config.qnn_sdk_root else None
             ),
             "validate": self.validate,
         }
@@ -273,9 +271,7 @@ class WinMLCompileConfig:
             enable_ep_context=data.get("enable_ep_context", True),
             embed_context=data.get("embed_context", False),
             compiler=data.get("compiler", "ort"),
-            qnn_sdk_root=(
-                Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None
-            ),
+            qnn_sdk_root=(Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None),
         )
 
         return cls(
