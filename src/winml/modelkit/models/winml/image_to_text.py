@@ -65,10 +65,11 @@ class WinMLModelForImageToText(WinMLGenerationMixin):
 
         BLIP stores token IDs in ``config.text_config``, TrOCR in
         ``config.decoder``.  ``GenerationConfig.from_model_config()``
-        only reads top-level attributes, so we fill in the gaps::
+        only reads top-level attributes, so we fill in the gaps.
 
-            config.text_config.bos_token_id = 30522
-            config.decoder_start_token_id   = None
+        BLIP also uses ``sep_token_id`` (not ``eos_token_id``) as the
+        end-of-generation signal — its ``generate()`` explicitly passes
+        ``eos_token_id=sep_token_id``.  We replicate that here.
         """
         if not hasattr(self, "_generation_config"):
             config = super().generation_config
@@ -84,6 +85,11 @@ class WinMLModelForImageToText(WinMLGenerationMixin):
                         val = getattr(sub_cfg, attr, None)
                         if val is not None:
                             setattr(config, attr, val)
+                # Some models (BLIP) use sep_token_id as the actual
+                # end-of-generation token instead of eos_token_id.
+                sep = getattr(sub_cfg, "sep_token_id", None)
+                if sep is not None and sep != getattr(config, "eos_token_id", None):
+                    config.eos_token_id = sep
             self._generation_config = config
         return self._generation_config
 
