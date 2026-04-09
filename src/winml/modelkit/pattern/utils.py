@@ -241,7 +241,7 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
     if val_type is float:
         return DUMMY_FLOAT if replace_float_with_dummy else value
     if val_type is list or val_type is tuple:
-        return tuple([make_hashable(x, replace_float_with_dummy) for x in value])
+        return _make_hashable_sequence(value, replace_float_with_dummy)
     if val_type is dict:
         return tuple(
             sorted([(k, make_hashable(v, replace_float_with_dummy)) for k, v in value.items()])
@@ -249,6 +249,22 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
     if isinstance(value, np.floating):
         return DUMMY_FLOAT if replace_float_with_dummy else float(value)
     return value
+
+
+_SIMPLE_TYPES = frozenset({int, str, bool, type(None)})
+
+
+def _make_hashable_sequence(value: list | tuple, replace_float_with_dummy: bool) -> tuple:
+    """Fast-path for converting sequences: avoids recursion when elements are simple types."""
+    # Fast path: if all elements are simple types, just convert to tuple directly
+    needs_conversion = False
+    for x in value:
+        if type(x) not in _SIMPLE_TYPES:
+            needs_conversion = True
+            break
+    if not needs_conversion:
+        return tuple(value) if type(value) is list else value
+    return tuple([make_hashable(x, replace_float_with_dummy) for x in value])
 
 
 def get_attribute_proto_value(a: Any, replace_float_with_dummy: bool = True) -> Any:
