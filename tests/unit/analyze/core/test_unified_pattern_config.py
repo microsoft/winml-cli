@@ -104,10 +104,12 @@ class TestUnifiedPatternConfig:
         assert matmuladd_pattern is not None, "MatMulAddPattern not found"
 
         alternatives = config.get_alternatives(matmuladd_pattern)
-        assert len(alternatives) == 1, f"Expected 1 alternative, got {len(alternatives)}"
+        assert len(alternatives) == 4, f"Expected 4 alternatives, got {len(alternatives)}"
 
-        # Verify priority
+        # Verify sorted by priority (highest=1 first)
         assert alternatives[0].priority == 1
+        for alt in alternatives[1:]:
+            assert alt.priority >= alternatives[0].priority
 
     def test_clear_resets_state(self):
         """Test that clear() resets all internal state."""
