@@ -295,8 +295,8 @@ class HTPExporter:
             export_time = time.time() - start_time
             self._export_stats["export_time"] = export_time
             self._export_stats["hierarchy_modules"] = len(self._hierarchy_data)
-            self._export_stats["onnx_nodes"] = len(onnx_model.graph.node)
-            self._export_stats["tagged_nodes"] = len(self._tagged_nodes)
+            total_nodes = len(onnx_model.graph.node)
+            self._export_stats["onnx_nodes"] = total_nodes
 
             # Calculate empty tags (should be 0 with our implementation)
             empty_tag_count = sum(
@@ -304,11 +304,7 @@ class HTPExporter:
             )
             self._export_stats["empty_tags"] = empty_tag_count
 
-            # Calculate coverage percentage
-            total_nodes = len(onnx_model.graph.node)
-            tagged_nodes = len(self._tagged_nodes)
-            coverage = (tagged_nodes / total_nodes * 100.0) if total_nodes > 0 else 0.0
-            self._export_stats["coverage_percentage"] = coverage
+            self._update_tag_stats(total_nodes)
 
             # Update monitor with actual export time
             monitor.data.export_time = export_time
@@ -493,6 +489,18 @@ class HTPExporter:
             )
             return contextlib.nullcontext()
 
+    def _update_tag_stats(self, total_nodes: int) -> None:
+        """Update tagged_nodes and coverage_percentage in export stats.
+
+        Centralises the embed-aware calculation so _apply_hierarchy_tags and
+        the final stats block in export() always stay in sync.
+        """
+        embedded_count = len(self._tagged_nodes) if self.embed_hierarchy_attributes else 0
+        self._export_stats["tagged_nodes"] = embedded_count
+        self._export_stats["coverage_percentage"] = (
+            embedded_count / total_nodes * 100.0 if total_nodes > 0 else 0.0
+        )
+
     def _initialize_node_tagger(self, enable_operation_fallback: bool) -> None:
         """Create node tagger internally."""
         self._node_tagger = create_node_tagger_from_hierarchy(
@@ -510,20 +518,15 @@ class HTPExporter:
         self._tagging_stats = stats
 
         # Update export stats
-        self._export_stats["onnx_nodes"] = len(onnx_model.graph.node)
-        self._export_stats["tagged_nodes"] = len(self._tagged_nodes)
+        total_nodes = len(onnx_model.graph.node)
+        self._export_stats["onnx_nodes"] = total_nodes
+        self._update_tag_stats(total_nodes)
 
         # Calculate empty tags (should be 0 with our implementation)
         empty_tag_count = sum(
             1 for tag in self._tagged_nodes.values() if not tag or not tag.strip()
         )
         self._export_stats["empty_tags"] = empty_tag_count
-
-        # Calculate coverage percentage
-        total_nodes = len(onnx_model.graph.node)
-        tagged_nodes = len(self._tagged_nodes)
-        coverage = (tagged_nodes / total_nodes * 100.0) if total_nodes > 0 else 0.0
-        self._export_stats["coverage_percentage"] = coverage
 
     def _embed_graph_metadata(
         self, onnx_model: onnx.ModelProto, export_config: WinMLExportConfig
