@@ -26,6 +26,7 @@ import click
 from rich.console import Console
 
 from ..config.precision import _DEVICE_TO_PROVIDER, VALID_EPS
+from ..onnx import is_compiled_onnx
 from ..utils.logging import configure_logging
 
 
@@ -158,6 +159,12 @@ def compile(
     # Validate model is provided when not listing
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
+
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is already a compiled EPContext model and cannot be re-compiled. "
+            "Run 'winml compile' on the original ONNX model."
+        )
 
     # Import compiler (late import to speed up CLI)
     from ..compiler import WinMLCompileConfig, compile_onnx
