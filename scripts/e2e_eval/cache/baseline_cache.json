@@ -479,7 +479,7 @@
     "elapsed": 85.0,
     "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch32 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
   },
-  "distilbert/distilbert-base-cased-distilled-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "distilbert/distilbert-base-cased-distilled-squad|question-answering|rajpurkar/squad||validation|1000": {
     "status": "PASS",
     "metric": {
       "metric": "f1",
@@ -578,5 +578,85 @@
     },
     "elapsed": 449.7,
     "command": "python.exe run_pytorch_baseline.py --model swin-large-patch4-window7-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "google-bert/bert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 4.2618,
+      "num_samples": 100
+    },
+    "elapsed": 123.6,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.7072,
+      "num_samples": 100
+    },
+    "elapsed": 285.9,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-base --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.481,
+      "num_samples": 100
+    },
+    "elapsed": 380.7,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-large --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.6013,
+      "num_samples": 100
+    },
+    "elapsed": 145.0,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-base --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "distilbert/distilbert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.7997,
+      "num_samples": 100
+    },
+    "elapsed": 156.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.4975,
+      "num_samples": 100
+    },
+    "elapsed": 572.7,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.4946,
+      "num_samples": 100
+    },
+    "elapsed": 170.4,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-cased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.6335,
+      "num_samples": 100
+    },
+    "elapsed": 181.7,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-cased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
   }
 }

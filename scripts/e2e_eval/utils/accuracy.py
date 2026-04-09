@@ -44,6 +44,7 @@ class AccuracyVerdict(str, Enum):
 #                   False = smaller value is better (WER, loss)
 METRIC_COMPARE_STRATEGY: dict[str, tuple[str, float, float, bool]] = {
     "cosine_spearman": ("delta_absolute", 2.0, 4.0, True),
+    "cross_entropy": ("delta_relative", 0.05, 0.10, False),
     "default": ("delta_relative", 0.05, 0.10, True), # 5% and 10%
 }
 
