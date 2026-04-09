@@ -25,6 +25,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from ..onnx import is_compiled_onnx
 from ..utils.logging import configure_logging
 
 
@@ -140,6 +141,12 @@ def quantize(
         verbose = True
 
     configure_logging(verbose=verbose)
+
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is a compiled EPContext model and cannot be quantized. "
+            "Run 'winml quantize' on the original ONNX model before compilation."
+        )
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx

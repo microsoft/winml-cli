@@ -116,7 +116,6 @@ class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
                 total = len(self.data) if hasattr(self.data, "__len__") else "?"
                 logger.info("Processed %d / %s samples...", i + 1, total)
 
-        logger.info("Computing Spearman correlation over %d pairs...", len(cosine_sims))
         return SpearmanCorrelationMetric().compute(cosine_sims, gt_scores)
 
     def _embed(self, text: str) -> np.ndarray:

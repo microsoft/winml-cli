@@ -26,6 +26,7 @@ import click
 from rich.console import Console
 
 from ..config.precision import _DEVICE_TO_PROVIDER, VALID_EPS
+from ..onnx import is_compiled_onnx
 from ..utils.logging import configure_logging
 
 
@@ -159,6 +160,12 @@ def compile(
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
 
+    if is_compiled_onnx(model):
+        raise click.ClickException(
+            f"{model} is already a compiled EPContext model and cannot be re-compiled. "
+            "Run 'winml compile' on the original ONNX model."
+        )
+
     # Import compiler (late import to speed up CLI)
     from ..compiler import WinMLCompileConfig, compile_onnx
 
@@ -199,6 +206,15 @@ def compile(
         result = compile_onnx(model, output_path=output_dir, config=config)
 
         if result.success:
+            if config.ep_config.enable_ep_context and not result.output_path:
+                console.print(
+                    "\n[bold yellow]Warning:[/bold yellow] Compilation finished "
+                    "but no output file was written to the output directory."
+                )
+                raise click.ClickException(
+                    "No output file produced. Check EP context support for "
+                    f"provider '{config.ep_config.provider}'."
+                )
             console.print("\n[bold green]Success![/bold green] Model compiled")
             if result.output_path:
                 console.print(f"[dim]Output: {result.output_path}[/dim]")
