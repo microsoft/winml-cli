@@ -24,18 +24,40 @@ Usage:
     result = compile_onnx("model.onnx", config)
 """
 
-from .compiler import Compiler, compile_onnx, list_compilers
 from .configs import (
     EPConfig,
     WinMLCompileConfig,
 )
 from .context import CompileContext
 from .result import CompileResult
-from .stages.compile import CompileStage
-from .stages.optimize import OptimizeStage
-from .stages.qformat import QFormatConvertStage
 from .transforms import clear_transforms, get_transforms_for_ep, register_transform
 from .utils import QDQ_OP_TYPES, needs_format_conversion
+
+
+def __getattr__(name: str):
+    """Lazy-load heavy symbols that pull in session/torch to speed up import."""
+    if name in {"Compiler", "compile_onnx", "list_compilers"}:
+        from .compiler import Compiler, compile_onnx, list_compilers
+
+        globals().update(
+            Compiler=Compiler, compile_onnx=compile_onnx, list_compilers=list_compilers
+        )
+        return globals()[name]
+
+    _stage_names = {"CompileStage", "OptimizeStage", "QFormatConvertStage"}
+    if name in _stage_names:
+        from .stages.compile import CompileStage
+        from .stages.optimize import OptimizeStage
+        from .stages.qformat import QFormatConvertStage
+
+        globals().update(
+            CompileStage=CompileStage,
+            OptimizeStage=OptimizeStage,
+            QFormatConvertStage=QFormatConvertStage,
+        )
+        return globals()[name]
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

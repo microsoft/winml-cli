@@ -17,15 +17,32 @@ from .config import (
     WinMLExportConfig,
     resolve_export_config,
 )
-from .io import (
-    MaxLengthTextInputGenerator,
-    ONNXConfigNotFoundError,
-    generate_dummy_inputs,
-    register_onnx_overwrite,
-    resolve_io_specs,
-)
-from .pytorch import export_pytorch
-from .pytorch import export_pytorch as export_onnx
+
+
+def __getattr__(name: str):
+    """Lazy-load heavy submodules to avoid importing optimum at startup."""
+    _io_names = {
+        "MaxLengthTextInputGenerator",
+        "ONNXConfigNotFoundError",
+        "generate_dummy_inputs",
+        "register_onnx_overwrite",
+        "resolve_io_specs",
+    }
+    if name in _io_names:
+        from . import io
+
+        resolved = getattr(io, name)
+        globals()[name] = resolved
+        return resolved
+
+    _pytorch_names = {"export_pytorch", "export_onnx"}
+    if name in _pytorch_names:
+        from .pytorch import export_pytorch
+
+        globals().update(export_pytorch=export_pytorch, export_onnx=export_pytorch)
+        return globals()[name]
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __version__ = "2.1.0"

@@ -142,6 +142,12 @@ class RuntimeChecker:
 
         return self._query
 
+    def get_shape_inferred_model_proto(self) -> onnx.ModelProto | None:
+        """Return the shape-inferred model proto from the cached query, if available."""
+        if self._query is not None:
+            return self._query.model_proto
+        return None
+
     def op_support(
         self,
         run_unknown_op: bool = True,

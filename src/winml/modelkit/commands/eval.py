@@ -53,10 +53,10 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--device",
-    type=click.Choice(["cpu", "gpu", "npu"], case_sensitive=False),
-    default="cpu",
+    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
+    default="auto",
     show_default=True,
-    help="Device to run on.",
+    help="Device to run on. 'auto' detects the best available device.",
 )
 @click.option(
     "--samples",
@@ -212,6 +212,9 @@ def eval(
 
     from ..datasets.config import DatasetConfig
     from ..eval import WinMLEvaluationConfig, evaluate
+    from ..sysinfo import resolve_device
+
+    resolved_device, _ = resolve_device(device)
 
     ds_config = DatasetConfig(
         path=dataset_path,
@@ -228,20 +231,23 @@ def eval(
         model_path=model_path,
         model_id=model_id,
         task=task,
-        device=device.lower(),
+        device=resolved_device,
         dataset=ds_config,
         output_path=output,
     )
 
     try:
         result = evaluate(config)
-        logger.info("Evaluation results: %s", result.to_dict())
+
+        from rich.console import Console
+        console = Console()
+        display_eval_report(result, console)
 
         if output is not None:
             output.parent.mkdir(parents=True, exist_ok=True)
             with output.open("w") as f:
                 json.dump(result.to_dict(), f, indent=2, default=_json_default)
-            logger.info("Results saved to: %s", output)
+            console.print(f"[green]Results saved to:[/green] {output}")
 
     except Exception as e:
         logger.exception("Evaluation failed")
@@ -259,6 +265,54 @@ def _json_default(obj: object) -> object:
     if isinstance(obj, np.ndarray):
         return obj.tolist()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def display_eval_report(result: object, console: object) -> None:
+    """Display evaluation results in formatted console output."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    cfg = result.config
+    ds = cfg.dataset
+    metrics = result.metrics
+
+    # Header
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold]Evaluation: {cfg.model_id}[/bold]",
+            border_style="blue",
+        )
+    )
+
+    # Info section
+    console.print()
+    console.print(f"[dim]Task:[/dim]       {cfg.task}")
+    console.print(f"[dim]Device:[/dim]     {cfg.device}")
+    console.print(f"[dim]Dataset:[/dim]    {ds.path}")
+    console.print(f"[dim]Samples:[/dim]    {ds.samples}")
+    if cfg.model_path:
+        console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
+
+    # Metrics table
+    console.print()
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            table.add_row(key, f"{value:.4f}")
+        elif isinstance(value, dict):
+            parts = []
+            for k, v in value.items():
+                parts.append(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}")
+            table.add_row(key, "  ".join(parts))
+        else:
+            table.add_row(key, str(value))
+
+    console.print(table)
+    console.print()
 
 
 def _print_schema(task: str, schema: list, indent: int = 0) -> None:

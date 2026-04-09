@@ -727,6 +727,7 @@ class ONNXStaticAnalyzer:
                     ep=current_ep,
                     model=onnx_model,
                     device=device_to_use,
+                    shape_inferred_model_proto=runtime_checker.get_shape_inferred_model_proto(),
                 )
                 information_list[current_ep] = engine.summary()  # Use EP name as key
 
