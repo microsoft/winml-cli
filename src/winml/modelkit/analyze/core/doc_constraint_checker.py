@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import onnx
 import pandas as pd
-from onnx import shape_inference
 
+from ...onnx import infer_onnx_shapes
 from ..doc_checker.mapping_checkers import get_qnn_op_for_onnx_node
 from ..doc_checker.shape_checker import ShapeConstraintChecker
 from ..models.runtime_checks import PatternAlternative, PatternRuntime, RuntimeTestResult
@@ -67,15 +67,26 @@ class DocConstraintChecker:
         # Add more checker functions here as they are implemented
     }
 
-    def __init__(self, model_proto: onnx.ModelProto, ep_name: str, device_type: str) -> None:
+    def __init__(
+        self,
+        model_proto: onnx.ModelProto,
+        ep_name: str,
+        device_type: str,
+        skip_shape_inference: bool = False,
+    ) -> None:
         """Initialize doc constraint checker.
 
         Args:
             model_proto: ONNX model proto
             ep_name: Execution provider name (e.g., "QNNExecutionProvider")
             device_type: Device type (e.g., "NPU")
+            skip_shape_inference: If True, assume model_proto already has shape
+                inference applied (avoids expensive redundant inference).
         """
-        self.model_proto = shape_inference.infer_shapes(model_proto)
+        if skip_shape_inference:
+            self.model_proto = model_proto
+        else:
+            self.model_proto = infer_onnx_shapes(model_proto)
         self.ep_name = ep_name
         self.device_type = device_type
         self.valueinfo = collect_valueinfo_dict(self.model_proto)

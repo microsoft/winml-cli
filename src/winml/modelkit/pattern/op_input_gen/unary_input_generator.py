@@ -302,6 +302,15 @@ class ReluInputGenerator(UnaryInputGenerator):
 
     op_name = "Relu"
 
+    def get_qdq_config(self):
+        """Return QDQ configuration for Relu operator inputs."""
+        # From p1 model MobileNet
+        return {
+            self.op_input_names[0]: QDQParameterConfig(
+                support_non_qdq=True, support_activation=True
+            ),
+        }
+
 
 @register_runtime_checker_op
 class RoundInputGenerator(UnaryInputGenerator):
