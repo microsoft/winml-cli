@@ -87,7 +87,7 @@ class T5DecoderWrapper(nn.Module):
     ``encoder_hidden_states``). ``KV_index = sequence_position`` holds, so
     T5's relative position bias computes correct distances.
 
-    The inference wrapper (WinMLModelForSeq2SeqLM) uses the same
+    The inference wrapper (WinMLT5Model) uses the same
     ``StaticCache`` class — it writes the single-token output KV back
     into the buffer via ``cache.update()`` before the next step.
     """

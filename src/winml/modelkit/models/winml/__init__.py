@@ -44,8 +44,6 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "token-classification": "WinMLModelForTokenClassification",
     "question-answering": "WinMLModelForQuestionAnswering",
     "text-generation": "WinMLModelForCausalLM",
-    # text2text-generation: Use WinMLModelForSeq2SeqLM.from_pretrained() directly.
-    # Individual encoder/decoder components built by WinMLAutoModel use GenericTask.
     "fill-mask": "WinMLModelForMaskedLM",
     "feature-extraction": "WinMLModelForFeatureExtraction",
     "sentence-similarity": "WinMLModelForFeatureExtraction",

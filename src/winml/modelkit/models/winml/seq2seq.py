@@ -137,25 +137,59 @@ class WinMLPipelineModel(PreTrainedModel):
     def from_pretrained(
         cls,
         model_id: str,
+        task: str,
         *,
         device: str = "cpu",
         use_cache: bool = True,
         force_rebuild: bool = False,
         **kwargs: Any,
     ) -> WinMLPipelineModel:
-        """Build all sub-components and return ready-to-use model."""
+        """Build all sub-components and return ready-to-use model.
+
+        When called on ``WinMLPipelineModel`` directly (not a subclass),
+        ``task`` is required to resolve the concrete class from
+        ``PIPELINE_MODEL_REGISTRY``.  When called on a registered subclass
+        (e.g., ``WinMLT5Model``), ``task`` is optional.
+
+        Args:
+            model_id: HuggingFace model ID or local path.
+            task: Pipeline task name (e.g., ``"translation"``,
+                ``"text-generation"``). Required when calling on the base
+                class; ignored when calling on a registered subclass.
+            device: Target device.
+            use_cache: Use persistent cache.
+            force_rebuild: Force rebuild even if cached.
+            **kwargs: Forwarded to ``WinMLAutoModel.from_pretrained()``.
+        """
         from transformers import AutoConfig
 
+        hf_config = AutoConfig.from_pretrained(model_id)
+        model_type = hf_config.model_type
+
+        if not cls._SUB_MODEL_CONFIG:
+            # Resolve concrete class from registry when called on the base class
+            resolved_cls = PIPELINE_MODEL_REGISTRY.get((model_type, task))
+            if resolved_cls is None:
+                raise ValueError(
+                    f"No pipeline model registered for ({model_type!r}, {task!r}). "
+                    f"Registered: {list(PIPELINE_MODEL_REGISTRY.keys())}"
+                )
+            return resolved_cls.from_pretrained(
+                model_id,
+                task,
+                device=device,
+                use_cache=use_cache,
+                force_rebuild=force_rebuild,
+                **kwargs,
+            )
         from ..auto import WinMLAutoModel
 
-        hf_config = AutoConfig.from_pretrained(model_id)
-
         sub_models: dict[str, Any] = {}
-        for name, task in cls._SUB_MODEL_CONFIG.items():
+        for name, component_task in cls._SUB_MODEL_CONFIG.items():
             logger.info("Building %s for %s...", name, model_id)
             sub_models[name] = WinMLAutoModel.from_pretrained(
                 model_id,
-                task=task,
+                task=component_task,
                 device=device,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
@@ -435,7 +469,3 @@ class WinMLT5Model(WinMLEncoderDecoderModel):
     @generation_config.setter
     def generation_config(self, value: Any) -> None:
         self._generation_config = value
-
-
-# Backward compat alias
-WinMLModelForSeq2SeqLM = WinMLT5Model
