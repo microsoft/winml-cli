@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import onnx
+
     from ..models.information import Action, Information
     from ..models.onnx_model import ONNXModel
     from ..models.runtime_checks import PatternRuntime
@@ -66,6 +68,7 @@ class InformationEngine:
         model: ONNXModel,
         device: str,
         rules_dir: Path | None = None,
+        shape_inferred_model_proto: onnx.ModelProto | None = None,
     ) -> None:
         """Initialize information engine.
 
@@ -77,6 +80,8 @@ class InformationEngine:
             model: Optional ONNX model for model-level validation.
                         If provided, model-level validation checks will be run.
             device: Device type (e.g., "NPU", "GPU", "CPU") for device-specific validation.
+            shape_inferred_model_proto: Pre-inferred model proto to avoid redundant
+                shape inference. If provided, DocConstraintChecker will reuse it.
 
         Implementation:
             - Stores operator and subgraph runtime results separately
@@ -128,10 +133,17 @@ class InformationEngine:
         try:
             from .doc_constraint_checker import DocConstraintChecker
 
-            # Get model proto from ONNXModel
-            model_proto = self._model.get_model()
+            # Prefer the pre-inferred model proto to avoid redundant shape inference
+            if shape_inferred_model_proto is not None:
+                model_proto = shape_inferred_model_proto
+                skip_inference = True
+            else:
+                model_proto = self._model.get_model()
+                skip_inference = False
 
-            self._doc_checker = DocConstraintChecker(model_proto, ep, self._device)
+            self._doc_checker = DocConstraintChecker(
+                model_proto, ep, self._device, skip_shape_inference=skip_inference
+            )
             logger.info(
                 "Initialized Doc Constraint Checker with %d operators",
                 len(self._doc_checker.get_operators_with_constraints()),
