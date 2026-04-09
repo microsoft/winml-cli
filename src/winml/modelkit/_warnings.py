@@ -56,9 +56,9 @@ def _configure() -> None:
         """
 
         _FALSE_POSITIVES = (
-            "is not supported for",
-            "Device set to use",
-            "Using a slow image processor",
+            "WinMLModel",  # False positive warning which says WinML is not native HF model class
+            "Device set to use",  # PyTorch tensor device, not ONNX device, suppress to avoid confusion
+            "Using a slow image processor",  # expected when using processor with pipeline.
         )
 
         def filter(self, record: logging.LogRecord) -> bool:
