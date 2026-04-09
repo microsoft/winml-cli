@@ -7,13 +7,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Any
 
 from .base_evaluator import WinMLEvaluator
 
 
 if TYPE_CHECKING:
     from transformers.pipelines.base import Pipeline
+
+logger = logging.getLogger(__name__)
 
 
 class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
@@ -60,3 +63,32 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
                 pipe._preprocess_params.setdefault("max_seq_len", max_length)
 
         return pipe
+
+    def compute(self) -> dict[str, Any]:
+        """Run QA evaluation with automatic SQuAD v2 detection.
+
+        Detects whether the dataset has unanswerable questions (SQuAD v2
+        format) and passes the correct metric and format flag to the HF
+        QuestionAnsweringEvaluator.
+        """
+        from evaluate import evaluator
+
+        logger.info("Running evaluation...")
+        task_evaluator = evaluator(self.config.task)
+
+        label_col = self.config.dataset.columns_mapping.get(
+            "label_column", "answers"
+        )
+        squad_v2 = task_evaluator.is_squad_v2_format(
+            self.data, label_column=label_col
+        )
+
+        kwargs: dict[str, Any] = {
+            "model_or_pipeline": self.pipe,
+            "data": self.data,
+            "metric": "squad_v2" if squad_v2 else "squad",
+            "squad_v2_format": squad_v2,
+            **self.config.dataset.columns_mapping,
+        }
+
+        return task_evaluator.compute(**kwargs)

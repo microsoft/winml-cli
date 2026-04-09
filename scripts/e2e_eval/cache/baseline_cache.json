@@ -478,5 +478,95 @@
     },
     "elapsed": 85.0,
     "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch32 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "distilbert/distilbert-base-cased-distilled-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 86.526843,
+      "num_samples": 1000
+    },
+    "elapsed": 133.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-cased-distilled-squad --task question-answering --device cpu --num-samples 1000 --dataset squad --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "distilbert/distilbert-base-uncased-distilled-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 86.242759,
+      "num_samples": 1000
+    },
+    "elapsed": 129.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased-distilled-squad --task question-answering --device cpu --num-samples 1000 --dataset squad --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 92.053349,
+      "num_samples": 1000
+    },
+    "elapsed": 692.0,
+    "command": "python.exe run_pytorch_baseline.py --model bert-large-uncased-whole-word-masking-finetuned-squad --task question-answering --device cpu --num-samples 1000 --dataset squad --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "deepset/roberta-base-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 83.346319,
+      "num_samples": 1000
+    },
+    "elapsed": 256.9,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-base-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "deepset/tinyroberta-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 81.874959,
+      "num_samples": 1000
+    },
+    "elapsed": 199.4,
+    "command": "python.exe run_pytorch_baseline.py --model tinyroberta-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "deepset/bert-large-uncased-whole-word-masking-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 84.404731,
+      "num_samples": 1000
+    },
+    "elapsed": 1580.5,
+    "command": "python.exe run_pytorch_baseline.py --model bert-large-uncased-whole-word-masking-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "monologg/koelectra-small-v2-distilled-korquad-384|question-answering|KorQuAD/squad_kor_v1||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 46.068571,
+      "num_samples": 1000
+    },
+    "elapsed": 280.0,
+    "command": "python.exe run_pytorch_baseline.py --model koelectra-small-v2-distilled-korquad-384 --task question-answering --device cpu --num-samples 1000 --dataset squad_kor_v1 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "timpal0l/mdeberta-v3-base-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 82.729949,
+      "num_samples": 1000
+    },
+    "elapsed": 603.3,
+    "command": "python.exe run_pytorch_baseline.py --model mdeberta-v3-base-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "ahotrod/electra_large_discriminator_squad2_512|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 90.953759,
+      "num_samples": 1000
+    },
+    "elapsed": 840.9,
+    "command": "python.exe run_pytorch_baseline.py --model electra_large_discriminator_squad2_512 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
   }
 }

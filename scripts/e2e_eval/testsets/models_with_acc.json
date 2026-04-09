@@ -1003,26 +1003,7 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "rajpurkar/squad",
-      "split": "validation",
-      "metric": "f1",
-      "wmk_metric_key": "f1",
-      "columns_mapping": {
-        "question_column": "question",
-        "context_column": "context",
-        "id_column": "id",
-        "label_column": "answers"
-      }
-    }
-  },
-  {
-    "hf_id": "tau/splinter-base",
-    "task": "question-answering",
-    "model_type": "splinter",
-    "group": "Top200",
-    "priority": "P1",
-    "dataset_config": {
-      "path": "rajpurkar/squad",
+      "path": "KorQuAD/squad_kor_v1",
       "split": "validation",
       "metric": "f1",
       "wmk_metric_key": "f1",
