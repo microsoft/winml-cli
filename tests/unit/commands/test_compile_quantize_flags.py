@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from winml.modelkit.commands.compile import _resolve_compile_provider
@@ -119,3 +121,35 @@ class TestResolveQuantTypes:
         w, a = _resolve_quant_types("fp16", None, None)
         assert w == "uint8"
         assert a == "uint8"
+
+
+# =============================================================================
+# BUG C: compile summary shows wrong Device when --ep overrides device
+# =============================================================================
+
+
+class TestCompileDeviceDisplayLabel:
+    """Bug C: Device label in compile summary must reflect the resolved EP, not the CLI default."""
+
+    def test_dml_ep_shows_gpu_device(self, tmp_path):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.compile import compile
+
+        model_file = tmp_path / "model.onnx"
+        model_file.write_bytes(b"fake")
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = None
+        mock_result.compile_time = None
+        mock_result.total_time = None
+
+        with (
+            patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
+            patch("winml.modelkit.compiler.WinMLCompileConfig"),
+        ):
+            result = CliRunner().invoke(compile, ["-m", str(model_file), "--ep", "dml"])
+
+        assert "Device: gpu" in result.output
+        assert "Device: npu" not in result.output
