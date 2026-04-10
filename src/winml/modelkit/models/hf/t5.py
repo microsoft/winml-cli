@@ -39,6 +39,7 @@ from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
 from ...export import register_onnx_overwrite
 from .kv_cache import CapturingStaticCache as _CapturingStaticCache
+from .kv_cache import PastKeyValueInputGenerator
 
 
 # =============================================================================
@@ -203,7 +204,7 @@ class T5DecoderBaseInputGenerator(DummyInputGenerator):
         self.batch_size = batch_size
         self.d_model = normalized_config.hidden_size
         self.enc_seq = getattr(normalized_config, "sequence_length", 16)
-        self.max_decode = getattr(normalized_config, "max_decode_length", 32)
+        self.max_cache_len = normalized_config.max_cache_len
         self.vocab_size = normalized_config.vocab_size
 
     def generate(
@@ -229,46 +230,10 @@ class T5DecoderBaseInputGenerator(DummyInputGenerator):
         if input_name == "attention_mask":
             return torch.ones(self.batch_size, self.enc_seq, dtype=torch.int64)
         if input_name == "decoder_attention_mask":
-            return torch.ones(self.batch_size, self.max_decode, dtype=torch.int64)
+            return torch.ones(self.batch_size, self.max_cache_len, dtype=torch.int64)
         if input_name == "cache_position":
             return torch.tensor([5], dtype=torch.int64)  # arbitrary position for tracing
         raise ValueError(f"Unknown input: {input_name}")
-
-
-class T5KVCacheInputGenerator(DummyInputGenerator):
-    """Generates KV cache tensors: past_{i}_key, past_{i}_value."""
-
-    SUPPORTED_INPUT_NAMES = ()  # dynamic — handled via supports()
-
-    def __init__(
-        self,
-        task: str,
-        normalized_config: NormalizedConfig,
-        batch_size: int = 1,
-        **kwargs: Any,
-    ) -> None:
-        self.batch_size = batch_size
-        self.num_layers = normalized_config.num_layers
-        self.num_heads = normalized_config.num_attention_heads
-        self.d_kv = getattr(normalized_config, "key_value_dim", 64)
-        self.max_decode = getattr(normalized_config, "max_decode_length", 32)
-        # Build supported names dynamically
-        self.SUPPORTED_INPUT_NAMES = tuple(
-            name for i in range(self.num_layers) for name in (f"past_{i}_key", f"past_{i}_value")
-        )
-
-    def generate(
-        self,
-        input_name: str,
-        framework: str = "pt",
-        int_dtype: str = "int64",
-        float_dtype: str = "fp32",
-    ) -> torch.Tensor:
-        return self.random_float_tensor(
-            (self.batch_size, self.num_heads, self.max_decode, self.d_kv),
-            framework=framework,
-            dtype=float_dtype,
-        )
 
 
 # =============================================================================
@@ -316,20 +281,22 @@ class T5DecoderIOConfig(OnnxConfig):
     Output present KV: new token only [batch, heads, 1, d_kv].
     """
 
-    # T5Config: d_model, num_layers, num_heads, d_kv, vocab_size.
+    # T5Config: d_model, num_layers, num_heads, d_kv, vocab_size, n_positions.
     # sequence_length uses Optimum default (16) — NOT n_positions (512, too large).
-    # max_decode_length is not in T5Config — defaults to 32 in the generator.
+    # head_dim maps to d_kv for PastKeyValueInputGenerator.
+    # max_cache_len maps to n_positions (decoder static buffer size).
     NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
         hidden_size="d_model",
         num_layers="num_layers",
         num_attention_heads="num_heads",
-        key_value_dim="d_kv",
+        head_dim="d_kv",
+        max_cache_len="n_positions",
         vocab_size="vocab_size",
         allow_new=True,
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (
         T5DecoderBaseInputGenerator,
-        T5KVCacheInputGenerator,
+        PastKeyValueInputGenerator,
     )
 
     @property

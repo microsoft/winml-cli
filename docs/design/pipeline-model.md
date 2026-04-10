@@ -106,10 +106,10 @@ winml build -c t5_decoder.json -m google-t5/t5-small -o output/decoder
 ### 3. Run translation pipeline
 
 ```python
-from winml.modelkit.models.winml.seq2seq import WinMLT5Model
+from winml.modelkit.models.winml.seq2seq import WinMLPipelineModel
 from transformers import AutoTokenizer, pipeline
 
-model = WinMLT5Model.from_pretrained("google-t5/t5-small")
+model = WinMLPipelineModel.from_pretrained("google-t5/t5-small", "translation")
 tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
 
 pipe = pipeline("translation_en_to_fr", model=model, tokenizer=tokenizer)
@@ -118,9 +118,10 @@ print(result[0]["translation_text"])
 # Bonjour, comment êtes-vous ?
 ```
 
-`from_pretrained` builds both ONNX sub-models via `WinMLAutoModel`, wraps
-them in `WinMLT5Model`, which plugs into HF `transformers.pipeline` as a
-drop-in replacement for `T5ForConditionalGeneration`.
+`from_pretrained` resolves the concrete class from `PIPELINE_MODEL_REGISTRY`,
+builds both ONNX sub-models via `WinMLAutoModel`, and returns a model that
+plugs into HF `transformers.pipeline` as a drop-in replacement for
+`T5ForConditionalGeneration`.
 
 ## Open Questions
 

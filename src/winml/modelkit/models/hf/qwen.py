@@ -85,6 +85,7 @@ from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...export.config import WinMLExportConfig
 from .kv_cache import CapturingStaticCache as _CapturingStaticCache
+from .kv_cache import PastKeyValueInputGenerator
 
 
 # =============================================================================
@@ -188,7 +189,6 @@ class QwenBaseInputGenerator(DummyInputGenerator):
 
     # Subclasses override seq_len for prefill (64) vs gen (1).
     seq_len: int = 64
-    max_cache_len: int = 256
 
     def __init__(
         self,
@@ -199,6 +199,7 @@ class QwenBaseInputGenerator(DummyInputGenerator):
     ) -> None:
         self.batch_size = batch_size
         self.vocab_size = normalized_config.vocab_size
+        self.max_cache_len = normalized_config.max_cache_len
 
     def generate(
         self,
@@ -231,42 +232,6 @@ class QwenGenBaseInputGenerator(QwenBaseInputGenerator):
     seq_len: int = 1
 
 
-class QwenKVCacheInputGenerator(DummyInputGenerator):
-    """Generates KV cache tensors: past_{i}_key, past_{i}_value."""
-
-    SUPPORTED_INPUT_NAMES = ()  # dynamic — handled via supports()
-
-    max_cache_len: int = 256
-
-    def __init__(
-        self,
-        task: str,
-        normalized_config: NormalizedConfig,
-        batch_size: int = 1,
-        **kwargs: Any,
-    ) -> None:
-        self.batch_size = batch_size
-        self.num_layers = normalized_config.num_layers
-        self.num_kv_heads = normalized_config.num_attention_heads  # GQA: uses num_key_value_heads
-        self.head_dim = getattr(normalized_config, "head_dim", 128)
-        self.SUPPORTED_INPUT_NAMES = tuple(
-            name for i in range(self.num_layers) for name in (f"past_{i}_key", f"past_{i}_value")
-        )
-
-    def generate(
-        self,
-        input_name: str,
-        framework: str = "pt",
-        int_dtype: str = "int64",
-        float_dtype: str = "fp32",
-    ) -> torch.Tensor:
-        return self.random_float_tensor(
-            (self.batch_size, self.num_kv_heads, self.max_cache_len, self.head_dim),
-            framework=framework,
-            dtype=float_dtype,
-        )
-
-
 # =============================================================================
 # OnnxConfig Registrations (using standard Optimum task names)
 # =============================================================================
@@ -276,6 +241,7 @@ _QWEN_NORMALIZED = NormalizedConfig.with_args(
     num_layers="num_hidden_layers",
     num_attention_heads="num_key_value_heads",  # KV cache uses GQA heads
     head_dim="head_dim",
+    max_cache_len="max_position_embeddings",
     vocab_size="vocab_size",
     allow_new=True,
 )
@@ -312,7 +278,7 @@ class QwenPrefillIOConfig(OnnxConfig):
     """
 
     NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
-    DUMMY_INPUT_GENERATOR_CLASSES = (QwenBaseInputGenerator, QwenKVCacheInputGenerator)
+    DUMMY_INPUT_GENERATOR_CLASSES = (QwenBaseInputGenerator, PastKeyValueInputGenerator)
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
@@ -333,7 +299,7 @@ class QwenGenIOConfig(OnnxConfig):
     """
 
     NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
-    DUMMY_INPUT_GENERATOR_CLASSES = (QwenGenBaseInputGenerator, QwenKVCacheInputGenerator)
+    DUMMY_INPUT_GENERATOR_CLASSES = (QwenGenBaseInputGenerator, PastKeyValueInputGenerator)
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
