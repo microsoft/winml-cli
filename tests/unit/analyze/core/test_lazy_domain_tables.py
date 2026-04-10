@@ -53,6 +53,11 @@ RAW_DATA = {
 }
 
 FILE_NAME = "tables.json"
+COLUMN_FILE_NAME = "table_columns.json"
+RAW_COLUMNS = {
+    op_name: [col_name for col_name in table_payload if col_name != "compile_run_success"]
+    for op_name, table_payload in RAW_DATA.items()
+}
 
 
 @pytest.fixture
@@ -61,12 +66,13 @@ def zip_path(tmp_path: Path) -> Path:
     zp = tmp_path / "rules.zip"
     with zipfile.ZipFile(zp, "w") as zf:
         zf.writestr(FILE_NAME, json.dumps(RAW_DATA))
+        zf.writestr(COLUMN_FILE_NAME, json.dumps(RAW_COLUMNS))
     return zp
 
 
 @pytest.fixture
 def tables(zip_path: Path) -> LazyDomainTables:
-    return LazyDomainTables(zip_path, FILE_NAME)
+    return LazyDomainTables(zip_path, FILE_NAME, columns_file_name=COLUMN_FILE_NAME)
 
 
 class TestLazyDomainTablesCore:
@@ -145,6 +151,27 @@ class TestLazyDomainTablesMethods:
         first = tables.get("Conv")
         second = tables.get("Conv")
         assert first is second
+
+    def test_get_columns_from_metadata(self, tables: LazyDomainTables):
+        """get_columns() returns metadata-backed column order when available."""
+        assert tables.get_columns("Conv") == RAW_COLUMNS["Conv"]
+
+    def test_get_columns_after_table_load(self, tables: LazyDomainTables):
+        """get_columns() returns DataFrame columns for loaded operators."""
+        _ = tables["Conv"]
+        assert tables.get_columns("Conv") == tables["Conv"].columns.to_list()
+
+    def test_get_columns_missing_operator(self, tables: LazyDomainTables):
+        """get_columns() returns None for unknown operators."""
+        assert tables.get_columns("Relu") is None
+
+    def test_get_columns_fallback_without_metadata(self, zip_path: Path):
+        """get_columns() falls back to raw table payload if metadata file is absent."""
+        tables_without_columns = LazyDomainTables(zip_path, FILE_NAME, "missing_columns.json")
+        assert tables_without_columns.get_columns("Add") == [
+            "A_shape",
+            "B_shape",
+        ]
 
 
 class TestLazyDomainTablesErrors:

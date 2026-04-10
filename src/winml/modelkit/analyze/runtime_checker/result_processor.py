@@ -470,6 +470,27 @@ def build_op_query_negative_rules_and_table(
     return negative_rules_dict, export_df
 
 
+def _extract_op_table_columns(op_tables: dict[str, Any]) -> dict[str, list[str]]:
+    """Extract table column names for each operator.
+
+    Args:
+        op_tables: Dict mapping op name to table JSON payload (DataFrame.to_dict output)
+
+    Returns:
+        Dict mapping op name to ordered column name list, excluding
+        compile_run_success because it is a result field, not a query key.
+    """
+    op_columns: dict[str, list[str]] = {}
+    for op_name, table_payload in op_tables.items():
+        if isinstance(table_payload, dict):
+            op_columns[op_name] = [
+                col_name for col_name in table_payload if col_name != "compile_run_success"
+            ]
+        else:
+            op_columns[op_name] = []
+    return op_columns
+
+
 def _parse_filename(filename: str) -> tuple[str, str, str, str, int, bool]:
     """Parse operator name, EP name, domain, opset, and QDQ flag from filename.
 
@@ -661,9 +682,11 @@ if __name__ == "__main__":
             print(f"{'=' * 60}")
 
         # Group results by (EP, device, domain, opset, is_qdq)
-        _key_type = tuple[str, str, str, int, bool]
-        results_by_ep_domain_opset: dict[_key_type, dict[str, Any]] = {}
-        tables_by_ep_domain_opset: dict[_key_type, dict[str, Any]] = {}
+        results_by_ep_domain_opset: dict[tuple[str, str, str, int, bool], dict[str, Any]] = {}
+        tables_by_ep_domain_opset: dict[tuple[str, str, str, int, bool], dict[str, Any]] = {}
+        table_columns_by_ep_domain_opset: dict[
+            tuple[str, str, str, int, bool], dict[str, list[str]]
+        ] = {}
 
         for op_name, ep_name, device, is_qdq in sorted(op_info_set):
             # Get the since_version for this operator based on
@@ -738,11 +761,13 @@ if __name__ == "__main__":
                 if key not in results_by_ep_domain_opset:
                     results_by_ep_domain_opset[key] = {}
                     tables_by_ep_domain_opset[key] = {}
+                    table_columns_by_ep_domain_opset[key] = {}
 
                 results_by_ep_domain_opset[key][op_name] = op_negative_rules
 
                 # Convert DataFrame to JSON-serializable format
                 tables_by_ep_domain_opset[key][op_name] = df.to_dict()
+                table_columns_by_ep_domain_opset[key][op_name] = df.columns.to_list()
 
                 print(f"OK ({len(check_results)} results)")
 
@@ -797,17 +822,40 @@ if __name__ == "__main__":
             print(f"Saved {len(op_tables)} operator tables to {output_file}")
             zip_group.setdefault(f"{ep_name}_{device}", []).append(output_file)
 
+        # Save table column names
+        for (
+            ep_name,
+            device,
+            op_domain,
+            opset_version,
+            is_qdq,
+        ), op_tables in tables_by_ep_domain_opset.items():
+            domain_str = op_domain if op_domain else "ai.onnx"
+            qdq_suffix = "_qdq" if is_qdq else ""
+            output_file = output_dir / (
+                f"{ep_name}_{device}_{domain_str}"
+                f"_opset{opset_version}_table_columns{qdq_suffix}.json"
+            )
+
+            op_columns = _extract_op_table_columns(op_tables)
+            with open(output_file, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
+                json.dump(dict(sorted(op_columns.items())), f, indent=2)
+
+            print(f"Saved {len(op_columns)} operator table column sets to {output_file}")
+            zip_group.setdefault(f"{ep_name}_{device}", []).append(output_file)
+
         print(
             f"\nProcessing complete! Generated "
             f"{len(results_by_ep_domain_opset)} "
             f"negative rule file(s) "
-            f"and {len(tables_by_ep_domain_opset)} table file(s)."
+            f"and {len(tables_by_ep_domain_opset)} table file(s), "
+            f"plus {len(table_columns_by_ep_domain_opset)} table-column file(s)."
         )
 
         if args.update_zip:
             for group_name, file_list in zip_group.items():
-                rule_zip_path = Path(__file__).parent.joinpath(
-                    f"../rules/runtime_check_rules/{group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip"
+                rule_zip_path = input_dir.parent.joinpath(
+                    f"rules/{group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip"
                 )
 
                 # In append mode, load existing zip entries to preserve files not being updated
