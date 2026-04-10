@@ -27,7 +27,6 @@ Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/op_check_results/rules/
 Set `MODELKIT_RULES_DIR` to one or more directories containing runtime rule zip files.
 
 - Windows (PowerShell): `$env:MODELKIT_RULES_DIR="D:\\rules;E:\\more_rules"`
-- Linux/macOS (bash/zsh): `export MODELKIT_RULES_DIR="/opt/rules:/data/more_rules"`
 
 Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
 
