@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 
 from winml.modelkit.analyze import IHVType, RuleLoader
+from winml.modelkit.analyze.utils import get_runtime_rules_search_dirs, resolve_rule_zip_path
+from winml.modelkit.analyze.utils.rule_loader import _DEFAULT_RUNTIME_RULES_DIR
 
 
 class TestRuleLoaderBasicLoading:
@@ -452,8 +454,6 @@ class TestResolveRuleZipPath:
 
     def test_default_search_dir_included(self, monkeypatch):
         """Default embedded dir is always in the search list."""
-        from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
-
         monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) >= 1
@@ -461,8 +461,6 @@ class TestResolveRuleZipPath:
 
     def test_env_var_adds_dirs(self, monkeypatch):
         """MODELKIT_RULES_DIR adds extra search directories."""
-        from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
-
         monkeypatch.setenv("MODELKIT_RULES_DIR", f"/extra/path1{os.pathsep}/extra/path2")
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) == 3
@@ -472,16 +470,12 @@ class TestResolveRuleZipPath:
 
     def test_env_var_empty_ignored(self, monkeypatch):
         """Empty MODELKIT_RULES_DIR is treated as unset."""
-        from winml.modelkit.analyze.utils.rule_loader import get_runtime_rules_search_dirs
-
         monkeypatch.setenv("MODELKIT_RULES_DIR", "  ")
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) == 1
 
     def test_resolve_finds_file_in_env_dir(self, monkeypatch):
         """resolve_rule_zip_path finds a zip in an env var directory."""
-        from winml.modelkit.analyze.utils.rule_loader import resolve_rule_zip_path
-
         with tempfile.TemporaryDirectory() as tmpdir:
             zip_name = "QNN_NPU_ai_onnx_opset13.zip"
             (Path(tmpdir) / zip_name).write_bytes(b"PK")
@@ -493,19 +487,12 @@ class TestResolveRuleZipPath:
 
     def test_resolve_fallback_to_default(self, monkeypatch):
         """When no directory has the file, returns the default path."""
-        from winml.modelkit.analyze.utils.rule_loader import (
-            _DEFAULT_RUNTIME_RULES_DIR,
-            resolve_rule_zip_path,
-        )
-
         monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
         result = resolve_rule_zip_path("nonexistent_file.zip")
         assert result == _DEFAULT_RUNTIME_RULES_DIR / "nonexistent_file.zip"
 
     def test_resolve_prefers_env_over_default(self, monkeypatch):
         """Env var dirs are searched first (before default dir)."""
-        from winml.modelkit.analyze.utils.rule_loader import resolve_rule_zip_path
-
         zip_name = "test_priority.zip"
 
         with tempfile.TemporaryDirectory() as tmpdir:
