@@ -62,6 +62,26 @@ class ONNXConfigNotFoundError(ValueError):
 register_onnx_overwrite = TasksManager.create_register("onnx", overwrite_existing=True)
 
 
+_hf_models_registered = False
+
+
+def ensure_hf_models_registered() -> None:
+    """Trigger HF model ONNX config registrations (idempotent).
+
+    With lazy loading in ``modelkit/__init__.py``, the HF model files
+    (bert.py, clip.py, etc.) and their ``@register_onnx_overwrite``
+    decorators are not executed until explicitly imported. This function
+    forces that import so registrations are in place before any
+    ``TasksManager.get_exporter_config_constructor()`` call.
+    """
+    global _hf_models_registered
+    if _hf_models_registered:
+        return
+    from ..models import hf as _hf  # noqa: F401
+
+    _hf_models_registered = True
+
+
 # =============================================================================
 # Task Synonym Extensions (extends Optimum's TasksManager.map_from_synonym)
 # =============================================================================
@@ -190,6 +210,8 @@ def _get_onnx_config(
     Raises:
         ValueError: If no OnnxConfig is registered for the model_type/task combination
     """
+    ensure_hf_models_registered()
+
     normalized_task = _map_task_synonym(task)
 
     logger.debug(

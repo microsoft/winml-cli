@@ -33,9 +33,6 @@ from ...optim import WinMLOptimizationConfig
 
 BERT_CONFIG = WinMLBuildConfig(
     optim=WinMLOptimizationConfig(
-        gelu_fusion=True,
-        layer_norm_fusion=True,
-        matmul_add_fusion=True,
         clamp_constant_values=True,
     ),
 )
