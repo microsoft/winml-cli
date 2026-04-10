@@ -3,29 +3,28 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Fill-mask evaluator using pseudo-perplexity and top-k accuracy.
+"""Fill-mask evaluator using standard MLM loss (cross-entropy on masked tokens).
 
 Evaluates masked language models (BERT, RoBERTa, etc.) by:
   1. Tokenizing each text sample.
-  2. For each eligible (non-special) token position, creating a masked copy.
-  3. Running the fill-mask pipeline on the masked text.
-  4. Checking whether the original token appears in the top-k predictions
-     and recording its probability.
-  5. Aggregating into pseudo-perplexity and top-k accuracy.
+  2. Randomly masking 15% of tokens (standard MLM protocol via
+     DataCollatorForLanguageModeling).
+  3. Running a single forward pass to get logits.
+  4. Computing cross-entropy loss on the masked positions only.
+  5. Aggregating into mean cross-entropy and perplexity.
 
-Pipeline output contract (HF fill-mask):
-    pipe("The [MASK] of France") -> [
-        {"score": 0.42, "token": 3000, "token_str": "capital", "sequence": "..."},
-        ...
-    ]
+This follows the standard HF Trainer MLM evaluation methodology:
+    perplexity = exp(mean_cross_entropy)
 """
 
 from __future__ import annotations
 
 import logging
 import math
-import random
 from typing import TYPE_CHECKING, Any
+
+import torch
+import torch.nn.functional as F
 
 from .base_evaluator import WinMLEvaluator
 
@@ -40,14 +39,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Maximum number of token positions to mask per sample to keep runtime bounded.
-_MAX_MASKS_PER_SAMPLE = 10
+# Standard MLM masking probability (BERT paper convention).
+_MLM_PROBABILITY = 0.15
 
 
 class WinMLFillMaskEvaluator(WinMLEvaluator):
     """Evaluator for fill-mask (masked language modeling) tasks.
 
-    Reports pseudo-perplexity, accuracy@1, and accuracy@5.
+    Uses standard MLM evaluation: 15% random masking with cross-entropy loss.
+    Reports cross_entropy (mean NLL) and perplexity = exp(cross_entropy).
     """
 
     @classmethod
@@ -60,7 +60,7 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
                 "text",
                 "Value(string)",
                 "input_column",
-                description="text to evaluate (tokens will be masked one-by-one)",
+                description="text to evaluate (tokens will be randomly masked)",
             ),
         ]
 
@@ -75,8 +75,8 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
     def prepare_pipeline(self) -> Pipeline:
         """Create fill-mask pipeline with tokenizer padding for fixed-shape ONNX.
 
-        FillMaskPipeline passes tokenizer args via ``tokenizer_kwargs``
-        (unlike text-classification which uses top-level preprocess params).
+        The pipeline is used to access the tokenizer; the compute() method
+        calls the model directly for MLM loss evaluation.
         """
         pipe = super().prepare_pipeline()
 
@@ -96,106 +96,135 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         """No-op: fill-mask has no class labels to align."""
         return dataset
 
+    def _get_max_length(self) -> int | None:
+        """Get fixed sequence length from ONNX model, or None for dynamic."""
+        io_config = getattr(self.model, "io_config", None) or {}
+        shapes = io_config.get("input_shapes", [[]])
+        if shapes and len(shapes[0]) > 1 and isinstance(shapes[0][1], int):
+            return shapes[0][1]
+        return None
+
+    def _extract_logits(self, outputs: Any) -> torch.Tensor:
+        """Extract logits tensor from model output (dict or HF dataclass)."""
+        if isinstance(outputs, dict):
+            if "logits" in outputs:
+                return outputs["logits"]
+            return next(iter(outputs.values()))
+        return outputs.logits
+
     def compute(self) -> dict[str, Any]:
-        """Run fill-mask evaluation and return pseudo-perplexity + accuracy."""
-        from .metrics.pseudo_perplexity import PseudoPerplexityMetric
+        """Run standard MLM evaluation: 15% masking + cross-entropy loss."""
+        from transformers import DataCollatorForLanguageModeling
 
         tokenizer = self.pipe.tokenizer
         if tokenizer is None:
             raise RuntimeError("Fill-mask evaluation requires a tokenizer.")
 
-        mask_token = tokenizer.mask_token
-        mask_token_id = tokenizer.mask_token_id
-        if mask_token is None or mask_token_id is None:
+        if tokenizer.mask_token_id is None:
             raise RuntimeError(
                 f"Tokenizer for {self.config.model_id} has no mask token."
             )
 
-        special_ids = set(tokenizer.all_special_ids)
-        top_k = 5
+        # Ensure pad token is set (needed for DataCollator)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token or tokenizer.mask_token
 
-        neg_log_likelihoods: list[float] = []
-        top1_hits: list[bool] = []
-        top5_hits: list[bool] = []
+        data_collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm=True,
+            mlm_probability=_MLM_PROBABILITY,
+        )
 
-        rng = random.Random(42)
+        max_length = self._get_max_length()
+        total_loss = 0.0
+        total_masked_tokens = 0
 
         for i, sample in enumerate(self.data):
             text = sample[self._input_col]
             if not text or not text.strip():
                 continue
 
-            encoding = tokenizer(
-                text, truncation=True, return_offsets_mapping=True, add_special_tokens=True,
-            )
-            input_ids = encoding["input_ids"]
-            offsets = encoding.get("offset_mapping", [])
+            # Tokenize with optional fixed-length padding for ONNX models
+            tok_kwargs: dict[str, Any] = {
+                "truncation": True,
+                "return_tensors": "pt",
+            }
+            if max_length is not None:
+                tok_kwargs["padding"] = "max_length"
+                tok_kwargs["max_length"] = max_length
+            else:
+                tok_kwargs["padding"] = False
 
-            # Find maskable positions (non-special tokens)
-            maskable = [
-                idx for idx, tid in enumerate(input_ids)
-                if tid not in special_ids and idx < len(offsets) and offsets[idx] != (0, 0)
-            ]
+            encoding = tokenizer(text, **tok_kwargs)
+            input_ids = encoding["input_ids"]  # [1, seq_len]
 
-            if not maskable:
+            # Skip samples that are too short (only special tokens)
+            non_special = (input_ids[0] != tokenizer.pad_token_id).sum().item()
+            if non_special < 3:
                 continue
 
-            # Sample positions to keep runtime bounded
-            if len(maskable) > _MAX_MASKS_PER_SAMPLE:
-                maskable = rng.sample(maskable, _MAX_MASKS_PER_SAMPLE)
+            # Apply standard 15% MLM masking via DataCollator
+            # DataCollator expects list of dicts with "input_ids" key
+            batch = data_collator([{"input_ids": input_ids.squeeze(0)}])
+            masked_input_ids = batch["input_ids"]  # [1, seq_len]
+            labels = batch["labels"]  # [1, seq_len], -100 for non-masked
 
-            for pos in maskable:
-                original_token_id = input_ids[pos]
-                # Build masked text by replacing the token span with mask_token
-                start, end = offsets[pos]
-                masked_text = text[:start] + mask_token + text[end:]
-
-                try:
-                    predictions = self.pipe(masked_text, top_k=top_k)
-                except Exception:
-                    logger.debug("Pipeline failed for sample %d pos %d, skipping.", i, pos)
-                    continue
-
-                if not predictions:
-                    continue
-
-                # Check top-1 and top-k accuracy
-                pred_tokens = [p["token"] for p in predictions]
-                top1_hits.append(pred_tokens[0] == original_token_id)
-                top5_hits.append(original_token_id in pred_tokens)
-
-                # Find score for original token; if not in top-k, use a floor
-                score = None
-                for p in predictions:
-                    if p["token"] == original_token_id:
-                        score = p["score"]
-                        break
-
-                if score is not None and score > 0:
-                    neg_log_likelihoods.append(-math.log(score))
+            # Build model inputs: start from tokenizer outputs, replace input_ids
+            # with masked version. This preserves token_type_ids, attention_mask, etc.
+            model_inputs = {k: v for k, v in encoding.items() if isinstance(v, torch.Tensor)}
+            model_inputs["input_ids"] = masked_input_ids
+            if "attention_mask" not in model_inputs:
+                if max_length is not None:
+                    model_inputs["attention_mask"] = (masked_input_ids != tokenizer.pad_token_id).long()
                 else:
-                    # Token not in top-k: use last prediction's score as upper bound
-                    floor_score = predictions[-1]["score"] if predictions else 1e-9
-                    neg_log_likelihoods.append(-math.log(max(floor_score, 1e-9)))
+                    model_inputs["attention_mask"] = torch.ones_like(masked_input_ids)
 
-            if (i + 1) % 5 == 0:
+            # Forward pass — no grad needed for evaluation
+            with torch.no_grad():
+                outputs = self.model(**model_inputs)
+
+            logits = self._extract_logits(outputs)  # [1, seq_len, vocab_size]
+
+            # Compute CE loss only on masked positions (where labels != -100)
+            mask = labels[0] != -100
+            n_masked = mask.sum().item()
+            if n_masked == 0:
+                continue
+
+            masked_logits = logits[0][mask]  # [n_masked, vocab_size]
+            masked_labels = labels[0][mask]  # [n_masked]
+            loss = F.cross_entropy(masked_logits, masked_labels, reduction="sum")
+
+            total_loss += loss.item()
+            total_masked_tokens += n_masked
+
+            if (i + 1) % 50 == 0:
                 total = len(self.data) if hasattr(self.data, "__len__") else "?"
+                running_ce = total_loss / total_masked_tokens if total_masked_tokens else 0
                 logger.info(
-                    "Processed %d / %s samples (%d mask positions so far)...",
+                    "Processed %d / %s samples (%d masked tokens, running CE=%.4f)...",
                     i + 1,
                     total,
-                    len(neg_log_likelihoods),
+                    total_masked_tokens,
+                    running_ce,
                 )
 
-        if not neg_log_likelihoods:
-            raise ValueError("No valid mask positions found in dataset.")
+        if total_masked_tokens == 0:
+            raise ValueError("No masked tokens found in dataset.")
+
+        mean_ce = total_loss / total_masked_tokens
+        perplexity = math.exp(mean_ce)
 
         logger.info(
-            "Fill-mask evaluation complete: %d mask positions across %d samples.",
-            len(neg_log_likelihoods),
+            "Fill-mask evaluation complete: %d masked tokens across %d samples. "
+            "CE=%.4f, PPL=%.4f",
+            total_masked_tokens,
             len(self.data) if hasattr(self.data, "__len__") else -1,
+            mean_ce,
+            perplexity,
         )
 
-        return PseudoPerplexityMetric().compute(
-            neg_log_likelihoods, top1_hits, top5_hits,
-        )
+        return {
+            "cross_entropy": round(mean_ce, 4),
+            "perplexity": round(perplexity, 4),
+        }

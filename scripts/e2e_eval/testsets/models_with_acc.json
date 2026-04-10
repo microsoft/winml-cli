@@ -1028,9 +1028,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1046,9 +1044,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1064,9 +1060,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1082,9 +1076,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1100,9 +1092,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1118,9 +1108,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1136,9 +1124,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   },
   {
@@ -1154,9 +1140,7 @@
       "metric": "cross_entropy",
       "columns_mapping": {
         "input_column": "text"
-      },
-      "streaming": true,
-      "samples": 100
+      }
     }
   }
 ]
