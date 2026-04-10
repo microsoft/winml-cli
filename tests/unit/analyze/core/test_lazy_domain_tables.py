@@ -171,6 +171,7 @@ class TestLazyDomainTablesMethods:
         assert tables_without_columns.get_columns("Add") == [
             "A_shape",
             "B_shape",
+            "compile_run_success",
         ]
 
 
