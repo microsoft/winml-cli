@@ -17,6 +17,7 @@ from .metrics.mean_average_precision import MAPMetric
 from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
 from .metrics.spearman_correlation import SpearmanCorrelationMetric
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
+from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
 
@@ -32,6 +33,7 @@ __all__ = [
     "WinMLFeatureExtractionEvaluator",
     "WinMLImageSegmentationEvaluator",
     "WinMLObjectDetectionEvaluator",
+    "WinMLQuestionAnsweringEvaluator",
     "WinMLTextClassificationEvaluator",
     "WinMLTokenClassificationEvaluator",
     "evaluate",
