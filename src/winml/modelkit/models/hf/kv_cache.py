@@ -71,13 +71,14 @@ class PastKeyValueInputGenerator(DummyInputGenerator):
         task: str,
         normalized_config: NormalizedConfig,
         batch_size: int = 1,
+        max_cache_len: int | None = None,
         **kwargs: Any,
     ) -> None:
         self.batch_size = batch_size
         self.num_layers: int = normalized_config.num_layers
         self.num_heads: int = normalized_config.num_attention_heads
         self.head_dim: int = normalized_config.head_dim
-        self.max_cache_len: int = normalized_config.max_cache_len
+        self.max_cache_len: int = max_cache_len or normalized_config.max_cache_len
         self.SUPPORTED_INPUT_NAMES = tuple(
             name for i in range(self.num_layers) for name in (f"past_{i}_key", f"past_{i}_value")
         )

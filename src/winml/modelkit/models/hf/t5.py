@@ -24,20 +24,19 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 import torch.nn as nn
 from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import NormalizedConfig
-from optimum.utils.input_generators import (
-    DummyInputGenerator,
-    DummyTextInputGenerator,
-)
+from optimum.utils.input_generators import DummyTextInputGenerator
 from transformers import T5ForConditionalGeneration
 from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
 from ...export import register_onnx_overwrite
+from ..winml.pipeline_model import register_pipeline_model
+from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
 from .kv_cache import CapturingStaticCache as _CapturingStaticCache
 from .kv_cache import PastKeyValueInputGenerator
 
@@ -177,66 +176,6 @@ class T5DecoderWrapper(nn.Module):
 
 
 # =============================================================================
-# Custom DummyInputGenerators
-# =============================================================================
-
-
-class T5DecoderBaseInputGenerator(DummyInputGenerator):
-    """Generates decoder base inputs: decoder_input_ids, encoder_hidden_states,
-    attention_mask, decoder_attention_mask, cache_position.
-    """  # noqa: D205
-
-    SUPPORTED_INPUT_NAMES = (
-        "decoder_input_ids",
-        "encoder_hidden_states",
-        "attention_mask",
-        "decoder_attention_mask",
-        "cache_position",
-    )
-
-    def __init__(
-        self,
-        task: str,
-        normalized_config: NormalizedConfig,
-        batch_size: int = 1,
-        **kwargs: Any,
-    ) -> None:
-        self.batch_size = batch_size
-        self.d_model = normalized_config.hidden_size
-        self.enc_seq = getattr(normalized_config, "sequence_length", 16)
-        self.max_cache_len = normalized_config.max_cache_len
-        self.vocab_size = normalized_config.vocab_size
-
-    def generate(
-        self,
-        input_name: str,
-        framework: str = "pt",
-        int_dtype: str = "int64",
-        float_dtype: str = "fp32",
-    ) -> torch.Tensor:
-        if input_name == "decoder_input_ids":
-            return self.random_int_tensor(
-                (self.batch_size, 1),
-                max_value=self.vocab_size,
-                framework=framework,
-                dtype=int_dtype,
-            )
-        if input_name == "encoder_hidden_states":
-            return self.random_float_tensor(
-                (self.batch_size, self.enc_seq, self.d_model),
-                framework=framework,
-                dtype=float_dtype,
-            )
-        if input_name == "attention_mask":
-            return torch.ones(self.batch_size, self.enc_seq, dtype=torch.int64)
-        if input_name == "decoder_attention_mask":
-            return torch.ones(self.batch_size, self.max_cache_len, dtype=torch.int64)
-        if input_name == "cache_position":
-            return torch.tensor([5], dtype=torch.int64)  # arbitrary position for tracing
-        raise ValueError(f"Unknown input: {input_name}")
-
-
-# =============================================================================
 # OnnxConfig Registrations
 # =============================================================================
 
@@ -295,7 +234,7 @@ class T5DecoderIOConfig(OnnxConfig):
         allow_new=True,
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (
-        T5DecoderBaseInputGenerator,
+        EncoderDecoderInputGenerator,
         PastKeyValueInputGenerator,
     )
 
@@ -335,10 +274,58 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("t5", "text2text-generation"): T5DecoderWrapper,
 }
 
+
+# =============================================================================
+# WinMLT5Model — inference wrapper (registered as pipeline model)
+# =============================================================================
+
+
+@register_pipeline_model("t5", "translation")
+class WinMLT5Model(WinMLEncoderDecoderModel):
+    """T5 encoder-decoder model for translation.
+
+    Declares T5 sub-component tasks and generation config defaults.
+    All encoder-decoder forward/cache logic lives in ``WinMLEncoderDecoderModel``.
+    """
+
+    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+        "encoder": "feature-extraction",
+        "decoder": "text2text-generation",
+    }
+
+    @property
+    def generation_config(self):  # noqa: D102
+        if not hasattr(self, "_generation_config"):
+            from transformers import GenerationConfig
+
+            gc_kw: dict[str, Any] = {}
+            if self.config is not None:
+                for attr in (
+                    "decoder_start_token_id",
+                    "bos_token_id",
+                    "eos_token_id",
+                    "pad_token_id",
+                ):
+                    val = getattr(self.config, attr, None)
+                    if val is not None:
+                        gc_kw[attr] = val
+            gc_kw.setdefault("max_new_tokens", self._max_dec - 1)
+            # Static batch=1 ONNX models don't support beam search
+            gc_kw.setdefault("num_beams", 1)
+            gc_kw.setdefault("do_sample", False)
+            self._generation_config = GenerationConfig(**gc_kw)
+        return self._generation_config
+
+    @generation_config.setter
+    def generation_config(self, value: Any) -> None:
+        self._generation_config = value
+
+
 __all__ = [
     "MODEL_CLASS_MAPPING",
     "T5DecoderIOConfig",
     "T5DecoderWrapper",
     "T5EncoderIOConfig",
     "T5EncoderWrapper",
+    "WinMLT5Model",
 ]

@@ -72,18 +72,24 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 import torch.nn as nn
 from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import NormalizedConfig
-from optimum.utils.input_generators import DummyInputGenerator
 from transformers import AutoModelForCausalLM
 
 from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...export.config import WinMLExportConfig
+from ..winml import register_specialization
+from ..winml.decoder_only import (
+    DecoderOnlyInputGenerator,
+    DecoderOnlyPrefillInputGenerator,
+    WinMLDecoderOnlyModel,
+)
+from ..winml.pipeline_model import register_pipeline_model
 from .kv_cache import CapturingStaticCache as _CapturingStaticCache
 from .kv_cache import PastKeyValueInputGenerator
 
@@ -172,64 +178,10 @@ class QwenDecoderWrapper(nn.Module):
         return tuple(result)
 
 
-# =============================================================================
-# Custom DummyInputGenerators
-# =============================================================================
-
-
-class QwenBaseInputGenerator(DummyInputGenerator):
-    """Generates base inputs: input_ids, attention_mask, position_ids, cache_position."""
-
-    SUPPORTED_INPUT_NAMES = (
-        "input_ids",
-        "attention_mask",
-        "position_ids",
-        "cache_position",
-    )
-
-    # Subclasses override seq_len for prefill (64) vs gen (1).
-    seq_len: int = 64
-
-    def __init__(
-        self,
-        task: str,
-        normalized_config: NormalizedConfig,
-        batch_size: int = 1,
-        **kwargs: Any,
-    ) -> None:
-        self.batch_size = batch_size
-        self.vocab_size = normalized_config.vocab_size
-        self.max_cache_len = normalized_config.max_cache_len
-
-    def generate(
-        self,
-        input_name: str,
-        framework: str = "pt",
-        int_dtype: str = "int64",
-        float_dtype: str = "fp32",
-    ) -> torch.Tensor:
-        if input_name == "input_ids":
-            return self.random_int_tensor(
-                (self.batch_size, self.seq_len),
-                max_value=self.vocab_size,
-                framework=framework,
-                dtype=int_dtype,
-            )
-        if input_name == "attention_mask":
-            mask = torch.zeros(self.batch_size, self.max_cache_len, dtype=torch.int64)
-            mask[:, : self.seq_len] = 1
-            return mask
-        if input_name == "position_ids":
-            return torch.arange(self.seq_len, dtype=torch.int64).unsqueeze(0)
-        if input_name == "cache_position":
-            return torch.arange(self.seq_len, dtype=torch.int64)
-        raise ValueError(f"Unknown input: {input_name}")
-
-
-class QwenGenBaseInputGenerator(QwenBaseInputGenerator):
-    """Base input generator for generation (seq_len=1)."""
-
-    seq_len: int = 1
+# Sub-models must use GenericTask (raw ONNX outputs) — task-specific
+# wrappers like WinMLModelForFeatureExtraction would discard KV outputs.
+register_specialization("qwen3", "feature-extraction", "WinMLModelForGenericTask")
+register_specialization("qwen3", "text-generation", "WinMLModelForGenericTask")
 
 
 # =============================================================================
@@ -278,7 +230,7 @@ class QwenPrefillIOConfig(OnnxConfig):
     """
 
     NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
-    DUMMY_INPUT_GENERATOR_CLASSES = (QwenBaseInputGenerator, PastKeyValueInputGenerator)
+    DUMMY_INPUT_GENERATOR_CLASSES = (DecoderOnlyPrefillInputGenerator, PastKeyValueInputGenerator)
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
@@ -299,7 +251,7 @@ class QwenGenIOConfig(OnnxConfig):
     """
 
     NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
-    DUMMY_INPUT_GENERATOR_CLASSES = (QwenGenBaseInputGenerator, PastKeyValueInputGenerator)
+    DUMMY_INPUT_GENERATOR_CLASSES = (DecoderOnlyInputGenerator, PastKeyValueInputGenerator)
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
@@ -328,10 +280,50 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("qwen3", "text-generation"): QwenDecoderWrapper,
 }
 
+# =============================================================================
+# WinMLQwen3Model — inference wrapper (registered as pipeline model)
+# =============================================================================
+
+
+@register_pipeline_model("qwen3", "text-generation")
+class WinMLQwen3Model(WinMLDecoderOnlyModel):
+    """Qwen3 decoder-only model for text generation.
+
+    Declares Qwen3 sub-component tasks and generation config defaults.
+    All forward/cache logic lives in ``WinMLDecoderOnlyModel``.
+    """
+
+    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+        "decoder_prefill": "feature-extraction",
+        "decoder_gen": "text-generation",
+    }
+
+    @property
+    def generation_config(self):  # noqa: D102
+        if not hasattr(self, "_generation_config"):
+            from transformers import GenerationConfig
+
+            gc_kw: dict[str, Any] = {}
+            for attr in ("bos_token_id", "eos_token_id", "pad_token_id"):
+                val = getattr(self.config, attr, None)
+                if val is not None:
+                    gc_kw[attr] = val
+            gc_kw.setdefault("max_new_tokens", self._max_cache_len - self._prefill_seq_len)
+            gc_kw.setdefault("num_beams", 1)
+            gc_kw.setdefault("do_sample", False)
+            self._generation_config = GenerationConfig(**gc_kw)
+        return self._generation_config
+
+    @generation_config.setter
+    def generation_config(self, value: Any) -> None:
+        self._generation_config = value
+
+
 __all__ = [
     "MODEL_CLASS_MAPPING",
     "QWEN_CONFIG",
     "QwenDecoderWrapper",
     "QwenGenIOConfig",
     "QwenPrefillIOConfig",
+    "WinMLQwen3Model",
 ]

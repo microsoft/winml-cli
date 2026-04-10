@@ -166,6 +166,11 @@ def _is_onnx_file(model_input: str) -> bool:
     default=False,
     help="Allow running custom code from model repository",
 )
+@click.option(
+    "--subfolder",
+    default=None,
+    help="Subfolder within HF repo to load from (e.g., 'text_encoder' for Stable Diffusion).",
+)
 def config(
     hf_model: str | None,
     task: str | None,
@@ -183,6 +188,7 @@ def config(
     no_quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
+    subfolder: str | None,
 ) -> None:
     r"""Generate WinMLBuildConfig for a HuggingFace model or .onnx file.
 
@@ -339,6 +345,7 @@ def config(
                 precision=precision,
                 trust_remote_code=trust_remote_code,
                 ep=ep,
+                subfolder=subfolder,
             )
 
             # Handle output format
@@ -400,7 +407,9 @@ def _resolve_pipeline_components(
     if task is None:
         return None
 
-    from ..models.winml.seq2seq import PIPELINE_MODEL_REGISTRY
+    import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
+
+    from ..models.winml.pipeline_model import PIPELINE_MODEL_REGISTRY
 
     # Resolve model_type from HF config if not provided
     resolved_type = model_type

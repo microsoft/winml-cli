@@ -2,13 +2,18 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML Pipeline Models for multi-component architectures.
+"""WinML Encoder-Decoder inference model and shared input generator.
+
+Provides ``WinMLEncoderDecoderModel`` — inference wrapper for encoder-decoder
+pipelines (T5, mBART, etc.) with static KV cache, and
+``EncoderDecoderInputGenerator`` — reusable ``DummyInputGenerator`` for
+decoder base inputs shared across encoder-decoder architectures.
 
 Class hierarchy::
 
-    WinMLPipelineModel(PreTrainedModel)          — multi-component base
-      └─ WinMLEncoderDecoderModel(GenerationMixin)  — encoder-decoder with StaticCache
-           └─ WinMLT5Model                          — T5 tasks + generation config
+    WinMLPipelineModel(PreTrainedModel)            — multi-component base
+      └─ WinMLEncoderDecoderModel(GenerationMixin) — encoder-decoder with StaticCache
+           └─ WinMLT5Model (in t5.py)              — T5 tasks + generation config
 
 How it works:
 
@@ -17,9 +22,7 @@ How it works:
    via ``WinMLAutoModel`` (export → optimize → compile) independently.
 
 2. The encoder is wrapped in ``_EncoderWithInputPadding`` which reads ONNX input
-   names/shapes from ``io_config`` and zero-pads any undersized inputs. This wrapper
-   IS ``self._encoder`` — used by both ``get_encoder()`` (GenerationMixin) and the
-   fallback path in ``forward()``.
+   names/shapes from ``io_config`` and zero-pads any undersized inputs.
 
 3. ``forward()`` takes ``(*, encoder_outputs, past_key_values, input_ids, **model_kwargs)``
    where ``model_kwargs`` carries decoder inputs like ``decoder_input_ids`` and
@@ -32,11 +35,7 @@ How it works:
    ``cache.update()``). The ONNX decoder takes the full static buffer as input
    and outputs only the new token's KV ``[batch, heads, 1, d_kv]``.
 
-5. ``@register_pipeline_model("t5", "translation")`` hooks into ``winml config``
-   so that ``winml config -m google-t5/t5-small --task translation -o t5.json``
-   generates ``t5_encoder.json`` + ``t5_decoder.json`` automatically.
-
-Key findings from T5 KV cache study (see ``docs/t5_kv_cache_study.md``):
+Key findings from T5 KV cache study:
 
 - HF's ``DynamicCache`` is stateful (same object, mutated in-place via ``cat``).
   ``GenerationMixin._update_model_kwargs_for_generation`` reads ``past_key_values``
@@ -59,171 +58,97 @@ Design principles:
 - ONNX I/O names and shapes are read from ``io_config``, never hardcoded.
 - Inputs smaller than ONNX expected shape are zero-padded automatically.
   Inputs larger than expected are NOT truncated — let ORT raise the error.
-
-Usage::
-
-    from winml.modelkit.models.winml.seq2seq import WinMLT5Model
-    from transformers import AutoTokenizer, pipeline
-
-    model = WinMLT5Model.from_pretrained("google-t5/t5-small")
-    tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
-    pipe = pipeline("translation_en_to_fr", model=model, tokenizer=tokenizer)
-    result = pipe("Hello, how are you?", num_beams=1)
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import torch
+from optimum.utils.input_generators import DummyInputGenerator
 from transformers import Cache, StaticCache
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
-from .base import PreTrainedModel
+from ..winml.pipeline_model import WinMLPipelineModel
 
 
 if TYPE_CHECKING:
+    from optimum.utils import NormalizedConfig
     from transformers import PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# Pipeline Model Registry
-# =========================================================================
-
-# Maps (model_type, task) → pipeline class with _SUB_MODEL_CONFIG.
-# Used by `wmk config` to generate one config file per sub-component.
-PIPELINE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
+# =============================================================================
+# EncoderDecoderInputGenerator — shared dummy input generator
+# =============================================================================
 
 
-def register_pipeline_model(model_type: str, task: str):
-    """Class decorator that registers a pipeline model for `wmk config`."""
+class EncoderDecoderInputGenerator(DummyInputGenerator):
+    """Generates decoder base inputs for encoder-decoder models.
 
-    def decorator(cls: type) -> type:
-        PIPELINE_MODEL_REGISTRY[(model_type, task)] = cls
-        return cls
-
-    return decorator
-
-
-# =========================================================================
-# Layer 1: WinMLPipelineModel — multi-component base
-# =========================================================================
-
-
-class WinMLPipelineModel(PreTrainedModel):
-    """Base class for models composed of multiple WinMLAutoModel sub-components.
-
-    Subclasses declare ``_SUB_MODEL_CONFIG``: a mapping of component name to
-    the HF task used to build it via ``WinMLAutoModel.from_pretrained``.
-
-    After construction, sub-components are available in ``self.sub_models``.
+    Produces ``decoder_input_ids``, ``encoder_hidden_states``,
+    ``attention_mask`` (encoder), ``decoder_attention_mask``, and
+    ``cache_position``. Reads dimensions from ``NormalizedConfig``.
     """
 
-    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {}
+    SUPPORTED_INPUT_NAMES = (
+        "decoder_input_ids",
+        "encoder_hidden_states",
+        "attention_mask",
+        "decoder_attention_mask",
+        "cache_position",
+    )
 
     def __init__(
         self,
-        sub_models: dict[str, Any],
-        config: PretrainedConfig,
-    ) -> None:
-        self.sub_models = sub_models
-        self.config = config
-
-    @classmethod
-    def from_pretrained(
-        cls,
-        model_id: str,
         task: str,
-        *,
-        device: str = "cpu",
-        use_cache: bool = True,
-        force_rebuild: bool = False,
+        normalized_config: NormalizedConfig,
+        batch_size: int = 1,
+        max_cache_len: int | None = None,
         **kwargs: Any,
-    ) -> WinMLPipelineModel:
-        """Build all sub-components and return ready-to-use model.
+    ) -> None:
+        self.batch_size = batch_size
+        self.d_model = normalized_config.hidden_size
+        self.enc_seq = getattr(normalized_config, "sequence_length", 16)
+        self.max_cache_len = max_cache_len or normalized_config.max_cache_len
+        self.vocab_size = normalized_config.vocab_size
 
-        When called on ``WinMLPipelineModel`` directly (not a subclass),
-        ``task`` is required to resolve the concrete class from
-        ``PIPELINE_MODEL_REGISTRY``.  When called on a registered subclass
-        (e.g., ``WinMLT5Model``), ``task`` is optional.
-
-        Args:
-            model_id: HuggingFace model ID or local path.
-            task: Pipeline task name (e.g., ``"translation"``,
-                ``"text-generation"``). Required when calling on the base
-                class; ignored when calling on a registered subclass.
-            device: Target device.
-            use_cache: Use persistent cache.
-            force_rebuild: Force rebuild even if cached.
-            **kwargs: Forwarded to ``WinMLAutoModel.from_pretrained()``.
-        """
-        from transformers import AutoConfig
-
-        hf_config = AutoConfig.from_pretrained(model_id)
-        model_type = hf_config.model_type
-
-        if not cls._SUB_MODEL_CONFIG:
-            # Resolve concrete class from registry when called on the base class
-            resolved_cls = PIPELINE_MODEL_REGISTRY.get((model_type, task))
-            if resolved_cls is None:
-                raise ValueError(
-                    f"No pipeline model registered for ({model_type!r}, {task!r}). "
-                    f"Registered: {list(PIPELINE_MODEL_REGISTRY.keys())}"
-                )
-            return resolved_cls.from_pretrained(
-                model_id,
-                task,
-                device=device,
-                use_cache=use_cache,
-                force_rebuild=force_rebuild,
-                **kwargs,
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ) -> torch.Tensor:
+        """Generate a dummy tensor for the given input name."""
+        if input_name == "decoder_input_ids":
+            return self.random_int_tensor(
+                (self.batch_size, 1),
+                max_value=self.vocab_size,
+                framework=framework,
+                dtype=int_dtype,
             )
-        from ..auto import WinMLAutoModel
-
-        sub_models: dict[str, Any] = {}
-        for name, component_task in cls._SUB_MODEL_CONFIG.items():
-            logger.info("Building %s for %s...", name, model_id)
-            sub_models[name] = WinMLAutoModel.from_pretrained(
-                model_id,
-                task=component_task,
-                device=device,
-                use_cache=use_cache,
-                force_rebuild=force_rebuild,
-                **kwargs,
+        if input_name == "encoder_hidden_states":
+            return self.random_float_tensor(
+                (self.batch_size, self.enc_seq, self.d_model),
+                framework=framework,
+                dtype=float_dtype,
             )
-
-        return cls(sub_models=sub_models, config=hf_config)
-
-    @property
-    def device(self) -> torch.device:
-        """Device (CPU — ORT handles actual placement)."""
-        return torch.device("cpu")
-
-    @property
-    def dtype(self) -> torch.dtype:
-        """Model dtype for HF compatibility."""
-        return torch.float32
-
-    def to(self, *args: Any, **kwargs: Any) -> WinMLPipelineModel:
-        """No-op for HF pipeline compatibility."""
-        return self
-
-    def __call__(self, **kwargs: Any) -> Any:
-        """Inference entry point."""
-        return self.forward(**kwargs)
-
-    def forward(self, **kwargs: Any) -> Any:
-        """Subclasses implement task-specific logic."""
-        raise NotImplementedError
+        if input_name == "attention_mask":
+            return torch.ones(self.batch_size, self.enc_seq, dtype=torch.int64)
+        if input_name == "decoder_attention_mask":
+            return torch.ones(self.batch_size, self.max_cache_len, dtype=torch.int64)
+        if input_name == "cache_position":
+            return torch.tensor([5], dtype=torch.int64)  # arbitrary position for tracing
+        raise ValueError(f"Unknown input: {input_name}")
 
 
-# =========================================================================
-# Layer 2: WinMLEncoderDecoderModel — encoder-decoder generation
-# =========================================================================
+# =============================================================================
+# WinMLEncoderDecoderModel — encoder-decoder with StaticCache
+# =============================================================================
 
 
 class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
@@ -288,7 +213,7 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             self._expected = expected
 
         def forward(self, **kwargs: Any) -> BaseModelOutput:
-            feeds = WinMLEncoderDecoderModel._pad_inputs(kwargs, self._expected)
+            feeds = WinMLPipelineModel._pad_inputs(kwargs, self._expected)
             return self._encoder(**feeds)
 
     def get_encoder(self) -> torch.nn.Module:
@@ -393,79 +318,3 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             logits=outputs["logits"],
             past_key_values=cache,
         )
-
-    # ----- Helpers -----
-
-    @staticmethod
-    def _pad_inputs(
-        source: dict[str, Any],
-        expected: dict[str, list[int]],
-    ) -> dict[str, Any]:
-        """Filter *source* to keys in *expected* and pad undersized tensors.
-
-        For each name in *expected*, if *source* has a tensor for it, pad
-        any dimension smaller than the ONNX expected shape (skips batch dim).
-        Non-tensor values are passed through. Missing names are skipped.
-        """
-        result: dict[str, Any] = {}
-        for name, expected_shape in expected.items():
-            val = source.get(name)
-            if val is None:
-                continue
-            if isinstance(val, torch.Tensor):
-                # TODO: support dynamic shape ONNX models (None in expected_shape)
-                ndim = min(len(val.shape), len(expected_shape))
-                pad: list[int] = []
-                for dim in reversed(range(1, ndim)):
-                    deficit = expected_shape[dim] - val.shape[dim]
-                    pad.extend([0, max(deficit, 0)])
-                if any(p > 0 for p in pad):
-                    val = torch.nn.functional.pad(val, pad)
-            result[name] = val
-        return result
-
-
-# =========================================================================
-# Layer 3: WinMLT5Model — T5-specific forward + cache logic
-# =========================================================================
-
-
-@register_pipeline_model("t5", "translation")
-class WinMLT5Model(WinMLEncoderDecoderModel):
-    """T5 encoder-decoder model.
-
-    Declares T5 sub-component tasks and generation config defaults.
-    All encoder-decoder forward/cache logic lives in ``WinMLEncoderDecoderModel``.
-    """
-
-    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
-        "encoder": "feature-extraction",
-        "decoder": "text2text-generation",
-    }
-
-    @property
-    def generation_config(self):  # noqa: D102
-        if not hasattr(self, "_generation_config"):
-            from transformers import GenerationConfig
-
-            gc_kw: dict[str, Any] = {}
-            if self.config is not None:
-                for attr in (
-                    "decoder_start_token_id",
-                    "bos_token_id",
-                    "eos_token_id",
-                    "pad_token_id",
-                ):
-                    val = getattr(self.config, attr, None)
-                    if val is not None:
-                        gc_kw[attr] = val
-            gc_kw.setdefault("max_new_tokens", self._max_dec - 1)
-            # Static batch=1 ONNX models don't support beam search
-            gc_kw.setdefault("num_beams", 1)
-            gc_kw.setdefault("do_sample", False)
-            self._generation_config = GenerationConfig(**gc_kw)
-        return self._generation_config
-
-    @generation_config.setter
-    def generation_config(self, value: Any) -> None:
-        self._generation_config = value

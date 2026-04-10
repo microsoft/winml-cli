@@ -25,8 +25,6 @@ Exports:
 
 from __future__ import annotations
 
-from ..winml import decoder_only as _decoder_only_
-
 # Import configs - importing triggers ONNX config registration with TasksManager
 # ConvNeXT and SAM2 modules also register PATCHING_SPECS / _MODEL_PATCHER
 # on their OnnxConfig classes at import time.
