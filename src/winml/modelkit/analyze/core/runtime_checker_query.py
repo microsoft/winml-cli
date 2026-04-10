@@ -16,7 +16,7 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 import pandas as pd
-from onnx import numpy_helper, shape_inference
+from onnx import numpy_helper
 
 from ...onnx import (
     ONNXDomain,
@@ -867,8 +867,9 @@ class RuntimeCheckerQuery:
         self.dynamic_axis_strict_mode = dynamic_axis_strict_mode
         # Try shape inference: standard ONNX first, then symbolic (onnxruntime)
         try:
-            # First apply standard ONNX shape inference
-            self.model_proto = shape_inference.infer_shapes(model_proto)
+            # Standard ONNX shape inference — uses temp file for models
+            # with external data (avoids silent empty-graph result).
+            self.model_proto = infer_onnx_shapes(model_proto)
 
             # Then try to enhance with symbolic shape inference
             # if available which supports Microsoft domain
