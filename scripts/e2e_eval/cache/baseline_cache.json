@@ -568,5 +568,15 @@
     },
     "elapsed": 840.9,
     "command": "python.exe run_pytorch_baseline.py --model electra_large_discriminator_squad2_512 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "microsoft/swin-large-patch4-window7-224|image-classification|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.837,
+      "num_samples": 1000
+    },
+    "elapsed": 449.7,
+    "command": "python.exe run_pytorch_baseline.py --model swin-large-patch4-window7-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
   }
 }

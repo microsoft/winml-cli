@@ -42,7 +42,7 @@ class WinMLModelForQuestionAnswering(WinMLPreTrainedModel):
 
     def forward(
         self,
-        input_ids: torch.Tensor | np.ndarray,
+        input_ids: torch.Tensor | np.ndarray | None = None,
         attention_mask: torch.Tensor | np.ndarray | None = None,
         token_type_ids: torch.Tensor | np.ndarray | None = None,
         **kwargs: Any,
@@ -53,12 +53,20 @@ class WinMLModelForQuestionAnswering(WinMLPreTrainedModel):
             input_ids: Token IDs (B, seq_len)
             attention_mask: Attention mask (B, seq_len)
             token_type_ids: Segment IDs (B, seq_len). Only passed to ONNX
-                if the model actually has this input.
-            **kwargs: Additional arguments (ignored, for HF pipeline compat)
+                if the model actually has this input.  Models like
+                DeBERTa-v3 omit this input; it is silently dropped when
+                not in the ONNX graph's input list.
+            **kwargs: Ignored. Accepted for HF pipeline compatibility —
+                the pipeline may forward extra keys (e.g. ``offset_mapping``,
+                ``overflow_to_sample_mapping``) that are not needed for
+                ONNX inference.
 
         Returns:
             QuestionAnsweringModelOutput with start_logits and end_logits
         """
+        if input_ids is None:
+            raise ValueError("input_ids must be provided for question answering inference.")
+
         inputs: dict[str, Any] = {"input_ids": input_ids, "attention_mask": attention_mask}
         if token_type_ids is not None and "token_type_ids" in self.io_config.get("input_names", []):
             inputs["token_type_ids"] = token_type_ids
