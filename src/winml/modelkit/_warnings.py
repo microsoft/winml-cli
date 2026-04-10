@@ -44,38 +44,41 @@ def _configure() -> None:
         def filter(self, record: logging.LogRecord) -> bool:
             return "Multiple distributions found" not in record.getMessage()
 
-    logging.getLogger("diffusers.utils.import_utils").addFilter(
-        _DiffusersDistributionFilter()
-    )
+    logging.getLogger("diffusers.utils.import_utils").addFilter(_DiffusersDistributionFilter())
 
-    class _HFPipelineFalsePositiveFilter(logging.Filter):
-        """Filter false-positive HF pipeline warnings when using WinML models.
+    class _PipelineNoiseFilter(logging.Filter):
+        """Filter noisy HF Pipeline warnings.
 
-        HF pipeline emits these because WinMLModel wraps ONNX via ORT, not a
-        native HF model class. These are expected and not actionable.
+        - 'The model X is not supported for Y' — WinML models are duck-type
+          compatible but not in HF's supported list.
+        - 'Device set to use cpu' — HF Pipeline forces CPU, we handle device.
+        - 'Using a slow image processor' — cosmetic deprecation notice.
         """
 
-        _FALSE_POSITIVES = (
-            "WinMLModel",  # False positive warning which says WinML is not native HF model class
-            "Device set to use",  # PyTorch tensor device, not ONNX device
-            "Using a slow image processor",  # expected when using processor with pipeline.
+        _SUPPRESSED = (
+            "is not supported for",
+            "Device set to use cpu",
+            "Using a slow image processor",
         )
 
         def filter(self, record: logging.LogRecord) -> bool:
             msg = record.getMessage()
-            return not any(phrase in msg for phrase in self._FALSE_POSITIVES)
+            return not any(s in msg for s in self._SUPPRESSED)
 
-    for _name in (
-        "transformers.pipelines.base",
-        "transformers.models.auto.image_processing_auto",
-    ):
-        logging.getLogger(_name).addFilter(_HFPipelineFalsePositiveFilter())
+    logging.getLogger("transformers.pipelines.base").addFilter(_PipelineNoiseFilter())
 
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
     # =========================================================================
-    warnings.filterwarnings("ignore", category=FutureWarning, module=r"transformers.*")
-    warnings.filterwarnings("ignore", category=UserWarning, module=r"torch.*")
+    # Transformers: suppress cosmetic warnings (not RuntimeWarning/ResourceWarning)
+    for _cat in (FutureWarning, DeprecationWarning, UserWarning):
+        warnings.filterwarnings("ignore", category=_cat, module=r"transformers\..*")
+
+    # PyTorch: suppress cosmetic warnings (not RuntimeWarning/ResourceWarning)
+    for _cat in (FutureWarning, DeprecationWarning, UserWarning):
+        warnings.filterwarnings("ignore", category=_cat, module=r"torch\..*")
+
+    # Diffusers
     warnings.filterwarnings(
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )
