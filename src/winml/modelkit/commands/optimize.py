@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 import click
 from rich.console import Console
 
-from ..onnx import is_compiled_onnx, load_onnx, save_onnx
+from ..onnx import load_onnx, save_onnx
 
 
 if TYPE_CHECKING:
@@ -382,12 +382,6 @@ def optimize(
     if model is None:
         raise click.UsageError("Missing option '--model' / '-m'.")
 
-    if is_compiled_onnx(model):
-        raise click.ClickException(
-            f"{model} is a compiled EPContext model and cannot be optimized. "
-            "Run 'winml optimize' on the original ONNX model before compilation."
-        )
-
     # Inherit debug mode from parent
     if ctx.obj and ctx.obj.get("debug"):
         verbose = True
@@ -425,6 +419,8 @@ def optimize(
     # 3. Apply config file if specified (overrides preset/defaults)
     if config:
         file_config = load_config(config)
+        # Normalize snake_case keys to kebab-case (accept both formats)
+        file_config = {k.replace("_", "-"): v for k, v in file_config.items()}
         final_config.update(file_config)
         console.print(f"[dim]Loaded config from: {config}[/dim]")
 

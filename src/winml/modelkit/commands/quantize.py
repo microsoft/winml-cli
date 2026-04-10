@@ -25,7 +25,6 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from ..onnx import is_compiled_onnx
 from ..utils.logging import configure_logging
 
 
@@ -93,6 +92,12 @@ console = Console()
     help="Use symmetric quantization",
 )
 @click.option(
+    "--task",
+    type=str,
+    default=None,
+    help="Task for calibration dataset selection (e.g., 'image-classification').",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -111,6 +116,7 @@ def quantize(
     activation_type: str | None,
     per_channel: bool,
     symmetric: bool,
+    task: str | None,
     verbose: bool,
 ) -> None:
     r"""Quantize ONNX model by inserting QDQ nodes.
@@ -142,12 +148,6 @@ def quantize(
 
     configure_logging(verbose=verbose)
 
-    if is_compiled_onnx(model):
-        raise click.ClickException(
-            f"{model} is a compiled EPContext model and cannot be quantized. "
-            "Run 'winml quantize' on the original ONNX model before compilation."
-        )
-
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
 
@@ -178,7 +178,17 @@ def quantize(
         activation_type=resolved_activation,
         per_channel=per_channel,
         symmetric=symmetric,
+        task=task,
     )
+
+    # Display dataset info from config
+    if config.dataset_name:
+        _dataset_display = config.dataset_name
+    elif config.task and config.task != "random":
+        _dataset_display = f"Default for task '{config.task}'"
+    else:
+        _dataset_display = "Random data (synthetic from ONNX I/O specs)"
+    console.print(f"[bold blue]Dataset:[/bold blue] {_dataset_display}")
 
     try:
         console.print("\n[bold]Running quantization...[/bold]")

@@ -54,6 +54,7 @@ def create_mock_model(
         "input_names": ["pixel_values"],
         "output_names": ["logits", "pred_boxes", "pred_masks"],
     }
+    mock_session.device = "cpu"
     model._session = mock_session
     model.config = MagicMock()
     model.config.num_labels = num_classes
@@ -185,6 +186,7 @@ class TestForwardMethod:
             "input_names": ["pixel_values"],
             "output_names": ["logits"],
         }
+        mock_session.device = "cpu"
         model._session = mock_session
         model.config = MagicMock()
         model._onnx_path = "mock.onnx"
@@ -292,6 +294,7 @@ def create_mock_semantic_model(num_labels: int = 150, output_h: int = 128, outpu
         "input_names": ["pixel_values"],
         "output_names": ["logits"],
     }
+    mock_session.device = "cpu"
     model._session = mock_session
     model.config = MagicMock()
     model.config.num_labels = num_labels
