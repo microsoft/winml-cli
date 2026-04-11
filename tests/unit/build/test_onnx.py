@@ -400,7 +400,7 @@ class TestBuildOnnxPreQuantized:
     def test_pre_quantized_runs_analyze_only(
         self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
     ) -> None:
-        """QDQ model runs analyze (via run_analyze_only) but not optimize."""
+        """Pre-quantized path runs optimize but skips autoconf (no analyze)."""
         mock_onnx_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -409,8 +409,8 @@ class TestBuildOnnxPreQuantized:
             config=sample_onnx_config,
             output_dir=output_dir,
         )
-        # analyze_onnx should be called (via run_analyze_only)
-        mock_onnx_pipeline["analyze"].assert_called()
+        # max_optim_iterations=0 means no analyze loop runs
+        mock_onnx_pipeline["analyze"].assert_not_called()
         mock_onnx_pipeline["optimize"].assert_called_once()
 
     def test_skip_optimize_kwarg(
