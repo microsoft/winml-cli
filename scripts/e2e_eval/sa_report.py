@@ -9,8 +9,6 @@ Shows separate pre/post SA level distributions, unknown op info,
 EPContext ground-truth accuracy, and per-model drill-down.
 """
 
-# ruff: noqa: E501
-
 from __future__ import annotations
 
 import json

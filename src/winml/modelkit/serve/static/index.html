@@ -11,6 +11,13 @@
   --red:#f06070; --text:#e2e8f0; --text2:#8892a4; --r:8px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+/* ── Custom scrollbar ── */
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text2)}
+::-webkit-scrollbar-corner{background:transparent}
 html,body{height:100%;overflow:hidden}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
@@ -187,6 +194,84 @@ canvas.spark{width:100%;height:60px;display:block}
 .term-out{white-space:pre-wrap;word-break:break-all}
 .term-sep{border:none;border-top:1px solid var(--border);margin:10px 0}
 
+/* ── TOOLS page ── */
+.tools-page{display:flex;flex-direction:column;overflow:hidden}
+.tools-toolbar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.tools-toolbar h2{margin:0;font-size:18px;font-weight:600}
+.tools-body{flex:1;overflow-y:auto;padding:20px}
+.tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px}
+.tool-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
+.tool-card:hover{border-color:var(--accent);transition:border-color .15s}
+.tool-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.tool-name{font-weight:600;color:var(--accent);font-size:13px;font-family:monospace;flex:1}
+.tool-desc{font-size:12px;color:var(--text2);line-height:1.5}
+.tool-section{margin-top:6px}
+.tool-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:4px}
+.tool-params{display:flex;flex-direction:column;gap:4px}
+.tool-param{font-size:11px;color:var(--text);background:var(--surface2);padding:6px 8px;border-radius:4px;border-left:2px solid var(--accent2)}
+.tool-param-name{font-weight:500;font-family:monospace;color:var(--accent2)}
+.tool-param-type{font-size:10px;color:var(--text2);margin-left:4px}
+.tool-param-default{font-size:10px;color:var(--green);margin-left:4px}
+.tool-empty{color:var(--text2);font-size:12px}
+.tools-note{background:rgba(123,92,219,.1);border:1px solid rgba(123,92,219,.3);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.5}
+.tools-note code{background:rgba(0,0,0,.3);padding:2px 4px;border-radius:3px;color:var(--accent2)}
+.tool-actions{display:flex;gap:6px;margin-top:8px}
+.tool-copy-btn{flex:1;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text2);font-size:10px;cursor:pointer;transition:all .15s}
+.tool-copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tools-loading{text-align:center;padding:40px 20px;color:var(--text2)}
+.tools-error{background:rgba(240,96,112,.1);border:1px solid var(--red);border-radius:var(--r);padding:12px 14px;margin:20px;color:var(--red);font-size:12px}
+
+/* ── MCP page ── */
+.mcp-page{display:flex;flex-direction:column;overflow:hidden}
+.mcp-toolbar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.mcp-toolbar h2{margin:0;font-size:18px;font-weight:600}
+.mcp-body{flex:1;overflow-y:auto;padding:20px}
+.mcp-note{background:rgba(62,207,142,.1);border:1px solid rgba(62,207,142,.3);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.5}
+.mcp-note code{background:rgba(0,0,0,.3);padding:2px 4px;border-radius:3px;color:var(--green)}
+.mcp-info{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px}
+.mcp-info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.mcp-info-row:last-child{border:none}
+.mcp-info-label{font-weight:500;color:var(--text2);font-size:12px}
+.mcp-info-value{color:var(--accent);font-family:monospace;font-size:12px}
+.mcp-section{margin-bottom:20px}
+.mcp-section-title{font-weight:600;color:var(--accent);margin-bottom:10px;font-size:13px}
+.mcp-code-block{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-family:monospace;font-size:11px;overflow-x:auto;line-height:1.6;color:var(--text);margin-bottom:10px}
+.mcp-json-key{color:var(--accent2)}
+.mcp-json-string{color:var(--green)}
+.mcp-json-number{color:var(--yellow)}
+.mcp-copy-block{display:flex;gap:8px}
+.mcp-copy-btn{flex:1;padding:8px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;transition:opacity .15s}
+.mcp-copy-btn:hover{opacity:.85}
+.mcp-loading{text-align:center;padding:40px 20px;color:var(--text2)}
+.mcp-error{background:rgba(240,96,112,.1);border:1px solid var(--red);border-radius:var(--r);padding:12px 14px;margin:20px;color:var(--red);font-size:12px}
+
+/* ── INTEGRATION page ── */
+.integration-page{display:flex;flex-direction:column;overflow:hidden}
+.integration-body{flex:1;overflow-y:auto;padding:24px 32px}
+.integration-section{margin-bottom:28px}
+.integration-title{font-size:16px;font-weight:700;color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.integration-subtitle{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;margin-top:12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.integration-desc{font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:10px}
+.code-block{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-family:monospace;font-size:11px;overflow-x:auto;line-height:1.5;color:var(--accent2);margin:8px 0;position:relative;white-space:pre}
+.code-copy{position:absolute;top:8px;right:8px;padding:4px 8px;background:var(--accent);color:#fff;border:none;border-radius:3px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .2s}
+.code-block:hover .code-copy{opacity:1}
+.client-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:10px}
+.client-name{font-weight:600;color:var(--accent);font-size:12px;margin-bottom:6px}
+.client-status{font-size:10px;color:var(--green);margin-bottom:8px}
+.steps-list{margin:10px 0;padding-left:20px}
+.steps-list li{font-size:11px;color:var(--text);margin:6px 0;line-height:1.5}
+.integration-note{background:rgba(91,141,238,.1);border-left:3px solid var(--accent);padding:10px 12px;margin:10px 0;font-size:11px;color:var(--text2);line-height:1.5}
+.int-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px}
+.int-tab{padding:8px 16px;font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;user-select:none}
+.int-tab:hover{color:var(--text)}
+.int-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.int-panel{display:none}
+.int-panel.active{display:block}
+.int-badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;text-transform:uppercase;margin-left:6px}
+.int-badge-green{background:rgba(62,207,142,.15);color:var(--green)}
+.int-badge-blue{background:rgba(91,141,238,.15);color:var(--accent)}
+.int-badge-yellow{background:rgba(246,185,59,.15);color:var(--yellow)}
+
 /* Toast */
 .toast{position:fixed;bottom:18px;right:18px;background:var(--red);color:#fff;padding:9px 14px;border-radius:7px;font-size:12px;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.4);transform:translateY(80px);opacity:0;transition:all .25s;z-index:999}
 .toast.show{transform:none;opacity:1}
@@ -218,9 +303,12 @@ canvas.spark{width:100%;height:60px;display:block}
 <!-- Nav -->
 <div class="nav-tabs">
   <div class="nav-tab active" onclick="showPage('cli',this)">⌨️ CLI</div>
-  <div class="nav-tab" onclick="showPage('models',this)">🗂 Models</div>
   <div class="nav-tab" onclick="showPage('inference',this)">🎯 Inference</div>
+  <div class="nav-tab" onclick="showPage('models',this)">🗂 Models</div>
+  <div class="nav-tab" onclick="showPage('tools',this)">🔧 Tools</div>
+  <div class="nav-tab" onclick="showPage('mcp',this)">🤖 MCP</div>
   <div class="nav-tab" onclick="showPage('hardware',this)">📊 Hardware</div>
+  <div class="nav-tab" onclick="showPage('integration',this)">📚 Integration</div>
 </div>
 
 <!-- ════════════════ PAGE: INFERENCE ════════════════ -->
@@ -450,9 +538,315 @@ canvas.spark{width:100%;height:60px;display:block}
   </div>
 </div>
 
+<!-- ════════════════ PAGE: TOOLS ════════════════ -->
+<div class="page" id="page-tools">
+  <div class="tools-page">
+    <div class="tools-toolbar">
+      <h2>Tools</h2>
+      <button class="btn btn-outline btn-sm" onclick="refreshTools()">↻ Refresh</button>
+    </div>
+    <div class="tools-body">
+      <div class="tools-note">
+        💡 OpenAI-compatible function-calling tool definitions. Use with <code>/v1/chat/completions</code> endpoint for LLM function calling.
+      </div>
+      <div id="toolsContainer" class="tools-grid">
+        <div class="tools-loading">Loading tools…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: MCP ════════════════ -->
+<div class="page" id="page-mcp">
+  <div class="mcp-page">
+    <div class="mcp-toolbar">
+      <h2>MCP Server</h2>
+      <button class="btn btn-outline btn-sm" onclick="refreshMCP()">↻ Refresh</button>
+    </div>
+    <div class="mcp-body">
+      <div class="mcp-note">
+        💡 Model Context Protocol (MCP) tools for Claude integration. Use with <code>claude-sdk</code> or <code>anthropic-sdk</code>.
+      </div>
+      <div id="mcpContainer">
+        <div class="mcp-loading">Loading MCP schema…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: INTEGRATION ════════════════ -->
+<div class="page" id="page-integration">
+  <div class="integration-page">
+    <div class="integration-body">
+      <div class="integration-section">
+        <div class="integration-title">Client Integration Guide</div>
+        <div class="integration-desc">ModelKit exposes inference via MCP, OpenAI-compatible tools, REST API, and more. Pick your integration method below.</div>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="int-tabs">
+        <div class="int-tab active" onclick="showIntTab('skill-int',this)">Skill<span class="int-badge int-badge-green">recommended</span></div>
+        <div class="int-tab" onclick="showIntTab('mcp-int',this)">MCP</div>
+        <div class="int-tab" onclick="showIntTab('tools-int',this)">OpenAI Tools</div>
+        <div class="int-tab" onclick="showIntTab('agent-int',this)">Agent Frameworks</div>
+        <div class="int-tab" onclick="showIntTab('rest-int',this)">REST API</div>
+        <div class="int-tab" onclick="showIntTab('ref-int',this)">Reference</div>
+      </div>
+
+      <!-- ── MCP Integration Panel ── -->
+      <div class="int-panel" id="panel-mcp-int">
+
+        <div class="integration-subtitle">Claude Desktop</div>
+        <div class="client-card">
+          <div class="client-name">Full MCP support with auto-discovered tools</div>
+          <ol class="steps-list">
+            <li>Start ModelKit serve: <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">wmk serve &lt;model&gt;</code></li>
+            <li>Edit <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">%APPDATA%\Claude\claude_desktop_config.json</code></li>
+            <li>Add the config below, then restart Claude Desktop</li>
+          </ol>
+          <div class="code-block" id="int-mcp-desktop-config"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Config</button>
+          <div class="integration-note">
+            The standalone <code>scripts/mcp_server.py</code> avoids importing PyTorch, keeping startup under 4s.
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Claude Code (.mcp.json)</div>
+        <div class="client-card">
+          <div class="client-name">Project-scoped MCP for Claude Code IDE / CLI</div>
+          <ol class="steps-list">
+            <li>Place <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.mcp.json</code> in the project root</li>
+            <li>Claude Code auto-discovers MCP servers on startup</li>
+          </ol>
+          <div class="code-block" id="int-mcp-code-config"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Config</button>
+        </div>
+
+        <div class="integration-subtitle">Claude Code CLI (one-liner)</div>
+        <div class="client-card">
+          <div class="client-name">Register via command line</div>
+          <div class="code-block" id="int-mcp-cli-cmd"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">How it works</div>
+        <div class="client-card">
+          <div class="integration-desc" style="margin:0">
+            MCP server starts alongside Claude and auto-discovers loaded models via <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">GET /v1/models</code>. Each model becomes a uniquely-named tool:
+          </div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.8;margin-top:8px">
+            Image tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">classify_image_&lt;model&gt;(image_path, top_k)</code> &mdash; reads local file, multipart upload<br>
+            Text tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">classify_text_&lt;model&gt;(text, top_k)</code> &mdash; JSON POST<br>
+            LLM tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">generate_text_&lt;model&gt;(prompt, max_tokens, ...)</code> &mdash; JSON POST<br>
+            Always available &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">list_models()</code> &mdash; enumerate loaded models
+          </div>
+        </div>
+      </div>
+
+      <!-- ── OpenAI Tools Panel ── -->
+      <div class="int-panel" id="panel-tools-int">
+
+        <div class="integration-subtitle">Anthropic SDK (Python)</div>
+        <div class="client-card">
+          <div class="client-name">Use ModelKit tools with Claude API tool_use</div>
+          <div class="code-block" id="int-tools-anthropic"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">OpenAI SDK (Python)</div>
+        <div class="client-card">
+          <div class="client-name">Works with any OpenAI-compatible provider</div>
+          <div class="code-block" id="int-tools-openai"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+          <div class="integration-note">
+            <code>GET /v1/tools</code> returns OpenAI function-calling format. <code>GET /v1/mcp-schema</code> returns MCP format. Both are auto-generated from the model manifest.
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Tool-calling loop pattern</div>
+        <div class="client-card">
+          <div class="client-name">Full agentic loop: Claude decides when to call ModelKit</div>
+          <div class="code-block" id="int-tools-loop"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+      </div>
+
+      <!-- ── Agent Frameworks Panel ── -->
+      <div class="int-panel" id="panel-agent-int">
+
+        <div class="integration-note">
+          ModelKit exposes standard REST endpoints that any agent framework can call. Below are copy-paste examples for the most popular frameworks.
+        </div>
+
+        <div class="integration-subtitle">LangChain / LangGraph</div>
+        <div class="client-card">
+          <div class="client-name">Custom tool with @tool decorator</div>
+          <div class="code-block" id="int-agent-langchain"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">Semantic Kernel</div>
+        <div class="client-card">
+          <div class="client-name">Native function plugin</div>
+          <div class="code-block" id="int-agent-sk"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">AutoGen / AG2</div>
+        <div class="client-card">
+          <div class="client-name">Register function for ConversableAgent</div>
+          <div class="code-block" id="int-agent-autogen"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">CrewAI</div>
+        <div class="client-card">
+          <div class="client-name">Custom BaseTool subclass</div>
+          <div class="code-block" id="int-agent-crewai"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">OpenAI Agents SDK</div>
+        <div class="client-card">
+          <div class="client-name">Function tool for the Agents framework</div>
+          <div class="code-block" id="int-agent-openai"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">OpenClaw</div>
+        <div class="client-card">
+          <div class="client-name">Custom skill for the open-source AI assistant</div>
+          <div class="integration-desc">
+            <a href="https://github.com/anthropics/openclaw" style="color:var(--accent)" target="_blank">OpenClaw</a> is an autonomous agent that controls your computer and connects to external services via skills. Define a ModelKit skill to give it inference capabilities.
+          </div>
+          <div class="code-block" id="int-agent-openclaw"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Skill</button>
+          <div class="integration-note">
+            OpenClaw can also call ModelKit directly via its terminal — just instruct it: "Use curl to classify an image at <code>POST /v1/predict/file</code>".
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── REST API Panel ── -->
+      <div class="int-panel" id="panel-rest-int">
+
+        <div class="integration-subtitle">Image inference (file upload)</div>
+        <div class="client-card">
+          <div class="client-name">Multipart upload — best for image tasks</div>
+          <div class="code-block" id="int-rest-image"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">Image inference (base64 JSON)</div>
+        <div class="client-card">
+          <div class="client-name">Base64-encoded image in JSON body</div>
+          <div class="code-block" id="int-rest-b64"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">Text inference</div>
+        <div class="client-card">
+          <div class="client-name">JSON body — for NLP / text classification</div>
+          <div class="code-block" id="int-rest-text"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">LLM chat (OpenAI-compatible)</div>
+        <div class="client-card">
+          <div class="client-name">Drop-in replacement for OpenAI /v1/chat/completions</div>
+          <div class="code-block" id="int-rest-chat"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">Python (httpx)</div>
+        <div class="client-card">
+          <div class="client-name">Programmatic access without any SDK</div>
+          <div class="code-block" id="int-rest-python"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+      </div>
+
+      <!-- ── Skill Panel ── -->
+      <div class="int-panel active" id="panel-skill-int">
+
+        <div class="integration-subtitle">What is a Skill?</div>
+        <div class="client-card">
+          <div class="integration-desc" style="margin:0">
+            Skills are reusable prompt templates that AI coding agents (Claude Code, Cursor, Windsurf, etc.) can load automatically. Create a skill to give the agent persistent knowledge of your ModelKit server — it learns the available endpoints, input formats, and usage patterns without needing MCP or tool registration.
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Claude Code</div>
+        <div class="client-card">
+          <div class="client-name">Save as <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.claude/skills/modelkit-inference.md</code></div>
+          <div class="code-block" id="int-skill-file"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Skill</button>
+        </div>
+
+        <div class="integration-subtitle">Cursor / Windsurf</div>
+        <div class="client-card">
+          <div class="client-name">Save as <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.cursorrules</code> or <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.windsurfrules</code></div>
+          <div class="code-block" id="int-skill-cursor"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Rules</button>
+        </div>
+
+        <div class="integration-subtitle">Generic (any agent)</div>
+        <div class="client-card">
+          <div class="client-name">System prompt snippet — paste into any AI agent's instructions</div>
+          <div class="code-block" id="int-skill-generic"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Prompt</button>
+        </div>
+
+        <div class="integration-subtitle">When to use Skills vs MCP vs Tools</div>
+        <div class="client-card">
+          <div style="font-size:11px;color:var(--text2);line-height:1.8">
+            <strong>Skill</strong> — Agent calls REST API via shell/code. Zero setup, works everywhere. Best for quick integration and custom workflows.<br>
+            <strong>MCP</strong> — Agent auto-discovers typed tools. Richer UX, but requires MCP-compatible client and server process.<br>
+            <strong>OpenAI Tools</strong> — Programmatic tool-calling loop via SDK. Best for custom applications and pipelines.<br>
+            <strong>Combine them:</strong> Skill for domain knowledge + MCP for native tool calling = best of both.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Reference Panel ── -->
+      <div class="int-panel" id="panel-ref-int">
+
+        <div class="integration-subtitle">API Endpoints</div>
+        <div class="client-card" style="background:rgba(91,141,238,.05);border-color:var(--accent)">
+          <div style="font-size:11px;color:var(--text2);line-height:2.0" id="int-ref-endpoints">
+            <strong style="color:var(--text)">Inference</strong><br>
+            <code>POST /v1/predict</code> &mdash; JSON inputs (text, base64 image, raw tensors)<br>
+            <code>POST /v1/predict/file</code> &mdash; Image file upload (multipart)<br>
+            <code>POST /v1/predict/stream</code> &mdash; SSE streaming<br>
+            <code>POST /v1/chat/completions</code> &mdash; OpenAI-compatible chat (LLM)<br><br>
+            <strong style="color:var(--text)">Discovery</strong><br>
+            <code>GET /v1/tools</code> &mdash; OpenAI function-calling tool definitions<br>
+            <code>GET /v1/mcp-schema</code> &mdash; MCP tool definitions<br>
+            <code>GET /v1/models</code> &mdash; All loaded models and status<br><br>
+            <strong style="color:var(--text)">Management</strong><br>
+            <code>GET /v1/health</code> &mdash; Server status and uptime<br>
+            <code>POST /v1/models</code> &mdash; Load a new model (multi-model mode)<br>
+            <code>DELETE /v1/models/{id}</code> &mdash; Unload a model<br>
+            <code>POST /v1/ep</code> &mdash; Switch execution provider<br>
+            <code>GET /v1/resources</code> &mdash; Memory and request stats
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Server Info</div>
+        <div class="client-card">
+          <div style="font-size:11px;color:var(--text2);line-height:1.8">
+            <span id="serverInfoDisplay" style="font-family:monospace">Loading...</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- ════════════════ PAGE: CLI ════════════════ -->
 <div class="page active" id="page-cli">
-  <div class="cli-page">
     <!-- Sidebar: command list -->
     <nav class="cli-sidebar">
       <h4>Commands</h4>
@@ -545,6 +939,9 @@ function showPage(name, el) {
   document.getElementById('page-' + name).classList.add('active');
   el.classList.add('active');
   if (name === 'models') refreshModels();
+  if (name === 'tools') refreshTools();
+  if (name === 'mcp') refreshMCP();
+  if (name === 'integration') loadIntegrationInfo();
 }
 
 // ══════════════════════════════════════════════════
@@ -1510,6 +1907,650 @@ function clearTerminal() {
   document.getElementById('terminal').innerHTML = '';
   document.getElementById('term-duration').textContent = '';
   document.getElementById('term-exit').textContent = '';
+}
+
+// ══════════════════════════════════════════════════
+// Tools
+// ══════════════════════════════════════════════════
+async function refreshTools() {
+  const container = document.getElementById('toolsContainer');
+  container.innerHTML = '<div class="tools-loading">Loading tools…</div>';
+  try {
+    const r = await fetch(`${serverUrl}/v1/tools`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const err = await r.json();
+        if (err.detail) detail = err.detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    const d = await r.json();
+    renderTools(d.tools || []);
+  } catch (e) {
+    container.innerHTML = `<div class="tools-error">Error: ${e.message}</div>`;
+  }
+}
+
+function renderTools(toolsList) {
+  const container = document.getElementById('toolsContainer');
+  if (toolsList.length === 0) {
+    container.innerHTML = '<div class="tools-empty">No tools available</div>';
+    return;
+  }
+  container.innerHTML = toolsList.map((tool, idx) => {
+    const fn = tool.function || {};
+    const name = fn.name || 'unknown';
+    const desc = fn.description || '';
+    const params = fn.parameters || {};
+    const props = params.properties || {};
+    const required = params.required || [];
+
+    // Build param list
+    const paramEntries = Object.entries(props);
+    const paramHtml = paramEntries.length > 0
+      ? paramEntries.map(([pname, pschema]) => {
+        const ptype = pschema.type || 'unknown';
+        const pdesc = pschema.description || '';
+        const pdefault = pschema.default !== undefined ? ` = ${JSON.stringify(pschema.default)}` : '';
+        const isRequired = required.includes(pname) ? '' : ' (optional)';
+        return `<div class="tool-param">
+          <span class="tool-param-name">${escapeHtml(pname)}</span><span class="tool-param-type">${escapeHtml(ptype)}${isRequired}</span>${pdefault ? `<span class="tool-param-default">${escapeHtml(pdefault)}</span>` : ''}
+          ${pdesc ? `<div style="font-size:10px;margin-top:2px;color:var(--text2)">${escapeHtml(pdesc)}</div>` : ''}
+        </div>`;
+      }).join('')
+      : '<div class="tool-empty">No parameters</div>';
+
+    return `<div class="tool-card">
+      <div class="tool-header">
+        <span class="tool-name">${escapeHtml(name)}</span>
+      </div>
+      ${desc ? `<div class="tool-desc">${escapeHtml(desc)}</div>` : ''}
+      ${paramEntries.length > 0 ? `<div class="tool-section">
+        <div class="tool-section-title">Parameters</div>
+        <div class="tool-params">${paramHtml}</div>
+      </div>` : ''}
+      <div class="tool-actions">
+        <button class="tool-copy-btn" onclick="copyToolDef(${idx})">Copy Definition</button>
+      </div>
+    </div>`;
+  }).join('');
+  // Store tools for copying
+  window._loadedTools = toolsList;
+}
+
+function copyToolDef(idx) {
+  if (!window._loadedTools || !window._loadedTools[idx]) return;
+  const tool = window._loadedTools[idx];
+  const json = JSON.stringify(tool, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const toast = document.createElement('div');
+    toast.className = 'toast show';
+    toast.textContent = 'Tool definition copied!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ══════════════════════════════════════════════════
+// Integration Guide
+// ══════════════════════════════════════════════════
+
+function showIntTab(panelId, tab) {
+  document.querySelectorAll('.int-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.int-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  const panel = document.getElementById('panel-' + panelId);
+  if (panel) panel.classList.add('active');
+}
+
+async function loadIntegrationInfo() {
+  const url = serverUrl;
+  // Server info
+  try {
+    const r = await fetch(`${url}/v1/health`);
+    const h = await r.json();
+    const el = document.getElementById('serverInfoDisplay');
+    if (el) el.textContent = `${url} | ${h.model_id || 'no model'} (${h.task || '-'}) | Mode: ${h.mode} | Status: ${h.status}`;
+  } catch (e) {
+    const el = document.getElementById('serverInfoDisplay');
+    if (el) el.textContent = 'Cannot connect to server';
+  }
+
+  // Populate code blocks with current URL
+  const esc = s => s.replace(/\\/g, '\\\\');
+  const escJson = s => s.replace(/\\/g, '\\\\\\\\');
+
+  // MCP — Claude Desktop
+  const el1 = document.getElementById('int-mcp-desktop-config');
+  if (el1) el1.textContent = JSON.stringify({
+    mcpServers: {
+      modelkit: {
+        command: "python",
+        args: ["scripts/mcp_server.py", "--model-url", url]
+      }
+    }
+  }, null, 2);
+
+  // MCP — .mcp.json
+  const el2 = document.getElementById('int-mcp-code-config');
+  if (el2) el2.textContent = JSON.stringify({
+    mcpServers: {
+      modelkit: {
+        command: "python",
+        args: ["scripts/mcp_server.py", "--model-url", url]
+      }
+    }
+  }, null, 2);
+
+  // MCP — CLI
+  const el3 = document.getElementById('int-mcp-cli-cmd');
+  if (el3) el3.textContent = `claude mcp add modelkit -- python scripts/mcp_server.py --model-url ${url}`;
+
+  // Tools — Anthropic SDK
+  const el4 = document.getElementById('int-tools-anthropic');
+  if (el4) el4.textContent = `import httpx
+from anthropic import Anthropic
+
+client = Anthropic()
+
+# Fetch tool definitions (MCP format)
+schema = httpx.get("${url}/v1/mcp-schema").json()
+
+# Convert MCP tools to Anthropic tool format
+tools = []
+for t in schema["tools"]:
+    tools.append({
+        "name": t["name"],
+        "description": t["description"],
+        "input_schema": t["inputSchema"],
+    })
+
+# Ask Claude to use the tools
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=1024,
+    tools=tools,
+    messages=[{"role": "user", "content": "Classify this image: /path/to/photo.jpg"}],
+)
+print(response.content)`;
+
+  // Tools — OpenAI SDK
+  const el5 = document.getElementById('int-tools-openai');
+  if (el5) el5.textContent = `import httpx
+from openai import OpenAI
+
+# Fetch OpenAI-format tool definitions
+tools = httpx.get("${url}/v1/tools").json()["tools"]
+
+client = OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    tools=tools,
+    messages=[{"role": "user", "content": "What is in this image?"}],
+)
+print(response.choices[0].message)`;
+
+  // Tools — agentic loop
+  const el6 = document.getElementById('int-tools-loop');
+  if (el6) el6.textContent = `import httpx, json
+from anthropic import Anthropic
+
+client = Anthropic()
+tools = [...]  # fetched from /v1/mcp-schema (see above)
+messages = [{"role": "user", "content": "Classify photo.jpg"}]
+
+while True:
+    resp = client.messages.create(
+        model="claude-sonnet-4-20250514", max_tokens=1024,
+        tools=tools, messages=messages,
+    )
+    # Check if Claude wants to call a tool
+    tool_calls = [b for b in resp.content if b.type == "tool_use"]
+    if not tool_calls:
+        # Final text response
+        print([b.text for b in resp.content if b.type == "text"])
+        break
+
+    # Execute each tool call against ModelKit
+    messages.append({"role": "assistant", "content": resp.content})
+    for tc in tool_calls:
+        result = httpx.post("${url}/v1/predict/file",
+            files={"file": open(tc.input["image_path"], "rb")},
+            data={"top_k": str(tc.input.get("top_k", 5))},
+        ).json()
+        messages.append({
+            "role": "user",
+            "content": [{"type": "tool_result",
+                         "tool_use_id": tc.id,
+                         "content": json.dumps(result)}],
+        })`;
+
+  // REST — image upload
+  const el7 = document.getElementById('int-rest-image');
+  if (el7) el7.textContent = `# Image classification (file upload)
+curl -X POST ${url}/v1/predict/file \\
+  -F "file=@photo.jpg" \\
+  -F "top_k=5"`;
+
+  // REST — base64
+  const el8 = document.getElementById('int-rest-b64');
+  if (el8) el8.textContent = `# Image classification (base64 in JSON)
+curl -X POST ${url}/v1/predict \\
+  -H "Content-Type: application/json" \\
+  -d '{"image_bytes": "'$(base64 -w0 photo.jpg)'", "top_k": 5}'`;
+
+  // REST — text
+  const el9 = document.getElementById('int-rest-text');
+  if (el9) el9.textContent = `# Text classification
+curl -X POST ${url}/v1/predict \\
+  -H "Content-Type: application/json" \\
+  -d '{"text": "This product is amazing!", "top_k": 3}'`;
+
+  // REST — chat
+  const el10 = document.getElementById('int-rest-chat');
+  if (el10) el10.textContent = `# LLM chat (OpenAI-compatible)
+curl -X POST ${url}/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "my-model",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 256,
+    "stream": false
+  }'`;
+
+  // REST — Python
+  const el11 = document.getElementById('int-rest-python');
+  if (el11) el11.textContent = `import httpx
+
+# Image classification
+with open("photo.jpg", "rb") as f:
+    resp = httpx.post("${url}/v1/predict/file",
+        files={"file": ("photo.jpg", f, "image/jpeg")},
+        data={"top_k": "5"},
+    )
+print(resp.json())
+
+# Text classification
+resp = httpx.post("${url}/v1/predict",
+    json={"text": "Great product!", "top_k": 3},
+)
+print(resp.json())`;
+
+  // Skill file
+  const el12 = document.getElementById('int-skill-file');
+  if (el12) el12.textContent = `---
+description: Run inference on a local ModelKit server
+---
+
+# ModelKit Inference Skill
+
+ModelKit is running at ${url}
+
+## Available endpoints
+- \`POST ${url}/v1/predict/file\` — image inference (multipart upload)
+- \`POST ${url}/v1/predict\` — text/JSON inference
+- \`GET ${url}/v1/models\` — list loaded models
+
+## Usage pattern
+1. Check loaded models: \`curl ${url}/v1/models\`
+2. For images: \`curl -X POST ${url}/v1/predict/file -F "file=@image.jpg"\`
+3. For text: \`curl -X POST ${url}/v1/predict -d '{"text":"..."}'\`
+
+Always use the Bash tool to call these endpoints.`;
+
+  // Skill — Cursor / Windsurf rules
+  const elCursor = document.getElementById('int-skill-cursor');
+  if (elCursor) elCursor.textContent = `# ModelKit Inference Server
+
+A local ModelKit inference server is running at ${url}.
+
+## Endpoints
+- \`GET ${url}/v1/models\` — list loaded models
+- \`POST ${url}/v1/predict/file\` — image inference (multipart: file + top_k)
+- \`POST ${url}/v1/predict\` — text/JSON inference (body: {"text": "...", "top_k": 5} or {"image_bytes": "<base64>"})
+- \`POST ${url}/v1/chat/completions\` — LLM chat (OpenAI format)
+- \`GET ${url}/v1/health\` — server status
+
+## Rules
+- Always check \`/v1/models\` first to see what models are loaded.
+- For image tasks, prefer file upload via \`/v1/predict/file\`.
+- Use curl or httpx to call these endpoints.`;
+
+  // Skill — Generic system prompt
+  const elGeneric = document.getElementById('int-skill-generic');
+  if (elGeneric) elGeneric.textContent = `You have access to a local ModelKit inference server at ${url}.
+
+Available endpoints:
+- GET ${url}/v1/models — list loaded models and their tasks
+- POST ${url}/v1/predict/file — image inference (multipart form: file=@image.jpg, top_k=5)
+- POST ${url}/v1/predict — text inference (JSON body: {"text": "...", "top_k": 5})
+- POST ${url}/v1/predict — image via base64 (JSON body: {"image_bytes": "<base64>", "top_k": 5})
+- POST ${url}/v1/chat/completions — LLM chat (OpenAI-compatible format)
+
+When asked to classify an image or text, call the appropriate endpoint and return the results.
+Always check /v1/models first to confirm which models are loaded.`;
+
+  // ── Agent Frameworks ──
+
+  // LangChain
+  const elLc = document.getElementById('int-agent-langchain');
+  if (elLc) elLc.textContent = `import httpx
+from langchain_core.tools import tool
+
+@tool
+def classify_image(image_path: str, top_k: int = 5) -> str:
+    """Classify a local image file using ModelKit."""
+    with open(image_path, "rb") as f:
+        resp = httpx.post(
+            "${url}/v1/predict/file",
+            files={"file": (image_path, f)},
+            data={"top_k": str(top_k)},
+        )
+    return resp.json()
+
+@tool
+def classify_text(text: str, top_k: int = 5) -> str:
+    """Classify text using ModelKit."""
+    resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+    return resp.json()
+
+# Use with any LangChain agent
+from langchain_anthropic import ChatAnthropic
+
+llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+llm_with_tools = llm.bind_tools([classify_image, classify_text])
+result = llm_with_tools.invoke("What is in photo.jpg?")`;
+
+  // Semantic Kernel
+  const elSk = document.getElementById('int-agent-sk');
+  if (elSk) elSk.textContent = `import httpx
+from semantic_kernel.functions import kernel_function
+
+class ModelKitPlugin:
+    """ModelKit inference plugin for Semantic Kernel."""
+
+    @kernel_function(description="Classify a local image file")
+    def classify_image(self, image_path: str, top_k: int = 5) -> str:
+        with open(image_path, "rb") as f:
+            resp = httpx.post(
+                "${url}/v1/predict/file",
+                files={"file": (image_path, f)},
+                data={"top_k": str(top_k)},
+            )
+        return str(resp.json())
+
+    @kernel_function(description="Classify text")
+    def classify_text(self, text: str, top_k: int = 5) -> str:
+        resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+        return str(resp.json())
+
+# Register plugin
+import semantic_kernel as sk
+kernel = sk.Kernel()
+kernel.add_plugin(ModelKitPlugin(), plugin_name="modelkit")`;
+
+  // AutoGen
+  const elAg = document.getElementById('int-agent-autogen');
+  if (elAg) elAg.textContent = `import httpx
+from autogen import ConversableAgent
+
+def classify_image(image_path: str, top_k: int = 5) -> dict:
+    """Classify a local image file using ModelKit."""
+    with open(image_path, "rb") as f:
+        resp = httpx.post(
+            "${url}/v1/predict/file",
+            files={"file": (image_path, f)},
+            data={"top_k": str(top_k)},
+        )
+    return resp.json()
+
+assistant = ConversableAgent(
+    "assistant",
+    llm_config={"model": "claude-sonnet-4-20250514"},
+)
+
+# Register the tool for both calling and execution
+assistant.register_for_llm(description="Classify an image")(classify_image)
+assistant.register_for_execution()(classify_image)`;
+
+  // CrewAI
+  const elCr = document.getElementById('int-agent-crewai');
+  if (elCr) elCr.textContent = `import httpx
+from crewai.tools import BaseTool
+
+class ImageClassifierTool(BaseTool):
+    name: str = "Image Classifier"
+    description: str = "Classify a local image file using ModelKit"
+
+    def _run(self, image_path: str, top_k: int = 5) -> str:
+        with open(image_path, "rb") as f:
+            resp = httpx.post(
+                "${url}/v1/predict/file",
+                files={"file": (image_path, f)},
+                data={"top_k": str(top_k)},
+            )
+        return str(resp.json())
+
+class TextClassifierTool(BaseTool):
+    name: str = "Text Classifier"
+    description: str = "Classify text using ModelKit"
+
+    def _run(self, text: str, top_k: int = 5) -> str:
+        resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+        return str(resp.json())
+
+# Use in a CrewAI agent
+from crewai import Agent
+agent = Agent(
+    role="Analyst",
+    tools=[ImageClassifierTool(), TextClassifierTool()],
+)`;
+
+  // OpenAI Agents SDK
+  const elOa = document.getElementById('int-agent-openai');
+  if (elOa) elOa.textContent = `import httpx
+from agents import Agent, Runner, function_tool
+
+@function_tool
+def classify_image(image_path: str, top_k: int = 5) -> str:
+    """Classify a local image file using ModelKit."""
+    with open(image_path, "rb") as f:
+        resp = httpx.post(
+            "${url}/v1/predict/file",
+            files={"file": (image_path, f)},
+            data={"top_k": str(top_k)},
+        )
+    return str(resp.json())
+
+@function_tool
+def classify_text(text: str, top_k: int = 5) -> str:
+    """Classify text using ModelKit."""
+    resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+    return str(resp.json())
+
+agent = Agent(
+    name="ModelKit Analyst",
+    instructions="You classify images and text using ModelKit.",
+    tools=[classify_image, classify_text],
+)
+
+result = Runner.run_sync(agent, "What is in photo.jpg?")
+print(result.final_output)`;
+
+  // OpenClaw
+  const elOc = document.getElementById('int-agent-openclaw');
+  if (elOc) elOc.textContent = `# OpenClaw Skill: ModelKit Inference
+# Save as a skill definition in your OpenClaw configuration.
+#
+# The agent can call these endpoints autonomously:
+#
+# 1. List loaded models
+#    GET ${url}/v1/models
+#
+# 2. Classify an image (file upload)
+#    curl -X POST ${url}/v1/predict/file \\
+#      -F "file=@/path/to/image.jpg" -F "top_k=5"
+#
+# 3. Classify text
+#    curl -X POST ${url}/v1/predict \\
+#      -H "Content-Type: application/json" \\
+#      -d '{"text": "input text here", "top_k": 5}'
+#
+# 4. LLM chat (if a text-generation model is loaded)
+#    curl -X POST ${url}/v1/chat/completions \\
+#      -H "Content-Type: application/json" \\
+#      -d '{"model": "my-model", "messages": [{"role": "user", "content": "Hello"}]}'
+#
+# Python alternative (if httpx is available):
+import httpx
+
+# Image classification
+with open("photo.jpg", "rb") as f:
+    result = httpx.post(
+        "${url}/v1/predict/file",
+        files={"file": ("photo.jpg", f)},
+        data={"top_k": "5"},
+    ).json()
+print(result["predictions"])
+
+# Text classification
+result = httpx.post(
+    "${url}/v1/predict",
+    json={"text": "This product is great!", "top_k": 3},
+).json()
+print(result["predictions"])`;
+}
+
+function copyCode(btn) {
+  const codeBlock = btn.previousElementSibling;
+  const text = codeBlock.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = original; }, 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+// ══════════════════════════════════════════════════
+// MCP
+// ══════════════════════════════════════════════════
+async function refreshMCP() {
+  const container = document.getElementById('mcpContainer');
+  container.innerHTML = '<div class="mcp-loading">Loading MCP schema…</div>';
+  try {
+    const r = await fetch(`${serverUrl}/v1/mcp-schema`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const err = await r.json();
+        if (err.detail) detail = err.detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    const d = await r.json();
+    renderMCP(d);
+  } catch (e) {
+    container.innerHTML = `<div class="mcp-error">Error: ${e.message}</div>`;
+  }
+}
+
+function renderMCP(data) {
+  const container = document.getElementById('mcpContainer');
+  const info = data.server_info || {};
+  const tools = data.tools || [];
+
+  let html = `
+    <div class="mcp-info">
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Server</span>
+        <span class="mcp-info-value">${escapeHtml(info.name || 'ModelKit')}</span>
+      </div>
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Version</span>
+        <span class="mcp-info-value">${escapeHtml(info.version || 'unknown')}</span>
+      </div>
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Model</span>
+        <span class="mcp-info-value">${escapeHtml(info.model_id || 'unknown')}</span>
+      </div>
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Task</span>
+        <span class="mcp-info-value">${escapeHtml(info.task || 'unknown')}</span>
+      </div>
+    </div>
+  `;
+
+  if (tools.length > 0) {
+    html += `<div class="mcp-section">
+      <div class="mcp-section-title">Tools (${tools.length})</div>`;
+
+    tools.forEach((tool, idx) => {
+      const toolJson = JSON.stringify(tool, null, 2);
+      html += `
+        <div style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;">
+          <div style="font-weight:600;color:var(--accent);margin-bottom:8px;font-family:monospace;font-size:12px">${escapeHtml(tool.name || 'unknown')}</div>
+          ${tool.description ? `<div style="font-size:11px;color:var(--text2);margin-bottom:10px">${escapeHtml(tool.description)}</div>` : ''}
+          <div class="mcp-code-block">${escapeHtml(toolJson)}</div>
+          <button class="mcp-copy-btn" onclick="copyMCPTool(${idx})">Copy Tool Definition</button>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
+  } else {
+    html += '<div style="color:var(--text2);font-size:12px">No tools available</div>';
+  }
+
+  html += `
+    <div class="mcp-section" style="margin-top:20px;">
+      <div class="mcp-section-title">Full Schema</div>
+      <div class="mcp-code-block">${escapeHtml(JSON.stringify(data, null, 2))}</div>
+      <button class="mcp-copy-btn" onclick="copyMCPSchema()">Copy Full Schema</button>
+    </div>
+  `;
+
+  container.innerHTML = html;
+  window._mcpData = data;
+}
+
+function copyMCPTool(idx) {
+  if (!window._mcpData || !window._mcpData.tools || !window._mcpData.tools[idx]) return;
+  const tool = window._mcpData.tools[idx];
+  const json = JSON.stringify(tool, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const toast = document.createElement('div');
+    toast.className = 'toast show';
+    toast.textContent = 'Tool definition copied!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+function copyMCPSchema() {
+  if (!window._mcpData) return;
+  const json = JSON.stringify(window._mcpData, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const toast = document.createElement('div');
+    toast.className = 'toast show';
+    toast.textContent = 'MCP schema copied!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
 }
 
 // Init CLI form

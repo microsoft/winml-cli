@@ -27,8 +27,9 @@ class EpSwitchRequest(BaseModel):
 
 
 class PredictJsonRequest(BaseModel):
-    """POST /v1/predict — raw tensor inputs or text string."""
+    """POST /v1/predict — image (base64), text, or raw tensor inputs."""
 
+    image_bytes: str | None = Field(None, description="Base64-encoded image data (JPEG, PNG, …)")
     inputs: dict[str, list[Any]] | None = Field(
         None, description="Map of input_name → nested list (numpy-serialisable)"
     )
@@ -160,3 +161,90 @@ class ModelStatsResponse(BaseModel):
     memory_mb: float = 0.0
     latency: LatencyStats = Field(default_factory=LatencyStats)
     last_request_at: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible chat completions (LLM support)
+# ---------------------------------------------------------------------------
+
+
+class ChatMessage(BaseModel):
+    """Single message in a chat conversation (OpenAI format)."""
+
+    role: str = Field(..., description="Message role: 'system', 'user', or 'assistant'")
+    content: str = Field(..., description="Message text content")
+
+
+class ChatCompletionRequest(BaseModel):
+    """POST /v1/chat/completions — OpenAI-compatible LLM request."""
+
+    model: str = Field(..., description="Model ID or name")
+    messages: list[ChatMessage] = Field(..., description="Conversation history (newest last)")
+    max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate")
+    temperature: float | None = Field(None, ge=0.0, le=2.0, description="Sampling temperature")
+    top_p: float | None = Field(None, ge=0.0, le=1.0, description="Nucleus sampling (top-p)")
+    stream: bool = Field(False, description="If true, stream tokens via SSE")
+
+
+class ChatCompletionChoice(BaseModel):
+    """One completion choice in a non-streaming response."""
+
+    index: int
+    message: ChatMessage
+    finish_reason: str | None = None  # "stop", "length", "content_filter", etc.
+
+
+class ChatCompletionUsage(BaseModel):
+    """Token usage statistics."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class ChatCompletionResponse(BaseModel):
+    """POST /v1/chat/completions — full (non-streaming) response."""
+
+    id: str = Field(..., description="Completion ID (chatcmpl-...)")
+    object: str = Field(
+        "chat.completion",
+        description="Object type (always 'chat.completion' for non-streaming)",
+    )
+    created: int = Field(..., description="Unix timestamp of creation")
+    model: str
+    choices: list[ChatCompletionChoice]
+    usage: ChatCompletionUsage | None = None
+
+
+class ChatCompletionChunkDelta(BaseModel):
+    """Delta (incremental change) in a streaming chunk."""
+
+    role: str | None = None  # Only in first chunk
+    content: str | None = None  # Token text (or empty string)
+
+
+class ChatCompletionChunkChoice(BaseModel):
+    """One choice in a streaming chunk."""
+
+    index: int
+    delta: ChatCompletionChunkDelta
+    finish_reason: str | None = None  # Only in final chunk
+
+
+class ChatCompletionChunk(BaseModel):
+    """SSE chunk for streaming chat completions."""
+
+    id: str
+    object: str = Field(
+        "chat.completion.chunk",
+        description="Object type (always 'chat.completion.chunk' for streaming)",
+    )
+    created: int
+    model: str
+    choices: list[ChatCompletionChunkChoice]
+
+
+class ToolsResponse(BaseModel):
+    """GET /v1/tools — OpenAI-compatible tool definitions response."""
+
+    tools: list[dict] = Field(..., description="Array of OpenAI function-calling tool definitions")

@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 # python >= 3.8
 import concurrent.futures as cf
+import contextlib
 import multiprocessing as mp
 import sys
 from collections.abc import Callable
@@ -196,6 +197,13 @@ class ResilientRunner:
             try:
                 return future.result(timeout=self.timeout_sec)
             except Exception as e:
+                # Kill worker processes before shutdown — shutdown(wait=False) only
+                # cancels pending futures but does NOT terminate the running worker.
+                # Abandoned workers become orphans when the parent exits, accumulating
+                # as zombie processes that saturate CPU/memory across eval runs.
+                for worker in self.executor._processes.values():
+                    with contextlib.suppress(Exception):
+                        worker.kill()
                 self.executor.shutdown(wait=False, cancel_futures=True)
                 self.executor = self._new_executor()
                 if attempts >= self.max_retries:
