@@ -40,7 +40,7 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
             "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
             classmethod(lambda cls: None),
         )
-    except (ImportError, AttributeError) as e:
+    except ImportError as e:
         import warnings
 
         warnings.warn(f"Could not mock _init_winml_eps_once: {e}", stacklevel=2)
@@ -50,7 +50,7 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
             "winml.modelkit.analyze.core.runtime_checker_query.RuntimeCheckerQuery._is_ep_available_locally",
             lambda self: False,
         )
-    except (ImportError, AttributeError) as e:
+    except ImportError as e:
         import warnings
 
         warnings.warn(f"Could not mock _is_ep_available_locally: {e}", stacklevel=2)
