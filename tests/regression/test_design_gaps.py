@@ -65,19 +65,19 @@ class TestA1HelpTextAsciiSafe:
 
 
 # ===========================================================================
-# M-1: --list-tasks NOT in inspect --help
+# M-1: --list-tasks IS in inspect --help (implemented in MVP v2 port)
 # ===========================================================================
 
 
-class TestM1ListTasksAbsent:
-    """Document that --list-tasks is not implemented in inspect."""
+class TestM1ListTasksPresent:
+    """Verify that --list-tasks is implemented in inspect."""
 
-    def test_list_tasks_not_in_help(self):
-        """inspect --help should NOT contain --list-tasks option."""
+    def test_list_tasks_in_help(self):
+        """inspect --help should contain --list-tasks option."""
         runner = CliRunner()
         result = runner.invoke(inspect, ["--help"], obj={})
         assert result.exit_code == 0
-        assert "--list-tasks" not in result.output
+        assert "--list-tasks" in result.output
 
 
 # ===========================================================================
