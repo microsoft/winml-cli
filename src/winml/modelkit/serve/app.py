@@ -27,7 +27,6 @@ import importlib.resources
 import json
 import logging
 import time
-import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -35,24 +34,14 @@ from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
-from .adapter import LLMAdapter
-from .adapter_integration import AdapterEngineWrapper, should_use_adapter_engine
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .engine import InferenceEngine
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
-    ChatCompletionChoice,
-    ChatCompletionChunk,
-    ChatCompletionChunkChoice,
-    ChatCompletionChunkDelta,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatCompletionUsage,
-    ChatMessage,
     EpSwitchRequest,
     HealthResponse,
     LatencyStats,
@@ -114,8 +103,6 @@ _VALID_EPS = {"cpu", "dml", "qnn", "openvino", "cuda", "auto"}
 # ---------------------------------------------------------------------------
 _manager: SingleModelManager | ModelSlotManager | None = None
 _start_time = time.time()
-_adapter: AdapterEngineWrapper | None = None  # Adapter path for manifest-driven models (GenAI, etc)
-_manifest: dict | None = None  # Manifest from adapter path
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +135,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global _manager, _adapter, _manifest
+        global _manager
         if mode == "multi":
             mgr = ModelSlotManager(
                 memory_budget_mb=memory_budget_mb,
@@ -156,7 +143,6 @@ def create_app(
                 default_device=device,
             )
             if model_path:
-                # Pre-load the initial model if given
                 logger.info("Pre-loading model: %s", model_path)
                 async with mgr.borrow(model_path):
                     pass
@@ -168,20 +154,10 @@ def create_app(
             engine.load(model_path, task=task, device=device, ep=ep)
             _manager = SingleModelManager(engine, idle_timeout_sec=idle_timeout_sec)
 
-            # Detect adapter path (manifest-driven models like GenAI)
-            if model_path and should_use_adapter_engine(Path(model_path)):
-                logger.info("Loading via adapter path (manifest-driven): %s", model_path)
-                _adapter = AdapterEngineWrapper()
-                _adapter.load_from_manifest(model_path, task=task, device=device, ep=ep)
-                _manifest = _adapter.manifest
-
         logger.info("Model ready")
         yield
-        # Shutdown: unload
         if isinstance(_manager, SingleModelManager):
             _manager._engine.unload()
-        if _adapter is not None:
-            _adapter.unload()
 
     app = FastAPI(
         title="ModelKit Inference Server",
@@ -213,23 +189,6 @@ def create_app(
 
     _register_routes(app, mode=mode)
     return app
-
-
-def _messages_to_prompt(messages: list[ChatMessage]) -> str:
-    """Convert OpenAI-format messages to ChatML prompt string.
-
-    Uses ChatML format — model-agnostic, compatible with most open LLMs.
-    No model-specific logic; works with any tokenizer that understands ChatML.
-
-    Args:
-        messages: List of ChatMessage objects
-
-    Returns:
-        ChatML-formatted prompt string ready for generation
-    """
-    lines = [f"<|im_start|>{msg.role}\n{msg.content}<|im_end|>" for msg in messages]
-    lines.append("<|im_start|>assistant")
-    return "\n".join(lines)
 
 
 def _register_routes(app: FastAPI, *, mode: str) -> None:
@@ -328,175 +287,6 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
-    # POST /v1/predict/stream — SSE streaming (LLM token-by-token, or single-shot for other tasks)
-    # ------------------------------------------------------------------
-    @app.post(
-        "/v1/predict/stream",
-        tags=["inference"],
-        summary="SSE streaming inference (LLM tokens or single result)",
-    )
-    async def predict_stream(request: PredictJsonRequest) -> StreamingResponse:
-        """Stream inference results via Server-Sent Events (SSE).
-
-        For LLM models: yields tokens one by one (requires _adapter path).
-        For other models: yields complete result as single SSE event.
-        """
-
-        async def _generate():
-            try:
-                if _adapter is not None:
-                    # Adapter path: supports streaming natively (LLM)
-                    inputs = {
-                        "text": request.text,
-                        "tensor_inputs": request.inputs,
-                        "top_k": request.top_k,
-                    }
-                    async for chunk in _adapter.adapter.predict_streaming(inputs):
-                        yield f"data: {json.dumps(chunk)}\n\n"
-                else:
-                    # Fallback: run sync predict and wrap as single SSE event
-                    mgr = _get_manager()
-                    async with mgr.borrow("_", task=request.task) as engine:
-                        loop = asyncio.get_event_loop()
-                        result = await loop.run_in_executor(
-                            None,
-                            lambda: engine.predict(
-                                text=request.text,
-                                tensor_inputs=request.inputs,
-                                top_k=request.top_k,
-                            ),
-                        )
-                        yield f"data: {result.model_dump_json()}\n\n"
-            except Exception as exc:
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-
-        return StreamingResponse(_generate(), media_type="text/event-stream")
-
-    # ------------------------------------------------------------------
-    # POST /v1/chat/completions — OpenAI-compatible LLM chat
-    # ------------------------------------------------------------------
-    @app.post(
-        "/v1/chat/completions",
-        tags=["inference"],
-        summary="OpenAI-compatible LLM chat completions (sync + streaming)",
-    )
-    async def chat_completions(request: ChatCompletionRequest):
-        """OpenAI-compatible chat completions endpoint for LLM inference.
-
-        Supports both sync (stream=False) and streaming (stream=True) responses.
-        Streaming uses SSE format compatible with OpenAI SDK.
-        """
-        if _adapter is None or not isinstance(_adapter.adapter, LLMAdapter):
-            raise HTTPException(
-                status_code=400,
-                detail="No LLM model loaded. This endpoint requires a text-generation model.",
-            )
-
-        # Convert messages to prompt string
-        prompt = _messages_to_prompt(request.messages)
-
-        # Prepare inference inputs
-        inputs = {}
-        if request.prompt:
-            inputs["prompt"] = request.prompt
-        else:
-            inputs["prompt"] = prompt
-
-        if request.max_tokens is not None:
-            inputs["max_tokens"] = request.max_tokens
-        if request.temperature is not None:
-            inputs["temperature"] = request.temperature
-        if request.top_p is not None:
-            inputs["top_p"] = request.top_p
-
-        # OpenAI spec: use completion ID and timestamp
-        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
-        created = int(time.time())
-        model_name = request.model
-
-        if not request.stream:
-            # Sync path: wait for complete generation
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, lambda: _adapter.adapter.predict(inputs))
-
-            # Extract text from result
-            text = ""
-            if isinstance(result.predictions, dict):
-                text = result.predictions.get("text", "")
-
-            return ChatCompletionResponse(
-                id=completion_id,
-                created=created,
-                model=model_name,
-                choices=[
-                    ChatCompletionChoice(
-                        index=0,
-                        message=ChatMessage(role="assistant", content=text),
-                        finish_reason="stop",
-                    )
-                ],
-                usage=ChatCompletionUsage(
-                    prompt_tokens=len(prompt.split()),
-                    completion_tokens=len(text.split()),
-                    total_tokens=len(prompt.split()) + len(text.split()),
-                ),
-            )
-
-        # Streaming path: SSE format
-        async def _sse_generate():
-            # First chunk: announce assistant role
-            first_chunk = ChatCompletionChunk(
-                id=completion_id,
-                created=created,
-                model=model_name,
-                choices=[
-                    ChatCompletionChunkChoice(
-                        index=0,
-                        delta=ChatCompletionChunkDelta(role="assistant", content=""),
-                        finish_reason=None,
-                    )
-                ],
-            )
-            yield f"data: {first_chunk.model_dump_json()}\n\n"
-
-            # Stream tokens
-            async for token_dict in _adapter.adapter.predict_streaming(inputs):
-                token = token_dict.get("token", "")
-                chunk = ChatCompletionChunk(
-                    id=completion_id,
-                    created=created,
-                    model=model_name,
-                    choices=[
-                        ChatCompletionChunkChoice(
-                            index=0,
-                            delta=ChatCompletionChunkDelta(content=token),
-                            finish_reason=None,
-                        )
-                    ],
-                )
-                yield f"data: {chunk.model_dump_json()}\n\n"
-
-            # Final chunk: mark stream complete
-            final_chunk = ChatCompletionChunk(
-                id=completion_id,
-                created=created,
-                model=model_name,
-                choices=[
-                    ChatCompletionChunkChoice(
-                        index=0,
-                        delta=ChatCompletionChunkDelta(),
-                        finish_reason="stop",
-                    )
-                ],
-            )
-            yield f"data: {final_chunk.model_dump_json()}\n\n"
-
-            # OpenAI spec: stream ends with [DONE]
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(_sse_generate(), media_type="text/event-stream")
-
-    # ------------------------------------------------------------------
     # GET /v1/tools — OpenAI tool definitions
     # ------------------------------------------------------------------
     @app.get(
@@ -509,52 +299,8 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         """Return OpenAI function-calling tool definitions for the loaded model.
 
         Tools are auto-generated from the model's build manifest or metadata.
-        Includes streaming endpoint for LLM models.
         """
-        # Prefer manifest from adapter path if available
-        manifest = _manifest
-        if manifest is None:
-            # Fallback: try to read from manager's engine(s)
-            try:
-                mgr = _get_manager()
-                engine = None
-
-                if isinstance(mgr, SingleModelManager):
-                    engine = mgr._engine
-                elif isinstance(mgr, ModelSlotManager) and mgr._slots:
-                    slot = next(iter(mgr._slots.values()))
-                    engine = slot.engine
-
-                if engine:
-                    # Try to load from build_manifest.json first
-                    if engine._model_path:
-                        manifest_file = Path(engine._model_path) / "build_manifest.json"
-                        if manifest_file.exists():
-                            try:
-                                manifest = json.loads(manifest_file.read_text())
-                                logger.info("Loaded manifest from %s", manifest_file)
-                            except Exception as e:
-                                logger.warning("Failed to load manifest: %s", e)
-
-                    # Fallback: generate basic manifest from engine metadata
-                    if manifest is None:
-                        manifest = {
-                            "model_id": engine._model_id or "unknown",
-                            "task": engine._task or "unknown",
-                            "parameters": {},
-                            "model_io": {},
-                            "processing": {},
-                            "engine": {"format": "onnxruntime"},
-                        }
-                        logger.info(
-                            "Generated fallback manifest: model_id=%s, task=%s",
-                            manifest["model_id"],
-                            manifest["task"],
-                        )
-            except HTTPException:
-                pass
-            except Exception as e:
-                logger.error("Error getting engine metadata: %s", e)
+        manifest = _load_manifest()
 
         if manifest is None:
             raise HTTPException(
@@ -589,48 +335,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         MCP (Model Context Protocol) tools can be used with Claude API
         for function calling with automatic model invocation.
         """
-        # Reuse the tools endpoint logic
-        manifest = _manifest
-        if manifest is None:
-            try:
-                mgr = _get_manager()
-                engine = None
-
-                if isinstance(mgr, SingleModelManager):
-                    engine = mgr._engine
-                elif isinstance(mgr, ModelSlotManager) and mgr._slots:
-                    slot = next(iter(mgr._slots.values()))
-                    engine = slot.engine
-
-                if engine:
-                    if engine._model_path:
-                        manifest_file = Path(engine._model_path) / "build_manifest.json"
-                        if manifest_file.exists():
-                            try:
-                                manifest = json.loads(manifest_file.read_text())
-                                logger.info("Loaded manifest from %s", manifest_file)
-                            except Exception as e:
-                                logger.warning("Failed to load manifest: %s", e)
-
-                    if manifest is None:
-                        manifest = {
-                            "model_id": engine._model_id or "unknown",
-                            "task": engine._task or "unknown",
-                            "parameters": {},
-                            "model_io": {},
-                            "processing": {},
-                            "engine": {"format": "onnxruntime"},
-                        }
-                        logger.info(
-                            "Generated fallback manifest: model_id=%s, task=%s",
-                            manifest["model_id"],
-                            manifest["task"],
-                        )
-            except HTTPException:
-                pass
-            except Exception as e:
-                logger.error("Error getting engine metadata: %s", e)
-
+        manifest = _load_manifest()
         if manifest is None:
             raise HTTPException(
                 status_code=503,
@@ -826,6 +531,41 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         )
 
     # ------------------------------------------------------------------
+    # GET /v1/models/{model_id}/schema — request/response schema for a model
+    # ------------------------------------------------------------------
+    @app.get(
+        "/v1/models/{model_id:path}/schema",
+        tags=["discovery"],
+        summary="Request/response schema and examples for a loaded model",
+    )
+    async def model_schema(model_id: str) -> dict[str, Any]:
+        """Return the request/response schema for a specific model.
+
+        Manifest-driven: parameters, input/output shapes, and response
+        format are all derived from build_manifest.json.
+        Includes curl examples for every endpoint.
+        """
+        manifest = _load_manifest_for(model_id)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail=f"Model '{model_id}' not loaded")
+        return _build_model_schema(manifest)
+
+    # ------------------------------------------------------------------
+    # GET /v1/schema — request/response schema (single-model shortcut)
+    # ------------------------------------------------------------------
+    @app.get(
+        "/v1/schema",
+        tags=["discovery"],
+        summary="Request/response schema for the current model",
+    )
+    async def current_schema() -> dict[str, Any]:
+        """Shortcut: returns schema for the first/only loaded model."""
+        manifest = _load_manifest()
+        if manifest is None:
+            raise HTTPException(status_code=503, detail="No model loaded")
+        return _build_model_schema(manifest)
+
+    # ------------------------------------------------------------------
     # GET /v1/hub — serve curated model catalog from hub_models.json
     # ------------------------------------------------------------------
     @app.get("/v1/hub", tags=["management"], summary="Curated WinML Hub model catalog")
@@ -865,6 +605,212 @@ def _get_manager() -> SingleModelManager | ModelSlotManager:
     if _manager is None:
         raise HTTPException(status_code=503, detail="Model not loaded yet")
     return _manager
+
+
+def _get_engine(model_id: str | None = None) -> InferenceEngine | None:
+    """Get engine for a model_id, or the first available engine."""
+    try:
+        mgr = _get_manager()
+    except HTTPException:
+        return None
+
+    if isinstance(mgr, SingleModelManager):
+        return mgr._engine
+    if isinstance(mgr, ModelSlotManager) and mgr._slots:
+        if model_id:
+            # Exact match first
+            slot = mgr._slots.get(model_id)
+            if slot:
+                return slot.engine
+            # Fallback: match by engine.model_id (handles URL encoding quirks)
+            mid = model_id.strip()
+            for s in mgr._slots.values():
+                if s.engine.model_id == mid:
+                    return s.engine
+            return None
+        slot = next(iter(mgr._slots.values()))
+        return slot.engine
+    return None
+
+
+def _manifest_from_engine(engine: InferenceEngine) -> dict:
+    """Build manifest dict from engine, trying build_manifest.json first."""
+    if engine._model_path:
+        manifest_file = Path(engine._model_path) / "build_manifest.json"
+        if manifest_file.exists():
+            try:
+                return json.loads(manifest_file.read_text())
+            except Exception as e:
+                logger.warning("Failed to load manifest: %s", e)
+
+    return {
+        "model_id": engine._model_id or "unknown",
+        "task": engine._task or "unknown",
+        "parameters": {},
+        "model_io": {},
+        "processing": {},
+    }
+
+
+def _load_manifest() -> dict | None:
+    """Load manifest for the first available model (best-effort)."""
+    engine = _get_engine()
+    return _manifest_from_engine(engine) if engine else None
+
+
+def _load_manifest_for(model_id: str) -> dict | None:
+    """Load manifest for a specific model_id."""
+    engine = _get_engine(model_id)
+    return _manifest_from_engine(engine) if engine else None
+
+
+def _build_model_schema(manifest: dict) -> dict[str, Any]:
+    """Build request/response schema from manifest, with curl examples.
+
+    Manifest-driven: parameters come from build_manifest.json, not hardcoded.
+    """
+    gen = APISchemaGenerator(manifest)
+    task = gen.task
+    model_id = gen.model_id or "unknown"
+    is_image = gen._is_image_task()
+    is_text = gen._is_text_task()
+    base = "{server_url}"
+    json_hdr = '-H "Content-Type: application/json"'
+
+    # --- Build parameter list from manifest ---
+    # Reuse the same logic as /v1/tools
+    param_schema = gen._build_parameters_schema()
+    properties = param_schema.get("properties", {})
+    required = set(param_schema.get("required", []))
+
+    def _fmt_params(props: dict) -> dict:
+        """Convert OpenAI-style properties to REST schema format."""
+        out: dict[str, Any] = {}
+        for name, spec in props.items():
+            entry: dict[str, Any] = {"type": spec.get("type", "string")}
+            entry["required"] = name in required
+            if "default" in spec:
+                entry["default"] = spec["default"]
+            if "description" in spec:
+                entry["description"] = spec["description"]
+            if "minimum" in spec:
+                entry["minimum"] = spec["minimum"]
+            if "maximum" in spec:
+                entry["maximum"] = spec["maximum"]
+            out[name] = entry
+        return out
+
+    endpoints: dict[str, Any] = {}
+
+    if is_image:
+        # File upload endpoint — always has file + manifest params
+        file_params: dict[str, Any] = {
+            "file": {
+                "type": "file",
+                "required": True,
+                "description": "Image file (JPEG, PNG, etc.)",
+            },
+            **{k: v for k, v in _fmt_params(properties).items() if k != "image_bytes"},
+        }
+
+        endpoints["predict_file"] = {
+            "method": "POST",
+            "path": "/v1/predict/file",
+            "content_type": "multipart/form-data",
+            "parameters": file_params,
+            "curl": (f'curl -X POST {base}/v1/predict/file -F "file=@photo.jpg" -F "top_k=5"'),
+        }
+        endpoints["predict_json"] = {
+            "method": "POST",
+            "path": "/v1/predict",
+            "content_type": "application/json",
+            "parameters": _fmt_params(properties),
+            "curl": (
+                f"curl -X POST {base}/v1/predict {json_hdr}"
+                ' -d \'{"image_bytes":"<base64>","top_k":5}\''
+            ),
+        }
+    elif is_text:
+        # Rename "prompt" → "text" for REST (tool schema uses "prompt")
+        rest_props = dict(properties)
+        if "prompt" in rest_props:
+            rest_props["text"] = rest_props.pop("prompt")
+            if "prompt" in required:
+                required.discard("prompt")
+                required.add("text")
+
+        endpoints["predict_json"] = {
+            "method": "POST",
+            "path": "/v1/predict",
+            "content_type": "application/json",
+            "parameters": _fmt_params(rest_props),
+            "curl": (
+                f"curl -X POST {base}/v1/predict {json_hdr}"
+                ' -d \'{"text":"your text here","top_k":5}\''
+            ),
+        }
+    else:
+        endpoints["predict_json"] = {
+            "method": "POST",
+            "path": "/v1/predict",
+            "content_type": "application/json",
+            "parameters": {
+                "inputs": {
+                    "type": "object",
+                    "required": True,
+                    "description": "Map of input_name to tensor (nested list)",
+                },
+            },
+            "curl": (f"curl -X POST {base}/v1/predict {json_hdr} -d '{{\"inputs\":{{...}}}}'"),
+        }
+
+    # --- Response example (task-driven) ---
+    resp_base: dict[str, Any] = {
+        "task": task,
+        "model_id": model_id,
+        "device": "auto",
+        "ep": None,
+        "latency_ms": 12.0,
+    }
+
+    classification_tasks = (
+        "image-classification",
+        "text-classification",
+        "sentiment-analysis",
+    )
+    if task in classification_tasks:
+        resp_base["predictions"] = [
+            {"label": "class_a", "score": 0.95},
+            {"label": "class_b", "score": 0.03},
+        ]
+    elif task == "object-detection":
+        resp_base["predictions"] = {
+            "pred_boxes": "[[x1,y1,x2,y2], ...]",
+            "logits": "[[...]]",
+        }
+    elif task in ("image-segmentation", "semantic-segmentation"):
+        resp_base["predictions"] = {
+            "pred_masks": "[[...]]",
+            "logits": "[[...]]",
+        }
+    elif task == "token-classification":
+        resp_base["predictions"] = {
+            "entities": [
+                {"token_idx": 0, "label": "B-PER"},
+                {"token_idx": 1, "label": "I-PER"},
+            ],
+        }
+    else:
+        resp_base["predictions"] = {"raw": "..."}
+
+    return {
+        "model_id": model_id,
+        "task": task,
+        "input_type": "image" if is_image else "text" if is_text else "tensor",
+        "parameters_from": "build_manifest.json",
+        "endpoints": endpoints,
+        "response_example": resp_base,
+    }
 
 
 def print_startup_banner(

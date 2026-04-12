@@ -15,8 +15,8 @@ detect_object_yolov8).  If the server is unreachable, registers a
 generic fallback tool.
 
 Usage:
-    python mcp-server.py
-    python mcp-server.py --model-url http://localhost:9000
+    python scripts/mcp_server.py
+    python scripts/mcp_server.py --model-url http://localhost:9000
 """
 
 from __future__ import annotations
@@ -50,12 +50,8 @@ def _is_image_task(task: str) -> bool:
     return any(task.startswith(p) for p in _IMAGE_PREFIXES) or task.startswith("image-")
 
 
-def _is_llm_task(task: str, engine_format: str = "") -> bool:
-    return task == "text-generation" or engine_format == "onnxruntime_genai"
-
-
 def _is_text_task(task: str) -> bool:
-    return task in _TEXT_TASKS or ("text" in task and task != "text-generation")
+    return task in _TEXT_TASKS or "text" in task
 
 
 # ---------------------------------------------------------------------------
@@ -72,9 +68,6 @@ def _build_tool_name(task: str, model_id: str) -> str:
 
         ("object-detection", "facebook/detr-resnet-50")
         → "detect_object_facebook_detr_resnet_50"
-
-        ("text-generation", "microsoft/phi-2")
-        → "generate_text_microsoft_phi_2"
     """
     task_parts = task.lower().split("-")
     if len(task_parts) >= 2:
@@ -162,8 +155,6 @@ def _register_model_tool(mcp: FastMCP, model_url: str, task: str, model_id: str)
 
     if _is_image_task(task):
         _register_image_tool(mcp, model_url, model_id, tool_name, task_display)
-    elif _is_llm_task(task):
-        _register_llm_tool(mcp, model_url, model_id, tool_name, task_display)
     elif _is_text_task(task):
         _register_text_tool(mcp, model_url, model_id, tool_name, task_display)
     else:
@@ -237,49 +228,6 @@ def _register_text_tool(
         "Args:\n"
         "    text: The text to analyze\n"
         "    top_k: Number of top results to return (default: 5)"
-    )
-    mcp.tool()(_handler)
-
-
-# ---------------------------------------------------------------------------
-# LLM tool
-# ---------------------------------------------------------------------------
-
-
-def _register_llm_tool(
-    mcp: FastMCP, model_url: str, model_id: str, tool_name: str, task_display: str
-) -> None:
-    async def _handler(
-        prompt: str,
-        max_tokens: int = 256,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-    ) -> str:
-        try:
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.post(
-                    f"{model_url}/v1/predict",
-                    json={
-                        "text": prompt,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                        "top_p": top_p,
-                        "task": model_id,
-                    },
-                )
-                resp.raise_for_status()
-                return json.dumps(resp.json(), indent=2)
-        except Exception as e:
-            return f"Error: {e}"
-
-    _handler.__name__ = tool_name
-    _handler.__doc__ = (
-        f"Generate text using {model_id}.\n\n"
-        "Args:\n"
-        "    prompt: The input prompt\n"
-        "    max_tokens: Maximum tokens to generate (default: 256)\n"
-        "    temperature: Sampling temperature 0.0-2.0 (default: 0.7)\n"
-        "    top_p: Nucleus sampling top-p 0.0-1.0 (default: 0.9)"
     )
     mcp.tool()(_handler)
 

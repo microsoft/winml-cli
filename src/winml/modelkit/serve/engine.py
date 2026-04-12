@@ -3,11 +3,11 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""InferenceEngine — Phase 1+ core inference component.
+"""InferenceEngine — core inference component for wmk serve.
 
-Wraps model loading, preprocessing, inference, and postprocessing into a
-single object.  Shared by both ``wmk run`` (embedded) and ``wmk serve``
-(warm-session server).
+Uses HF ``transformers.pipeline`` for preprocessing and postprocessing,
+sharing the same code path as ``wmk eval``.  The WinMLPreTrainedModel
+(ONNX Runtime backend) is passed directly to the pipeline.
 
 Loading strategies (auto-detected from model_path):
   1. HF model ID  (e.g. "microsoft/resnet-50")
@@ -18,8 +18,7 @@ Loading strategies (auto-detected from model_path):
        → WinMLAutoModel.from_onnx(onnx_path, task=task)
 
 EP switching (Phase 1):
-  switch_ep() reloads the session with a new EP.  The model_path and task
-  are stored so reload() can recreate with new settings.
+  switch_ep() reloads the session with a new EP.
 """
 
 from __future__ import annotations
@@ -28,14 +27,12 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from ..session.stats import PerfStats
-from .handlers import TaskHandler, resolve_handler
-from .schema import PredictionResult
+from .schema import Prediction, PredictionResult
 
 
 if TYPE_CHECKING:
@@ -43,12 +40,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Tasks that use image inputs
-_IMAGE_TASKS = {"image-classification", "image-segmentation", "object-detection"}
-# Tasks that use text inputs
-_TEXT_TASKS = {"text-classification", "sentiment-analysis"}
-
-# Infer task from WinML model class name (fallback when task is not passed explicitly)
+# Infer task from WinML model class name (fallback when task is not passed)
 _CLASS_TO_TASK: dict[str, str] = {
     "WinMLModelForImageClassification": "image-classification",
     "WinMLModelForSequenceClassification": "text-classification",
@@ -57,9 +49,24 @@ _CLASS_TO_TASK: dict[str, str] = {
     "WinMLModelForSemanticSegmentation": "image-segmentation",
 }
 
+# Tasks where pipeline input is an image
+_IMAGE_TASKS = {
+    "image-classification",
+    "image-segmentation",
+    "object-detection",
+    "semantic-segmentation",
+}
+
+# Tasks where pipeline input is text
+_TEXT_TASKS = {
+    "text-classification",
+    "sentiment-analysis",
+    "token-classification",
+}
+
 
 class InferenceEngine:
-    """Stateful inference engine: load → preprocess → infer → postprocess.
+    """Stateful inference engine backed by HF Pipeline.
 
     Not thread-safe on its own — callers (SingleModelManager, wmk run) must
     ensure exclusive access before calling predict() or switch_ep().
@@ -67,8 +74,7 @@ class InferenceEngine:
 
     def __init__(self) -> None:
         self._model: WinMLPreTrainedModel | None = None
-        self._processor: Any | None = None  # AutoImageProcessor | AutoTokenizer
-        self._handler: TaskHandler | None = None
+        self._pipeline: Any | None = None  # transformers.Pipeline
         self._model_id: str | None = None
         self._task: str | None = None
         self._device: str = "auto"
@@ -77,7 +83,6 @@ class InferenceEngine:
         self._request_count: int = 0
         self._last_request_at: datetime | None = None
         self._load_start: float = time.time()
-        # Keep last 200 samples for live percentile display (rolling window)
         self._perf: PerfStats = PerfStats()
 
     # ------------------------------------------------------------------
@@ -107,23 +112,20 @@ class InferenceEngine:
 
         path = Path(model_path)
 
-        # Strategy 1: build output directory
         if path.is_dir():
             self._load_from_build_dir(path, task=task, device=device, ep=ep)
-            return
-
-        # Strategy 2: raw .onnx file
-        if path.suffix == ".onnx" and path.exists():
+        elif path.suffix == ".onnx" and path.exists():
             self._load_from_onnx(path, task=task, device=device, ep=ep)
-            return
+        else:
+            self._load_from_hf(str(model_path), task=task, device=device, ep=ep)
 
-        # Strategy 3: HF model ID string
-        self._load_from_hf(str(model_path), task=task, device=device, ep=ep)
+        # Create HF pipeline for preprocess + postprocess
+        self._pipeline = self._create_pipeline()
 
     def unload(self) -> None:
         """Release ORT session and free memory."""
         self._model = None
-        self._processor = None
+        self._pipeline = None
         logger.info("InferenceEngine: model unloaded")
 
     def reload(self) -> None:
@@ -138,11 +140,7 @@ class InferenceEngine:
         )
 
     def switch_ep(self, ep: str) -> None:
-        """Switch to a different execution provider.
-
-        Unloads the current session and reloads with the new EP.
-        Callers must hold the model lock before calling this.
-        """
+        """Switch to a different execution provider."""
         logger.info("Switching EP: %s → %s", self._ep, ep)
         self._ep = ep
         self.unload()
@@ -160,13 +158,13 @@ class InferenceEngine:
         tensor_inputs: dict[str, list] | None = None,
         top_k: int = 5,
     ) -> PredictionResult:
-        """Run inference and return a structured result.
+        """Run inference via HF Pipeline and return structured result.
 
         Args:
             image_bytes: Raw image file bytes (for image tasks).
             text: Input text string (for text tasks).
-            tensor_inputs: Raw tensor dict (name → nested list); bypasses
-                preprocessing — used when caller already has tensors.
+            tensor_inputs: Raw tensor dict — bypasses pipeline, runs
+                model directly.
             top_k: Max predictions for classification tasks.
 
         Returns:
@@ -177,33 +175,15 @@ class InferenceEngine:
 
         t0 = time.perf_counter()
 
-        # ------------------------------------------------------------------
-        # Preprocess
-        # ------------------------------------------------------------------
-        if self._handler is None:
-            raise RuntimeError("No task handler — model may not be fully loaded.")
-        inputs = self._handler.preprocess(
-            image_bytes=image_bytes, text=text, tensor_inputs=tensor_inputs
-        )
-
-        # ------------------------------------------------------------------
-        # Infer
-        # ------------------------------------------------------------------
-        import torch
-
-        tensor_inputs_torch = {
-            k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v for k, v in inputs.items()
-        }
-        output = self._model(**tensor_inputs_torch)
-
-        # ------------------------------------------------------------------
-        # Postprocess
-        # ------------------------------------------------------------------
-        predictions = self._handler.postprocess(output, top_k=top_k)
+        if tensor_inputs is not None:
+            predictions = self._predict_raw_tensors(tensor_inputs)
+        elif self._pipeline is not None:
+            predictions = self._predict_pipeline(image_bytes=image_bytes, text=text, top_k=top_k)
+        else:
+            raise RuntimeError("No pipeline available. Model may not be fully loaded.")
 
         latency_ms = (time.perf_counter() - t0) * 1000
         self._perf._samples.append(latency_ms)
-        # Rolling window: keep last 200 samples
         if len(self._perf._samples) > 200:
             self._perf._samples = self._perf._samples[-200:]
         self._request_count += 1
@@ -287,6 +267,124 @@ class InferenceEngine:
             return 0.0
 
     # ------------------------------------------------------------------
+    # Private — pipeline creation (same approach as eval)
+    # ------------------------------------------------------------------
+
+    def _create_pipeline(self) -> Any:
+        """Create HF pipeline for the loaded model.
+
+        Same pattern as eval's WinMLEvaluator.prepare_pipeline():
+        pass the WinMLPreTrainedModel directly to transformers.pipeline().
+        """
+        from transformers import pipeline
+
+        if self._task is None or self._model is None:
+            return None
+
+        # Build pipeline kwargs — use model_id for processor loading
+        kwargs: dict[str, Any] = {
+            "framework": "pt",
+            "device": "cpu",  # tensor placement; ORT EP handles actual device
+        }
+        if self._model_id:
+            kwargs["tokenizer"] = self._model_id
+            kwargs["feature_extractor"] = self._model_id
+            kwargs["image_processor"] = self._model_id
+
+        pipe = pipeline(self._task, model=self._model, **kwargs)
+
+        # Match eval: set tokenizer padding for fixed-shape ONNX text models
+        if self._task in _TEXT_TASKS and pipe.tokenizer is not None:
+            io_config = getattr(self._model, "io_config", None) or {}
+            shapes = io_config.get("input_shapes", [[]])
+            if shapes and len(shapes[0]) > 1 and isinstance(shapes[0][1], int):
+                pipe._preprocess_params.setdefault("padding", "max_length")
+                pipe._preprocess_params.setdefault("max_length", shapes[0][1])
+                pipe._preprocess_params.setdefault("truncation", True)
+
+        logger.info("Created HF pipeline: task=%s model=%s", self._task, self._model_id)
+        return pipe
+
+    # ------------------------------------------------------------------
+    # Private — inference paths
+    # ------------------------------------------------------------------
+
+    def _predict_pipeline(
+        self,
+        *,
+        image_bytes: bytes | None,
+        text: str | None,
+        top_k: int,
+    ) -> list[Prediction] | dict[str, Any]:
+        """Run inference through HF Pipeline (handles preprocess + postprocess)."""
+        from PIL import Image
+
+        pipe_input: Any = None
+        pipe_kwargs: dict[str, Any] = {}
+
+        if self._task in _IMAGE_TASKS:
+            if image_bytes is None:
+                raise ValueError("image_bytes required for image tasks")
+            pipe_input = Image.open(BytesIO(image_bytes)).convert("RGB")
+            pipe_kwargs["top_k"] = top_k
+        elif self._task in _TEXT_TASKS:
+            if text is None:
+                raise ValueError("text required for text tasks")
+            pipe_input = text
+            pipe_kwargs["top_k"] = top_k
+        else:
+            raise ValueError(f"Unsupported task '{self._task}' for pipeline inference")
+
+        raw_result = self._pipeline(pipe_input, **pipe_kwargs)
+        return self._normalize_pipeline_output(raw_result)
+
+    def _normalize_pipeline_output(self, raw: Any) -> list[Prediction] | dict[str, Any]:
+        """Convert HF pipeline output to our standard format."""
+        # Classification tasks return list of {"label": ..., "score": ...}
+        is_classification = (
+            isinstance(raw, list)
+            and raw
+            and isinstance(raw[0], dict)
+            and "label" in raw[0]
+            and "score" in raw[0]
+        )
+        if is_classification:
+            return [
+                Prediction(
+                    label=str(item["label"]),
+                    score=round(float(item["score"]), 6),
+                )
+                for item in raw
+            ]
+        # Other tasks: return as-is dict
+        if isinstance(raw, dict):
+            return raw
+        # Fallback
+        return {"raw": str(raw)}
+
+    def _predict_raw_tensors(self, tensor_inputs: dict[str, list]) -> dict[str, Any]:
+        """Bypass pipeline: run model directly with pre-processed tensors."""
+        import numpy as np
+        import torch
+
+        inputs_torch = {
+            k: torch.from_numpy(np.array(v)) if not isinstance(v, torch.Tensor) else v
+            for k, v in tensor_inputs.items()
+        }
+        output = self._model(**inputs_torch)
+
+        # Convert output to serializable dict
+        result: dict[str, Any] = {}
+        for attr in ("logits", "pred_boxes", "pred_masks", "pred_labels"):
+            val = getattr(output, attr, None)
+            if val is not None:
+                try:
+                    result[attr] = val.detach().cpu().numpy().tolist()
+                except Exception:
+                    result[attr] = str(val)
+        return result or {"raw": str(output)}
+
+    # ------------------------------------------------------------------
     # Private — loading strategies
     # ------------------------------------------------------------------
 
@@ -318,12 +416,9 @@ class InferenceEngine:
         self._model = winml_class(onnx_path=onnx_path, config=None, device=device)
         self._task = task or _CLASS_TO_TASK.get(type(self._model).__name__)
 
-        # Attach HF config for label mapping (best-effort, may need network)
         if model_id:
             self._attach_hf_config(model_id)
-            self._load_processor(model_id)
 
-        self._handler = resolve_handler(self._task, self._processor, self._model)
         logger.info("Loaded from build dir: task=%s model_id=%s", task, model_id)
 
     def _load_from_onnx(
@@ -341,7 +436,6 @@ class InferenceEngine:
         self._model = WinMLAutoModel.from_onnx(
             onnx_path, task=task, device=device, ep=ep, skip_build=True
         )
-        self._handler = resolve_handler(self._task, self._processor, self._model)
         logger.info("Loaded from ONNX: %s task=%s", onnx_path, task)
 
     def _load_from_hf(
@@ -356,18 +450,15 @@ class InferenceEngine:
 
         self._model_id = model_id
         self._model = WinMLAutoModel.from_pretrained(model_id, task=task, device=device, ep=ep)
-        # Infer task: explicit arg > class name > config attribute
         self._task = (
             task
             or _CLASS_TO_TASK.get(type(self._model).__name__)
             or getattr(getattr(self._model, "config", None), "task", None)
         )
-        self._load_processor(model_id)
-        self._handler = resolve_handler(self._task, self._processor, self._model)
         logger.info("Loaded from HF: %s task=%s", model_id, self._task)
 
     # ------------------------------------------------------------------
-    # Private — HF config + processor
+    # Private — HF config
     # ------------------------------------------------------------------
 
     def _attach_hf_config(self, model_id: str) -> None:
@@ -380,18 +471,3 @@ class InferenceEngine:
             logger.debug("Attached HF config from %s", model_id)
         except Exception as exc:
             logger.warning("Could not load HF config for %s: %s", model_id, exc)
-
-    def _load_processor(self, model_id: str) -> None:
-        try:
-            from transformers import AutoProcessor
-
-            self._processor = AutoProcessor.from_pretrained(model_id)
-            logger.debug("Loaded processor from %s", model_id)
-        except Exception:
-            try:
-                from transformers import AutoImageProcessor
-
-                self._processor = AutoImageProcessor.from_pretrained(model_id)
-                logger.debug("Loaded image processor from %s", model_id)
-            except Exception as exc:
-                logger.warning("Could not load processor for %s: %s", model_id, exc)

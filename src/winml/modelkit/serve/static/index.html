@@ -547,7 +547,7 @@ canvas.spark{width:100%;height:60px;display:block}
     </div>
     <div class="tools-body">
       <div class="tools-note">
-        💡 OpenAI-compatible function-calling tool definitions. Use with <code>/v1/chat/completions</code> endpoint for LLM function calling.
+        💡 OpenAI-compatible function-calling tool definitions. Auto-generated from the model manifest.
       </div>
       <div id="toolsContainer" class="tools-grid">
         <div class="tools-loading">Loading tools…</div>
@@ -637,7 +637,6 @@ canvas.spark{width:100%;height:60px;display:block}
           <div style="font-size:11px;color:var(--text2);line-height:1.8;margin-top:8px">
             Image tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">classify_image_&lt;model&gt;(image_path, top_k)</code> &mdash; reads local file, multipart upload<br>
             Text tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">classify_text_&lt;model&gt;(text, top_k)</code> &mdash; JSON POST<br>
-            LLM tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">generate_text_&lt;model&gt;(prompt, max_tokens, ...)</code> &mdash; JSON POST<br>
             Always available &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">list_models()</code> &mdash; enumerate loaded models
           </div>
         </div>
@@ -752,13 +751,6 @@ canvas.spark{width:100%;height:60px;display:block}
           <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
         </div>
 
-        <div class="integration-subtitle">LLM chat (OpenAI-compatible)</div>
-        <div class="client-card">
-          <div class="client-name">Drop-in replacement for OpenAI /v1/chat/completions</div>
-          <div class="code-block" id="int-rest-chat"></div>
-          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
-        </div>
-
         <div class="integration-subtitle">Python (httpx)</div>
         <div class="client-card">
           <div class="client-name">Programmatic access without any SDK</div>
@@ -818,8 +810,7 @@ canvas.spark{width:100%;height:60px;display:block}
             <strong style="color:var(--text)">Inference</strong><br>
             <code>POST /v1/predict</code> &mdash; JSON inputs (text, base64 image, raw tensors)<br>
             <code>POST /v1/predict/file</code> &mdash; Image file upload (multipart)<br>
-            <code>POST /v1/predict/stream</code> &mdash; SSE streaming<br>
-            <code>POST /v1/chat/completions</code> &mdash; OpenAI-compatible chat (LLM)<br><br>
+            <br>
             <strong style="color:var(--text)">Discovery</strong><br>
             <code>GET /v1/tools</code> &mdash; OpenAI function-calling tool definitions<br>
             <code>GET /v1/mcp-schema</code> &mdash; MCP tool definitions<br>
@@ -974,7 +965,7 @@ const TEXT_EXAMPLES = {
   'sentiment-analysis':   ['I love this product! Highly recommended.', 'Very disappointed with the quality.'],
   'feature-extraction':   ['The quick brown fox jumps over the lazy dog.'],
 };
-const TEXT_TASKS = new Set(['text-classification','sentiment-analysis','feature-extraction','token-classification','question-answering','summarization','translation','text-generation']);
+const TEXT_TASKS = new Set(['text-classification','sentiment-analysis','feature-extraction','token-classification','question-answering','summarization','translation']);
 const IMAGE_TASKS = new Set(['image-classification','image-segmentation','object-detection','depth-estimation']);
 
 function applyServerMode(mode) {
@@ -2156,17 +2147,6 @@ curl -X POST ${url}/v1/predict \\
   -d '{"text": "This product is amazing!", "top_k": 3}'`;
 
   // REST — chat
-  const el10 = document.getElementById('int-rest-chat');
-  if (el10) el10.textContent = `# LLM chat (OpenAI-compatible)
-curl -X POST ${url}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "my-model",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "max_tokens": 256,
-    "stream": false
-  }'`;
-
   // REST — Python
   const el11 = document.getElementById('int-rest-python');
   if (el11) el11.textContent = `import httpx
@@ -2217,7 +2197,6 @@ A local ModelKit inference server is running at ${url}.
 - \`GET ${url}/v1/models\` — list loaded models
 - \`POST ${url}/v1/predict/file\` — image inference (multipart: file + top_k)
 - \`POST ${url}/v1/predict\` — text/JSON inference (body: {"text": "...", "top_k": 5} or {"image_bytes": "<base64>"})
-- \`POST ${url}/v1/chat/completions\` — LLM chat (OpenAI format)
 - \`GET ${url}/v1/health\` — server status
 
 ## Rules
@@ -2234,7 +2213,6 @@ Available endpoints:
 - POST ${url}/v1/predict/file — image inference (multipart form: file=@image.jpg, top_k=5)
 - POST ${url}/v1/predict — text inference (JSON body: {"text": "...", "top_k": 5})
 - POST ${url}/v1/predict — image via base64 (JSON body: {"image_bytes": "<base64>", "top_k": 5})
-- POST ${url}/v1/chat/completions — LLM chat (OpenAI-compatible format)
 
 When asked to classify an image or text, call the appropriate endpoint and return the results.
 Always check /v1/models first to confirm which models are loaded.`;
@@ -2404,11 +2382,6 @@ print(result.final_output)`;
 #    curl -X POST ${url}/v1/predict \\
 #      -H "Content-Type: application/json" \\
 #      -d '{"text": "input text here", "top_k": 5}'
-#
-# 4. LLM chat (if a text-generation model is loaded)
-#    curl -X POST ${url}/v1/chat/completions \\
-#      -H "Content-Type: application/json" \\
-#      -d '{"model": "my-model", "messages": [{"role": "user", "content": "Hello"}]}'
 #
 # Python alternative (if httpx is available):
 import httpx
