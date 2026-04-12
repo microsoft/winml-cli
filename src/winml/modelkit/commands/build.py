@@ -847,7 +847,6 @@ def _run_quantize_stage(
         stage_timings.append(("Quantize", None))
         return current_path
 
-    _quant_elapsed = 0.0
     with StageLive("quantize", console) as sl:
         wt = config.quant.weight_type or "?"
         sl.set_status(f"Quantizing ({wt})...")
@@ -871,7 +870,7 @@ def _run_quantize_stage(
             datasets.disable_progress_bars()
             _datasets_available = True
         except ImportError:
-            pass
+            pass  # datasets package not installed; progress bar suppression not needed
 
         t0 = time.monotonic()
         try:
@@ -933,7 +932,6 @@ def _run_compile_stage(
     if config.compile is None:
         return current_path
 
-    _compile_elapsed = 0.0
     with StageLive("compile", console) as sl:
         _cp = ""
         if hasattr(config.compile, "ep_config") and config.compile.ep_config:

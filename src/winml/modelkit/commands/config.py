@@ -357,6 +357,7 @@ def config(
             else:
                 # Normal mode: result is WinMLBuildConfig
                 config_obj = result
+                configs = []
                 _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
                 output_data = config_obj.to_dict()
                 _n_modules = 0
@@ -425,7 +426,6 @@ def config(
         _ref_config = config_obj if not module else (configs[0] if configs else None)
         if _ref_config is not None:
             _quant = _ref_config.quant
-            _compile = _ref_config.compile
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
