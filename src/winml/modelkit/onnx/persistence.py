@@ -106,6 +106,12 @@ def save_onnx(
 
     if save_external:
         ext_location = location or f"{path.name}.data"
+        # Delete any pre-existing sidecar so onnx.save_model doesn't raise
+        # FileExistsError (e.g. when ORT quantize() already wrote the file).
+        ext_path = path.parent / ext_location
+        if ext_path.exists():
+            ext_path.unlink()
+            logger.debug("Removed existing external data sidecar: %s", ext_path)
         logger.debug(
             "Saving ONNX model with external data to %s (location=%s)",
             path,
