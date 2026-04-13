@@ -1061,8 +1061,15 @@ class TestIterQDQCombinations:
             ),  # QDQ 4 * shape 3 * combo 3 * finite attributes 2 * 2 * 2 * optional strides, pads 4
             (
                 "Cast",
-                (1 + 12 * 2) * 4 * unary_input_shapes,
-            ),  # float->float, others (12 types) only 1 direction supported
+                # DQ requires float input; Q requires float output (i.e. to=FLOAT).
+                # Only T1=FLOAT input can be DQ-wrapped; only to=FLOAT output can be Q-wrapped.
+                # T1=FLOAT + to=FLOAT:    DQ-in, Q-out, or both -> 3 combos x 4 types = 12
+                # T1=FLOAT + to!=FLOAT (11): DQ-in only        -> 1 combo x 4 types x 11 = 44
+                # T1!=FLOAT (13) + to=FLOAT: Q-out only        -> 1 combo x 4 types x 13 = 52
+                # T1!=FLOAT + to!=FLOAT:     no valid QDQ                                 = 0
+                # 14 T1 types = FLOAT + 11 non-float original types + INT4 + UINT4
+                (12 + 11 * 4 + 13 * 4) * unary_input_shapes,
+            ),  # 108 per shape x 8 shapes = 864
             ("Clip", unary_input_shapes * 4 * (4 + 4 + 4 + 1)),  # act 4 * weight 13
             ("Concat", 240),  # 15 base shapes/axes * 4 variadic counts * 4 activation types
             (
