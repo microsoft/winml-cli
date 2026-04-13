@@ -141,6 +141,7 @@ class TestCompileDeviceDisplayLabel:
         mock_result.total_time = None
 
         with (
+            patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             patch("winml.modelkit.compiler.WinMLCompileConfig"),
         ):
