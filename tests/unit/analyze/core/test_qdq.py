@@ -1106,7 +1106,7 @@ class TestIterQDQCombinations:
             ("GlobalAveragePool", 3 * 4),  # 12
             ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
-            ("MatMul", 36 * (16 * 2 - 4)),  # 1008
+            ("MatMul", 36 * (16 * 2 - 4 + 16)),  # 1584: +16/shape for B=INT4
             (
                 "MaxPool",
                 768,
