@@ -50,6 +50,7 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
+from ..utils.rule_loader import resolve_rule_zip_path
 from ..utils.table_utils import build_table_df
 from .node_checkers.base import NodeChecker
 from .node_checkers.registry import NodeCheckerRegistry
@@ -197,7 +198,8 @@ class LazyDomainTables:
         if not self._zip_path.exists():
             logger.warning(
                 "Rule zip not found: %s. "
-                "Run 'uv run python scripts/download_rules.py' to download rule files.",
+                "Run 'uv run python scripts/download_rules.py' to download rule files, "
+                "or set MODELKIT_RULES_DIR to a directory containing the zip.",
                 self._zip_path,
             )
             return
@@ -299,7 +301,8 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
                 self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._zip_path)
                 logger.warning(
                     "Rule zip file not found: %s. "
-                    "Run 'uv run python scripts/download_rules.py' to download rule files.",
+                    "Run 'uv run python scripts/download_rules.py' to download rule files, "
+                    "or set MODELKIT_RULES_DIR to a directory containing the zip.",
                     self._zip_path,
                 )
             return
@@ -1037,14 +1040,8 @@ class RuntimeCheckerQuery:
 
         for domain, opset_version in self.opset_versions.items():
             file_prefix = domain.name
-            rule_zip_path = (
-                Path(__file__)
-                .parent.joinpath(
-                    f"../rules/runtime_check_rules/{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}.zip"
-                )
-                .resolve(strict=False)
-            )
             base = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}"
+            rule_zip_path = resolve_rule_zip_path(f"{base}.zip")
             rule_file = f"{base}_negative_rules.json"
             qdq_rule_file = f"{base}_negative_rules_qdq.json"
             table_file = f"{base}_tables.json"
