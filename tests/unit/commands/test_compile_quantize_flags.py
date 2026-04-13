@@ -141,8 +141,8 @@ class TestCompileDeviceDisplayLabel:
         mock_result.total_time = None
 
         with (
-            patch("winml.modelkit.commands.compile.compile_onnx", return_value=mock_result),
-            patch("winml.modelkit.commands.compile.WinMLCompileConfig"),
+            patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
+            patch("winml.modelkit.compiler.WinMLCompileConfig"),
         ):
             result = CliRunner().invoke(compile, ["-m", str(model_file), "--ep", "dml"])
 
