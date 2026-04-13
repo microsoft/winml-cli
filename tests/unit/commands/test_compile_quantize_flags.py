@@ -123,13 +123,8 @@ class TestResolveQuantTypes:
         assert a == "uint8"
 
 
-# =============================================================================
-# BUG C: compile summary shows wrong Device when --ep overrides device
-# =============================================================================
-
-
 class TestCompileDeviceDisplayLabel:
-    """Bug C: Device label in compile summary must reflect the resolved EP, not the CLI default."""
+    """Device label in compile summary must reflect the resolved EP, not the CLI default."""
 
     def test_dml_ep_shows_gpu_device(self, tmp_path):
         from click.testing import CliRunner
@@ -146,8 +141,8 @@ class TestCompileDeviceDisplayLabel:
         mock_result.total_time = None
 
         with (
-            patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
-            patch("winml.modelkit.compiler.WinMLCompileConfig"),
+            patch("winml.modelkit.commands.compile.compile_onnx", return_value=mock_result),
+            patch("winml.modelkit.commands.compile.WinMLCompileConfig"),
         ):
             result = CliRunner().invoke(compile, ["-m", str(model_file), "--ep", "dml"])
 
