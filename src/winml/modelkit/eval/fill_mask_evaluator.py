@@ -20,13 +20,12 @@ This follows the standard HF Trainer MLM evaluation methodology:
 from __future__ import annotations
 
 import logging
-import math
 from typing import TYPE_CHECKING, Any
 
 import torch
-import torch.nn.functional as F
 
 from .base_evaluator import WinMLEvaluator
+from .metrics import CrossEntropyMetric
 
 
 if TYPE_CHECKING:
@@ -41,6 +40,9 @@ logger = logging.getLogger(__name__)
 
 # Standard MLM masking probability (BERT paper convention).
 _MLM_PROBABILITY = 0.15
+
+# Fixed seed for reproducible masking across evaluation runs.
+_MLM_SEED = 42
 
 
 class WinMLFillMaskEvaluator(WinMLEvaluator):
@@ -73,24 +75,15 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
-        """Create fill-mask pipeline with tokenizer padding for fixed-shape ONNX.
+        """No-op: fill-mask evaluation calls the model directly.
 
-        The pipeline is used to access the tokenizer; the compute() method
-        calls the model directly for MLM loss evaluation.
+        Loads only the tokenizer (stored as ``self._tokenizer``).
+        Returns ``None`` since the HF pipeline is not used.
         """
-        pipe = super().prepare_pipeline()
+        from transformers import AutoTokenizer
 
-        if pipe.tokenizer is not None:
-            io_config = getattr(self.model, "io_config", None) or {}
-            shapes = io_config.get("input_shapes", [[]])
-            if shapes and len(shapes[0]) > 1 and isinstance(shapes[0][1], int):
-                seq_len = shapes[0][1]
-                tok_kwargs = pipe._preprocess_params.setdefault("tokenizer_kwargs", {})
-                tok_kwargs.setdefault("padding", "max_length")
-                tok_kwargs.setdefault("max_length", seq_len)
-                tok_kwargs.setdefault("truncation", True)
-
-        return pipe
+        self._tokenizer = AutoTokenizer.from_pretrained(self.config.model_id)
+        return None  # type: ignore[return-value]
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No-op: fill-mask has no class labels to align."""
@@ -112,13 +105,60 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
             return next(iter(outputs.values()))
         return outputs.logits
 
+    def _tokenize_and_mask(
+        self,
+        text: str,
+        tokenizer: Any,
+        data_collator: Any,
+        max_length: int | None,
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor] | None:
+        """Tokenize text, apply MLM masking, and build model inputs.
+
+        Returns:
+            ``(model_inputs, labels)`` tuple, or ``None`` if the sample
+            should be skipped (empty or too short).
+        """
+        if not text or not text.strip():
+            return None
+
+        tok_kwargs: dict[str, Any] = {
+            "truncation": True,
+            "return_tensors": "pt",
+        }
+        if max_length is not None:
+            tok_kwargs["padding"] = "max_length"
+            tok_kwargs["max_length"] = max_length
+        else:
+            tok_kwargs["padding"] = False
+
+        encoding = tokenizer(text, **tok_kwargs)
+        input_ids = encoding["input_ids"]  # [1, seq_len]
+
+        # Skip samples that are too short (only special tokens)
+        non_special = (input_ids[0] != tokenizer.pad_token_id).sum().item()
+        if non_special < 3:
+            return None
+
+        # Mask 15% of input_ids; labels hold original tokens at masked
+        # positions and -100 elsewhere.
+        batch = data_collator([{"input_ids": input_ids.squeeze(0)}])
+        masked_input_ids = batch["input_ids"]  # [1, seq_len]
+        labels = batch["labels"]  # [1, seq_len], -100 for non-masked
+
+        # Prepare model inputs and ensure attention_mask distinguishes
+        # real tokens (1) from padding (0).
+        model_inputs = {
+            k: v for k, v in encoding.items() if isinstance(v, torch.Tensor)
+        }
+        model_inputs["input_ids"] = masked_input_ids
+
+        return model_inputs, labels
+
     def compute(self) -> dict[str, Any]:
         """Run standard MLM evaluation: 15% masking + cross-entropy loss."""
         from transformers import DataCollatorForLanguageModeling
 
-        tokenizer = self.pipe.tokenizer
-        if tokenizer is None:
-            raise RuntimeError("Fill-mask evaluation requires a tokenizer.")
+        tokenizer = self._tokenizer
 
         if tokenizer.mask_token_id is None:
             raise RuntimeError(
@@ -133,98 +173,28 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
             tokenizer=tokenizer,
             mlm=True,
             mlm_probability=_MLM_PROBABILITY,
+            seed=_MLM_SEED,
         )
 
         max_length = self._get_max_length()
-        total_loss = 0.0
-        total_masked_tokens = 0
+        metric = CrossEntropyMetric()
 
         for i, sample in enumerate(self.data):
-            text = sample[self._input_col]
-            if not text or not text.strip():
+            result = self._tokenize_and_mask(
+                sample[self._input_col], tokenizer, data_collator, max_length,
+            )
+            if result is None:
                 continue
 
-            # Tokenize with optional fixed-length padding for ONNX models
-            tok_kwargs: dict[str, Any] = {
-                "truncation": True,
-                "return_tensors": "pt",
-            }
-            if max_length is not None:
-                tok_kwargs["padding"] = "max_length"
-                tok_kwargs["max_length"] = max_length
-            else:
-                tok_kwargs["padding"] = False
+            model_inputs, labels = result
 
-            encoding = tokenizer(text, **tok_kwargs)
-            input_ids = encoding["input_ids"]  # [1, seq_len]
-
-            # Skip samples that are too short (only special tokens)
-            non_special = (input_ids[0] != tokenizer.pad_token_id).sum().item()
-            if non_special < 3:
-                continue
-
-            # Apply standard 15% MLM masking via DataCollator
-            # DataCollator expects list of dicts with "input_ids" key
-            batch = data_collator([{"input_ids": input_ids.squeeze(0)}])
-            masked_input_ids = batch["input_ids"]  # [1, seq_len]
-            labels = batch["labels"]  # [1, seq_len], -100 for non-masked
-
-            # Build model inputs: start from tokenizer outputs, replace input_ids
-            # with masked version. This preserves token_type_ids, attention_mask, etc.
-            model_inputs = {k: v for k, v in encoding.items() if isinstance(v, torch.Tensor)}
-            model_inputs["input_ids"] = masked_input_ids
-            if "attention_mask" not in model_inputs:
-                if max_length is not None:
-                    model_inputs["attention_mask"] = (masked_input_ids != tokenizer.pad_token_id).long()
-                else:
-                    model_inputs["attention_mask"] = torch.ones_like(masked_input_ids)
-
-            # Forward pass — no grad needed for evaluation
             with torch.no_grad():
                 outputs = self.model(**model_inputs)
 
             logits = self._extract_logits(outputs)  # [1, seq_len, vocab_size]
-
-            # Compute CE loss only on masked positions (where labels != -100)
-            mask = labels[0] != -100
-            n_masked = mask.sum().item()
-            if n_masked == 0:
-                continue
-
-            masked_logits = logits[0][mask]  # [n_masked, vocab_size]
-            masked_labels = labels[0][mask]  # [n_masked]
-            loss = F.cross_entropy(masked_logits, masked_labels, reduction="sum")
-
-            total_loss += loss.item()
-            total_masked_tokens += n_masked
+            metric.update(logits[0], labels[0])
 
             if (i + 1) % 50 == 0:
-                total = len(self.data) if hasattr(self.data, "__len__") else "?"
-                running_ce = total_loss / total_masked_tokens if total_masked_tokens else 0
-                logger.info(
-                    "Processed %d / %s samples (%d masked tokens, running CE=%.4f)...",
-                    i + 1,
-                    total,
-                    total_masked_tokens,
-                    running_ce,
-                )
+                logger.info("%d samples, %d masked tokens", i + 1, metric._total_tokens)
 
-        if total_masked_tokens == 0:
-            raise ValueError("No masked tokens found in dataset.")
-
-        mean_ce = total_loss / total_masked_tokens
-        perplexity = math.exp(mean_ce)
-
-        logger.info(
-            "Fill-mask evaluation complete: %d masked tokens across %d samples. "
-            "CE=%.4f, PPL=%.4f",
-            total_masked_tokens,
-            len(self.data) if hasattr(self.data, "__len__") else -1,
-            mean_ce,
-            perplexity,
-        )
-
-        return {
-            "cross_entropy": round(mean_ce, 4),
-            "perplexity": round(perplexity, 4),
-        }
+        return metric.compute()
