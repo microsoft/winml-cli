@@ -80,6 +80,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         WinMLModelForSemanticSegmentation,
     )
     from .object_detection import WinMLModelForObjectDetection
+    from .question_answering import WinMLModelForQuestionAnswering
     from .sequence_classification import WinMLModelForSequenceClassification
 
     # Map class names to modules
@@ -88,6 +89,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
+        "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
         "WinMLModelForSequenceClassification": WinMLModelForSequenceClassification,
         "WinMLModelForGenericTask": WinMLModelForGenericTask,
