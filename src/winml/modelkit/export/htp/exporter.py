@@ -83,15 +83,23 @@ class HTPConfig:
         "Embedding",
     ]
 
-    # Default export statistics structure
-    # empty_tags: CARDINAL RULE: Must be 0, default to max int to catch violations
+    # Default export statistics structure.
+    # Initialised before each export run and returned as a copy at the end.
     DEFAULT_EXPORT_STATS: ClassVar[dict[str, Any]] = {
+        # Seconds elapsed from export() entry to final stat collection.
         "export_time": 0.0,
+        # Number of named hierarchy modules discovered during tracing.
         "hierarchy_modules": 0,
+        # Total ONNX graph nodes in the exported model.
         "onnx_nodes": 0,
+        # Nodes that received a hierarchy_tag attribute (0 when embed_hierarchy_attributes=False).
         "tagged_nodes": 0,
+        # CARDINAL RULE: tags with an empty/whitespace value must never exist.
+        # Sentinel sys.maxsize ensures any non-zero value is immediately visible as a violation.
         "empty_tags": sys.maxsize,
+        # Percentage of onnx_nodes that were tagged (0.0 when embed_hierarchy_attributes=False).
         "coverage_percentage": 0.0,
+        # Exporter strategy identifier, written into report metadata.
         "strategy": STRATEGY_NAME,
     }
 
@@ -298,12 +306,6 @@ class HTPExporter:
             total_nodes = len(onnx_model.graph.node)
             self._export_stats["onnx_nodes"] = total_nodes
 
-            # Calculate empty tags (should be 0 with our implementation)
-            empty_tag_count = sum(
-                1 for tag in self._tagged_nodes.values() if not tag or not tag.strip()
-            )
-            self._export_stats["empty_tags"] = empty_tag_count
-
             self._update_tag_stats(total_nodes)
 
             # Update monitor with actual export time
@@ -490,13 +492,22 @@ class HTPExporter:
             return contextlib.nullcontext()
 
     def _update_tag_stats(self, total_nodes: int) -> None:
-        """Update tagged_nodes and coverage_percentage in export stats.
+        """Update tagged_nodes, empty_tags, and coverage_percentage in export stats.
 
         Centralises the embed-aware calculation so _apply_hierarchy_tags and
         the final stats block in export() always stay in sync.
+        All three stats are gated on embed_hierarchy_attributes: when hierarchy
+        embedding is disabled none of the tags are written to the model, so
+        all counts are reported as 0.
         """
-        embedded_count = len(self._tagged_nodes) if self.embed_hierarchy_attributes else 0
+        if self.embed_hierarchy_attributes:
+            embedded_count = len(self._tagged_nodes)
+            empty_tags = sum(1 for tag in self._tagged_nodes.values() if not tag or not tag.strip())
+        else:
+            embedded_count = 0
+            empty_tags = 0
         self._export_stats["tagged_nodes"] = embedded_count
+        self._export_stats["empty_tags"] = empty_tags
         self._export_stats["coverage_percentage"] = (
             embedded_count / total_nodes * 100.0 if total_nodes > 0 else 0.0
         )
@@ -521,12 +532,6 @@ class HTPExporter:
         total_nodes = len(onnx_model.graph.node)
         self._export_stats["onnx_nodes"] = total_nodes
         self._update_tag_stats(total_nodes)
-
-        # Calculate empty tags (should be 0 with our implementation)
-        empty_tag_count = sum(
-            1 for tag in self._tagged_nodes.values() if not tag or not tag.strip()
-        )
-        self._export_stats["empty_tags"] = empty_tag_count
 
     def _embed_graph_metadata(
         self, onnx_model: onnx.ModelProto, export_config: WinMLExportConfig
