@@ -13,6 +13,8 @@ from pathlib import Path
 
 import click
 
+from ..utils import cli as cli_utils
+
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,7 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
+@cli_utils.build_config_option
 @click.pass_context
 def eval(
     ctx: click.Context,
@@ -134,6 +137,7 @@ def eval(
     output: Path | None,
     verbose: bool,
     show_schema: bool,
+    build_config_file: Path | None,
 ) -> None:
     r"""Evaluate model accuracy on a dataset.
 
@@ -156,6 +160,17 @@ def eval(
     """
     if verbose or (ctx.obj and ctx.obj.get("debug")):
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
+
+    # Apply build config defaults (CLI explicit options take precedence)
+    if build_config_file is not None:
+        build_cfg = cli_utils.load_build_config(build_config_file)
+        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
+            task = task or build_cfg.loader.task
+        if build_cfg.quant:
+            if not cli_utils.is_cli_provided(ctx, "samples"):
+                samples = build_cfg.quant.samples
+            if not cli_utils.is_cli_provided(ctx, "dataset_path"):
+                dataset_path = dataset_path or build_cfg.quant.dataset_name
 
     if show_schema:
         from ..eval.base_evaluator import WinMLEvaluator

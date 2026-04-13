@@ -26,6 +26,7 @@ import click
 from rich.console import Console
 
 from ..onnx import is_compiled_onnx
+from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
 
 
@@ -99,6 +100,7 @@ console = Console()
     default=False,
     help="Enable verbose output",
 )
+@cli_utils.build_config_option
 @click.pass_context
 def quantize(
     ctx: click.Context,
@@ -112,6 +114,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     verbose: bool,
+    build_config_file: Path | None,
 ) -> None:
     r"""Quantize ONNX model by inserting QDQ nodes.
 
@@ -141,6 +144,24 @@ def quantize(
         verbose = True
 
     configure_logging(verbose=verbose)
+
+    # Apply build config defaults (CLI explicit options take precedence)
+    if build_config_file is not None:
+        build_cfg = cli_utils.load_build_config(build_config_file)
+        if build_cfg.quant:
+            qc = build_cfg.quant
+            if not cli_utils.is_cli_provided(ctx, "samples"):
+                samples = qc.samples
+            if not cli_utils.is_cli_provided(ctx, "method"):
+                method = qc.calibration_method
+            if not cli_utils.is_cli_provided(ctx, "weight_type"):
+                weight_type = weight_type or qc.weight_type
+            if not cli_utils.is_cli_provided(ctx, "activation_type"):
+                activation_type = activation_type or qc.activation_type
+            if not cli_utils.is_cli_provided(ctx, "per_channel"):
+                per_channel = qc.per_channel
+            if not cli_utils.is_cli_provided(ctx, "symmetric"):
+                symmetric = qc.symmetric
 
     if is_compiled_onnx(model):
         raise click.ClickException(

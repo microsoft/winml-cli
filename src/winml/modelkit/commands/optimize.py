@@ -31,6 +31,7 @@ import click
 from rich.console import Console
 
 from ..onnx import is_compiled_onnx, load_onnx, save_onnx
+from ..utils import cli as cli_utils
 
 
 if TYPE_CHECKING:
@@ -224,6 +225,7 @@ def capability_options(func: Callable) -> Callable:
     default=False,
     help="Enable verbose output",
 )
+@cli_utils.build_config_option
 @capability_options
 @click.pass_context
 def optimize(
@@ -235,6 +237,7 @@ def optimize(
     preset: str | None,
     config: Path | None,
     verbose: bool,
+    build_config_file: Path | None,
     **kwargs: Any,
 ) -> None:
     r"""Optimize ONNX model with capability-driven optimizer.
@@ -416,6 +419,13 @@ def optimize(
     final_config: dict[str, Any] = {}
     for cap_name, cap_def in all_caps.items():
         final_config[cap_name] = cap_def.default
+
+    # 1.5. Apply build config optim section if specified (overrides defaults)
+    if build_config_file is not None:
+        build_cfg = cli_utils.load_build_config(build_config_file)
+        if build_cfg.optim:
+            final_config.update(build_cfg.optim.to_dict())
+            console.print(f"[dim]Applied build config optim section: {build_config_file}[/dim]")
 
     # 2. Apply preset if specified (overrides defaults)
     if preset and preset in PRESETS:
