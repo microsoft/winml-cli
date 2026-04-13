@@ -36,6 +36,9 @@ from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registra
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
+from .mu2 import MODEL_CLASS_MAPPING as _MU2_CLASS_MAPPING
+from .mu2 import Mu2DecoderIOConfig as _Mu2DecoderIOConfig  # triggers registration
+from .mu2 import Mu2EncoderIOConfig as _Mu2EncoderIOConfig  # triggers registration
 from .qwen import MODEL_CLASS_MAPPING as _QWEN_CLASS_MAPPING
 from .qwen import QWEN_CONFIG
 from .qwen import QwenGenIOConfig as _QwenGenIOConfig
@@ -55,6 +58,7 @@ from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registra
 # Aggregated model class mappings: (model_type, task) -> HF model class
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     **_CLIP_CLASS_MAPPING,
+    **_MU2_CLASS_MAPPING,
     **_QWEN_CLASS_MAPPING,
     **_SAM2_CLASS_MAPPING,
     **_SEGFORMER_CLASS_MAPPING,

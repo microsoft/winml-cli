@@ -115,7 +115,8 @@ class WinMLPipelineModel(PreTrainedModel):
         """
         from transformers import AutoConfig
 
-        hf_config = AutoConfig.from_pretrained(model_id)
+        trust_remote_code = kwargs.get("trust_remote_code", False)
+        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
         model_type = hf_config.model_type
 
         if not cls._SUB_MODEL_CONFIG:

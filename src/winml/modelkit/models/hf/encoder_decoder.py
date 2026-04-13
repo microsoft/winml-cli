@@ -108,11 +108,12 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
         normalized_config: NormalizedConfig,
         batch_size: int = 1,
         max_cache_len: int | None = None,
+        sequence_length: int | None = None,
         **kwargs: Any,
     ) -> None:
         self.batch_size = batch_size
         self.d_model = normalized_config.hidden_size
-        self.enc_seq = getattr(normalized_config, "sequence_length", 16)
+        self.enc_seq = sequence_length or getattr(normalized_config, "sequence_length", 16)
         self.max_cache_len = max_cache_len or normalized_config.max_cache_len
         self.vocab_size = normalized_config.vocab_size
 
@@ -277,11 +278,13 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             if isinstance(sa, StaticCache):
                 cache = sa
         if cache is None:
+            # Read KV geometry from ONNX metadata (architecture-agnostic)
+            kv_shape = self._dec_expected["past_0_key"]  # [batch, heads, max_dec, head_dim]
             cache = StaticCache(self.config, max_cache_len=self._max_dec)
             cache.early_initialization(
                 batch_size=1,
-                num_heads=self.config.num_heads,
-                head_dim=self.config.d_kv,
+                num_heads=kv_shape[1],
+                head_dim=kv_shape[3],
                 dtype=torch.float32,
                 device=torch.device("cpu"),
             )

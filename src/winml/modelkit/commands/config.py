@@ -309,7 +309,9 @@ def config(
             console.print(f"[dim]Generating config for {label}...[/dim]")
 
             # Check pipeline model registry: (model_type, task) → multi-config
-            pipeline_components = _resolve_pipeline_components(hf_model, model_type, task)
+            pipeline_components = _resolve_pipeline_components(
+                hf_model, model_type, task, trust_remote_code=trust_remote_code
+            )
             if pipeline_components:
                 # Pipeline model: generate one config per sub-component
                 _generate_pipeline_configs(
@@ -399,6 +401,7 @@ def _resolve_pipeline_components(
     hf_model: str | None,
     model_type: str | None,
     task: str | None,
+    trust_remote_code: bool = False,
 ) -> dict[str, str] | None:
     """Check if (model_type, task) is a registered pipeline model.
 
@@ -416,7 +419,9 @@ def _resolve_pipeline_components(
     if resolved_type is None and hf_model is not None:
         from transformers import AutoConfig
 
-        resolved_type = AutoConfig.from_pretrained(hf_model).model_type
+        resolved_type = AutoConfig.from_pretrained(
+            hf_model, trust_remote_code=trust_remote_code
+        ).model_type
 
     if resolved_type is None:
         return None

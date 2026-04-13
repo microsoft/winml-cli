@@ -305,6 +305,12 @@ def _build_modules(
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
 @click.option(
+    "--trust-remote-code",
+    is_flag=True,
+    default=False,
+    help="Trust remote code for custom model architectures (e.g., Mu2).",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -327,6 +333,7 @@ def build(
     device: str | None,
     no_analyze: bool,
     max_optim_iterations: int | None,
+    trust_remote_code: bool,
     verbose: bool,
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
@@ -408,6 +415,8 @@ def build(
             extra_kwargs["hack_max_optim_iterations"] = 0
         elif max_optim_iterations is not None:
             extra_kwargs["hack_max_optim_iterations"] = max_optim_iterations
+        if trust_remote_code:
+            extra_kwargs["trust_remote_code"] = True
 
         if is_module_mode:
             # ---- MODULE MODE: array config, one build per submodule ----
