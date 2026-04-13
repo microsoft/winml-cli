@@ -31,8 +31,8 @@ from ...pattern.op_input_gen import (
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
+from ..utils import CheckResultWriter
 from ..utils.model_utils import get_op_since_version
-from ..utils.op_utils import CheckResultWriter
 from .ep_checker import EPChecker
 
 

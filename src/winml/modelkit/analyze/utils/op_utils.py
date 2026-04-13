@@ -6,6 +6,7 @@
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -396,7 +397,7 @@ class CheckResultWriter:
                 return obj.tolist()
             if isinstance(obj, np.generic):
                 return obj.item()
-            if isinstance(obj, float) and (obj != obj):  # NaN check: NaN != NaN
+            if isinstance(obj, float) and math.isnan(obj):
                 return None  # Convert NaN to null
             raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 

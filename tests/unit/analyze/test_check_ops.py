@@ -4,8 +4,11 @@
 # --------------------------------------------------------------------------
 """Unit tests for _compute_case_signature in check_ops."""
 
+import json
+
 import numpy as np
 
+from winml.modelkit.analyze.utils import CheckResultWriter
 from winml.modelkit.analyze.utils.op_utils import compute_case_signature
 from winml.modelkit.pattern.op_input_gen import InputValueConstraint
 
@@ -152,10 +155,6 @@ class TestReuseExistingResultInputConstraints:
     @staticmethod
     def _make_writer(existing_cases: list[dict], tmp_path):
         """Create a CheckResultWriter with pre-loaded existing_signatures from cases."""
-        import json
-
-        from winml.modelkit.analyze.utils.op_utils import CheckResultWriter
-
         output_file = tmp_path / "test_op.json"
         output_file.write_text(json.dumps({"check_results": existing_cases}), encoding="utf-8")
         return CheckResultWriter(output_file, sys_info={}, delta_only=True)
