@@ -45,7 +45,7 @@ from optimum.utils.input_generators import (
     DummyInputGenerator,
     DummyVisionInputGenerator,
 )
-from transformers import Sam2Model
+from transformers import Sam2Model, SamModel
 
 from ...export import register_onnx_overwrite
 
@@ -240,6 +240,119 @@ class SAM2MaskGeneration(torch.nn.Module):
         return masks, iou_scores, low_res_masks
 
 
+class SAMMaskGeneration(torch.nn.Module):
+    """Export wrapper for SAM v1 mask generation (decoder portion).
+
+    Composes prompt_encoder + mask_decoder + positional embeddings
+    into a single module with explicit I/O signature.
+
+    Mirrors SamModel.forward flow:
+        1. Encode prompts (points + optional mask)
+        2. Compute positional embeddings
+        3. Run mask decoder
+
+    Inputs:
+        input_points:     [B, 1, N, 2]     - Point coordinates in pixels
+        input_labels:     [B, 1, N]         - Point labels (0=neg, 1=pos, -1=pad)
+        image_embeddings: [B, 256, 64, 64]  - From vision encoder
+        mask_input:       [B, 1, 256, 256]  - Previous mask (for refinement)
+        use_mask_input:   [B]               - Flag: 0.0=ignore mask, 1.0=use mask
+
+    Outputs:
+        masks:          [B, 3, 1024, 1024] - Full resolution masks
+        iou_scores:     [B, 3]             - IoU predictions per mask
+        low_res_masks:  [B, 3, 256, 256]   - Low-res masks (for next iteration)
+    """
+
+    @classmethod
+    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> SAMMaskGeneration:
+        """Load from a HuggingFace SamModel checkpoint."""
+        sam_model = SamModel.from_pretrained(model_name_or_path, **kwargs)
+        return cls(sam_model)
+
+    def __init__(self, sam_model):
+        super().__init__()
+
+        self.prompt_encoder = sam_model.prompt_encoder
+        self.mask_decoder = sam_model.mask_decoder
+        self.shared_image_embedding = sam_model.shared_image_embedding
+        self.image_embedding_size = self.prompt_encoder.image_embedding_size
+        self.config = sam_model.config
+
+    def _get_image_positional_embeddings(self, batch_size: int = 1) -> torch.Tensor:
+        """Replicates SamModel.get_image_wide_positional_embeddings()."""
+        size = self.config.prompt_encoder_config.image_embedding_size
+        target_device = self.shared_image_embedding.positional_embedding.device
+        target_dtype = self.shared_image_embedding.positional_embedding.dtype
+
+        grid = torch.ones((size, size), device=target_device, dtype=target_dtype)
+        y_embed = grid.cumsum(dim=0) - 0.5
+        x_embed = grid.cumsum(dim=1) - 0.5
+        y_embed = y_embed / size
+        x_embed = x_embed / size
+
+        positional_embedding = self.shared_image_embedding(torch.stack([x_embed, y_embed], dim=-1))
+        positional_embedding = positional_embedding.permute(2, 0, 1).unsqueeze(0)
+        return positional_embedding.repeat(batch_size, 1, 1, 1)
+
+    def forward(
+        self,
+        input_points: torch.Tensor,
+        input_labels: torch.Tensor,
+        image_embeddings: torch.Tensor,
+        mask_input: torch.Tensor,
+        use_mask_input: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Run mask generation from pre-computed encoder features."""
+        batch_size = image_embeddings.shape[0]
+
+        # 1. Prompt embeddings (sparse - points only, mask handled separately)
+        sparse_embeddings, _ = self.prompt_encoder(
+            input_points=input_points,
+            input_labels=input_labels,
+            input_boxes=None,
+            input_masks=None,
+        )
+
+        # Arithmetic mask blending via use_mask_input flag
+        # (avoids torch.where for ONNX/QNN compatibility)
+        mask_dense = self.prompt_encoder.mask_embed(mask_input)
+        no_mask_dense = self.prompt_encoder.no_mask_embed.weight.reshape(1, -1, 1, 1).expand(
+            batch_size,
+            -1,
+            self.image_embedding_size[0],
+            self.image_embedding_size[1],
+        )
+        flag = use_mask_input.reshape(-1, 1, 1, 1).to(mask_dense.dtype)
+        dense_embeddings = (1.0 - flag) * no_mask_dense + flag * mask_dense
+
+        # 2. Positional embeddings
+        image_positional_embeddings = self._get_image_positional_embeddings(batch_size)
+
+        # 3. Mask decoder
+        low_res_masks, iou_pred = self.mask_decoder(
+            image_embeddings=image_embeddings,
+            image_positional_embeddings=image_positional_embeddings,
+            sparse_prompt_embeddings=sparse_embeddings,
+            dense_prompt_embeddings=dense_embeddings,
+            multimask_output=True,
+        )
+
+        # Squeeze point_batch_size dimension
+        low_res_masks = low_res_masks.squeeze(1)  # [B, 3, 256, 256]
+        iou_scores = iou_pred.squeeze(1)  # [B, 3]
+
+        # 4. Upsample to full resolution
+        masks = torch.nn.functional.interpolate(
+            low_res_masks,
+            size=(1024, 1024),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        return masks, iou_scores, low_res_masks
+
+
 # =============================================================================
 # HuggingFace Model Class Mapping
 # =============================================================================
@@ -254,6 +367,7 @@ class SAM2MaskGeneration(torch.nn.Module):
 # Users wanting the full model use --task image-segmentation.
 
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+    ("sam", "mask-generation"): SAMMaskGeneration,
     ("sam2", "image-segmentation"): Sam2Model,
     ("sam2", "feature-extraction"): Sam2VisionEncoder,
     ("sam2", "image-feature-extraction"): Sam2VisionEncoder,
@@ -812,13 +926,105 @@ class Sam2MaskGenerationIOConfig(OnnxConfig):
         }
 
 
+# =============================================================================
+# SAM v1 Custom Dummy Input Generators
+# =============================================================================
+class SamEmbeddingsInputGenerator(DummyInputGenerator):
+    """Embeddings input generator for SAM v1 mask generation decoder.
+
+    Generates:
+        - image_embeddings: [B, 256, 64, 64] - From vision encoder
+    """
+
+    SUPPORTED_INPUT_NAMES = ("image_embeddings",)
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedConfig,
+        batch_size: int = 1,
+        **kwargs,
+    ):
+        self.task = task
+        self.batch_size = batch_size
+
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ):
+        shape = [self.batch_size, 256, 64, 64]
+        return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
+
+
+# =============================================================================
+# SAM v1 Optimum ONNX Export Config Registration
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Mask generation export (SAMMaskGeneration wrapper) - SAM v1
+# -----------------------------------------------------------------------------
+@register_onnx_overwrite("sam", "mask-generation", library_name="transformers")
+class SamMaskGenerationIOConfig(OnnxConfig):
+    """ONNX config for SAMMaskGeneration (SAM v1 decoder).
+
+    Model: facebook/sam-vit-huge, facebook/sam-vit-large, facebook/sam-vit-base
+    Uses SAMMaskGeneration nn.Module which takes image_embeddings from the
+    vision encoder and runs prompt encoding + mask decoding.
+
+    Inputs:
+        - input_points:     {0: "batch_size"} [B, 1, N, 2]
+        - input_labels:     {0: "batch_size"} [B, 1, N]
+        - image_embeddings: {0: "batch_size"} [B, 256, 64, 64]
+        - mask_input:       {0: "batch_size"} [B, 1, 256, 256]
+        - use_mask_input:   {0: "batch_size"} [B]
+
+    Outputs:
+        - masks:          {0: "batch_size"} [B, 3, 1024, 1024]
+        - iou_scores:     {0: "batch_size"} [B, 3]
+        - low_res_masks:  {0: "batch_size"} [B, 3, 256, 256]
+    """
+
+    NORMALIZED_CONFIG_CLASS = Sam2NormalizedVisionConfig
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        Sam2PointsInputGenerator,
+        SamEmbeddingsInputGenerator,
+        Sam2MaskInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> dict[str, dict[int, str]]:
+        """Return input tensors for SAM v1 mask generation."""
+        return {
+            "input_points": {0: "batch_size"},
+            "input_labels": {0: "batch_size"},
+            "image_embeddings": {0: "batch_size"},
+            "mask_input": {0: "batch_size"},
+            "use_mask_input": {0: "batch_size"},
+        }
+
+    @property
+    def outputs(self) -> dict[str, dict[int, str]]:
+        """Return output tensors for SAM v1 mask generation."""
+        return {
+            "masks": {0: "batch_size"},
+            "iou_scores": {0: "batch_size"},
+            "low_res_masks": {0: "batch_size"},
+        }
+
+
 __all__ = [
     "SAM2MaskGeneration",
+    "SAMMaskGeneration",
     "Sam2IOConfig",
     "Sam2ImageEncoderIOConfig",
     "Sam2MaskGenerationIOConfig",
     "Sam2ModelPatcher",
     "Sam2NormalizedVisionConfig",
+    "SamMaskGenerationIOConfig",
     "_patched_sam2_multiscale_block_forward",
     "_patched_sam2_prompt_encoder_forward",
 ]
