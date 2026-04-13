@@ -1044,7 +1044,7 @@ class TestIterQDQCombinationsTagSchema:
 
 
 unary_input_shapes = 8
-binary_input_shapes = 42
+binary_input_shapes = 43
 
 
 class TestIterQDQCombinations:
@@ -1054,7 +1054,7 @@ class TestIterQDQCombinations:
         "op_name,expected_count",
         [
             # All binary use this and it is enough
-            ("Add", binary_input_shapes * (16 * 2 - 4)),  # 1176
+            ("Add", binary_input_shapes * (16 * 2 - 4)),  # 1204
             (
                 "AveragePool",
                 1152,
@@ -1086,7 +1086,7 @@ class TestIterQDQCombinations:
                 2816,
             ),  # qdq 4 * is_constant 4 * attributes 4 * (2 + 2 + 4 + 6 + 8 + 10 + 12)
             # All comparison use this
-            ("Equal", binary_input_shapes * 16),  # 672
+            ("Equal", binary_input_shapes * 16),  # 688
             ("Expand", 328),  # case 41 * QDQ 4 * is_constant shape 2
             ("Flatten", 28 * 4),  # 112
             (
@@ -1148,8 +1148,8 @@ class TestIterQDQCombinations:
             ("Unsqueeze", 208),  # 26 * 4 QDQ types * 2 is_constant axes
             (
                 "Where",
-                (42 * 2 - 7) * 4 * (2 + 4 + 4 + 7),
-            ),  # 5236, 7 cases with same shape, different qdq for x,y
+                (43 * 2 - 7) * 4 * (2 + 4 + 4 + 7),
+            ),  # 5372, 7 cases with same shape, different qdq for x,y
         ],
     )
     def test_qdq_total_count(self, op_name: str, expected_count: int) -> None:
