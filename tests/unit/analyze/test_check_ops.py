@@ -4,8 +4,11 @@
 # --------------------------------------------------------------------------
 """Unit tests for _compute_case_signature in check_ops."""
 
+import json
+
 import numpy as np
 
+from winml.modelkit.analyze.utils import CheckResultWriter
 from winml.modelkit.analyze.utils.op_utils import compute_case_signature
 from winml.modelkit.pattern.op_input_gen import InputValueConstraint
 
@@ -144,3 +147,99 @@ class TestComputeCaseSignature:
         assert compute_case_signature(base, namespace="") == compute_case_signature(
             with_empty_attrs, namespace=""
         )
+
+
+class TestReuseExistingResultInputConstraints:
+    """Tests that reuse_existing_result upgrades input_constraints to current format."""
+
+    @staticmethod
+    def _make_writer(existing_cases: list[dict], tmp_path):
+        """Create a CheckResultWriter with pre-loaded existing_signatures from cases."""
+        output_file = tmp_path / "test_op.json"
+        output_file.write_text(json.dumps({"check_results": existing_cases}), encoding="utf-8")
+        return CheckResultWriter(output_file, sys_info={}, delta_only=True)
+
+    def test_reuse_upgrades_value_array_to_same_value(self, tmp_path) -> None:
+        """When an existing case has the old value-array format, reuse_existing_result
+        must replace input_constraints with the compact same_value form from the
+        current generator output (the skipped case dict)."""
+        arr = np.ones((2, 3), dtype=np.float32)
+        compact = InputValueConstraint(arr).to_dict()
+        expanded = {"type": "value", "value": arr.tolist(), "dtype": "float32"}
+
+        existing_case = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": expanded},
+            "check_result": {
+                "compile": {"result": {"success": True}},
+                "run": {"result": {"success": True}},
+            },
+        }
+
+        with self._make_writer([existing_case], tmp_path) as writer:
+            # The skipped case carries the up-to-date compact form
+            skipped_case = {
+                "type_vars": {"T": "FLOAT"},
+                "input_constraints": {"X": compact},
+                "_skipped": True,
+            }
+            reused = writer.reuse_existing_result(skipped_case)
+
+        assert reused
+        saved = writer.results[0]
+        assert saved["input_constraints"]["X"] == compact
+        assert "same_value" in saved["input_constraints"]["X"]
+        assert "value" not in saved["input_constraints"]["X"]
+
+    def test_reuse_preserves_existing_result_fields(self, tmp_path) -> None:
+        """Upgrading input_constraints must not discard check_result or other fields."""
+        arr = np.ones((2,), dtype=np.float32)
+        compact = InputValueConstraint(arr).to_dict()
+        expanded = {"type": "value", "value": arr.tolist(), "dtype": "float32"}
+
+        compile_result = {"result": {"success": True}, "stdout": "ok", "stderr": ""}
+        run_result = {"result": {"success": True}, "stdout": "ok", "stderr": ""}
+        existing_case = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": expanded},
+            "check_result": {"compile": compile_result, "run": run_result},
+        }
+
+        with self._make_writer([existing_case], tmp_path) as writer:
+            skipped_case = {
+                "type_vars": {"T": "FLOAT"},
+                "input_constraints": {"X": compact},
+                "_skipped": True,
+            }
+            writer.reuse_existing_result(skipped_case)
+
+        saved = writer.results[0]
+        assert saved["check_result"]["compile"] == compile_result
+        assert saved["check_result"]["run"] == run_result
+
+    def test_reuse_already_compact_stays_compact(self, tmp_path) -> None:
+        """If the existing case already has same_value format, reuse leaves it intact."""
+        arr = np.ones((2, 3), dtype=np.float32)
+        compact = InputValueConstraint(arr).to_dict()
+
+        existing_case = {
+            "type_vars": {"T": "FLOAT"},
+            "input_constraints": {"X": compact},
+            "check_result": {
+                "compile": {"result": {"success": True}},
+                "run": {"result": {"success": True}},
+            },
+        }
+
+        with self._make_writer([existing_case], tmp_path) as writer:
+            skipped_case = {
+                "type_vars": {"T": "FLOAT"},
+                "input_constraints": {"X": compact},
+                "_skipped": True,
+            }
+            reused = writer.reuse_existing_result(skipped_case)
+
+        assert reused
+        saved = writer.results[0]
+        assert saved["input_constraints"]["X"] == compact
+        assert "same_value" in saved["input_constraints"]["X"]
