@@ -120,12 +120,12 @@ def verbosity_options(f):
     return f  # noqa: RET504
 
 
-def build_config_option(func):
-    """Add -C/--build-config option for WinMLBuildConfig JSON file."""
+def config_option(func):
+    """Add -C/--config option for WinMLBuildConfig JSON file."""
     return click.option(
         "-C",
-        "--build-config",
-        "build_config_file",
+        "--config",
+        "config_file",
         type=click.Path(exists=True, path_type=Path),
         default=None,
         help="WinMLBuildConfig JSON file (from winml config). "
@@ -133,7 +133,7 @@ def build_config_option(func):
     )(func)
 
 
-def load_build_config(config_path: Path) -> WinMLBuildConfig:
+def load_config(config_path: Path) -> WinMLBuildConfig:
     """Load a WinMLBuildConfig from a JSON file.
 
     Args:

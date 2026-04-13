@@ -112,7 +112,7 @@ console = Console()
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
-@cli_utils.build_config_option
+@cli_utils.config_option
 @click.pass_context
 def export(
     ctx: click.Context,
@@ -127,7 +127,7 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
-    build_config_file: Path | None,
+    config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
 
@@ -176,8 +176,8 @@ def export(
 
     # Apply build config defaults (CLI explicit options take precedence)
     _build_export_cfg = None
-    if build_config_file is not None:
-        build_cfg = cli_utils.load_build_config(build_config_file)
+    if config_file is not None:
+        build_cfg = cli_utils.load_config(config_file)
         if build_cfg.export:
             _build_export_cfg = build_cfg.export
         if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):

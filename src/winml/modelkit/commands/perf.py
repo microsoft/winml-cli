@@ -953,7 +953,7 @@ def generate_output_path(model_id: str) -> Path:
     default=False,
     help="Enable verbose output",
 )
-@cli_utils.build_config_option
+@cli_utils.config_option
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -976,7 +976,7 @@ def perf(
     op_tracing: str | None,
     compare_devices: str | None,
     verbose: bool,
-    build_config_file: Path | None,
+    config_file: Path | None,
 ) -> None:
     r"""Benchmark model inference performance.
 
@@ -1027,8 +1027,8 @@ def perf(
     hf_model = model_id
 
     # Apply build config defaults (CLI explicit options take precedence)
-    if build_config_file is not None:
-        build_cfg = cli_utils.load_build_config(build_config_file)
+    if config_file is not None:
+        build_cfg = cli_utils.load_config(config_file)
         if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
             task = task or build_cfg.loader.task
         if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):

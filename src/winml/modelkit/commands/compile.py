@@ -105,7 +105,7 @@ console = Console()
     default=False,
     help="List available compilers for the selected device and exit",
 )
-@cli_utils.build_config_option
+@cli_utils.config_option
 @click.pass_context
 def compile(
     ctx: click.Context,
@@ -120,7 +120,7 @@ def compile(
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
-    build_config_file: Path | None,
+    config_file: Path | None,
 ) -> None:
     r"""Compile ONNX model to EP-specific format.
 
@@ -152,8 +152,8 @@ def compile(
     configure_logging(verbose=verbose)
 
     # Apply build config defaults (CLI explicit options take precedence)
-    if build_config_file is not None:
-        build_cfg = cli_utils.load_build_config(build_config_file)
+    if config_file is not None:
+        build_cfg = cli_utils.load_config(config_file)
         if build_cfg.compile:
             cc = build_cfg.compile
             if not cli_utils.is_cli_provided(ctx, "ep"):

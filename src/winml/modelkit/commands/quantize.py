@@ -100,7 +100,7 @@ console = Console()
     default=False,
     help="Enable verbose output",
 )
-@cli_utils.build_config_option
+@cli_utils.config_option
 @click.pass_context
 def quantize(
     ctx: click.Context,
@@ -114,7 +114,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     verbose: bool,
-    build_config_file: Path | None,
+    config_file: Path | None,
 ) -> None:
     r"""Quantize ONNX model by inserting QDQ nodes.
 
@@ -146,8 +146,8 @@ def quantize(
     configure_logging(verbose=verbose)
 
     # Apply build config defaults (CLI explicit options take precedence)
-    if build_config_file is not None:
-        build_cfg = cli_utils.load_build_config(build_config_file)
+    if config_file is not None:
+        build_cfg = cli_utils.load_config(config_file)
         if build_cfg.quant:
             qc = build_cfg.quant
             if not cli_utils.is_cli_provided(ctx, "samples"):

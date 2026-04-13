@@ -118,7 +118,7 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Print expected dataset schema for the given --task and exit.",
 )
-@cli_utils.build_config_option
+@cli_utils.config_option
 @click.pass_context
 def eval(
     ctx: click.Context,
@@ -137,7 +137,7 @@ def eval(
     output: Path | None,
     verbose: bool,
     show_schema: bool,
-    build_config_file: Path | None,
+    config_file: Path | None,
 ) -> None:
     r"""Evaluate model accuracy on a dataset.
 
@@ -162,8 +162,8 @@ def eval(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     # Apply build config defaults (CLI explicit options take precedence)
-    if build_config_file is not None:
-        build_cfg = cli_utils.load_build_config(build_config_file)
+    if config_file is not None:
+        build_cfg = cli_utils.load_config(config_file)
         if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
             task = task or build_cfg.loader.task
         if build_cfg.quant:
