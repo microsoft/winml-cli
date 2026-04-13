@@ -6,6 +6,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from ..models.ihv_type import IHVType
@@ -14,6 +15,58 @@ from ..models.runtime_checks import RuntimeCheckRule
 
 
 logger = logging.getLogger(__name__)
+
+#: Environment variable for additional runtime check rules directories.
+#: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
+MODELKIT_RULES_DIR_ENV = "MODELKIT_RULES_DIR"
+
+# Default runtime_check_rules directory (relative to the analyze package).
+_DEFAULT_RUNTIME_RULES_DIR: Path = (
+    Path(__file__).resolve().parent.parent / "rules" / "runtime_check_rules"
+)
+
+
+def get_runtime_rules_search_dirs() -> list[Path]:
+    """Return ordered list of directories to search for runtime check rule zips.
+
+    The search order is:
+      1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
+         (separated by ``os.pathsep``).
+      2. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
+
+    Returns:
+        List of directory Paths (may include non-existent ones; callers filter).
+    """
+    dirs: list[Path] = []
+    env_val = os.environ.get(MODELKIT_RULES_DIR_ENV, "").strip()
+    if env_val:
+        for entry in env_val.split(os.pathsep):
+            entry = entry.strip()
+            if entry:
+                dirs.append(Path(entry).resolve())
+    dirs.append(_DEFAULT_RUNTIME_RULES_DIR)
+    return dirs
+
+
+def resolve_rule_zip_path(zip_filename: str) -> Path:
+    """Resolve a runtime-check rule zip by searching known directories.
+
+    Searches :func:`get_runtime_rules_search_dirs` in order and returns the
+    first existing match.  If none is found, returns the path under the
+    default embedded directory (so callers get the usual "not found" warning).
+
+    Args:
+        zip_filename: Bare file name, e.g. ``QNN_NPU_ai_onnx_opset13.zip``
+
+    Returns:
+        Resolved ``Path`` to the zip file.
+    """
+    for search_dir in get_runtime_rules_search_dirs():
+        candidate = search_dir / zip_filename
+        if candidate.exists():
+            return candidate
+    # Fallback: return the default path so downstream code emits its normal warning.
+    return _DEFAULT_RUNTIME_RULES_DIR / zip_filename
 
 
 class RuleLoader:

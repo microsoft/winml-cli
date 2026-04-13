@@ -25,7 +25,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from ..config.precision import _DEVICE_TO_PROVIDER, VALID_EPS
+from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE, VALID_EPS
 from ..onnx import is_compiled_onnx
 from ..utils.logging import configure_logging
 
@@ -191,7 +191,7 @@ def compile(
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
-    console.print(f"[bold blue]Device:[/bold blue] {device}")
+    console.print(f"[bold blue]Device:[/bold blue] {_EP_TO_DEVICE.get(provider, device)}")
     if ep:
         console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")
