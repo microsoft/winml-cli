@@ -50,6 +50,7 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
+from ..utils.rule_loader import resolve_rule_zip_path
 from ..utils.table_utils import build_table_df
 from .node_checkers.base import NodeChecker
 from .node_checkers.registry import NodeCheckerRegistry
@@ -115,21 +116,77 @@ def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _load_table_columns_file(zip_path: Path, columns_file_name: str | None) -> dict[str, list[str]]:
+    """Load per-op table column metadata from a runtime-rules zip file.
+
+    This is used to pre-load the smaller column metadata during query
+    initialization so `run_for_node` can filter conditions before saving or
+    matching against the larger table payloads.
+    """
+    if not columns_file_name or not zip_path.exists():
+        return {}
+
+    try:
+        import zipfile
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            if columns_file_name not in zf.namelist():
+                return {}
+            raw_columns = json.loads(zf.read(columns_file_name).decode("utf-8"))
+    except Exception as e:
+        logger.debug(
+            "Failed to load column file %s from %s: %s",
+            columns_file_name,
+            zip_path,
+            e,
+        )
+        return {}
+
+    if not isinstance(raw_columns, dict):
+        return {}
+
+    return {
+        str(op_name): [str(col) for col in columns] if isinstance(columns, list) else []
+        for op_name, columns in raw_columns.items()
+    }
+
+
 class LazyDomainTables:
     """Lazy-loading wrapper that reads the table file from a zip on first operator access."""
 
-    def __init__(self, zip_path: Path, file_name: str) -> None:
+    def __init__(
+        self,
+        zip_path: Path,
+        file_name: str,
+        columns_file_name: str | None = None,
+        preloaded_columns: dict[str, list[str]] | None = None,
+    ) -> None:
         """Initialize with zip path and file name — no I/O performed.
 
         Args:
             zip_path: Path to the zip archive containing the table file
             file_name: Name of the JSON table file inside the zip
+            columns_file_name: Optional JSON file containing per-op column names
+            preloaded_columns: Optional pre-parsed per-op column metadata
         """
         self._zip_path = zip_path
         self._file_name = file_name
+        self._columns_file_name = columns_file_name
         self._raw_data: dict[str, Any] = {}
+        self._raw_columns: dict[str, list[str]] = {
+            str(op_name): [str(col) for col in columns] if isinstance(columns, list) else []
+            for op_name, columns in (preloaded_columns or {}).items()
+        }
         self._loaded_tables: dict[str, pd.DataFrame] = {}
         self._loaded: bool = False
+        self._columns_loaded: bool = bool(self._raw_columns) or self._columns_file_name is None
+
+    def _ensure_columns_loaded(self) -> None:
+        """Load only the column metadata when it was not preloaded."""
+        if self._columns_loaded:
+            return
+        self._columns_loaded = True
+        self._raw_columns = _load_table_columns_file(self._zip_path, self._columns_file_name)
 
     def _ensure_loaded(self) -> None:
         """Load the table file from the zip archive on first access."""
@@ -141,7 +198,8 @@ class LazyDomainTables:
         if not self._zip_path.exists():
             logger.warning(
                 "Rule zip not found: %s. "
-                "Run 'uv run python scripts/download_rules.py' to download rule files.",
+                "Run 'uv run python scripts/download_rules.py' to download rule files, "
+                "or set MODELKIT_RULES_DIR to a directory containing the zip.",
                 self._zip_path,
             )
             return
@@ -177,6 +235,30 @@ class LazyDomainTables:
             return self[key]
         except KeyError:
             return default
+
+    def get_columns(self, key: str) -> list[str] | None:
+        """Get ordered table column names for an operator.
+
+        Prefers preloaded or metadata-file column order when available. Falls
+        back to deriving column names from the raw table payload when metadata
+        is not available. Excludes compile_run_success because it is a result
+        column, not a query key.
+        """
+        if key in self._loaded_tables:
+            return [col for col in self._loaded_tables[key].columns if col != "compile_run_success"]
+
+        self._ensure_columns_loaded()
+
+        if key in self._raw_columns:
+            return list(self._raw_columns[key])
+
+        self._ensure_loaded()
+
+        raw_table = self._raw_data.get(key)
+        if isinstance(raw_table, dict):
+            return [col for col in raw_table if col != "compile_run_success"]
+
+        return None
 
 
 class _LazyNegRules(dict):  # type: ignore[type-arg]
@@ -219,7 +301,8 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
                 self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._zip_path)
                 logger.warning(
                     "Rule zip file not found: %s. "
-                    "Run 'uv run python scripts/download_rules.py' to download rule files.",
+                    "Run 'uv run python scripts/download_rules.py' to download rule files, "
+                    "or set MODELKIT_RULES_DIR to a directory containing the zip.",
                     self._zip_path,
                 )
             return
@@ -313,6 +396,27 @@ def _format_list_preview(items: Any, max_items: int = 10) -> list[Any]:
     if len(lst) > max_items:
         return [*lst[:max_items], "...more..."]
     return lst
+
+
+def _build_table_filter_conditions(
+    conditions: dict[str, Any],
+    column_names: list[str],
+    infinite_properties: list[str],
+    error_context: str,
+) -> dict[str, Any]:
+    """Filter query conditions down to the columns used for table matching."""
+    filter_conditions: dict[str, Any] = {}
+
+    for key in column_names:
+        if key not in infinite_properties:
+            if key not in conditions:
+                raise OpOptionalInputSupportError(
+                    f"Match key '{key}' not found in conditions for {error_context}. "
+                    f"Available: {_format_list_preview(conditions.keys())}"
+                )
+            filter_conditions[key] = conditions[key]
+
+    return filter_conditions
 
 
 def _normalize_table_zip_path(path_like: str | Path) -> str:
@@ -931,21 +1035,26 @@ class RuntimeCheckerQuery:
         self.pattern_neg_rules_qdq: dict[ONNXDomain, dict] = {}
         self.df_tables: dict[ONNXDomain, LazyDomainTables] = {}
         self.df_tables_qdq: dict[ONNXDomain, LazyDomainTables] = {}
+        self.df_table_columns: dict[ONNXDomain, dict[str, list[str]]] = {}
+        self.df_table_columns_qdq: dict[ONNXDomain, dict[str, list[str]]] = {}
 
         for domain, opset_version in self.opset_versions.items():
             file_prefix = domain.name
-            rule_zip_path = (
-                Path(__file__)
-                .parent.joinpath(
-                    f"../rules/runtime_check_rules/{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}.zip"
-                )
-                .resolve(strict=False)
-            )
             base = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}"
+            rule_zip_path = resolve_rule_zip_path(f"{base}.zip")
             rule_file = f"{base}_negative_rules.json"
             qdq_rule_file = f"{base}_negative_rules_qdq.json"
             table_file = f"{base}_tables.json"
             qdq_table_file = f"{base}_tables_qdq.json"
+            table_columns_file = f"{base}_table_columns.json"
+            qdq_table_columns_file = f"{base}_table_columns_qdq.json"
+
+            self.df_table_columns[domain] = _load_table_columns_file(
+                rule_zip_path, table_columns_file
+            )
+            self.df_table_columns_qdq[domain] = _load_table_columns_file(
+                rule_zip_path, qdq_table_columns_file
+            )
 
             self.ep_neg_rules[domain] = _LazyNegRules(
                 rule_zip_path, rule_file, registered_patterns, set_error_on_missing=True
@@ -959,8 +1068,18 @@ class RuntimeCheckerQuery:
             self.pattern_neg_rules_qdq[domain] = _LazyNegRules(
                 rule_zip_path, qdq_rule_file, registered_patterns, patterns_only=True
             )
-            self.df_tables[domain] = LazyDomainTables(rule_zip_path, table_file)
-            self.df_tables_qdq[domain] = LazyDomainTables(rule_zip_path, qdq_table_file)
+            self.df_tables[domain] = LazyDomainTables(
+                rule_zip_path,
+                table_file,
+                columns_file_name=table_columns_file,
+                preloaded_columns=self.df_table_columns[domain],
+            )
+            self.df_tables_qdq[domain] = LazyDomainTables(
+                rule_zip_path,
+                qdq_table_file,
+                columns_file_name=qdq_table_columns_file,
+                preloaded_columns=self.df_table_columns_qdq[domain],
+            )
 
     def _collect_qdq_types(self) -> None:
         """Collect QDQ types from the model.
@@ -1477,6 +1596,33 @@ class RuntimeCheckerQuery:
         """Get the fallback reason string from negative rules for a domain."""
         return target_neg_rules.get(op_domain, {}).get(EG_RULE_ERROR_KEY, "rules_not_found")
 
+    def _maybe_save_failed_node_result(
+        self,
+        node: onnx.NodeProto,
+        op_domain: ONNXDomain,
+        opset_version: int,
+        result: RuntimeTestResult,
+        table_filter_conditions: dict[str, Any],
+        save_node_types: set[str] | None = None,
+    ) -> None:
+        """Save unsupported or partial node models without re-running result computation."""
+        if result.no_data or result.compile:
+            return
+
+        save_types = save_node_types or set()
+        is_unsupported = "unsupported" in save_types and not result.run
+        is_partial = "partial" in save_types and result.run
+        if not (is_unsupported or is_partial):
+            return
+
+        node_model = self._build_single_node_model(node, op_domain, opset_version)
+        self._save_failed_node(
+            node,
+            node_model,
+            make_hashable(table_filter_conditions),
+            name_suffix="unsupported" if is_unsupported else "partial",
+        )
+
     def _check_negative_rules(
         self,
         op_neg_rules: dict[str, Any],
@@ -1675,11 +1821,26 @@ class RuntimeCheckerQuery:
         # Phase 2: Select appropriate rules and tables based on QDQ status
         target_neg_rules = self.ep_neg_rules_qdq if is_qdq else self.ep_neg_rules
         target_df_tables = self.df_tables_qdq if is_qdq else self.df_tables
+        target_table_columns = self.df_table_columns_qdq if is_qdq else self.df_table_columns
+        domain_tables = target_df_tables.get(op_domain)
         if op_domain in target_df_tables:
             table_zip_path = _normalize_table_zip_path(
                 getattr(target_df_tables[op_domain], "_zip_path", "")
             )
             table_file = str(getattr(target_df_tables[op_domain], "_file_name", ""))
+
+        pattern_id = get_pattern_id(is_qdq)
+        op_columns = target_table_columns.get(op_domain, {}).get(node.op_type)
+        table_filter_conditions = conditions
+        if op_columns is None and domain_tables is not None and node.op_type in domain_tables:
+            op_columns = domain_tables.get_columns(node.op_type)
+        if op_columns is not None:
+            table_filter_conditions = _build_table_filter_conditions(
+                conditions,
+                op_columns,
+                infinite_properties,
+                f"op {node.op_type} (domain: {op_domain})",
+            )
 
         # Phase 3: Check if op exists in target rules
         if op_domain not in target_neg_rules or node.op_type not in target_neg_rules[op_domain]:
@@ -1707,21 +1868,23 @@ class RuntimeCheckerQuery:
                 if local_result is not None:
                     return local_result
 
-            return PatternRuntime(
-                pattern_id=get_pattern_id(is_qdq),
-                result=RuntimeTestResult(
-                    run=False,
-                    compile=False,
-                    no_data=True,
-                    reason=domain_rules.get(EG_RULE_ERROR_KEY, "rules_not_found"),
-                    debug_details=_build_rules_not_found_debug_details(
-                        domain_rules,
-                        default_debug_details,
-                        table_zip_path,
-                        table_file,
-                    ),
-                    node_tags=node_tags,
+            result = RuntimeTestResult(
+                run=False,
+                compile=False,
+                no_data=True,
+                reason=domain_rules.get(EG_RULE_ERROR_KEY, "rules_not_found"),
+                debug_details=_build_rules_not_found_debug_details(
+                    domain_rules,
+                    default_debug_details,
+                    table_zip_path,
+                    table_file,
                 ),
+                node_tags=node_tags,
+            )
+
+            return PatternRuntime(
+                pattern_id=pattern_id,
+                result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
@@ -1752,28 +1915,18 @@ class RuntimeCheckerQuery:
                     )
                     table_file = str(getattr(domain_tables, "_file_name", ""))
                     table_df = domain_tables[node.op_type]
-                    match_keys = [
-                        item
-                        for item in table_df.columns.to_list()
-                        if item not in infinite_properties
-                    ]
-                    match_keys.remove("compile_run_success")
-                    filter_v = {}
-                    for k in match_keys:
-                        if k in conditions:
-                            filter_v[k] = conditions[k]
-                        else:
-                            avail = _format_list_preview(conditions.keys())
-                            raise OpOptionalInputSupportError(
-                                f"Match key '{k}' not found "
-                                f"in conditions for op "
-                                f"{node.op_type} (domain: "
-                                f"{op_domain}). It should be "
-                                f"an optional input. Available"
-                                f" keys: {avail}"
-                            )
+                    if op_columns is None:
+                        op_columns = (
+                            domain_tables.get_columns(node.op_type) or table_df.columns.to_list()
+                        )
+                        table_filter_conditions = _build_table_filter_conditions(
+                            conditions,
+                            op_columns,
+                            infinite_properties,
+                            f"op {node.op_type} (domain: {op_domain})",
+                        )
 
-                    ret = query_table_exact_match(table_df, filter_v)
+                    ret = query_table_exact_match(table_df, table_filter_conditions)
                     if not ret.empty:
                         compile_result = ret.iloc[0]["compile_run_success"][0]
                         run_result = ret.iloc[0]["compile_run_success"][1]
@@ -1782,7 +1935,7 @@ class RuntimeCheckerQuery:
                         if for_debug:
                             debug_steps: list[dict[str, Any]] = []
                             current_df = table_df
-                            for col, value in filter_v.items():
+                            for col, value in table_filter_conditions.items():
                                 rows_before = len(current_df)
                                 if col in current_df.columns:
                                     current_df = current_df[current_df[col] == value]
@@ -1808,7 +1961,7 @@ class RuntimeCheckerQuery:
                             f"Negative rules check passed, "
                             f"but properties combination not "
                             f"found for {pid} ({node.name}):"
-                            f" {filter_v}"
+                            f" {table_filter_conditions}"
                         )
 
                         if run_unknown_op:
@@ -1822,22 +1975,24 @@ class RuntimeCheckerQuery:
                                 pattern_match,
                                 node_tags,
                                 fallback_reason,
-                                conditions=make_hashable(filter_v),
+                                conditions=make_hashable(table_filter_conditions),
                             )
                             if local_result is not None:
                                 return local_result
 
+                        result = RuntimeTestResult(
+                            compile=False,
+                            run=False,
+                            no_data=True,
+                            reason="properties_not_found",
+                            filter=str(table_filter_conditions),
+                            node_tags=node_tags,
+                            debug_details=debug_details,
+                        )
+
                         return PatternRuntime(
-                            pattern_id=get_pattern_id(is_qdq),
-                            result=RuntimeTestResult(
-                                compile=False,
-                                run=False,
-                                no_data=True,
-                                reason="properties_not_found",
-                                filter=str(filter_v),
-                                node_tags=node_tags,
-                                debug_details=debug_details,
-                            ),
+                            pattern_id=pattern_id,
+                            result=result,
                             alternatives=self.alternatives,
                             pattern_match=pattern_match,
                         )
@@ -1883,29 +2038,32 @@ class RuntimeCheckerQuery:
                         if has_domain_tables
                         else ""
                     )
+
+                    result = RuntimeTestResult(
+                        compile=False,
+                        run=False,
+                        no_data=True,
+                        reason="no_table_data",
+                        node_tags=node_tags,
+                        debug_details={
+                            "ep": self.ep_name,
+                            "device": self.device_type,
+                            "domain": str(op_domain),
+                            "op_type": node.op_type,
+                            "opset_version": opset_version,
+                            "table_source": table_source,
+                            "has_tables_dict": has_tables_dict,
+                            "has_domain_tables": has_domain_tables,
+                            "has_op_table": has_op_table,
+                            "table_zip_path": table_zip_path,
+                            "table_file": table_file,
+                            "available_ops_sample": available_ops_sample,
+                        },
+                    )
+
                     return PatternRuntime(
-                        pattern_id=get_pattern_id(is_qdq),
-                        result=RuntimeTestResult(
-                            compile=False,
-                            run=False,
-                            no_data=True,
-                            reason="no_table_data",
-                            node_tags=node_tags,
-                            debug_details={
-                                "ep": self.ep_name,
-                                "device": self.device_type,
-                                "domain": str(op_domain),
-                                "op_type": node.op_type,
-                                "opset_version": opset_version,
-                                "table_source": table_source,
-                                "has_tables_dict": has_tables_dict,
-                                "has_domain_tables": has_domain_tables,
-                                "has_op_table": has_op_table,
-                                "table_zip_path": table_zip_path,
-                                "table_file": table_file,
-                                "available_ops_sample": available_ops_sample,
-                            },
-                        ),
+                        pattern_id=pattern_id,
+                        result=result,
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
@@ -1921,50 +2079,48 @@ class RuntimeCheckerQuery:
 
             tags_for_exception = node_tags.copy() if node_tags else []
 
+            result = RuntimeTestResult(
+                compile=False,
+                run=False,
+                no_data=True,
+                reason="optional_input_properties_not_found",
+                node_tags=tags_for_exception,
+                debug_details={
+                    "op_type": node.op_type,
+                    "node_name": node.name,
+                    "error_message": str(e),
+                    "table_zip_path": table_zip_path,
+                    "table_file": table_file,
+                },
+            )
+
             return PatternRuntime(
-                pattern_id=get_pattern_id(is_qdq),
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason="optional_input_properties_not_found",
-                    node_tags=tags_for_exception,
-                    debug_details={
-                        "op_type": node.op_type,
-                        "node_name": node.name,
-                        "error_message": str(e),
-                        "table_zip_path": table_zip_path,
-                        "table_file": table_file,
-                    },
-                ),
+                pattern_id=pattern_id,
+                result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
 
-        if not compile_result:
-            _save_types = save_node_types or set()
-            is_unsupported = "unsupported" in _save_types and not run_result
-            is_partial = "partial" in _save_types and run_result
-            if is_unsupported or is_partial:
-                node_model = self._build_single_node_model(node, op_domain, opset_version)
-                # TODO: Need to use match_keys to filter conditions
-                self._save_failed_node(
-                    node,
-                    node_model,
-                    make_hashable(conditions),
-                    name_suffix="unsupported" if is_unsupported else "partial",
-                )
+        result = RuntimeTestResult(
+            compile=compile_result,
+            run=run_result,
+            reason=reason.strip().rstrip(","),
+            no_data=False,
+            node_tags=node_tags,
+            debug_details=None,
+        )
+        self._maybe_save_failed_node_result(
+            node,
+            op_domain,
+            opset_version,
+            result,
+            table_filter_conditions,
+            save_node_types=save_node_types,
+        )
 
         return PatternRuntime(
-            pattern_id=get_pattern_id(is_qdq),
-            result=RuntimeTestResult(
-                compile=compile_result,
-                run=run_result,
-                reason=reason.strip().rstrip(","),
-                no_data=False,
-                node_tags=node_tags,
-                debug_details=None,
-            ),
+            pattern_id=pattern_id,
+            result=result,
             alternatives=self.alternatives,
             pattern_match=pattern_match,
         )
@@ -2008,7 +2164,11 @@ class RuntimeCheckerQuery:
                 "No pattern-level rules found for '%s', checking individual operators",
                 pattern_name,
             )
-            return self._run_for_subgraph_per_node(pattern_match, pattern_name, run_unknown_op)
+            return self._run_for_subgraph_per_node(
+                pattern_match,
+                pattern_name,
+                run_unknown_op,
+            )
 
         logger.info("Found pattern-level rules for '%s' in database", pattern_name)
 
@@ -2041,8 +2201,21 @@ class RuntimeCheckerQuery:
         # Step 4: Resolve table metadata
         assert found_domain is not None
         target_df_tables = self.df_tables
+        target_table_columns = self.df_table_columns
+        domain_tables = target_df_tables.get(found_domain)
         table_zip_path = ""
         table_file = ""
+        pattern_columns = target_table_columns.get(found_domain, {}).get(pattern_name)
+        table_filter_conditions = conditions
+        if pattern_columns is None and domain_tables is not None and pattern_name in domain_tables:
+            pattern_columns = domain_tables.get_columns(pattern_name)
+        if pattern_columns is not None:
+            table_filter_conditions = _build_table_filter_conditions(
+                conditions,
+                pattern_columns,
+                infinite_properties,
+                f"pattern {pattern_name}",
+            )
         if found_domain in target_df_tables:
             table_zip_path = _normalize_table_zip_path(
                 getattr(target_df_tables[found_domain], "_zip_path", "")
@@ -2073,24 +2246,8 @@ class RuntimeCheckerQuery:
                     )
                     table_file = str(getattr(domain_tables, "_file_name", ""))
                     table_df = domain_tables[pattern_name]
-                    match_keys = [
-                        item
-                        for item in table_df.columns.to_list()
-                        if item not in infinite_properties
-                    ]
-                    match_keys.remove("compile_run_success")
-                    filter_v: dict[str, Any] = {}
-                    for k in match_keys:
-                        if k in conditions:
-                            filter_v[k] = conditions[k]
-                        else:
-                            raise OpOptionalInputSupportError(
-                                f"Match key '{k}' not found in "
-                                f"conditions for pattern {pattern_name}. "
-                                f"Available: {_format_list_preview(conditions.keys())}"
-                            )
 
-                    ret = query_table_exact_match(table_df, filter_v)
+                    ret = query_table_exact_match(table_df, table_filter_conditions)
                     if not ret.empty:
                         compile_result = ret.iloc[0]["compile_run_success"][0]
                         run_result = ret.iloc[0]["compile_run_success"][1]
@@ -2098,7 +2255,7 @@ class RuntimeCheckerQuery:
                         logger.info(
                             "Negative rules passed but properties not found for %s: %s",
                             pattern_name,
-                            filter_v,
+                            table_filter_conditions,
                         )
 
                         # Fallback to per-node check
@@ -2113,33 +2270,36 @@ class RuntimeCheckerQuery:
 
         except OpOptionalInputSupportError as e:
             logger.error("OpOptionalInputSupportError for pattern '%s': %s", pattern_name, e)
+            result = RuntimeTestResult(
+                compile=False,
+                run=False,
+                no_data=True,
+                reason="optional_input_properties_not_found",
+                debug_details={
+                    "pattern_name": pattern_name,
+                    "error_message": str(e),
+                    "table_zip_path": table_zip_path,
+                    "table_file": table_file,
+                },
+            )
             return PatternRuntime(
                 pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason="optional_input_properties_not_found",
-                    debug_details={
-                        "pattern_name": pattern_name,
-                        "error_message": str(e),
-                        "table_zip_path": table_zip_path,
-                        "table_file": table_file,
-                    },
-                ),
+                result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
 
+        result = RuntimeTestResult(
+            compile=compile_result,
+            run=run_result,
+            reason=reason.strip().rstrip(","),
+            no_data=False,
+            debug_details=None,
+        )
+
         return PatternRuntime(
             pattern_id=pattern_id,
-            result=RuntimeTestResult(
-                compile=compile_result,
-                run=run_result,
-                reason=reason.strip().rstrip(","),
-                no_data=False,
-                debug_details=None,
-            ),
+            result=result,
             alternatives=self.alternatives,
             pattern_match=pattern_match,
         )

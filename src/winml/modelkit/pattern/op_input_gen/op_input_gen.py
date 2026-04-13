@@ -1164,6 +1164,8 @@ class OpInputGenerator(ABC):
         needs_weight_iteration = False
 
         for input_name, is_constant in is_constant_map.items():
+            if kwargs.get(input_name) is None:
+                continue  # Optional input not provided — nothing to QDQ-wrap, skip
             if input_name not in qdq_config:
                 # Input not in QDQ config - skip this combination
                 # All inputs must be explicitly defined in qdq_config
