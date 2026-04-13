@@ -433,6 +433,38 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
                         comb = comb_with_bias.copy()
                         comb.update(optional_subset)
                         combinations.append(comb)
+
+        # Even-kernel upsample patterns (stride == kernel, group=1, C_in==C_out).
+        # Common in depth-estimation / segmentation decoders (e.g. DPT).
+        # Shapes from depth-anything ConvTranspose nodes.
+        for x_shape, w_shape, b_shape, k_shape, strides in [
+            ((1, 96, 37, 37), (96, 96, 2, 2), (96,), (2, 2), [2, 2]),
+            ((1, 48, 37, 37), (48, 48, 4, 4), (48,), (4, 4), [4, 4]),
+        ]:
+            pads = [0, 0, 0, 0]
+            dilations = [1, 1]
+            output_padding = [0, 0]
+            for bias_opt in [None, InputShapeConstraint(b_shape)]:
+                base_comb = {
+                    "X": InputShapeConstraint(x_shape),
+                    "W": InputShapeConstraint(w_shape),
+                    "B": bias_opt,
+                    "dilations": dilations,
+                    "group": 1,
+                    "kernel_shape": k_shape,
+                    "strides": strides,
+                    "auto_pad": "NOTSET",
+                    "pads": pads,
+                }
+                if bias_opt is None:
+                    del base_comb["B"]
+                for optional_subset in self._get_optional_combinations(
+                    x_shape, k_shape, strides, dilations, pads, output_padding, "NOTSET"
+                ):
+                    comb = base_comb.copy()
+                    comb.update(optional_subset)
+                    combinations.append(comb)
+
         return combinations
 
     def get_infinite_property_names(self) -> list[str]:
