@@ -31,6 +31,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import winml.modelkit.analyze.core.runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import (
     EG_RULE_DEBUG_DETAILS_KEY,
     EG_RULE_ERROR_KEY,
@@ -156,10 +157,29 @@ class TestLazyDomainTablesMethods:
         """get_columns() returns metadata-backed column order when available."""
         assert tables.get_columns("Conv") == RAW_COLUMNS["Conv"]
 
+    def test_get_columns_uses_preloaded_metadata_without_loading_tables(
+        self, zip_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Preloaded metadata avoids both table loading and metadata re-reads."""
+
+        def fail_load(*args, **kwargs):
+            raise AssertionError("column metadata should not be reloaded")
+
+        monkeypatch.setattr(runtime_checker_query_module, "_load_table_columns_file", fail_load)
+        tables_with_preloaded_columns = LazyDomainTables(
+            zip_path,
+            FILE_NAME,
+            columns_file_name=COLUMN_FILE_NAME,
+            preloaded_columns=RAW_COLUMNS,
+        )
+
+        assert tables_with_preloaded_columns.get_columns("Conv") == RAW_COLUMNS["Conv"]
+        assert tables_with_preloaded_columns._loaded is False
+
     def test_get_columns_after_table_load(self, tables: LazyDomainTables):
         """get_columns() returns DataFrame columns for loaded operators."""
         _ = tables["Conv"]
-        assert tables.get_columns("Conv") == tables["Conv"].columns.to_list()
+        assert tables.get_columns("Conv") == RAW_COLUMNS["Conv"]
 
     def test_get_columns_missing_operator(self, tables: LazyDomainTables):
         """get_columns() returns None for unknown operators."""
@@ -171,7 +191,6 @@ class TestLazyDomainTablesMethods:
         assert tables_without_columns.get_columns("Add") == [
             "A_shape",
             "B_shape",
-            "compile_run_success",
         ]
 
 

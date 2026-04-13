@@ -154,7 +154,11 @@ class LazyDomainTables:
     """Lazy-loading wrapper that reads the table file from a zip on first operator access."""
 
     def __init__(
-        self, zip_path: Path, file_name: str, columns_file_name: str | None = None
+        self,
+        zip_path: Path,
+        file_name: str,
+        columns_file_name: str | None = None,
+        preloaded_columns: dict[str, list[str]] | None = None,
     ) -> None:
         """Initialize with zip path and file name — no I/O performed.
 
@@ -162,14 +166,26 @@ class LazyDomainTables:
             zip_path: Path to the zip archive containing the table file
             file_name: Name of the JSON table file inside the zip
             columns_file_name: Optional JSON file containing per-op column names
+            preloaded_columns: Optional pre-parsed per-op column metadata
         """
         self._zip_path = zip_path
         self._file_name = file_name
         self._columns_file_name = columns_file_name
         self._raw_data: dict[str, Any] = {}
-        self._raw_columns: dict[str, list[str]] = {}
+        self._raw_columns: dict[str, list[str]] = {
+            str(op_name): [str(col) for col in columns] if isinstance(columns, list) else []
+            for op_name, columns in (preloaded_columns or {}).items()
+        }
         self._loaded_tables: dict[str, pd.DataFrame] = {}
         self._loaded: bool = False
+        self._columns_loaded: bool = bool(self._raw_columns) or self._columns_file_name is None
+
+    def _ensure_columns_loaded(self) -> None:
+        """Load only the column metadata when it was not preloaded."""
+        if self._columns_loaded:
+            return
+        self._columns_loaded = True
+        self._raw_columns = _load_table_columns_file(self._zip_path, self._columns_file_name)
 
     def _ensure_loaded(self) -> None:
         """Load the table file from the zip archive on first access."""
@@ -191,24 +207,6 @@ class LazyDomainTables:
                     self._raw_data = json.loads(zf.read(self._file_name).decode("utf-8"))
                 else:
                     logger.debug(f"Table file not found in zip: {self._file_name}")
-
-                if self._columns_file_name:
-                    if self._columns_file_name in zf.namelist():
-                        raw_columns = json.loads(zf.read(self._columns_file_name).decode("utf-8"))
-                        if isinstance(raw_columns, dict):
-                            self._raw_columns = {
-                                str(op_name): (
-                                    [str(col) for col in columns]
-                                    if isinstance(columns, list)
-                                    else []
-                                )
-                                for op_name, columns in raw_columns.items()
-                            }
-                    else:
-                        logger.debug(
-                            "Column file not found in zip: %s",
-                            self._columns_file_name,
-                        )
         except Exception as e:
             logger.debug(f"Failed to load table file {self._file_name}: {e}")
 
@@ -239,20 +237,24 @@ class LazyDomainTables:
     def get_columns(self, key: str) -> list[str] | None:
         """Get ordered table column names for an operator.
 
-        Prefers explicit metadata from columns_file_name. Falls back to deriving
-        column names from the raw table payload when metadata is not available.
+        Prefers preloaded or metadata-file column order when available. Falls
+        back to deriving column names from the raw table payload when metadata
+        is not available. Excludes compile_run_success because it is a result
+        column, not a query key.
         """
         if key in self._loaded_tables:
-            return self._loaded_tables[key].columns.to_list()
+            return [col for col in self._loaded_tables[key].columns if col != "compile_run_success"]
 
-        self._ensure_loaded()
+        self._ensure_columns_loaded()
 
         if key in self._raw_columns:
             return list(self._raw_columns[key])
 
+        self._ensure_loaded()
+
         raw_table = self._raw_data.get(key)
         if isinstance(raw_table, dict):
-            return list(raw_table.keys())
+            return [col for col in raw_table if col != "compile_run_success"]
 
         return None
 
@@ -1073,11 +1075,13 @@ class RuntimeCheckerQuery:
                 rule_zip_path,
                 table_file,
                 columns_file_name=table_columns_file,
+                preloaded_columns=self.df_table_columns[domain],
             )
             self.df_tables_qdq[domain] = LazyDomainTables(
                 rule_zip_path,
                 qdq_table_file,
                 columns_file_name=qdq_table_columns_file,
+                preloaded_columns=self.df_table_columns_qdq[domain],
             )
 
     def _collect_qdq_types(self) -> None:
@@ -2163,16 +2167,6 @@ class RuntimeCheckerQuery:
                 "No pattern-level rules found for '%s', checking individual operators",
                 pattern_name,
             )
-            try:
-                table_filter_conditions, _ = get_query_conditions_for_pattern(
-                    pattern_match,
-                    pattern_name,
-                    self.opset_versions,
-                    dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
-                )
-            except Exception:
-                return self._run_for_subgraph_per_node(pattern_match, pattern_name, run_unknown_op)
-
             return self._run_for_subgraph_per_node(
                 pattern_match,
                 pattern_name,
