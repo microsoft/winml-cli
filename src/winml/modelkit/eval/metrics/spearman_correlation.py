@@ -11,7 +11,12 @@ ground-truth human similarity scores (e.g. STS-B scores in [0, 5]).
 
 from __future__ import annotations
 
+import logging
+import math
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 class SpearmanCorrelationMetric:
@@ -54,4 +59,12 @@ class SpearmanCorrelationMetric:
             )
 
         corr, _ = spearmanr(predictions, references)
+
+        if math.isnan(corr):
+            logger.warning(
+                "Spearman correlation is NaN. This typically means the model "
+                "produced constant outputs (zero variance). Returning 0.0.",
+            )
+            corr = 0.0
+
         return {"cosine_spearman": round(float(corr) * 100, 4)}
