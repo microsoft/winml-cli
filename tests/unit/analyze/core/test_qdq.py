@@ -1071,8 +1071,9 @@ class TestIterQDQCombinations:
             ),  # shape 3 * attrs 4 * 2 * kernel shape 2 * opt B 2 * 16 * B/Y non qdq 4
             (
                 "ConvTranspose",
-                3072,
-            ),  # shape 3 * auto_pad 4 * group_opts 2 * output 4 * optional b 2 * 16
+                3328,
+            ),  # base: shape 3 * auto_pad 4 * group_opts 2 * output 4 * optional b 2 * 16 +
+            # even-kernel: 2 * output 4 * optional b 2 * 16
             (
                 "CumSum",
                 2816,
@@ -1105,8 +1106,9 @@ class TestIterQDQCombinations:
             ),  # shape 3 * finite attributes 2 * 2 * 2 * optional combinations 2 * 2 * 2 * 4
             (
                 "Pad",
-                512,
-            ),  # shape 8 * mode 4 * QDQ 4 * is_constant pads 2 * Tind 2 (actually axes not used)
+                1024,
+            ),  # shape 8 * mode 4 * QDQ 4 * is_constant pads 2 * constant_value present/absent 2
+            # * Tind 2 (axes not used)
             # All Reduce* use this and it is enough
             (
                 "ReduceSum",
