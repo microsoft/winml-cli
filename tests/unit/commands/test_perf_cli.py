@@ -331,13 +331,8 @@ class TestPerfUnifiedPipeline:
         assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
 
 
-# =============================================================================
-# BUG A: op-tracing preflight check
-# =============================================================================
-
-
 class TestOpTracingPreflight:
-    """Bug A: is_qnn_profiling_available must be checked before the benchmark runs."""
+    """is_qnn_profiling_available must be checked before the benchmark runs."""
 
     def test_benchmark_does_not_run_when_qnn_unavailable(self, runner: CliRunner) -> None:
         with (
@@ -351,4 +346,5 @@ class TestOpTracingPreflight:
             )
 
         assert result.exit_code != 0
+        assert "Op-tracing requires onnxruntime-qnn" in result.output
         mock_cls.return_value.run.assert_not_called()
