@@ -92,6 +92,12 @@ class TestSpearmanCorrelationMetric:
         result = metric.compute([0.1, 0.5, 0.9, 0.3], [1.0, 3.0, 5.0, 2.0])
         assert -100.0 <= result["cosine_spearman"] <= 100.0
 
+    def test_constant_predictions_returns_zero(self):
+        """Zero variance in predictions → correlation = 0.0, not NaN."""
+        metric = SpearmanCorrelationMetric()
+        result = metric.compute([1.0] * 10, [0.5, 1.2, 3.1, 4.0, 2.0, 0.1, 3.5, 4.8, 1.7, 2.9])
+        assert result["cosine_spearman"] == 0.0
+
 
 # ---------------------------------------------------------------------------
 # WinMLFeatureExtractionEvaluator._embed

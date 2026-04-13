@@ -19,6 +19,7 @@ from .config import WinMLEvaluationConfig
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
+from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
 
@@ -35,6 +36,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "token-classification": WinMLTokenClassificationEvaluator,
     "object-detection": WinMLObjectDetectionEvaluator,
     "image-segmentation": WinMLImageSegmentationEvaluator,
+    "question-answering": WinMLQuestionAnsweringEvaluator,
     "feature-extraction": WinMLFeatureExtractionEvaluator,
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
 }
@@ -89,6 +91,18 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
             "bbox_key": "bbox",
             "category_key": "category",
             "box_format": "xyxy",
+        },
+    ),
+    "question-answering": DatasetConfig(
+        path="rajpurkar/squad",
+        split="validation",
+        samples=100,
+        shuffle=True,
+        columns_mapping={
+            "question_column": "question",
+            "context_column": "context",
+            "id_column": "id",
+            "label_column": "answers",
         },
     ),
     "feature-extraction": _FE_DEFAULT,
