@@ -11,10 +11,7 @@ Evaluates masked language models (BERT, RoBERTa, etc.) by:
      DataCollatorForLanguageModeling).
   3. Running a single forward pass to get logits.
   4. Computing cross-entropy loss on the masked positions only.
-  5. Aggregating into mean cross-entropy and perplexity.
-
-This follows the standard HF Trainer MLM evaluation methodology:
-    perplexity = exp(mean_cross_entropy)
+  5. Aggregating into mean cross-entropy.
 """
 
 from __future__ import annotations
@@ -49,7 +46,7 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
     """Evaluator for fill-mask (masked language modeling) tasks.
 
     Uses standard MLM evaluation: 15% random masking with cross-entropy loss.
-    Reports cross_entropy (mean NLL) and perplexity = exp(cross_entropy).
+    Reports cross_entropy (mean NLL per masked token).
     """
 
     @classmethod
@@ -180,6 +177,9 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         metric = CrossEntropyMetric()
 
         for i, sample in enumerate(self.data):
+            if (i + 1) % 50 == 0:
+                logger.info("%d samples, %d masked tokens", i + 1, metric.total_tokens)
+
             result = self._tokenize_and_mask(
                 sample[self._input_col], tokenizer, data_collator, max_length,
             )
@@ -193,8 +193,5 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
 
             logits = self._extract_logits(outputs)  # [1, seq_len, vocab_size]
             metric.update(logits[0], labels[0])
-
-            if (i + 1) % 50 == 0:
-                logger.info("%d samples, %d masked tokens", i + 1, metric._total_tokens)
 
         return metric.compute()

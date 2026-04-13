@@ -33,7 +33,6 @@ class TestCrossEntropyMetricBasic:
 
         expected_ce = -math.log(math.exp(2.0) / (math.exp(2.0) + math.exp(1.0) + math.exp(0.0)))
         assert result["cross_entropy"] == pytest.approx(expected_ce, abs=1e-3)
-        assert result["perplexity"] == pytest.approx(math.exp(expected_ce), abs=1e-3)
 
     def test_multiple_updates_accumulate(self) -> None:
         """Two updates should micro-average across all tokens."""
@@ -67,7 +66,7 @@ class TestCrossEntropyMetricBasic:
         labels = torch.tensor([0, -100, -100, 1])
 
         metric.update(logits, labels)
-        assert metric._total_tokens == 2
+        assert metric.total_tokens == 2
 
     def test_all_ignored_no_contribution(self) -> None:
         """If all labels are -100, update should be a no-op."""
@@ -77,7 +76,7 @@ class TestCrossEntropyMetricBasic:
         labels = torch.tensor([-100, -100])
 
         metric.update(logits, labels)
-        assert metric._total_tokens == 0
+        assert metric.total_tokens == 0
 
 
 class TestCrossEntropyMetricOutputFormat:
@@ -89,7 +88,6 @@ class TestCrossEntropyMetricOutputFormat:
         result = metric.compute()
 
         assert "cross_entropy" in result
-        assert "perplexity" in result
 
     def test_output_types(self) -> None:
         metric = CrossEntropyMetric()
@@ -97,7 +95,6 @@ class TestCrossEntropyMetricOutputFormat:
         result = metric.compute()
 
         assert isinstance(result["cross_entropy"], float)
-        assert isinstance(result["perplexity"], float)
 
     def test_values_rounded_to_4_decimals(self) -> None:
         metric = CrossEntropyMetric()
@@ -110,40 +107,6 @@ class TestCrossEntropyMetricOutputFormat:
             assert len(ce_str.split(".")[1]) <= 4
 
 
-class TestCrossEntropyMetricPerplexity:
-    """Verify perplexity = exp(cross_entropy)."""
-
-    def test_perplexity_is_exp_of_ce(self) -> None:
-        metric = CrossEntropyMetric()
-        metric.update(torch.tensor([[1.0, 2.0, 3.0]]), torch.tensor([0]))
-        result = metric.compute()
-
-        assert result["perplexity"] == pytest.approx(
-            math.exp(result["cross_entropy"]), abs=0.01
-        )
-
-    def test_perfect_prediction_low_perplexity(self) -> None:
-        """Confident correct prediction → perplexity close to 1."""
-        metric = CrossEntropyMetric()
-        logits = torch.tensor([[100.0, 0.0, 0.0]])  # very confident
-        labels = torch.tensor([0])
-        metric.update(logits, labels)
-        result = metric.compute()
-
-        assert result["perplexity"] == pytest.approx(1.0, abs=0.1)
-
-    def test_uniform_prediction_perplexity_equals_vocab(self) -> None:
-        """Uniform logits over V classes → perplexity ≈ V."""
-        metric = CrossEntropyMetric()
-        vocab_size = 5
-        logits = torch.zeros(1, vocab_size)  # uniform
-        labels = torch.tensor([0])
-        metric.update(logits, labels)
-        result = metric.compute()
-
-        assert result["perplexity"] == pytest.approx(vocab_size, abs=0.1)
-
-
 class TestCrossEntropyMetricReset:
     """Verify reset clears accumulated state."""
 
@@ -153,7 +116,7 @@ class TestCrossEntropyMetricReset:
         metric.reset()
 
         assert metric._total_loss == 0.0
-        assert metric._total_tokens == 0
+        assert metric.total_tokens == 0
 
     def test_compute_after_reset_raises(self) -> None:
         metric = CrossEntropyMetric()
@@ -190,7 +153,7 @@ class TestCrossEntropyMetricEdgeCases:
         labels = torch.tensor([0, 0, 0])  # but truth is class 0
         metric.update(logits, labels)
 
-        assert metric._total_tokens == 4
+        assert metric.total_tokens == 4
         # Mean CE should be dominated by the 3 wrong predictions
         result = metric.compute()
         assert result["cross_entropy"] > 1.0

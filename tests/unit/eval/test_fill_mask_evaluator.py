@@ -24,8 +24,8 @@ def _make_tokenizer(vocab_size=100, pad_token_id=0, mask_token_id=103):
     tokenizer = MagicMock()
     tokenizer.pad_token_id = pad_token_id
     tokenizer.mask_token_id = mask_token_id
-    tokenizer.mask_token = "[MASK]"
-    tokenizer.pad_token = "[PAD]"
+    tokenizer.mask_token = "[MASK]"  # noqa: S105
+    tokenizer.pad_token = "[PAD]"  # noqa: S105
     tokenizer.eos_token = None
     tokenizer.__len__ = lambda self: vocab_size
 
@@ -248,7 +248,7 @@ class TestTokenizeAndMask:
 
 class TestFillMaskCompute:
     def test_compute_returns_metrics(self) -> None:
-        """Verify compute() returns cross_entropy and perplexity."""
+        """Verify compute() returns cross_entropy."""
         vocab_size = 50
         seq_len = 8
 
@@ -277,20 +277,18 @@ class TestFillMaskCompute:
             {"text": ""},  # empty — should be skipped
         ]
 
-        with patch("transformers.DataCollatorForLanguageModeling") as MockCollator:
+        with patch("transformers.DataCollatorForLanguageModeling") as mock_collator:
             collator_instance = MagicMock()
             collator_instance.return_value = {
                 "input_ids": torch.tensor([[101, 103, 20, 103, 40, 102, 0, 0]]),
                 "labels": torch.tensor([[-100, 10, -100, 30, -100, -100, -100, -100]]),
             }
-            MockCollator.return_value = collator_instance
+            mock_collator.return_value = collator_instance
 
             result = evaluator.compute()
 
         assert "cross_entropy" in result
-        assert "perplexity" in result
         assert result["cross_entropy"] > 0
-        assert result["perplexity"] > 1.0
 
     def test_compute_no_mask_token_raises(self) -> None:
         """Should raise if tokenizer has no mask token."""
@@ -305,8 +303,8 @@ class TestFillMaskCompute:
         evaluator = _make_evaluator()
         evaluator.data = [{"text": ""}, {"text": "  "}]
 
-        with patch("transformers.DataCollatorForLanguageModeling"):
-            with pytest.raises(ValueError, match="No masked tokens"):
+        with patch("transformers.DataCollatorForLanguageModeling"), \
+             pytest.raises(ValueError, match="No masked tokens"):
                 evaluator.compute()
 
 

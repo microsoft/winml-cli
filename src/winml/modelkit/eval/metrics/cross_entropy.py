@@ -3,11 +3,10 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Cross-entropy and perplexity metric for masked language model evaluation."""
+"""Cross-entropy metric for masked language model evaluation."""
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import torch
@@ -15,10 +14,10 @@ import torch.nn.functional as F
 
 
 class CrossEntropyMetric:
-    """Incremental cross-entropy and perplexity metric for MLM evaluation.
+    """Incremental cross-entropy metric for MLM evaluation.
 
     Accumulates per-token cross-entropy loss across calls to ``update()``,
-    then computes mean cross-entropy and perplexity in ``compute()``.
+    then computes mean cross-entropy in ``compute()``.
 
     Typical usage::
 
@@ -26,12 +25,17 @@ class CrossEntropyMetric:
         for logits, labels in predictions:
             metric.update(logits, labels)
         result = metric.compute()
-        # {"cross_entropy": 2.19, "perplexity": 8.94}
+        # {"cross_entropy": 2.19}
     """
 
     def __init__(self) -> None:
         self._total_loss = 0.0
         self._total_tokens = 0
+
+    @property
+    def total_tokens(self) -> int:
+        """Total number of masked tokens accumulated so far."""
+        return self._total_tokens
 
     def update(self, logits: torch.Tensor, labels: torch.Tensor) -> None:
         """Accumulate cross-entropy loss for one sample's masked positions.
@@ -51,11 +55,10 @@ class CrossEntropyMetric:
         self._total_tokens += n_masked
 
     def compute(self) -> dict[str, Any]:
-        """Compute mean cross-entropy and perplexity over all accumulated tokens.
+        """Compute mean cross-entropy over all accumulated tokens.
 
         Returns:
-            Dict with ``cross_entropy`` (mean NLL per token) and
-            ``perplexity`` (exp of mean cross-entropy).
+            Dict with ``cross_entropy`` (mean NLL per token).
 
         Raises:
             ValueError: If no masked tokens have been accumulated.
@@ -64,11 +67,9 @@ class CrossEntropyMetric:
             raise ValueError("No masked tokens accumulated; call update() first.")
 
         mean_ce = self._total_loss / self._total_tokens
-        perplexity = math.exp(mean_ce)
 
         return {
             "cross_entropy": round(mean_ce, 4),
-            "perplexity": round(perplexity, 4),
         }
 
     def reset(self) -> None:
