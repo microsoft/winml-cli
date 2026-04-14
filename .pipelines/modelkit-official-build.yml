@@ -74,11 +74,13 @@ extends:
               - powershell: |
                   $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\op_check_results\rules"
                   $destDir = "$(Build.SourcesDirectory)\src\winml\modelkit\analyze\rules\runtime_check_rules"
+                  $outDir = "$(ob_outputDirectory)"
+                  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
                   $zips = Get-ChildItem "$rulesDir\*.zip"
                   Write-Host "Found $($zips.Count) rule zips"
                   $zips | Copy-Item -Destination $destDir
-                  $zips | Copy-Item -Destination "$(ob_outputDirectory)"
-                  Write-Host "Copied $($zips.Count) rule zips to $destDir and output"
+                  $zips | Copy-Item -Destination $outDir
+                  Write-Host "Copied $($zips.Count) rule zips to $destDir and $outDir"
                 displayName: 'Copy runtime check rules'
 
               - task: PipAuthenticate@1
