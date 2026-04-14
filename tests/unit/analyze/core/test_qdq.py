@@ -1170,3 +1170,30 @@ class TestIterQDQCombinations:
 
         # For rerun, could track in https://github.com/gim-home/ModelKit/issues/278
         assert count == expected_count, "If changes, either bug or need to rerun"
+
+
+class TestIterCOMSOpsModels:
+    """Tests for com.microsoft domain ops that use explicit type enumeration (no QDQ wrapping)."""
+
+    @pytest.mark.parametrize(
+        "op_name,expected_count",
+        [
+            # 2 INT4 gather_axes x 2 block_sizes x 2 T2 x 2 Tind x 2 zp  = 32
+            # 2 UINT4 gather_axes x 2 block_sizes x 2 T2 x 2 Tind x 2 zp = 32
+            # 1 UINT8 gather_axis x 2 block_sizes x 2 T2 x 2 Tind x 2 zp = 16
+            ("GatherBlockQuantized", 80),
+        ],
+    )
+    def test_com_microsoft_op_model_count(self, op_name: str, expected_count: int) -> None:
+        """Test total model count for com.microsoft ops (no QDQ wrapping)."""
+        from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
+
+        schema = ONNXDomain.COM_MICROSOFT.get_op_schema(op_name, 1)
+        generator = get_runtime_checker_op(op_name)(schema)  # no qdq_generator
+
+        count = 0
+        for kwargs, tags in generator.iter():
+            for _model, _final_tags in generator.iter_const_and_dynamic_models(kwargs, tags):
+                count += 1
+
+        assert count == expected_count, "If count changes, update both code and this comment"
