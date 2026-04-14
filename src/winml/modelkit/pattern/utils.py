@@ -106,7 +106,9 @@ def get_tensor_shape(tensor_name: str, matcher: Any) -> tuple | None:
 
 DTYPE_MAP = {
     TensorProto.FLOAT: "FLOAT",
+    TensorProto.UINT4: "UINT4",
     TensorProto.UINT8: "UINT8",
+    TensorProto.INT4: "INT4",
     TensorProto.INT8: "INT8",
     TensorProto.UINT16: "UINT16",
     TensorProto.INT16: "INT16",
