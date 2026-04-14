@@ -1,0 +1,137 @@
+# 1ES Official Build Pipeline for WinML-ModelKit
+# Runs lint, tests (unit, integration, regression), and builds the Python wheel.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  pythonVersion: '3.10'
+
+resources:
+  repositories:
+    - repository: 1esPipelines
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
+  parameters:
+    pool:
+      name: Azure-Pipelines-1ESPT-ExDShared
+      image: windows-2022
+      os: windows
+
+    stages:
+      # ────────────────────────────────────────
+      # Stage 1: Lint
+      # ────────────────────────────────────────
+      - stage: Lint
+        jobs:
+          - job: LintCheck
+            displayName: 'Lint & License Headers'
+            timeoutInMinutes: 10
+
+            steps:
+              - task: UsePythonVersion@0
+                inputs:
+                  versionSpec: $(pythonVersion)
+                displayName: 'Use Python $(pythonVersion)'
+
+              - script: pip install ruff pre-commit
+                displayName: 'Install lint tools'
+
+              - script: pre-commit run insert-license --all-files
+                displayName: 'Check license headers'
+
+              - script: ruff check src/ tests/
+                displayName: 'Ruff lint'
+
+      # ────────────────────────────────────────
+      # Stage 2: Tests (unit, integration, regression)
+      # ────────────────────────────────────────
+      - stage: Test
+        dependsOn: Lint
+        jobs:
+          - job: TestMatrix
+            displayName: 'Test'
+            timeoutInMinutes: 30
+
+            strategy:
+              matrix:
+                analyze:
+                  testPaths: 'tests/unit/analyze'
+                models:
+                  testPaths: 'tests/unit/models tests/unit/loader tests/unit/datasets tests/unit/export'
+                optim:
+                  testPaths: 'tests/unit/optim'
+                commands:
+                  testPaths: 'tests/unit/commands tests/unit/config tests/unit/build tests/unit/compiler tests/unit/session tests/unit/eval'
+                remaining:
+                  testPaths: 'tests/unit/core tests/unit/onnx tests/unit/cache tests/unit/utils tests/unit/sysinfo tests/unit/inspect tests/unit/optracing tests/regression'
+                integration:
+                  testPaths: 'tests/integration'
+              maxParallel: 6
+
+            steps:
+              - task: UsePythonVersion@0
+                inputs:
+                  versionSpec: $(pythonVersion)
+                displayName: 'Use Python $(pythonVersion)'
+
+              - script: pip install -e ".[dev]"
+                displayName: 'Install dependencies'
+
+              - script: >
+                  pytest $(testPaths) --tb=short
+                  -m "not e2e and not npu and not gpu"
+                  --junitxml=$(Build.StagingDirectory)/test-results.xml
+                displayName: 'Run tests'
+
+              - task: PublishTestResults@2
+                condition: always()
+                inputs:
+                  testResultsFormat: JUnit
+                  testResultsFiles: '$(Build.StagingDirectory)/test-results.xml'
+                  testRunTitle: 'Tests - $(System.JobDisplayName)'
+                  mergeTestResults: true
+                displayName: 'Publish test results'
+
+      # ────────────────────────────────────────
+      # Stage 3: Build Wheel
+      # ────────────────────────────────────────
+      - stage: Build
+        dependsOn: Lint
+        jobs:
+          - job: BuildWheel
+            displayName: 'Build Python Package'
+            timeoutInMinutes: 10
+
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/dist
+                  artifactName: drop
+                  displayName: 'Publish PyPI artifacts'
+
+            steps:
+              - task: UsePythonVersion@0
+                inputs:
+                  versionSpec: $(pythonVersion)
+                displayName: 'Use Python $(pythonVersion)'
+
+              - script: pip install build twine
+                displayName: 'Install build tools'
+
+              - script: python -m build --outdir $(Build.ArtifactStagingDirectory)/dist
+                displayName: 'Build sdist and wheel'
+
+              - script: twine check $(Build.ArtifactStagingDirectory)/dist/*
+                displayName: 'Validate packages for PyPI'
