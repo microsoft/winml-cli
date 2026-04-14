@@ -187,6 +187,11 @@ class BinaryInputGenerator(OpInputGenerator):
                 first_param: InputShapeConstraint((768,)),
                 second_param: InputShapeConstraint((1, 77, 768)),
             },
+            # B broadcasts to A (1D to 3D) - bias-add pattern (e.g. transformer layers)
+            {
+                first_param: InputShapeConstraint((3, 2, 5)),
+                second_param: InputShapeConstraint((5,)),
+            },
             # A broadcasts to B (2D to 3D)
             {
                 first_param: InputShapeConstraint((2, 5)),
