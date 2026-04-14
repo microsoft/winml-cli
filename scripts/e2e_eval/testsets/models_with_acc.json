@@ -1014,5 +1014,117 @@
         "label_column": "answers"
       }
     }
+  },
+  {
+    "hf_id": "facebook/dinov2-small",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dinov2-base",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dinov2-large",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dino-vits16",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dino-vitb16",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "google/vit-base-patch16-224-in21k",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "microsoft/rad-dino",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Ewakaa/pneumonia_classification_chest_xray",
+      "split": "test",
+      "samples": 582,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "StanfordAIMI/dinov2-base-xray-224",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Ewakaa/pneumonia_classification_chest_xray",
+      "split": "test",
+      "samples": 582,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
   }
 ]
