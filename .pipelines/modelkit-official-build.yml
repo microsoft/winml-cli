@@ -45,10 +45,12 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install ruff pre-commit
+              - script: python -m pip install ruff pre-commit
                 displayName: 'Install lint tools'
 
-              - script: pre-commit run insert-license --all-files
+              - script: |
+                  pre-commit run insert-license --all-files
+                  git diff --exit-code
                 displayName: 'Check license headers'
 
               - script: ruff check src/ tests/
@@ -96,7 +98,7 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install -e ".[dev]"
+              - script: python -m pip install ".[dev]"
                 displayName: 'Install dependencies'
 
               - script: >
@@ -119,7 +121,7 @@ extends:
       # ────────────────────────────────────────
       - stage: Build
         displayName: Build Python Package
-        dependsOn: Lint
+        dependsOn: Test
         jobs:
           - job: BuildWheel
             displayName: 'Build'
@@ -140,7 +142,7 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install build twine
+              - script: python -m pip install build twine
                 displayName: 'Install build tools'
 
               - script: python -m build
