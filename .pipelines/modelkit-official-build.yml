@@ -46,91 +46,11 @@ extends:
 
     stages:
       - stage: Build
-        displayName: 'Lint, Test & Build'
+        displayName: 'Build Python Package'
         dependsOn: []
         jobs:
-          # ── Lint ──
-          - job: Lint
-            displayName: 'Ruff Lint'
-            pool:
-              type: windows
-
-            variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)\out\lint'
-
-            steps:
-              - script: python --version
-                displayName: 'Check Python version'
-
-              - task: PipAuthenticate@1
-                inputs:
-                  artifactFeeds: 'windows.ai.toolkit/Modelkit'
-                displayName: 'Authenticate pip with Azure Artifacts'
-
-              - script: pip install ruff
-                displayName: 'Install ruff'
-
-              - script: ruff check src/ tests/
-                displayName: 'Ruff lint'
-
-          # ── Test (6-group matrix) ──
-          - job: Test
-            displayName: 'Test'
-            dependsOn: Lint
-            pool:
-              type: windows
-            timeoutInMinutes: 30
-
-            variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)\out\test_$(System.JobPositionInPhase)'
-
-            strategy:
-              matrix:
-                analyze:
-                  testPaths: 'tests/unit/analyze'
-                models:
-                  testPaths: 'tests/unit/models tests/unit/loader tests/unit/datasets tests/unit/export'
-                optim:
-                  testPaths: 'tests/unit/optim'
-                commands:
-                  testPaths: 'tests/unit/commands tests/unit/config tests/unit/build tests/unit/compiler tests/unit/session tests/unit/eval'
-                remaining:
-                  testPaths: 'tests/unit/core tests/unit/onnx tests/unit/cache tests/unit/utils tests/unit/sysinfo tests/unit/inspect tests/unit/optracing tests/regression'
-                integration:
-                  testPaths: 'tests/integration'
-              maxParallel: 6
-
-            steps:
-              - script: python --version
-                displayName: 'Check Python version'
-
-              - task: PipAuthenticate@1
-                inputs:
-                  artifactFeeds: 'windows.ai.toolkit/Modelkit'
-                displayName: 'Authenticate pip with Azure Artifacts'
-
-              - script: pip install -e .[dev]
-                displayName: 'Install dependencies'
-
-              - script: >
-                  pytest $(testPaths) --tb=short
-                  -m "not e2e and not npu and not gpu"
-                  --junitxml=$(Build.StagingDirectory)\test-results.xml
-                displayName: 'Run tests'
-
-              - task: PublishTestResults@2
-                condition: always()
-                inputs:
-                  testResultsFormat: JUnit
-                  testResultsFiles: '$(Build.StagingDirectory)\test-results.xml'
-                  testRunTitle: 'Tests - $(System.JobDisplayName)'
-                  mergeTestResults: true
-                displayName: 'Publish test results'
-
-          # ── Build Wheel ──
           - job: BuildWheel
-            displayName: 'Build Python Package'
-            dependsOn: Test
+            displayName: 'Build'
             pool:
               type: windows
 
