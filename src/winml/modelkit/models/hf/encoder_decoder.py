@@ -191,11 +191,19 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             zip(dec_io.get("input_names", []), dec_io.get("input_shapes", []), strict=False)
         )
 
-        # Max decode length from decoder ONNX KV input shape
+        # Max decode length and KV dtype from decoder ONNX metadata
         self._max_dec = self._dec_expected["past_0_key"][2]
         self._num_kv_layers = sum(
             1 for n in self._dec_expected if n.startswith("past_") and n.endswith("_key")
         )
+        # Resolve KV cache dtype from ONNX input types (fp32 or fp16)
+        dec_type_map = dict(
+            zip(dec_io.get("input_names", []), dec_io.get("input_types", []), strict=False)
+        )
+        import numpy as np
+
+        _np_dtype = dec_type_map.get("past_0_key", np.float32)
+        self._kv_dtype = torch.from_numpy(np.zeros(1, dtype=_np_dtype)).dtype
 
     # ----- Encoder -----
 
@@ -285,7 +293,7 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
                 batch_size=1,
                 num_heads=kv_shape[1],
                 head_dim=kv_shape[3],
-                dtype=torch.float32,
+                dtype=self._kv_dtype,
                 device=torch.device("cpu"),
             )
 

@@ -107,6 +107,7 @@ class WinMLAutoModel:
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
+        session_options: Any | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel:
         """Build from a pre-exported ONNX file.
@@ -165,6 +166,7 @@ class WinMLAutoModel:
                 onnx_path=onnx_path,
                 config=None,
                 device=device,
+                session_options=session_options,
             )
 
         # Resolve output directory
@@ -200,6 +202,7 @@ class WinMLAutoModel:
             onnx_path=result.final_onnx_path,
             config=None,  # No HF PretrainedConfig for bare ONNX builds
             device=device,
+            session_options=session_options,
         )
 
     @classmethod

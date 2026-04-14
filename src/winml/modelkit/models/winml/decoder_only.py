@@ -204,6 +204,14 @@ class WinMLDecoderOnlyModel(WinMLPipelineModel, GenerationMixin):
         self._num_kv_layers = sum(
             1 for n in self._gen_expected if n.startswith("past_") and n.endswith("_key")
         )
+        # Resolve KV cache dtype from ONNX input types (fp32 or fp16)
+        gen_type_map = dict(
+            zip(gen_io.get("input_names", []), gen_io.get("input_types", []), strict=False)
+        )
+        import numpy as np
+
+        _np_dtype = gen_type_map.get("past_0_key", np.float32)
+        self._kv_dtype = torch.from_numpy(np.zeros(1, dtype=_np_dtype)).dtype
 
         # Prefill chunk size
         self._prefill_seq_len = self._prefill_expected["input_ids"][1]
@@ -270,7 +278,7 @@ class WinMLDecoderOnlyModel(WinMLPipelineModel, GenerationMixin):
                 batch_size=1,
                 num_heads=self._num_kv_heads,
                 head_dim=self._head_dim,
-                dtype=torch.float32,
+                dtype=self._kv_dtype,
                 device=torch.device("cpu"),
             )
 
