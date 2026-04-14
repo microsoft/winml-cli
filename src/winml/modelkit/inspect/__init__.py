@@ -23,9 +23,11 @@ import logging
 from transformers import AutoConfig
 
 from .resolver import (
+    build_tensor_infos_from_io_specs,
     compile_support_status,
     detect_task,
     get_build_config,
+    get_known_tasks,
     resolve_cache,
     resolve_exporter,
     resolve_io_config,
@@ -129,8 +131,8 @@ def inspect_model(
         loader_info.hf_model_class_source,
     )
 
-    # Step 4: Resolve exporter configuration (pass HF config for tensor specs)
-    exporter_info = resolve_exporter(model_type, task, hf_config=hf_config)
+    # Step 4: Resolve exporter configuration (pass model_id for correct image sizes)
+    exporter_info = resolve_exporter(model_type, task, hf_config=hf_config, model_id=model_id)
     logger.debug(
         "Exporter: %s (source: %s)",
         exporter_info.onnx_config_class,
@@ -161,15 +163,20 @@ def inspect_model(
     logger.debug("Cache: %d/%d stages cached", cache_info.total_cached, len(cache_info.stages))
 
     # Step 9: Resolve processor classes
-    processor_info = resolve_processor(model_id)
+    processor_info = resolve_processor(model_id, model_type=model_type)
     logger.debug(
         "Processor: %s, Tokenizer: %s",
         processor_info.processor_class,
         processor_info.tokenizer_class,
     )
 
-    # Step 10: Extract IO config from HF config
-    io_config_info = resolve_io_config(hf_config)
+    # Step 10: Extract IO config (dynamically discovers attrs from OnnxConfig)
+    io_config_info = resolve_io_config(
+        hf_config,
+        model_id=model_id,
+        model_type=model_type,
+        task=task,
+    )
     logger.debug(
         "IO Config: max_pos=%s, vocab=%s, img_size=%s",
         io_config_info.max_position_embeddings,
@@ -212,5 +219,12 @@ __all__ = [
     "SupportLevel",
     "TensorInfo",
     "WinMLInfo",
+    "build_tensor_infos_from_io_specs",
+    "compile_support_status",
+    "get_known_tasks",
     "inspect_model",
+    "resolve_cache",
+    "resolve_io_config",
+    "resolve_processor",
+    "resolve_winml",
 ]
