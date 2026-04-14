@@ -70,8 +70,10 @@ extends:
                 workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Install ruff'
 
-              - script: ruff check src/ tests/
-                workingDirectory: $(Build.SourcesDirectory)
+              - script: |
+                  echo "Source directory: $(Build.SourcesDirectory)"
+                  dir $(Build.SourcesDirectory)
+                  ruff check $(Build.SourcesDirectory)/src/ $(Build.SourcesDirectory)/tests/
                 displayName: 'Ruff lint'
 
           # ── Test (6-group matrix) ──
