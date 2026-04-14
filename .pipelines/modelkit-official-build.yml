@@ -61,11 +61,6 @@ extends:
             steps:
               - checkout: self
 
-              - task: UsePythonVersion@0
-                inputs:
-                  versionSpec: '3.10'
-                displayName: 'Use Python 3.10'
-
               - task: PipAuthenticate@1
                 inputs:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
@@ -112,11 +107,6 @@ extends:
             steps:
               - checkout: self
 
-              - task: UsePythonVersion@0
-                inputs:
-                  versionSpec: '3.10'
-                displayName: 'Use Python 3.10'
-
               - task: PipAuthenticate@1
                 inputs:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
@@ -154,11 +144,6 @@ extends:
 
             steps:
               - checkout: self
-
-              - task: UsePythonVersion@0
-                inputs:
-                  versionSpec: '3.10'
-                displayName: 'Use Python 3.10'
 
               - task: PipAuthenticate@1
                 inputs:
