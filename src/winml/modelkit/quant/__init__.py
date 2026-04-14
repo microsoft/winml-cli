@@ -17,7 +17,6 @@ Usage:
 """
 
 from .config import QuantizeResult, WinMLQuantizationConfig
-from .quantizer import quantize_onnx
 
 
 __all__ = [
@@ -25,3 +24,25 @@ __all__ = [
     "WinMLQuantizationConfig",
     "quantize_onnx",
 ]
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "quantize_onnx": (".quantizer", "quantize_onnx"),
+}
+
+
+def __getattr__(name: str):
+    """Lazy-load quantizer (imports onnxruntime.quantization)."""
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
+
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return list(set(list(globals()) + __all__))

@@ -63,14 +63,21 @@ def _output_processor_table(console: Console, result: InspectResult) -> None:
     processor_table.add_column("Field", style="cyan")
     processor_table.add_column("Value")
 
+    def _src_tag(source: str | None) -> str:
+        return f" [dim](via {source})[/dim]" if source else ""
+
     if processor.processor_class:
-        processor_table.add_row("Processor", processor.processor_class)
+        src = _src_tag(processor.processor_source)
+        processor_table.add_row("Processor", f"{processor.processor_class}{src}")
     if processor.tokenizer_class:
-        processor_table.add_row("Tokenizer", processor.tokenizer_class)
+        src = _src_tag(processor.tokenizer_source)
+        processor_table.add_row("Tokenizer", f"{processor.tokenizer_class}{src}")
     if processor.image_processor_class:
-        processor_table.add_row("Image Processor", processor.image_processor_class)
+        src = _src_tag(processor.image_processor_source)
+        processor_table.add_row("Image Processor", f"{processor.image_processor_class}{src}")
     if processor.feature_extractor_class:
-        processor_table.add_row("Feature Extractor", processor.feature_extractor_class)
+        src = _src_tag(processor.feature_extractor_source)
+        processor_table.add_row("Feature Extractor", f"{processor.feature_extractor_class}{src}")
 
     # Only show panel if we have at least one processor class
     if any(
@@ -134,6 +141,17 @@ def _output_io_config_table(console: Console, result: InspectResult) -> None:
     if io_config.hidden_size is not None:
         io_table.add_row("Hidden Size", str(io_config.hidden_size))
         has_content = True
+    if io_config.hidden_sizes is not None:
+        sizes_str = " → ".join(str(s) for s in io_config.hidden_sizes)
+        io_table.add_row("Hidden Sizes", sizes_str)
+        has_content = True
+
+    # Extra attrs discovered dynamically from OnnxConfig
+    if io_config.extra:
+        for key, val in sorted(io_config.extra.items()):
+            label = key.replace("_", " ").title()
+            io_table.add_row(label, str(val))
+            has_content = True
 
     # Only show panel if we have content
     if has_content:
@@ -244,7 +262,10 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
             else:
                 shape_str = "-"
             dtype_str = tensor.dtype or "-"
-            exporter_table.add_row(f"  {tensor.name}", f"{dtype_str}  {shape_str}")
+            extra = ""
+            if tensor.value_range is not None:
+                extra = f"  [dim]range {tensor.value_range}[/dim]"
+            exporter_table.add_row(f"  {tensor.name}", f"{dtype_str}  {shape_str}{extra}")
 
     # Output tensors
     if result.exporter.output_tensors:
@@ -395,6 +416,7 @@ def output_json(result: InspectResult, verbose: bool = False) -> str:
                     "shape": list(t.shape) if t.shape else None,
                     "shape_desc": t.shape_desc,
                     "dynamic_axes": t.dynamic_axes,
+                    "value_range": list(t.value_range) if t.value_range else None,
                 }
                 for t in result.exporter.input_tensors
             ],
@@ -447,6 +469,10 @@ def output_json(result: InspectResult, verbose: bool = False) -> str:
             "tokenizer_class": result.processor.tokenizer_class,
             "image_processor_class": result.processor.image_processor_class,
             "feature_extractor_class": result.processor.feature_extractor_class,
+            "processor_source": result.processor.processor_source,
+            "tokenizer_source": result.processor.tokenizer_source,
+            "image_processor_source": result.processor.image_processor_source,
+            "feature_extractor_source": result.processor.feature_extractor_source,
         }
     else:
         data["processor"] = None
@@ -466,6 +492,8 @@ def output_json(result: InspectResult, verbose: bool = False) -> str:
             "num_channels": io_config.num_channels,
             "sampling_rate": io_config.sampling_rate,
             "hidden_size": io_config.hidden_size,
+            "hidden_sizes": io_config.hidden_sizes,
+            "extra": io_config.extra,
         }
     else:
         data["io_config"] = None
