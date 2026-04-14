@@ -12,7 +12,9 @@ from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
 from .evaluate import EvalResult, evaluate
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
+from .fill_mask_evaluator import WinMLFillMaskEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
+from .metrics.cross_entropy import CrossEntropyMetric
 from .metrics.mean_average_precision import MAPMetric
 from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
 from .metrics.spearman_correlation import SpearmanCorrelationMetric
@@ -24,6 +26,7 @@ from .token_classification_evaluator import WinMLTokenClassificationEvaluator
 
 __all__ = [
     "IGNORE_INDEX",
+    "CrossEntropyMetric",
     "EvalResult",
     "MAPMetric",
     "MeanIoUMetric",
@@ -31,6 +34,7 @@ __all__ = [
     "WinMLEvaluationConfig",
     "WinMLEvaluator",
     "WinMLFeatureExtractionEvaluator",
+    "WinMLFillMaskEvaluator",
     "WinMLImageSegmentationEvaluator",
     "WinMLObjectDetectionEvaluator",
     "WinMLQuestionAnsweringEvaluator",

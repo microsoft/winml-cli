@@ -578,5 +578,85 @@
     },
     "elapsed": 449.7,
     "command": "python.exe run_pytorch_baseline.py --model swin-large-patch4-window7-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "google-bert/bert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 2.1032,
+      "num_samples": 1000
+    },
+    "elapsed": 116.2,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.5272,
+      "num_samples": 1000
+    },
+    "elapsed": 285.7,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-base --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.9265,
+      "num_samples": 1000
+    },
+    "elapsed": 236.6,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-large --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.9061,
+      "num_samples": 1000
+    },
+    "elapsed": 130.2,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-base --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "distilbert/distilbert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 2.3718,
+      "num_samples": 1000
+    },
+    "elapsed": 83.5,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.1999,
+      "num_samples": 1000
+    },
+    "elapsed": 498.6,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.8057,
+      "num_samples": 1000
+    },
+    "elapsed": 153.3,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-uncased --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-cased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cross_entropy",
+      "value": 1.8814,
+      "num_samples": 1000
+    },
+    "elapsed": 167.3,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-cased --task fill-mask --device cpu --num-samples 1000 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
   }
 }
