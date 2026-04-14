@@ -15,9 +15,6 @@ parameters: # parameters are shown up in ADO UI in a build queue time
   displayName: 'Enable debug output'
   type: boolean
   default: false
-- name: 'artifactsBranch'
-  displayName: 'ModelKitArtifacts branch (e.g. release/v0.0.1)'
-  type: string
 
 variables:
   CDP_DEFINITION_BUILD_COUNT: $[counter('', 0)] # needed for onebranch.pipeline.version task https://aka.ms/obpipelines/versioning
@@ -34,7 +31,7 @@ resources:
       type: github
       name: gim-home/ModelKitArtifacts
       endpoint: github.com_yuesu_microsoft
-      ref: refs/heads/${{ parameters.artifactsBranch }}
+      ref: refs/heads/main
 
 extends:
   template: v2/OneBranch.Official.CrossPlat.yml@templates # https://aka.ms/obpipelines/templates
