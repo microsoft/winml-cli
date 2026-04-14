@@ -68,16 +68,15 @@ extends:
                 lfs: true
 
               - powershell: |
-                  $repoDir = "$(Build.SourcesDirectory)\artifacts"
-                  Write-Host "Listing repo dir: $repoDir"
-                  if (Test-Path $repoDir) {
-                      Get-ChildItem $repoDir -Depth 2 | ForEach-Object { Write-Host $_.FullName }
-                  } else {
-                      Write-Host "Directory not found: $repoDir"
-                      Write-Host "Listing Build.SourcesDirectory:"
-                      Get-ChildItem "$(Build.SourcesDirectory)" -Depth 1 | ForEach-Object { Write-Host $_.FullName }
-                  }
-                displayName: 'Debug: list checkout paths'
+                  $outDir = "$(ob_outputDirectory)"
+                  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+                  $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\op_check_results\rules"
+                  Write-Host "Looking for rules in: $rulesDir"
+                  $zips = Get-ChildItem "$rulesDir\*.zip"
+                  Write-Host "Found $($zips.Count) rule zips"
+                  $zips | Copy-Item -Destination $outDir
+                  Write-Host "Copied $($zips.Count) rule zips to $outDir"
+                displayName: 'Copy runtime check rules'
 
           # ── Build Wheel ──
           - job: BuildWheel
