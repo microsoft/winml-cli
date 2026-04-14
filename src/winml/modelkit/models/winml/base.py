@@ -76,6 +76,9 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         self.config = config
         self._device = device
 
+        # Set by WinMLAutoModel.from_pretrained() after construction
+        self._build_config: Any = None
+
         # Create WinMLSession (delegates ORT operations)
         self._session = WinMLSession(
             onnx_path=self._onnx_path,
@@ -200,8 +203,26 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
 
     @property
     def device(self) -> str:
-        """Current device."""
-        return self._device
+        """Current device (delegates to session, resolved after compile)."""
+        return self._session.device
+
+    @property
+    def task(self) -> str | None:
+        """Resolved task from build config, or None if unavailable."""
+        build_config = getattr(self, "_build_config", None)
+        if build_config is not None:
+            loader = getattr(build_config, "loader", None)
+            if loader:
+                return loader.task
+        return None
+
+    @property
+    def precision(self) -> str | None:
+        """Resolved precision from build config, or None if unavailable.
+
+        TODO: derive from _build_config.quant.weight_type when ready.
+        """
+        return None
 
     @property
     def dtype(self) -> torch.dtype:

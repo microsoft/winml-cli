@@ -23,6 +23,8 @@ from .models.support_level import SupportLevel
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import onnx
 
     from .models.information import Action
@@ -492,6 +494,8 @@ class ONNXStaticAnalyzer:
         htp_metadata_path: str | None = None,
         run_unknown_op: bool = True,
         save_node_types: set[str] | None = None,
+        on_node_result: Callable | None = None,
+        on_ep_start: Callable | None = None,
     ) -> AnalysisResult:
         """Analyze ONNX model for runtime support.
 
@@ -590,6 +594,8 @@ class ONNXStaticAnalyzer:
             htp_metadata_path=htp_metadata_path,
             run_unknown_op=run_unknown_op,
             save_node_types=save_node_types,
+            on_node_result=on_node_result,
+            on_ep_start=on_ep_start,
         )
 
     def analyze_from_proto(
@@ -602,6 +608,8 @@ class ONNXStaticAnalyzer:
         htp_metadata_path: str | None = None,
         run_unknown_op: bool = True,
         save_node_types: set[str] | None = None,
+        on_node_result: Callable | None = None,
+        on_ep_start: Callable | None = None,
     ) -> AnalysisResult:
         """Analyze ONNX model from ModelProto object.
 
@@ -691,6 +699,11 @@ class ONNXStaticAnalyzer:
 
         for current_ep in eps_to_analyze:
             logger.info("Checking runtime support for %s...", current_ep)
+            if on_ep_start:
+                try:
+                    on_ep_start(current_ep, metadata.operator_counts)
+                except Exception:
+                    logger.debug("on_ep_start callback failed", exc_info=True)
 
             runtime_checker = RuntimeChecker(
                 ep=current_ep,
@@ -708,6 +721,7 @@ class ONNXStaticAnalyzer:
                 patterns=pattern_matches,
                 run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
+                on_node_result=on_node_result,
             )
 
             # Convert runtime summary to expected format
@@ -727,7 +741,6 @@ class ONNXStaticAnalyzer:
                     ep=current_ep,
                     model=onnx_model,
                     device=device_to_use,
-                    shape_inferred_model_proto=runtime_checker.get_shape_inferred_model_proto(),
                 )
                 information_list[current_ep] = engine.summary()  # Use EP name as key
 
@@ -786,6 +799,8 @@ def analyze_onnx(
     ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
+    on_ep_start: Callable | None = None,
+    on_node_result: Callable | None = None,
 ) -> AnalyzeResult:
     """Analyze an ONNX model and return lint + autoconf results.
 
@@ -841,6 +856,8 @@ def analyze_onnx(
         ep=ep,
         device=device,
         enable_information=autoconf,
+        on_ep_start=on_ep_start,
+        on_node_result=on_node_result,
     )
 
     # Extract lint result (always computed — uses RuntimeChecker classification)

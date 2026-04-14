@@ -26,10 +26,6 @@ Note:
 """
 
 from .config import WinMLLoaderConfig, resolve_loader_config
-from .hf import (
-    load_hf_model,
-    resolve_hf_model_class,
-)
 from .task import (
     HF_TASK_DEFAULTS,
     get_supported_tasks,
@@ -50,3 +46,26 @@ __all__ = [
     "resolve_loader_config",
     "resolve_task_and_model_class",
 ]
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "load_hf_model": (".hf", "load_hf_model"),
+    "resolve_hf_model_class": (".hf", "resolve_hf_model_class"),
+}
+
+
+def __getattr__(name: str):
+    """Lazy-load heavy exports (hf.py imports transformers)."""
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
+
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return list(set(list(globals()) + __all__))

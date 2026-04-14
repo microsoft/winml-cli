@@ -59,13 +59,10 @@ def mock_inspect_result() -> MagicMock:
     return result
 
 
-# The inspect command uses deferred imports inside the function body:
-#   from ..inspect import inspect_model, InspectError, ...
-#   from ..inspect.formatter import output_json, output_table
-#
-# Since `from X import Y` resolves Y from X at import time, we must
-# patch at the SOURCE modules so the deferred import picks up the mock.
-_INSPECT_MODEL = "winml.modelkit.inspect.inspect_model"
+# The inspect command calls _inspect_model_v2 (a module-level function in
+# commands/inspect.py) then dispatches to output_json / output_table from
+# the formatter module.  We patch at their actual locations.
+_INSPECT_MODEL = "winml.modelkit.commands.inspect._inspect_model_v2"
 _OUTPUT_JSON = "winml.modelkit.inspect.formatter.output_json"
 _OUTPUT_TABLE = "winml.modelkit.inspect.formatter.output_table"
 

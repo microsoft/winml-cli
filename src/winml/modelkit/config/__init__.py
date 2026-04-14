@@ -30,6 +30,7 @@ from .build import (
     generate_onnx_build_config,
 )
 from .precision import (
+    VALID_EPS,
     PrecisionPolicy,
     is_quantized_precision,
     resolve_precision,
@@ -38,6 +39,7 @@ from .precision import (
 
 
 __all__ = [
+    "VALID_EPS",
     "PrecisionPolicy",
     "WinMLBuildConfig",
     "generate_build_config",
