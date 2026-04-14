@@ -97,7 +97,7 @@ extends:
                 inputs:
                   buildType: current
                   artifactName: 'drop_Build_DownloadRules'
-                  targetPath: 'src\winml\modelkit\analyze\rules\runtime_check_rules'
+                  targetPath: '$(Build.SourcesDirectory)\src\winml\modelkit\analyze\rules\runtime_check_rules'
                 displayName: 'Download runtime check rules'
 
               - task: PipAuthenticate@1
