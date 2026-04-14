@@ -393,7 +393,10 @@ class AnalysisResult:
                     continue
 
                 if action_item.optimization_options:
-                    optim_options.update(action_item.optimization_options)
+                    # Normalize kebab-case keys to snake_case (python_name)
+                    # so they match the capability system's python_name format.
+                    for key, value in action_item.optimization_options.items():
+                        optim_options[key.replace("-", "_")] = value
 
         # Create and return config from collected options
         return WinMLOptimizationConfig(**optim_options)
