@@ -97,7 +97,19 @@ extends:
                   buildType: current
                   artifactName: 'drop_Build_DownloadRules'
                   targetPath: 'src\winml\modelkit\analyze\rules\runtime_check_rules'
-                displayName: 'Copy runtime check rules'
+                displayName: 'Download runtime check rules'
+
+              - powershell: |
+                  $rulesDir = "src\winml\modelkit\analyze\rules\runtime_check_rules"
+                  Write-Host "Rules directory: $rulesDir"
+                  if (Test-Path $rulesDir) {
+                      $files = Get-ChildItem $rulesDir
+                      Write-Host "Files: $($files.Count)"
+                      $files | ForEach-Object { Write-Host "  $($_.Name) ($([math]::Round($_.Length/1KB, 1)) KB)" }
+                  } else {
+                      Write-Host "Directory does not exist!"
+                  }
+                displayName: 'Debug: verify rules downloaded'
 
               - task: PipAuthenticate@1
                 inputs:
