@@ -27,6 +27,10 @@ resources:
       type: git
       name: OneBranch.Pipelines/GovernedTemplates
       ref: refs/heads/main
+    - repository: artifacts
+      type: github
+      name: gim-home/ModelKitArtifacts
+      endpoint: github.com_yuesu_microsoft
 
 extends:
   template: v2/OneBranch.Official.CrossPlat.yml@templates # https://aka.ms/obpipelines/templates
@@ -49,8 +53,34 @@ extends:
         displayName: 'Build Python Package'
         dependsOn: []
         jobs:
+          # ── Download Runtime Check Rules ──
+          - job: DownloadRules
+            displayName: 'Download Runtime Check Rules'
+            pool:
+              type: windows
+
+            variables:
+              ob_outputDirectory: '$(Build.SourcesDirectory)\out\rules'
+
+            steps:
+              - checkout: artifacts
+                fetchDepth: 1
+                lfs: true
+
+              - powershell: |
+                  $outDir = "$(ob_outputDirectory)"
+                  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+                  $repoDir = "$(Pipeline.Workspace)\artifacts"
+                  $zips = Get-ChildItem "$repoDir\op_check_results\rules\*.zip"
+                  Write-Host "Found $($zips.Count) rule zips"
+                  $zips | Copy-Item -Destination $outDir
+                  Write-Host "Copied $($zips.Count) rule zips to $outDir"
+                displayName: 'Copy runtime check rules'
+
+          # ── Build Wheel ──
           - job: BuildWheel
             displayName: 'Build'
+            dependsOn: DownloadRules
             pool:
               type: windows
 
@@ -61,6 +91,13 @@ extends:
             steps:
               - script: python --version
                 displayName: 'Check Python version'
+
+              - task: DownloadPipelineArtifact@2
+                inputs:
+                  buildType: current
+                  artifactName: 'drop_Build_DownloadRules'
+                  targetPath: 'src\winml\modelkit\analyze\rules\runtime_check_rules'
+                displayName: 'Copy runtime check rules'
 
               - task: PipAuthenticate@1
                 inputs:
