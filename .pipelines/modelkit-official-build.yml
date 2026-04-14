@@ -40,40 +40,37 @@ extends:
         Network: KS1
       networkisolation:
         policy: Permissive,CFSClean
-      globalSdl:
-        tsa:
-          enabled: false
+    globalSdl:
+      tsa:
+        enabled: false
 
     stages:
       - stage: Build
         displayName: 'Lint, Test & Build'
+        dependsOn: []
         jobs:
           # ── Lint ──
           - job: Lint
             displayName: 'Ruff Lint'
             pool:
               type: windows
-            timeoutInMinutes: 10
 
             variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)/out'
+              ob_outputDirectory: '$(Build.SourcesDirectory)\out'
 
             steps:
-              - checkout: self
+              - script: python --version
+                displayName: 'Check Python version'
 
               - task: PipAuthenticate@1
                 inputs:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: python -m pip install ruff
-                workingDirectory: $(Build.SourcesDirectory)
+              - script: pip install ruff
                 displayName: 'Install ruff'
 
-              - script: |
-                  echo "Source directory: $(Build.SourcesDirectory)"
-                  dir $(Build.SourcesDirectory)
-                  ruff check $(Build.SourcesDirectory)/src/ $(Build.SourcesDirectory)/tests/
+              - script: ruff check src/ tests/
                 displayName: 'Ruff lint'
 
           # ── Test (6-group matrix) ──
@@ -85,7 +82,7 @@ extends:
             timeoutInMinutes: 30
 
             variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)/out'
+              ob_outputDirectory: '$(Build.SourcesDirectory)\out'
 
             strategy:
               matrix:
@@ -104,29 +101,28 @@ extends:
               maxParallel: 6
 
             steps:
-              - checkout: self
+              - script: python --version
+                displayName: 'Check Python version'
 
               - task: PipAuthenticate@1
                 inputs:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: python -m pip install ".[dev]"
-                workingDirectory: $(Build.SourcesDirectory)
+              - script: pip install -e .[dev]
                 displayName: 'Install dependencies'
 
               - script: >
                   pytest $(testPaths) --tb=short
                   -m "not e2e and not npu and not gpu"
-                  --junitxml=$(Build.StagingDirectory)/test-results.xml
-                workingDirectory: $(Build.SourcesDirectory)
+                  --junitxml=$(Build.StagingDirectory)\test-results.xml
                 displayName: 'Run tests'
 
               - task: PublishTestResults@2
                 condition: always()
                 inputs:
                   testResultsFormat: JUnit
-                  testResultsFiles: '$(Build.StagingDirectory)/test-results.xml'
+                  testResultsFiles: '$(Build.StagingDirectory)\test-results.xml'
                   testRunTitle: 'Tests - $(System.JobDisplayName)'
                   mergeTestResults: true
                 displayName: 'Publish test results'
@@ -137,28 +133,25 @@ extends:
             dependsOn: Test
             pool:
               type: windows
-            timeoutInMinutes: 10
 
             variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)/out'
+              ob_outputDirectory: '$(Build.SourcesDirectory)\out'
               ob_artifactBaseName: 'drop'
 
             steps:
-              - checkout: self
+              - script: python --version
+                displayName: 'Check Python version'
 
               - task: PipAuthenticate@1
                 inputs:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: python -m pip install build twine
-                workingDirectory: $(Build.SourcesDirectory)
+              - script: pip install build twine
                 displayName: 'Install build tools'
 
-              - script: python -m build --outdir $(ob_outputDirectory)
-                workingDirectory: $(Build.SourcesDirectory)
+              - script: python -m build --outdir "$(ob_outputDirectory)"
                 displayName: 'Build sdist and wheel'
 
-              - script: twine check $(ob_outputDirectory)/*
-                workingDirectory: $(Build.SourcesDirectory)
+              - script: twine check "$(ob_outputDirectory)\*"
                 displayName: 'Validate packages for PyPI'
