@@ -56,7 +56,7 @@ extends:
               type: windows
 
             variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)\out'
+              ob_outputDirectory: '$(Build.SourcesDirectory)\out\lint'
 
             steps:
               - script: python --version
@@ -82,7 +82,7 @@ extends:
             timeoutInMinutes: 30
 
             variables:
-              ob_outputDirectory: '$(Build.SourcesDirectory)\out'
+              ob_outputDirectory: '$(Build.SourcesDirectory)\out\test_$(System.JobPositionInPhase)'
 
             strategy:
               matrix:
