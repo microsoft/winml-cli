@@ -12,9 +12,7 @@
 # FLOAT8E5M2,
 # FLOAT8E5M2FNUZ,
 # FLOAT8E8M0,
-# INT4,
 # STRING,
-# UINT4,
 
 """ONNX type conversion utilities shared across ModelKit modules.
 
@@ -25,6 +23,7 @@ import re
 from enum import Enum
 from typing import Any
 
+import ml_dtypes
 import numpy as np
 import onnx
 
@@ -52,10 +51,12 @@ class SupportedONNXType(Enum):
     BOOL = ("BOOL", np.dtype("bool"), "tensor(bool)", onnx.TensorProto.BOOL)
     DOUBLE = ("DOUBLE", np.dtype("float64"), "tensor(double)", onnx.TensorProto.DOUBLE)
     FLOAT16 = ("FLOAT16", np.dtype("float16"), "tensor(float16)", onnx.TensorProto.FLOAT16)
+    INT4 = ("INT4", np.dtype(ml_dtypes.int4), "tensor(int4)", onnx.TensorProto.INT4)
     INT8 = ("INT8", np.dtype("int8"), "tensor(int8)", onnx.TensorProto.INT8)
     INT16 = ("INT16", np.dtype("int16"), "tensor(int16)", onnx.TensorProto.INT16)
     INT32 = ("INT32", np.dtype("int32"), "tensor(int32)", onnx.TensorProto.INT32)
     INT64 = ("INT64", np.dtype("int64"), "tensor(int64)", onnx.TensorProto.INT64)
+    UINT4 = ("UINT4", np.dtype(ml_dtypes.uint4), "tensor(uint4)", onnx.TensorProto.UINT4)
     UINT8 = ("UINT8", np.dtype("uint8"), "tensor(uint8)", onnx.TensorProto.UINT8)
     UINT16 = ("UINT16", np.dtype("uint16"), "tensor(uint16)", onnx.TensorProto.UINT16)
     UINT32 = ("UINT32", np.dtype("uint32"), "tensor(uint32)", onnx.TensorProto.UINT32)
@@ -92,7 +93,7 @@ class SupportedONNXType(Enum):
         # ONNX attribute schemas sometimes use plural forms (INTS/FLOATS) to mean a list of scalars.
         # We map them to the underlying scalar dtype so tensor/value casting still works.
         plural_map = {
-            "INTS": "INT64",   # axes, splits, etc.
+            "INTS": "INT64",  # axes, splits, etc.
             "FLOATS": "FLOAT",
         }
         if inner_annotation in plural_map:
