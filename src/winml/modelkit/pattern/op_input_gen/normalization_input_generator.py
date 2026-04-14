@@ -439,8 +439,9 @@ class LpNormalizationInputGenerator(NormalizationInputGenerator):
         for shape in self.get_common_data_shapes():
             if len(shape) < 3:
                 continue
-            # TODO: add axis
-            combinations.append({"input": InputShapeConstraint(shape)})
+            combinations.extend(
+                {"input": InputShapeConstraint(shape), "axis": axis} for axis in [0, 1, -1, 2]
+            )
         return combinations
 
     def get_qdq_config(self) -> dict[str, QDQParameterConfig] | None:
