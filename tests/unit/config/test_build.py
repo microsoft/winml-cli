@@ -35,7 +35,6 @@ from winml.modelkit.config.build import (
 )
 from winml.modelkit.export import (
     InputTensorSpec,
-    ONNXConfigNotFoundError,
     OutputTensorSpec,
     WinMLExportConfig,
     resolve_io_specs,
@@ -339,18 +338,18 @@ class TestGenerateBuildConfigFast:
 
 
 class TestRegistryShortCircuit:
-    """Tests for the registry export config merge in generate_build_config.
+    """Tests for the registry short-circuit path in generate_build_config.
 
-    Optimum is always tried first (may fail for unsupported models).
-    Registered export config is always merged on top (registry wins).
+    When MODEL_BUILD_CONFIGS has a registered config with input_tensors,
+    the Optimum _resolve_export_config_from_specs() call is skipped.
     """
 
-    def test_optimum_fails_registry_fills_in(
+    def test_registry_with_input_tensors_skips_optimum(
         self,
         mock_hf_config: MagicMock,
         mock_model_class: MagicMock,
     ) -> None:
-        """When Optimum fails, registered export config provides I/O specs."""
+        """Registry config with input_tensors skips Optimum lookup."""
         blip_like_export = WinMLExportConfig(
             input_tensors=[
                 InputTensorSpec(name="pixel_values", dtype="float32", shape=(1, 3, 384, 384)),
@@ -373,63 +372,26 @@ class TestRegistryShortCircuit:
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
-                side_effect=ONNXConfigNotFoundError("blip not supported"),
-            ),
+            ) as mock_optimum,
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {"blip": blip_like_config}),
         ):
             result = generate_build_config("Salesforce/blip-image-captioning-base")
 
-        # Registry fills in the I/O specs after Optimum failure
+        # Optimum should NOT have been called
+        mock_optimum.assert_not_called()
+        # Result should have the registered input_tensors
         assert result.export.input_tensors is not None
         assert len(result.export.input_tensors) == 2
         assert result.export.input_tensors[0].name == "pixel_values"
 
-    def test_optimum_succeeds_registry_overrides(
-        self,
-        mock_hf_config: MagicMock,
-        mock_model_class: MagicMock,
-        mock_loader_config: WinMLLoaderConfig,
-    ) -> None:
-        """When Optimum succeeds, registered export config overrides on top."""
-        optimum_export = WinMLExportConfig(
-            input_tensors=[
-                InputTensorSpec(name="input_ids", dtype="int64", shape=(1, 16)),
-            ],
-            output_tensors=[OutputTensorSpec(name="logits")],
-        )
-        # Registry overrides with a different shape
-        registry_export = WinMLExportConfig(
-            input_tensors=[
-                InputTensorSpec(name="input_ids", dtype="int64", shape=(1, 512)),
-            ],
-            output_tensors=[OutputTensorSpec(name="logits")],
-        )
-        registry_config = WinMLBuildConfig(export=registry_export)
-
-        with (
-            patch(
-                "winml.modelkit.config.build.resolve_loader_config",
-                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
-            ),
-            patch(
-                "winml.modelkit.config.build._resolve_export_config_from_specs",
-                return_value=optimum_export,
-            ),
-            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {"bert": registry_config}),
-        ):
-            result = generate_build_config("bert-base-uncased")
-
-        # Registry wins — shape is 512, not Optimum's 16
-        assert result.export.input_tensors[0].shape == (1, 512)
-
-    def test_registry_without_export_uses_optimum(
+    def test_registry_without_export_falls_through_to_optimum(
         self,
         mock_hf_config: MagicMock,
         mock_model_class: MagicMock,
         mock_loader_config: WinMLLoaderConfig,
         mock_export_config: WinMLExportConfig,
     ) -> None:
-        """Registry config without export uses Optimum result unchanged."""
+        """Registry config without export falls through to Optimum."""
         # BERT_CONFIG has optim only, no export
         bert_like_config = WinMLBuildConfig(
             optim=WinMLOptimizationConfig(gelu_fusion=True),
@@ -443,20 +405,51 @@ class TestRegistryShortCircuit:
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
                 return_value=mock_export_config,
-            ),
+            ) as mock_optimum,
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {"bert": bert_like_config}),
         ):
-            result = generate_build_config("bert-base-uncased")
+            generate_build_config("bert-base-uncased")
 
-        # No registered export → Optimum result used as-is
-        assert result.export.input_tensors == mock_export_config.input_tensors
+        # Optimum SHOULD have been called
+        mock_optimum.assert_called_once()
 
-    def test_registry_merge_does_not_mutate_singleton(
+    def test_registry_with_none_input_tensors_falls_through(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """Registry config with export but input_tensors=None falls through."""
+        config_with_empty_export = WinMLBuildConfig(
+            export=WinMLExportConfig(),  # input_tensors defaults to None
+        )
+
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
+            ),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ) as mock_optimum,
+            patch(
+                "winml.modelkit.models.hf.MODEL_BUILD_CONFIGS",
+                {"bert": config_with_empty_export},
+            ),
+        ):
+            generate_build_config("bert-base-uncased")
+
+        # Optimum SHOULD have been called (input_tensors is None)
+        mock_optimum.assert_called_once()
+
+    def test_registry_deepcopy_prevents_mutation(
         self,
         mock_hf_config: MagicMock,
         mock_model_class: MagicMock,
     ) -> None:
-        """merge_config produces a new object, not mutating the registry."""
+        """Registry export config is deepcopied, preventing singleton mutation."""
         original_export = WinMLExportConfig(
             input_tensors=[
                 InputTensorSpec(name="pixel_values", dtype="float32", shape=(1, 3, 224, 224)),
@@ -478,19 +471,21 @@ class TestRegistryShortCircuit:
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
-                side_effect=ONNXConfigNotFoundError("unsupported"),
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {"some-vision": registry_config}),
         ):
             result = generate_build_config("some/vision-model")
 
-        # Result should NOT be the same object as registry export
+        # Result export should NOT be the same object as registry export
         assert result.export is not original_export
-        # Content should be preserved
+        assert result.export.input_tensors is not original_export.input_tensors
+        # Content should be preserved (deepcopy correctness)
+        assert len(result.export.input_tensors) == 1
         assert result.export.input_tensors[0].name == "pixel_values"
         assert result.export.input_tensors[0].shape == (1, 3, 224, 224)
+        assert result.export.input_tensors[0].dtype == "float32"
 
-    def test_underscore_normalization(
+    def test_registry_underscore_normalization(
         self,
         mock_hf_config: MagicMock,
         mock_model_class: MagicMock,
@@ -517,22 +512,27 @@ class TestRegistryShortCircuit:
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
-                side_effect=ONNXConfigNotFoundError("unsupported"),
-            ),
+            ) as mock_optimum,
             # Registry uses hyphens
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {"clip-text-model": clip_config}),
         ):
             result = generate_build_config("openai/clip-vit-base-patch32")
 
+        # Underscore model_type should match hyphenated registry key
+        mock_optimum.assert_not_called()
         assert result.export.input_tensors[0].name == "input_ids"
 
-    def test_no_registry_no_optimum_returns_empty(
+    def test_registry_empty_list_input_tensors_skips_optimum(
         self,
         mock_hf_config: MagicMock,
         mock_model_class: MagicMock,
         mock_loader_config: WinMLLoaderConfig,
     ) -> None:
-        """No registry + Optimum fails → empty export config (no crash)."""
+        """Registry config with input_tensors=[] skips Optimum (is not None)."""
+        config_with_empty_list = WinMLBuildConfig(
+            export=WinMLExportConfig(input_tensors=[]),
+        )
+
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
@@ -540,14 +540,38 @@ class TestRegistryShortCircuit:
             ),
             patch(
                 "winml.modelkit.config.build._resolve_export_config_from_specs",
-                side_effect=ONNXConfigNotFoundError("unsupported"),
+            ) as mock_optimum,
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {"bert": config_with_empty_list}),
+        ):
+            result = generate_build_config("bert-base-uncased")
+
+        # [] is not None, so short-circuit fires
+        mock_optimum.assert_not_called()
+        assert result.export.input_tensors == []
+
+    def test_registry_miss_falls_through_to_optimum(
+        self,
+        mock_hf_config: MagicMock,
+        mock_model_class: MagicMock,
+        mock_loader_config: WinMLLoaderConfig,
+        mock_export_config: WinMLExportConfig,
+    ) -> None:
+        """Model not in registry at all falls through to Optimum."""
+        with (
+            patch(
+                "winml.modelkit.config.build.resolve_loader_config",
+                return_value=(mock_loader_config, mock_hf_config, mock_model_class),
             ),
-            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.config.build._resolve_export_config_from_specs",
+                return_value=mock_export_config,
+            ) as mock_optimum,
+            patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),  # empty registry
         ):
             result = generate_build_config("some/unknown-model")
 
-        # Empty export config — no crash, downstream will handle
-        assert result.export.input_tensors is None
+        mock_optimum.assert_called_once()
+        assert result.export is mock_export_config
 
 
 # =============================================================================
@@ -1867,8 +1891,12 @@ class TestDevicePrecisionIntegration:
         # Default compile provider is "qnn" (from WinMLCompileConfig -> EPConfig)
         assert result.compile.ep_config.provider == "qnn"
 
-    def test_auto_auto_skips_resolve_device(self) -> None:
-        """device='auto' + precision='auto' does NOT call resolve_device."""
+    def test_auto_auto_still_calls_resolve_device(self) -> None:
+        """device='auto' + precision='auto' DOES call resolve_device (#412).
+
+        Previously this was skipped, causing EPConfig to default to 'qnn'
+        on machines without an NPU. Now we always detect hardware.
+        """
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
@@ -1894,7 +1922,7 @@ class TestDevicePrecisionIntegration:
                 precision="auto",
             )
 
-        mock_rd.assert_not_called()
+        mock_rd.assert_called_once_with(device="auto")
 
     def test_explicit_precision_triggers_resolve_device(self) -> None:
         """device='auto' + precision='int8' DOES call resolve_device."""

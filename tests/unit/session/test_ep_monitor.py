@@ -797,7 +797,7 @@ class TestLiveMonitorDisplay:
     """Test LiveMonitorDisplay logic (non-visual)."""
 
     def test_render_status_warmup_phase(self):
-        from winml.modelkit.commands.live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="npu")
         status = display._render_status(
@@ -813,7 +813,7 @@ class TestLiveMonitorDisplay:
         assert "npu" in status.lower() or "Device" in status
 
     def test_render_status_benchmark_phase(self):
-        from winml.modelkit.commands.live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=110, warmup=10, model_id="test", device="npu")
         status = display._render_status(
@@ -830,7 +830,7 @@ class TestLiveMonitorDisplay:
         assert "Latency" in status
 
     def test_render_status_zero_latency_no_crash(self):
-        from winml.modelkit.commands.live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
         # latency_ms=0 should not cause division by zero
@@ -842,7 +842,7 @@ class TestLiveMonitorDisplay:
         assert "Throughput" in status
 
     def test_render_status_empty_samples(self):
-        from winml.modelkit.commands.live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
         status = display._render_status(
@@ -853,7 +853,7 @@ class TestLiveMonitorDisplay:
         assert "0.0%" in status  # NPU should show 0.0%
 
     def test_update_noop_when_live_is_none(self):
-        from winml.modelkit.commands.live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
         # _live is None (not entered context) — should not crash
@@ -864,7 +864,7 @@ class TestLiveMonitorDisplay:
         )
 
     def test_print_final_snapshot_is_noop(self):
-        from winml.modelkit.commands.live_chart import LiveMonitorDisplay
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
 
         display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
         # Should not crash or print anything
