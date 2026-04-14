@@ -1,49 +1,49 @@
-# 1ES Official Build Pipeline for WinML-ModelKit
+# OneBranch Official Build Pipeline for WinML-ModelKit
 # Runs lint, tests (unit, integration, regression), and builds the Python wheel.
 
-trigger:
-  branches:
-    include:
-      - main
-
-pr:
-  branches:
-    include:
-      - main
+trigger: none
+pr: none
 
 variables:
   pythonVersion: '3.10'
 
 resources:
   repositories:
-    - repository: 1esPipelines
+    - repository: templates
       type: git
-      name: 1ESPipelineTemplates/1ESPipelineTemplates
-      ref: refs/tags/release
+      name: OneBranch.Pipelines/GovernedTemplates
 
 extends:
-  template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
+  template: v2/OneBranch.Official.CrossPlat.yml@templates
   parameters:
-    pool:
-      name: Azure-Pipelines-1ESPT-ExDShared
-      image: windows-2022
-      os: windows
+    featureFlags:
+      windowsEsrpSigning: false
 
     stages:
       # ────────────────────────────────────────
       # Stage 1: Lint
       # ────────────────────────────────────────
       - stage: Lint
+        displayName: Lint
         jobs:
           - job: LintCheck
             displayName: 'Lint & License Headers'
+            pool:
+              type: windows
             timeoutInMinutes: 10
 
             steps:
+              - checkout: self
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: $(pythonVersion)
                 displayName: 'Use Python $(pythonVersion)'
+
+              - task: PipAuthenticate@1
+                inputs:
+                  artifactFeeds: 'windows.ai.toolkit/Modelkit'
+                displayName: 'Authenticate pip with Azure Artifacts'
 
               - script: pip install ruff pre-commit
                 displayName: 'Install lint tools'
@@ -58,10 +58,13 @@ extends:
       # Stage 2: Tests (unit, integration, regression)
       # ────────────────────────────────────────
       - stage: Test
+        displayName: Test
         dependsOn: Lint
         jobs:
           - job: TestMatrix
             displayName: 'Test'
+            pool:
+              type: windows
             timeoutInMinutes: 30
 
             strategy:
@@ -81,10 +84,17 @@ extends:
               maxParallel: 6
 
             steps:
+              - checkout: self
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: $(pythonVersion)
                 displayName: 'Use Python $(pythonVersion)'
+
+              - task: PipAuthenticate@1
+                inputs:
+                  artifactFeeds: 'windows.ai.toolkit/Modelkit'
+                displayName: 'Authenticate pip with Azure Artifacts'
 
               - script: pip install -e ".[dev]"
                 displayName: 'Install dependencies'
@@ -108,30 +118,37 @@ extends:
       # Stage 3: Build Wheel
       # ────────────────────────────────────────
       - stage: Build
+        displayName: Build Python Package
         dependsOn: Lint
         jobs:
           - job: BuildWheel
-            displayName: 'Build Python Package'
+            displayName: 'Build'
+            pool:
+              type: windows
             timeoutInMinutes: 10
 
-            templateContext:
-              outputs:
-                - output: pipelineArtifact
-                  targetPath: $(Build.ArtifactStagingDirectory)/dist
-                  artifactName: drop
-                  displayName: 'Publish PyPI artifacts'
-
             steps:
+              - checkout: self
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: $(pythonVersion)
                 displayName: 'Use Python $(pythonVersion)'
 
+              - task: PipAuthenticate@1
+                inputs:
+                  artifactFeeds: 'windows.ai.toolkit/Modelkit'
+                displayName: 'Authenticate pip with Azure Artifacts'
+
               - script: pip install build twine
                 displayName: 'Install build tools'
 
-              - script: python -m build --outdir $(Build.ArtifactStagingDirectory)/dist
+              - script: python -m build
                 displayName: 'Build sdist and wheel'
 
-              - script: twine check $(Build.ArtifactStagingDirectory)/dist/*
+              - script: twine check dist/*
                 displayName: 'Validate packages for PyPI'
+
+              - publish: dist
+                artifact: drop
+                displayName: 'Publish PyPI artifacts'
