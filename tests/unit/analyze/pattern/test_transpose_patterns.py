@@ -218,3 +218,32 @@ class TestReshapeTransposeReshapeLowDimPattern:
         assert len(results) == 1, (
             "Unmerged 6-D RTR must match ReshapeTransposeReshapeOverlyHighDimPattern"
         )
+
+
+class TestRTRPatternIdAlignment:
+    """Verify pattern_id values match the rule configuration expectations."""
+
+    def test_overly_high_dim_pattern_id(self) -> None:
+        """ReshapeTransposeReshapeOverlyHighDimPattern must have distinct pattern_id."""
+        pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
+        assert pattern.pattern_id == "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern"
+
+    def test_low_dim_pattern_id(self) -> None:
+        """ReshapeTransposeReshapeLowDimPattern must have distinct pattern_id."""
+        pattern = ReshapeTransposeReshapeLowDimPattern()
+        assert pattern.pattern_id == "SUBGRAPH/ReshapeTransposeReshapeLowDimPattern"
+
+    def test_pattern_ids_are_distinct(self) -> None:
+        """Both RTR subclasses must return different pattern_ids."""
+        high_dim = ReshapeTransposeReshapeOverlyHighDimPattern()
+        low_dim = ReshapeTransposeReshapeLowDimPattern()
+        assert high_dim.pattern_id != low_dim.pattern_id
+
+    def test_pattern_id_differs_from_schema_name(self) -> None:
+        """pattern_id must NOT fall back to the shared schema name."""
+        high_dim = ReshapeTransposeReshapeOverlyHighDimPattern()
+        low_dim = ReshapeTransposeReshapeLowDimPattern()
+        schema_based = f"SUBGRAPH/{high_dim.get_schema().name}"
+        # Both classes share the same schema, so schema-based ID would be identical.
+        # The override ensures they are distinct.
+        assert high_dim.pattern_id != schema_based or low_dim.pattern_id != schema_based
