@@ -196,7 +196,19 @@ class ResilientRunner:
             try:
                 return future.result(timeout=self.timeout_sec)
             except Exception as e:
+                # Snapshot worker processes before shutdown so we can kill them.
+                # shutdown(wait=False) abandons workers without waiting for exit,
+                # which causes timed-out/crashed subprocesses to accumulate.
+                try:
+                    lingering = list(self.executor._processes.values())
+                except Exception:
+                    lingering = []
                 self.executor.shutdown(wait=False, cancel_futures=True)
+                for proc in lingering:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
                 self.executor = self._new_executor()
                 if attempts >= self.max_retries:
                     # TODO: capture stdout/stderr on timeout/crashed inputs
