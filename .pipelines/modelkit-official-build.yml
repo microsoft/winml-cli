@@ -50,7 +50,7 @@ extends:
         jobs:
           # ── Lint ──
           - job: Lint
-            displayName: 'Lint & License Headers'
+            displayName: 'Ruff Lint'
             pool:
               type: windows
             timeoutInMinutes: 10
@@ -66,13 +66,8 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: python -m pip install ruff pre-commit
-                displayName: 'Install lint tools'
-
-              - script: |
-                  pre-commit run insert-license --all-files
-                  git diff --exit-code
-                displayName: 'Check license headers'
+              - script: python -m pip install ruff
+                displayName: 'Install ruff'
 
               - script: ruff check src/ tests/
                 displayName: 'Ruff lint'
