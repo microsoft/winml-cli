@@ -45,13 +45,11 @@ extends:
           enabled: false
 
     stages:
-      # ────────────────────────────────────────
-      # Stage 1: Lint
-      # ────────────────────────────────────────
-      - stage: Lint
-        displayName: Lint
+      - stage: Build
+        displayName: 'Lint, Test & Build'
         jobs:
-          - job: LintCheck
+          # ── Lint ──
+          - job: Lint
             displayName: 'Lint & License Headers'
             pool:
               type: windows
@@ -65,8 +63,8 @@ extends:
 
               - task: UsePythonVersion@0
                 inputs:
-                  versionSpec: $(pythonVersion)
-                displayName: 'Use Python $(pythonVersion)'
+                  versionSpec: '3.10'
+                displayName: 'Use Python 3.10'
 
               - task: PipAuthenticate@1
                 inputs:
@@ -84,15 +82,10 @@ extends:
               - script: ruff check src/ tests/
                 displayName: 'Ruff lint'
 
-      # ────────────────────────────────────────
-      # Stage 2: Tests (unit, integration, regression)
-      # ────────────────────────────────────────
-      - stage: Test
-        displayName: Test
-        dependsOn: Lint
-        jobs:
-          - job: TestMatrix
+          # ── Test (6-group matrix) ──
+          - job: Test
             displayName: 'Test'
+            dependsOn: Lint
             pool:
               type: windows
             timeoutInMinutes: 30
@@ -121,8 +114,8 @@ extends:
 
               - task: UsePythonVersion@0
                 inputs:
-                  versionSpec: $(pythonVersion)
-                displayName: 'Use Python $(pythonVersion)'
+                  versionSpec: '3.10'
+                displayName: 'Use Python 3.10'
 
               - task: PipAuthenticate@1
                 inputs:
@@ -147,15 +140,10 @@ extends:
                   mergeTestResults: true
                 displayName: 'Publish test results'
 
-      # ────────────────────────────────────────
-      # Stage 3: Build Wheel
-      # ────────────────────────────────────────
-      - stage: Build
-        displayName: Build Python Package
-        dependsOn: Test
-        jobs:
+          # ── Build Wheel ──
           - job: BuildWheel
-            displayName: 'Build'
+            displayName: 'Build Python Package'
+            dependsOn: Test
             pool:
               type: windows
             timeoutInMinutes: 10
@@ -169,8 +157,8 @@ extends:
 
               - task: UsePythonVersion@0
                 inputs:
-                  versionSpec: $(pythonVersion)
-                displayName: 'Use Python $(pythonVersion)'
+                  versionSpec: '3.10'
+                displayName: 'Use Python 3.10'
 
               - task: PipAuthenticate@1
                 inputs:
