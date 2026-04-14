@@ -67,9 +67,11 @@ extends:
                 displayName: 'Authenticate pip with Azure Artifacts'
 
               - script: python -m pip install ruff
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Install ruff'
 
               - script: ruff check src/ tests/
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Ruff lint'
 
           # ── Test (6-group matrix) ──
@@ -108,12 +110,14 @@ extends:
                 displayName: 'Authenticate pip with Azure Artifacts'
 
               - script: python -m pip install ".[dev]"
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Install dependencies'
 
               - script: >
                   pytest $(testPaths) --tb=short
                   -m "not e2e and not npu and not gpu"
                   --junitxml=$(Build.StagingDirectory)/test-results.xml
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Run tests'
 
               - task: PublishTestResults@2
@@ -146,10 +150,13 @@ extends:
                 displayName: 'Authenticate pip with Azure Artifacts'
 
               - script: python -m pip install build twine
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Install build tools'
 
               - script: python -m build --outdir $(ob_outputDirectory)
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Build sdist and wheel'
 
               - script: twine check $(ob_outputDirectory)/*
+                workingDirectory: $(Build.SourcesDirectory)
                 displayName: 'Validate packages for PyPI'
