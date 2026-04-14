@@ -15,6 +15,9 @@ parameters: # parameters are shown up in ADO UI in a build queue time
   displayName: 'Enable debug output'
   type: boolean
   default: false
+- name: 'artifactsBranch'
+  displayName: 'ModelKitArtifacts branch (e.g. release/v0.0.1)'
+  type: string
 
 variables:
   CDP_DEFINITION_BUILD_COUNT: $[counter('', 0)] # needed for onebranch.pipeline.version task https://aka.ms/obpipelines/versioning
@@ -31,6 +34,7 @@ resources:
       type: github
       name: gim-home/ModelKitArtifacts
       endpoint: github.com_yuesu_microsoft
+      ref: refs/heads/${{ parameters.artifactsBranch }}
 
 extends:
   template: v2/OneBranch.Official.CrossPlat.yml@templates # https://aka.ms/obpipelines/templates
@@ -65,13 +69,11 @@ extends:
             steps:
               - checkout: artifacts
                 fetchDepth: 1
-                lfs: true
 
               - powershell: |
                   $outDir = "$(ob_outputDirectory)"
                   New-Item -ItemType Directory -Path $outDir -Force | Out-Null
                   $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\op_check_results\rules"
-                  Write-Host "Looking for rules in: $rulesDir"
                   $zips = Get-ChildItem "$rulesDir\*.zip"
                   Write-Host "Found $($zips.Count) rule zips"
                   $zips | Copy-Item -Destination $outDir
