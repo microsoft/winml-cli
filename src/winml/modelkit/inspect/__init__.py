@@ -57,21 +57,19 @@ class InspectError(Exception):
     """Base exception for inspect command."""
 
 
-
 class ModelNotFoundError(InspectError):
     """Model not found on HuggingFace Hub."""
-
 
 
 class NetworkError(InspectError):
     """Network error while fetching model config."""
 
 
-
 def inspect_model(
     model_id: str,
     include_hierarchy: bool = False,
     task_override: str | None = None,
+    trust_remote_code: bool = False,
 ) -> InspectResult:
     """Inspect a HuggingFace model and return configuration details.
 
@@ -79,6 +77,7 @@ def inspect_model(
         model_id: HuggingFace model identifier (e.g., "openai/clip-vit-base-patch32")
         include_hierarchy: If True, load model and extract HF module hierarchy
         task_override: If provided, use this task instead of auto-detection
+        trust_remote_code: If True, allow running custom code from the model repository
 
     Returns:
         InspectResult with all configuration details
@@ -98,7 +97,7 @@ def inspect_model(
 
     # Step 1: Fetch HF config (no model download)
     try:
-        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=False)
+        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
     except OSError as e:
         if "404" in str(e) or "not found" in str(e).lower():
             raise ModelNotFoundError(f"Model '{model_id}' not found on HuggingFace Hub") from e
@@ -147,13 +146,11 @@ def inspect_model(
     if include_hierarchy:
         from .hierarchy import extract_hierarchy
 
-        hierarchy_info = extract_hierarchy(model_id)
+        hierarchy_info = extract_hierarchy(model_id, trust_remote_code=trust_remote_code)
         logger.debug("Hierarchy: %d HF modules", hierarchy_info.hf_module_count)
 
     # Step 6: Compile overall support status
-    overall_support, support_notes = compile_support_status(
-        loader_info, exporter_info, winml_info
-    )
+    overall_support, support_notes = compile_support_status(loader_info, exporter_info, winml_info)
     logger.info("Overall support: %s", overall_support.value)
 
     # Step 7: Get full build config (for verbose output)

@@ -61,6 +61,12 @@ console = Console()
     default=False,
     help="Show HF module hierarchy (uses random weights, no weight download)",
 )
+@click.option(
+    "--trust-remote-code",
+    is_flag=True,
+    default=False,
+    help="Allow running custom code from model repository",
+)
 @click.pass_context
 def inspect(
     ctx: click.Context,
@@ -69,6 +75,7 @@ def inspect(
     verbose: bool,
     task: str | None,
     hierarchy: bool,
+    trust_remote_code: bool,
 ) -> None:
     r"""Inspect a HuggingFace model's ModelKit configuration.
 
@@ -116,7 +123,12 @@ def inspect(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     try:
-        result = inspect_model(model, include_hierarchy=hierarchy, task_override=task)
+        result = inspect_model(
+            model,
+            include_hierarchy=hierarchy,
+            task_override=task,
+            trust_remote_code=trust_remote_code,
+        )
 
         if output_format.lower() == "json":
             click.echo(output_json(result, verbose=verbose))
