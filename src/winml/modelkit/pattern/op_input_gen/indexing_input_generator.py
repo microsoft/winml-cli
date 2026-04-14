@@ -997,6 +997,17 @@ class GatherBlockQuantizedInputGenerator(OpInputGenerator):
                                 }
                                 yield self.filter_kwargs_by_opset(kwargs), tags
 
+    def _run_op_on_cpu(self, kwargs: dict, tags: dict) -> Any:
+        """Skip CPU validation for GatherBlockQuantized.
+
+        This op is a com.microsoft fused op not supported by the CPU EP.
+        The quantized data inputs (INT4/UINT4/UINT8) are constant initializers
+        and cannot be fed as runtime inputs; the base class builds an all-dynamic
+        model for CPU validation, which would fail on sub-byte dtypes.
+        Our combinations are valid by construction, so CPU pre-validation is not needed.
+        """
+        return []
+
     def derive_properties(self, properties: dict) -> dict:
         """Derive filter properties from node inputs and attributes."""
         item = properties.copy()
