@@ -8,13 +8,14 @@ version = "0.0.1.dev1"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
-license = "MIT"
+license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
 requires-python = ">=3.10,<3.11"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
