@@ -100,7 +100,6 @@ class KNNAccuracyMetric:
         top_k_indices = np.argpartition(similarity, -k, axis=1)[:, -k:]
 
         n = len(embeddings)
-        top5_k = min(5, k)
         top1_predictions = np.empty(n, dtype=np.int64)
         top5_predictions: list[list[int]] = []
 
@@ -122,7 +121,7 @@ class KNNAccuracyMetric:
 
             ranked = sorted(vote_weights, key=lambda c: vote_weights[c], reverse=True)
             top1_predictions[i] = ranked[0]
-            top5_predictions.append(ranked[:top5_k])
+            top5_predictions.append(ranked[:5])
 
         return top1_predictions, top5_predictions
 

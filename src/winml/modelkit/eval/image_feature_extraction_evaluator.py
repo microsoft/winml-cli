@@ -20,10 +20,10 @@ Ground-truth dataset (default: timm/mini-imagenet):
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from tqdm import tqdm
 
 from .base_evaluator import WinMLEvaluator
 
@@ -35,8 +35,6 @@ if TYPE_CHECKING:
     from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import WinMLEvaluationConfig
-
-logger = logging.getLogger(__name__)
 
 
 class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
@@ -87,22 +85,17 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
         embeddings: list[np.ndarray] = []
         labels: list[int] = []
 
-        for i, sample in enumerate(self.data):
+        for sample in tqdm(self.data, desc="Embedding images", unit="img"):
             image = sample.get("image")
             label = sample.get(self._label_col)
 
-            if image is None:
-                logger.warning("Skipping sample %d: missing image.", i)
+            if image is None or label is None:
                 continue
 
             raw = self.pipe(image)  # [[[float, ...]]]
             tokens = np.array(raw[0])
             embeddings.append(tokens[0] if tokens.ndim > 1 else tokens)
             labels.append(int(label))
-
-            if (i + 1) % 10 == 0:
-                total = len(self.data) if hasattr(self.data, "__len__") else "?"
-                logger.info("Embedded %d / %s images...", i + 1, total)
 
         if len(embeddings) < 2:
             raise ValueError(

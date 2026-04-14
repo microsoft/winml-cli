@@ -14,9 +14,9 @@ from .evaluate import EvalResult, evaluate
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
+from .metrics.knn_accuracy import KNNAccuracyMetric
 from .metrics.mean_average_precision import MAPMetric
 from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
-from .metrics.knn_accuracy import KNNAccuracyMetric
 from .metrics.spearman_correlation import SpearmanCorrelationMetric
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
