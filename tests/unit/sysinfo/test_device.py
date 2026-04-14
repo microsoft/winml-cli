@@ -136,10 +136,10 @@ class TestMappingConstants:
         for ep, device in _EP_DEVICE_MAP.items():
             assert device == device.lower(), f"{ep} maps to non-lowercase '{device}'"
 
-    def test_device_ep_map_excludes_openvino(self) -> None:
-        """_DEVICE_EP_MAP should not contain OpenVINO entries."""
-        all_eps = [ep for eps in _DEVICE_EP_MAP.values() for ep in eps]
-        assert "OpenVINOExecutionProvider" not in all_eps
+    def test_device_ep_map_includes_openvino_for_supported_devices(self) -> None:
+        """_DEVICE_EP_MAP should include OpenVINO for each declared device."""
+        for device in ["npu", "gpu", "cpu"]:
+            assert "OpenVINOExecutionProvider" in _DEVICE_EP_MAP[device]
 
     def test_device_ep_map_derived_from_ep_device_map(self) -> None:
         """_DEVICE_EP_MAP should be consistent with _EP_DEVICE_MAP."""
@@ -148,7 +148,7 @@ class TestMappingConstants:
                 assert ep in _EP_DEVICE_MAP, (
                     f"EP '{ep}' in _DEVICE_EP_MAP but not in _EP_DEVICE_MAP"
                 )
-                assert _EP_DEVICE_MAP[ep] == device
+                assert device in _EP_DEVICE_MAP[ep].split("/")
 
     def test_nv_tensorrt_rtx_is_gpu_ep(self) -> None:
         """NvTensorRTRTXExecutionProvider should map to gpu."""
