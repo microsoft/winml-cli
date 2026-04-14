@@ -37,10 +37,16 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def mock_analyzer_result() -> Mock:
-    """Create a mock AnalysisOutput result."""
+    """Create a mock AnalysisResult (returned by ONNXStaticAnalyzer.analyze).
+
+    The command accesses ``result.output.results`` (list of EPSupport) for
+    Rich live display, ``result.is_fully_supported()`` for exit code, and
+    ``result.to_json()`` for JSON output.
+    """
     mock_result = Mock()
     mock_result.is_fully_supported.return_value = True
     mock_result.get_unsupported_operators.return_value = []
+    mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
             "analyzer_version": "0.1.0",
@@ -64,6 +70,7 @@ def mock_analyzer_partial_support() -> Mock:
     mock_result = Mock()
     mock_result.is_fully_supported.return_value = False
     mock_result.get_unsupported_operators.return_value = ["Conv", "Gemm", "Add"]
+    mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
             "analyzer_version": "0.1.0",
@@ -609,7 +616,7 @@ class TestAnalyzeCommandIntegration:
         # Verify analyze was called with correct parameters
         mock_instance.analyze.assert_called_once()
         call_kwargs = mock_instance.analyze.call_args[1]
-        assert call_kwargs["model_path"] == model_file
+        assert call_kwargs["model_path"] == str(model_file)
         assert call_kwargs["ep"] == "OpenVINOExecutionProvider"
         assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
