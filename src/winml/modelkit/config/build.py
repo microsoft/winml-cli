@@ -855,6 +855,7 @@ def _merge_export_config(
         dynamic_axes=(
             override.dynamic_axes if override.dynamic_axes is not None else base.dynamic_axes
         ),
+        dynamo=override.dynamo if override.dynamo else base.dynamo,
     )
 
 

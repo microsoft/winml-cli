@@ -441,9 +441,15 @@ class HTPExporter:
         if export_config.dynamic_axes:
             onnx_kwargs["dynamic_axes"] = export_config.dynamic_axes
 
-        tuple(inputs.values())
         with self._get_optimum_patcher(model, task):
-            torch.onnx.export(model, (), output_path, kwargs=inputs, **onnx_kwargs)
+            # Models can override input binding by implementing
+            # get_export_args(inputs) → tuple of positional args.
+            # Default: pass inputs dict as kwargs.
+            if hasattr(model, "get_export_args"):
+                export_args = model.get_export_args(inputs)
+                torch.onnx.export(model, export_args, output_path, **onnx_kwargs)
+            else:
+                torch.onnx.export(model, (), output_path, kwargs=inputs, **onnx_kwargs)
 
     @staticmethod
     def _get_optimum_patcher(model: nn.Module, task: str | None) -> Any:

@@ -166,6 +166,11 @@ def _is_onnx_file(model_input: str) -> bool:
     default=False,
     help="Allow running custom code from model repository",
 )
+@click.option(
+    "--subfolder",
+    default=None,
+    help="Subfolder within HF repo to load from (e.g., 'text_encoder' for Stable Diffusion).",
+)
 def config(
     hf_model: str | None,
     task: str | None,
@@ -183,6 +188,7 @@ def config(
     no_quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
+    subfolder: str | None,
 ) -> None:
     r"""Generate WinMLBuildConfig for a HuggingFace model or .onnx file.
 
@@ -302,6 +308,31 @@ def config(
             label = hf_model or model_type
             console.print(f"[dim]Generating config for {label}...[/dim]")
 
+            # Check pipeline model registry: (model_type, task) → multi-config
+            pipeline_components = _resolve_pipeline_components(
+                hf_model, model_type, task, trust_remote_code=trust_remote_code
+            )
+            if pipeline_components:
+                # Pipeline model: generate one config per sub-component
+                _generate_pipeline_configs(
+                    pipeline_components,
+                    hf_model=hf_model,
+                    model_class=model_class,
+                    model_type=model_type,
+                    override=override,
+                    shape_config=shape_config,
+                    library_name=library_name,
+                    device=device,
+                    precision=precision,
+                    trust_remote_code=trust_remote_code,
+                    ep=ep,
+                    no_quant=no_quant,
+                    no_compile=no_compile,
+                    output=output,
+                    console=console,
+                )
+                return
+
             # Generate config(s) - returns single or list based on module parameter
             result = generate_hf_build_config(
                 model_id=hf_model,
@@ -316,6 +347,7 @@ def config(
                 precision=precision,
                 trust_remote_code=trust_remote_code,
                 ep=ep,
+                subfolder=subfolder,
             )
 
             # Handle output format
@@ -363,3 +395,91 @@ def config(
         if verbose:
             logger.exception("Unexpected error during config generation")
         raise click.ClickException(f"Unexpected error: {e}") from e
+
+
+def _resolve_pipeline_components(
+    hf_model: str | None,
+    model_type: str | None,
+    task: str | None,
+    trust_remote_code: bool = False,
+) -> dict[str, str] | None:
+    """Check if (model_type, task) is a registered pipeline model.
+
+    Returns _SUB_MODEL_CONFIG dict if found, None otherwise.
+    """
+    if task is None:
+        return None
+
+    import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
+
+    from ..models.winml.pipeline_model import PIPELINE_MODEL_REGISTRY
+
+    # Resolve model_type from HF config if not provided
+    resolved_type = model_type
+    if resolved_type is None and hf_model is not None:
+        from transformers import AutoConfig
+
+        resolved_type = AutoConfig.from_pretrained(
+            hf_model, trust_remote_code=trust_remote_code
+        ).model_type
+
+    if resolved_type is None:
+        return None
+
+    cls = PIPELINE_MODEL_REGISTRY.get((resolved_type, task))
+    return cls._SUB_MODEL_CONFIG if cls is not None else None
+
+
+def _generate_pipeline_configs(
+    components: dict[str, str],
+    *,
+    hf_model: str | None,
+    model_class: str | None,
+    model_type: str | None,
+    override: Any,
+    shape_config: dict | None,
+    library_name: str,
+    device: str,
+    precision: str,
+    trust_remote_code: bool,
+    ep: str | None,
+    no_quant: bool,
+    no_compile: bool,
+    output: str | None,
+    console: Any,
+) -> None:
+    """Generate and save one config file per pipeline sub-component."""
+    from ..config import generate_hf_build_config
+
+    for component_name, component_task in components.items():
+        console.print(
+            f"[dim]Generating config for component '{component_name}' "
+            f"(task={component_task})...[/dim]"
+        )
+
+        cfg = generate_hf_build_config(
+            model_id=hf_model,
+            task=component_task,
+            model_class=model_class,
+            model_type=model_type,
+            override=override,
+            shape_config=shape_config,
+            library_name=library_name,
+            device=device,
+            precision=precision,
+            trust_remote_code=trust_remote_code,
+            ep=ep,
+        )
+        _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
+
+        config_json = json.dumps(cfg.to_dict(), indent=2)
+
+        if output:
+            out_path = Path(output)
+            suffixed = out_path.with_stem(f"{out_path.stem}_{component_name}")
+            suffixed.parent.mkdir(parents=True, exist_ok=True)
+            suffixed.write_text(config_json)
+            console.print(f"[green]Config saved to:[/green] {suffixed}")
+        else:
+            console.print(f"[bold]--- {component_name} ({component_task}) ---[/bold]")
+            print(config_json)

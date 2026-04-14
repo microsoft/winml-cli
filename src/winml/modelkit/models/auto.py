@@ -292,6 +292,7 @@ class WinMLAutoModel:
             shape_config=shape_config,
             device=device,
             precision=precision,
+            trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
         )
 
