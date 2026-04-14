@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import torch
+from tqdm import tqdm
 
 from .base_evaluator import WinMLEvaluator
 from .metrics import CrossEntropyMetric
@@ -176,10 +177,7 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         max_length = self._get_max_length()
         metric = CrossEntropyMetric()
 
-        for i, sample in enumerate(self.data):
-            if (i + 1) % 50 == 0:
-                logger.info("%d samples, %d masked tokens", i + 1, metric.total_tokens)
-
+        for i, sample in enumerate(tqdm(self.data, desc="Evaluating fill-mask")):
             result = self._tokenize_and_mask(
                 sample[self._input_col], tokenizer, data_collator, max_length,
             )
