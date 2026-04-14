@@ -27,6 +27,7 @@ from rich.console import Console
 
 from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE, VALID_EPS
 from ..onnx import is_compiled_onnx
+from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
 
 
@@ -104,6 +105,7 @@ console = Console()
     default=False,
     help="List available compilers for the selected device and exit",
 )
+@cli_utils.build_config_option
 @click.pass_context
 def compile(
     ctx: click.Context,
@@ -118,6 +120,7 @@ def compile(
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
+    config_file: Path | None,
 ) -> None:
     r"""Compile ONNX model to EP-specific format.
 
@@ -145,6 +148,22 @@ def compile(
     # Inherit debug mode from parent
     if ctx.obj and ctx.obj.get("debug"):
         verbose = True
+
+    # Apply build config defaults (CLI explicit options take precedence)
+    if config_file is not None:
+        build_cfg = cli_utils.load_build_config(config_file)
+        if build_cfg.compile:
+            cc = build_cfg.compile
+            if not cli_utils.is_cli_provided(ctx, "ep"):
+                ep = cc.ep_config.provider
+            if not cli_utils.is_cli_provided(ctx, "compiler"):
+                compiler = cc.ep_config.compiler
+            if not cli_utils.is_cli_provided(ctx, "embed"):
+                embed = cc.ep_config.embed_context
+            if not cli_utils.is_cli_provided(ctx, "validate"):
+                validate = cc.validate
+            if not cli_utils.is_cli_provided(ctx, "verbose"):
+                verbose = cc.verbose
 
     configure_logging(verbose=verbose)
 

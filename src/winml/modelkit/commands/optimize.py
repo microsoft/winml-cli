@@ -31,6 +31,7 @@ import click
 from rich.console import Console
 
 from ..onnx import is_compiled_onnx, load_onnx, save_onnx
+from ..utils import cli as cli_utils
 
 
 if TYPE_CHECKING:
@@ -224,6 +225,7 @@ def capability_options(func: Callable) -> Callable:
     default=False,
     help="Enable verbose output",
 )
+@cli_utils.build_config_option
 @capability_options
 @click.pass_context
 def optimize(
@@ -235,6 +237,7 @@ def optimize(
     preset: str | None,
     config: Path | None,
     verbose: bool,
+    config_file: Path | None,
     **kwargs: Any,
 ) -> None:
     r"""Optimize ONNX model with capability-driven optimizer.
@@ -417,28 +420,35 @@ def optimize(
     for cap_name, cap_def in all_caps.items():
         final_config[cap_name] = cap_def.default
 
-    # 2. Apply preset if specified (overrides defaults)
+    # 2. Apply build config optim section if specified (overrides defaults)
+    if config_file is not None:
+        build_cfg = cli_utils.load_build_config(config_file)
+        if build_cfg.optim:
+            final_config.update(build_cfg.optim.to_dict())
+            console.print(f"[dim]Applied build config optim section: {config_file}[/dim]")
+
+    # 3. Apply preset if specified (overrides defaults)
     if preset and preset in PRESETS:
         final_config.update(PRESETS[preset])
         console.print(f"[dim]Applied preset: {preset}[/dim]")
 
-    # 3. Apply config file if specified (overrides preset/defaults)
+    # 4. Apply config file if specified (overrides preset/defaults)
     if config:
         file_config = load_config(config)
         final_config.update(file_config)
         console.print(f"[dim]Loaded config from: {config}[/dim]")
 
-    # 4. Override with explicit CLI options (highest precedence)
+    # 5. Override with explicit CLI options (highest precedence)
     # kwargs contains python_name -> value mappings from capability_options
     for cap_name, cap_def in all_caps.items():
         python_name = cap_def.python_name
         if python_name in kwargs and kwargs[python_name] is not None:
             final_config[cap_name] = kwargs[python_name]
 
-    # 5. Auto-enable dependencies (e.g., bias-gelu-fusion requires gelu-fusion)
+    # 6. Auto-enable dependencies (e.g., bias-gelu-fusion requires gelu-fusion)
     final_config = auto_enable_dependencies(final_config, all_caps)
 
-    # 6. Validate configuration (especially important for config files)
+    # 7. Validate configuration (especially important for config files)
     errors = validate(final_config, all_caps)
     dep_errors = validate_dependencies(final_config, all_caps)
     all_errors = errors + dep_errors

@@ -28,6 +28,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from ..utils import cli as cli_utils
 from .live_chart import LiveMonitorDisplay
 
 
@@ -952,6 +953,7 @@ def generate_output_path(model_id: str) -> Path:
     default=False,
     help="Enable verbose output",
 )
+@cli_utils.build_config_option
 @click.pass_context
 def perf(
     ctx: click.Context,
@@ -974,6 +976,7 @@ def perf(
     op_tracing: str | None,
     compare_devices: str | None,
     verbose: bool,
+    config_file: Path | None,
 ) -> None:
     r"""Benchmark model inference performance.
 
@@ -1022,6 +1025,14 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     hf_model = model_id
+
+    # Apply build config defaults (CLI explicit options take precedence)
+    if config_file is not None:
+        build_cfg = cli_utils.load_build_config(config_file)
+        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
+            task = build_cfg.loader.task
+        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
+            ep = build_cfg.compile.ep_config.provider
 
     # Setup logging
     if verbose or (ctx.obj and ctx.obj.get("debug")):
