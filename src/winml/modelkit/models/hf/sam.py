@@ -2,30 +2,30 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""SAM2 HuggingFace Model Patches and Export Configs.
+"""SAM/SAM2 HuggingFace model patches and ONNX export configs.
 
-Provides QNN-compatible patches and ONNX export configs for SAM2
-(Segment Anything Model 2) from Meta/Facebook.
+Provides QNN-compatible patches and ONNX export configs for both:
+- SAM v1 (facebook/sam-vit-*)
+- SAM2 / SAM2-video (facebook/sam2-hiera-*)
 
-Key Features:
-- QNN-compatible patches: 5D window partition, arithmetic masking
-- Split export: Separate encoder and decoder ONNX files
+Key features:
+- SAM2 QNN-compatible patches: 5D window partition, arithmetic masking
+- Split and task-specific exports: encoder, full model, and decoder wrappers
 
-Patch Targets (applied via Sam2ModelPatcher during export):
+Patch targets (applied via Sam2ModelPatcher during export):
 - Sam2MultiScaleBlock: 5D window partition (6D->5D for QNN)
 - Sam2PromptEncoder: Arithmetic masking (torch.where->arithmetic for ONNX)
 
-Export Strategy (split):
-- Sam2ImageEncoderIOConfig: pixel_values -> embeddings + high_res features
-- Sam2MaskDecoderIOConfig: prompts + embeddings -> masks + iou_scores
-
-Model: facebook/sam2-hiera-small, facebook/sam2-hiera-large, etc.
-Task: image-segmentation
+Export coverage:
+- SAM2: image encoder, full model, mask-generation decoder wrapper
+- SAM v1: mask-generation decoder wrapper
 
 Exports:
     Sam2NormalizedVisionConfig: NormalizedVisionConfig with 1024 image_size
-    Sam2ImageEncoderIOConfig: ONNX config for image encoder
-    Sam2MaskDecoderIOConfig: ONNX config for mask decoder
+    Sam2ImageEncoderIOConfig: ONNX config for SAM2 image encoder
+    Sam2IOConfig: ONNX config for SAM2 full model
+    Sam2MaskGenerationIOConfig: ONNX config for SAM2 mask-generation wrapper
+    SamMaskGenerationIOConfig: ONNX config for SAM v1 mask-generation wrapper
     Sam2ModelPatcher: Custom ModelPatcher for SAM2 export patches
     _patched_sam2_multiscale_block_forward: Patched forward (internal)
     _patched_sam2_prompt_encoder_forward: Patched forward (internal)
@@ -955,6 +955,8 @@ class SamEmbeddingsInputGenerator(DummyInputGenerator):
         int_dtype: str = "int64",
         float_dtype: str = "fp32",
     ):
+        # SAM v1 decoder export expects the canonical embedding shape from the
+        # vision encoder output; this mirrors the existing SAM2 generator path.
         shape = [self.batch_size, 256, 64, 64]
         return self.random_float_tensor(shape, framework=framework, dtype=float_dtype)
 
@@ -988,7 +990,11 @@ class SamMaskGenerationIOConfig(OnnxConfig):
         - low_res_masks:  {0: "batch_size"} [B, 3, 256, 256]
     """
 
+    # SAM v1 also uses 1024x1024 default image size, so this normalized config
+    # is intentionally shared across SAM v1 and SAM2 export configs.
     NORMALIZED_CONFIG_CLASS = Sam2NormalizedVisionConfig
+    # SAM v1 reuses SAM2-named generators because prompt/mask tensor shapes
+    # are identical for this export path.
     DUMMY_INPUT_GENERATOR_CLASSES = (
         Sam2PointsInputGenerator,
         SamEmbeddingsInputGenerator,
