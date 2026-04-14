@@ -177,7 +177,7 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         max_length = self._get_max_length()
         metric = CrossEntropyMetric()
 
-        for i, sample in enumerate(tqdm(self.data, desc="Evaluating fill-mask")):
+        for sample in tqdm(self.data, desc="Evaluating fill-mask"):
             result = self._tokenize_and_mask(
                 sample[self._input_col], tokenizer, data_collator, max_length,
             )
