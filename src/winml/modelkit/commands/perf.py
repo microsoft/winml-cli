@@ -1285,6 +1285,15 @@ def perf(
     )
 
     try:
+        # Op-tracing pre-flight: fail fast before running any benchmark iterations
+        if op_tracing:
+            from ..optracing import is_qnn_profiling_available
+
+            if not is_qnn_profiling_available():
+                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
+                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
+                raise SystemExit(1)
+
         model_path = Path(hf_model)
         is_onnx = model_path.suffix.lower() == ".onnx"
 
@@ -1318,15 +1327,6 @@ def perf(
                 console.print(f"[dim]Precision: {precision} (applied during model build)[/dim]")
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
-            # Op-tracing pre-flight: fail fast before running any benchmark iterations
-            if op_tracing:
-                from ..optracing import is_qnn_profiling_available
-
-                if not is_qnn_profiling_available():
-                    console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                    console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                    raise SystemExit(1)
-
             benchmark = PerfBenchmark(config)
             result = benchmark.run()
 
@@ -1341,13 +1341,6 @@ def perf(
         # Op-tracing (additive to existing benchmark)
         # =================================================================
         if op_tracing:
-            from ..optracing import is_qnn_profiling_available
-
-            if not is_qnn_profiling_available():
-                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                raise SystemExit(1)
-
             from ..optracing import (
                 display_op_trace_report,
                 get_tracer,
