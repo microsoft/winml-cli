@@ -1,5 +1,6 @@
 # ModelKit
 
+[![ModelKit CI](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml)
 ![Status](https://img.shields.io/badge/status-early%20access-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
