@@ -4,60 +4,48 @@
 # --------------------------------------------------------------------------
 """WinML Encoder-Decoder inference model and shared input generator.
 
-Provides ``WinMLEncoderDecoderModel`` — inference wrapper for encoder-decoder
-pipelines (T5, mBART, etc.) with static KV cache, and
-``EncoderDecoderInputGenerator`` — reusable ``DummyInputGenerator`` for
-decoder base inputs shared across encoder-decoder architectures.
-
 Class hierarchy::
 
-    WinMLPipelineModel(PreTrainedModel)            — multi-component base
-      └─ WinMLEncoderDecoderModel(GenerationMixin) — encoder-decoder with StaticCache
-           └─ WinMLT5Model (in t5.py)              — T5 tasks + generation config
+    WinMLPipelineModel                             — multi-component base
+      └─ WinMLEncoderDecoderModel(GenerationMixin) — encoder-decoder inference
+           ├─ WinMLT5Model (t5.py)                 — WinMLStaticCache
+           └─ WinMLMu2Model (mu2.py)               — WinMLSlidingWindowCache
 
-How it works:
+How ``forward()`` works:
 
-1. Each pipeline model declares ``_SUB_MODEL_CONFIG = {"encoder": "feature-extraction",
-   "decoder": "text2text-generation"}``. ``from_pretrained()`` builds each component
-   via ``WinMLAutoModel`` (export → optimize → compile) independently.
+1. Encoder runs once (via ``get_encoder()``), hidden states cached by
+   GenerationMixin across decode steps.
 
-2. The encoder is wrapped in ``_EncoderWithInputPadding`` which reads ONNX input
-   names/shapes from ``io_config`` and zero-pads any undersized inputs.
+2. Each decode step: ``_resolve_cache`` unwraps GenerationMixin's
+   ``EncoderDecoderCache`` wrapper (or creates a fresh ``WinMLCache``
+   on first call).  Cache type is determined by ``get_cache_class()``.
 
-3. ``forward()`` takes ``(*, encoder_outputs, past_key_values, input_ids, **model_kwargs)``
-   where ``model_kwargs`` carries decoder inputs like ``decoder_input_ids`` and
-   ``attention_mask``. Feeds are built from model_kwargs + generated inputs
-   (encoder_hidden_states, decoder_attention_mask, cache_position, KV cache),
-   filtered to decoder ONNX input names, and auto-padded.
+3. Feeds are built from ``model_kwargs`` (decoder_input_ids, attention_mask)
+   plus generated inputs (encoder_hidden_states, decoder_attention_mask,
+   position input, KV buffers).  ``_pad_inputs`` filters to ONNX input
+   names and pads undersized tensors.
 
-4. KV cache uses HF ``StaticCache`` — same class for both export (``index_copy_``
-   traces correctly in ``torch.onnx.export``) and inference (mutated in-place via
-   ``cache.update()``). The ONNX decoder takes the full static buffer as input
-   and outputs only the new token's KV ``[batch, heads, 1, d_kv]``.
+4. After ONNX inference, ``cache.update_all_layers(outputs)`` writes
+   present KV back and advances step — fully polymorphic, no isinstance.
 
-Key findings from T5 KV cache study:
+Cache-type gotchas (lessons learned):
 
-- HF's ``DynamicCache`` is stateful (same object, mutated in-place via ``cat``).
-  ``GenerationMixin._update_model_kwargs_for_generation`` reads ``past_key_values``
-  from the output and reassigns it in ``model_kwargs`` — but for stateful caches
-  it's the same reference.
-- ``StaticCache`` uses ``index_copy_`` at ``cache_position`` (traces correctly).
-  ``StaticCache.get_seq_length()`` counts non-zero positions automatically.
-- ``EncoderDecoderCache`` with empty cross-attn cache → ``is_updated`` dict is
-  empty → cross-attention always recomputed from ``encoder_hidden_states`` →
-  prevents constant-folding during ONNX export.
-- ``GenerationMixin`` may wrap our ``StaticCache`` in an ``EncoderDecoderCache``
-  before passing it back. ``forward()`` must unwrap to find the ``StaticCache``.
-- ``TranslationPipeline`` passes its own ``generation_config`` with ``num_beams=4``
-  to ``generate()``. Use ``num_beams=1`` at call time or override in subclass.
+- **GenerationMixin wraps cache**: On the first decode call, GenerationMixin
+  may pass an ``EncoderDecoderCache`` (not None).  ``_resolve_cache`` must
+  unwrap it, and cache reset must check ``not isinstance(WinMLCache)``.
 
-Design principles:
+- **Causal mask with seq_len=1**: ``torch.tril(ones(1, N))`` only keeps
+  column 0.  For single-token KV-cached decoding, the decoder_attention_mask
+  alone is sufficient — no tril needed.
 
-- NEVER guard config access with default values. Use ``self.config.param``
-  directly and let AttributeError raise if the config is missing a field.
-- ONNX I/O names and shapes are read from ``io_config``, never hardcoded.
-- Inputs smaller than ONNX expected shape are zero-padded automatically.
-  Inputs larger than expected are NOT truncated — let ORT raise the error.
+- **RoPE position vs buffer position**: With ``WinMLSlidingWindowCache``,
+  the ONNX input is ``position_id`` (absolute sequence position for RoPE).
+  With ``WinMLStaticCache``, it's ``cache_position`` (= buffer position =
+  sequence position).
+
+- **T5 cannot use sliding window**: ``T5Attention.compute_bias`` assumes
+  ``buffer_position == sequence_position`` via ``arange(key_length)``.
+  See ``WinMLT5Model.get_cache_class()`` for details.
 """
 
 from __future__ import annotations

@@ -9,12 +9,32 @@ multiple ``WinMLAutoModel`` sub-components (e.g., encoder + decoder,
 prefill + gen).  Each subclass declares ``_SUB_MODEL_CONFIG`` mapping
 component names to HF tasks; ``from_pretrained()`` builds them all.
 
-Also provides the ``PIPELINE_MODEL_REGISTRY`` and ``register_pipeline_model``
-decorator, used by ``wmk config`` to generate per-component config files.
+Registry
+--------
+``@register_pipeline_model(model_type, task)`` registers a pipeline class.
+``wmk config`` checks the registry to generate one config file per component::
+
+    wmk config -m google-t5/t5-small --task translation -o t5.json
+    # → t5_encoder.json (feature-extraction) + t5_decoder.json (text2text-generation)
+
+    wmk build -c t5_encoder.json -m google-t5/t5-small -o output/encoder
+    wmk build -c t5_decoder.json -m google-t5/t5-small -o output/decoder
+
+Per-component kwargs
+--------------------
+``sub_model_kwargs`` in ``from_pretrained`` allows different ``shape_config``
+per sub-model (e.g., different ``max_cache_len`` for prefill vs gen)::
+
+    WinMLPipelineModel.from_pretrained(model_id, task="text-generation",
+        sub_model_kwargs={
+            "decoder_prefill": {"shape_config": {"max_cache_len": 256, "seq_len": 64}},
+            "decoder_gen":     {"shape_config": {"max_cache_len": 256, "seq_len": 1}},
+        })
 
 Concrete pipeline models live alongside their export configs:
 
 - ``models.hf.t5.WinMLT5Model`` (encoder-decoder, T5)
+- ``models.hf.mu2.WinMLMu2Model`` (encoder-decoder, Mu2)
 - ``models.hf.qwen.WinMLQwen3Model`` (decoder-only, Qwen3)
 """
 

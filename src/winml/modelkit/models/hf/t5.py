@@ -292,6 +292,18 @@ class WinMLT5Model(WinMLEncoderDecoderModel):
         "decoder": "text2text-generation",
     }
 
+    @classmethod
+    def get_cache_class(cls) -> type:
+        """T5 requires WinMLStaticCache (cannot use sliding window).
+
+        T5's relative position bias (``T5Attention.compute_bias``) computes
+        ``memory_position = arange(key_length)`` — it assumes buffer
+        position == sequence position.  With sliding window, KV entries
+        shift left each step, so buffer positions no longer correspond to
+        sequence positions, producing wrong relative distances.
+        """
+        return WinMLStaticCache
+
     @property
     def generation_config(self):  # noqa: D102
         if not hasattr(self, "_generation_config"):

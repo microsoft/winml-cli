@@ -2,30 +2,41 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Mu2 HuggingFace Model Configuration.
+"""Mu2 encoder-decoder model with sliding-window KV cache.
 
-Provides encoder/decoder export wrappers and OnnxConfig registrations for
-Mu2 encoder-decoder models with static KV cache.
+Export wrappers, OnnxConfig registrations, and ``WinMLMu2Model`` inference
+class for Mu2 (custom ``trust_remote_code`` model).
 
-Export Strategy (split by task):
-- Mu2EncoderWrapper + Mu2EncoderIOConfig: ``feature-extraction`` task
-  → encoder-only ONNX (input_ids, attention_mask → encoder_hidden_states)
-- Mu2DecoderWrapper + Mu2DecoderIOConfig: ``text2text-generation`` task
-  → decoder ONNX with static KV buffer input + single-token KV output.
-    Input past KV: full static buffer [batch, n_kv_head, max_decode, head_dim].
-    Output present KV: new token only [batch, n_kv_head, 1, head_dim].
+Export Strategy:
+- Mu2EncoderWrapper (``feature-extraction``): encoder-only ONNX.
+- Mu2DecoderWrapper (``text2text-generation``): decoder with
+  ``WinMLSlidingWindowCache`` (Slice+Concat, no ScatterElements).
+  Present KV output is the full updated buffer.
 
-The Mu2 model's native attention (MuAttentionSDPA) does NOT support HF's
-cache mechanism.  The decoder wrapper reimplements the decoder forward pass
-using the original layer weights, adding WinMLCache for
-self-attention KV.  Cross-attention KV is always recomputed from
-encoder_hidden_states (no cache needed).
+Custom model integration (``auto_map``):
+    The Mu2 model uses ``trust_remote_code=True`` with ``auto_map`` in
+    ``config.json`` pointing to ``modeling_mu.py`` / ``configuration_mu.py``
+    alongside the weights.  KV cache support was added to the model source
+    (``MuAttentionSDPA`` accepts ``past_key_value`` + ``cache_position``).
 
-Model: local Mu2ForCausalLM with trust_remote_code=True.
+Key decisions:
+- Uses ``WinMLSlidingWindowCache`` (not Static) because Mu2 uses RoPE,
+  not learned relative position bias.  RoPE is baked into K tensors,
+  so buffer positions don't affect attention — sliding window is safe.
+- The decoder ONNX input is ``position_id`` (absolute seq position for
+  RoPE), not ``cache_position`` (which implies buffer-position indexing).
+- Mu2's ``generate_sin_cos_pos_emb`` was patched for transformers < 5.x
+  compatibility (computes inv_freq directly instead of using
+  ``LlamaRotaryEmbedding.compute_default_rope_parameters``).
+- Mu2's ``Mu2Config`` must pass ``pad_token_id`` / ``bos_token_id`` /
+  ``eos_token_id`` to ``super().__init__()`` or PretrainedConfig
+  overrides them to None.
 
-Usage:
-    wmk config -m path/to/mu2 --task feature-extraction   → encoder
-    wmk config -m path/to/mu2 --task text2text-generation  → decoder
+Usage::
+
+    wmk config -m path/to/mu2 --task translation --trust-remote-code -o mu2.json
+    wmk build -c mu2_encoder.json -m path/to/mu2 --trust-remote-code -o output/encoder
+    wmk build -c mu2_decoder.json -m path/to/mu2 --trust-remote-code -o output/decoder
 """
 
 from __future__ import annotations

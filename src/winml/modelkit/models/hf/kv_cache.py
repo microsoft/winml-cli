@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Shared KV cache utilities for ONNX export and inference.
+"""WinML KV cache classes for ONNX export and inference.
 
 Hierarchy::
 
@@ -10,6 +10,25 @@ Hierarchy::
       └─ WinMLCache                        — common interface
            ├─ WinMLStaticCache             — ScatterElements (index_copy_), T5/Qwen
            └─ WinMLSlidingWindowCache      — Slice+Concat (FIFO), Mu2
+
+Cache type compatibility:
+
+- **WinMLStaticCache**: Required for models using learned relative position bias
+  (T5, mBART) where ``buffer_position == sequence_position`` must hold.
+  ``T5Attention.compute_bias`` uses ``memory_position = arange(key_length)``
+  so KV entries must stay at their original buffer positions.
+
+- **WinMLSlidingWindowCache**: Compatible with models using RoPE (Mu2, Llama)
+  where position encoding is baked into K/V tensors.  Buffer positions don't
+  matter — attention scores depend only on the RoPE embeddings in each K.
+
+Common interface (called by ``WinMLEncoderDecoderModel.forward``):
+
+- ``position_input_name``: ONNX input name (``"cache_position"`` or ``"position_id"``)
+- ``build_decoder_mask(max_len)``: attention mask for current step
+- ``update_all_layers(outputs)``: write present KV from ONNX output, advance step
+- ``reset()``: zero out for new generation
+- ``create(config, kv_shape, dtype)``: factory from ONNX metadata
 
 Also provides ``PastKeyValueInputGenerator`` — a reusable ``DummyInputGenerator``
 for static KV cache inputs (``past_{i}_key``, ``past_{i}_value``).
