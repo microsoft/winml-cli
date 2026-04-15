@@ -37,8 +37,7 @@ from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 from ...export import register_onnx_overwrite
 from ..winml.pipeline_model import register_pipeline_model
 from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
-from .kv_cache import CapturingStaticCache as _CapturingStaticCache
-from .kv_cache import PastKeyValueInputGenerator
+from .kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 
 # =============================================================================
@@ -131,11 +130,11 @@ class T5DecoderWrapper(nn.Module):
         cache_position = args[4]
         kv_start = 5
 
-        # Build CapturingStaticCache from input KV tensors.
+        # Build WinMLStaticCache from input KV tensors.
         # update() uses index_copy_ at cache_position for correct attention,
         # and captures the incoming key/value states for direct output
         # (eliminating the old scatter→gather round-trip in the ONNX graph).
-        self_attn_cache = _CapturingStaticCache(self.config, max_cache_len=args[kv_start].size(2))
+        self_attn_cache = WinMLStaticCache(self.config, max_cache_len=args[kv_start].size(2))
         self_attn_cache.early_initialization(
             batch_size=decoder_input_ids.size(0),
             num_heads=args[kv_start].size(1),
@@ -167,7 +166,7 @@ class T5DecoderWrapper(nn.Module):
 
         # Return new-token KV directly from the capturing cache.
         # The old approach did gather(ScatterElements output) — a round-trip.
-        # _CapturingStaticCache already saved the incoming key/value states.
+        # WinMLStaticCache already saved the incoming key/value states.
         result: list[torch.Tensor] = [out.logits]
         for i in range(self.num_layers):
             k, v = self_attn_cache.captured[i]

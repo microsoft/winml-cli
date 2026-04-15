@@ -17,7 +17,7 @@ Export Strategy (split by task):
 
 The Mu2 model's native attention (MuAttentionSDPA) does NOT support HF's
 cache mechanism.  The decoder wrapper reimplements the decoder forward pass
-using the original layer weights, adding CapturingStaticCache for
+using the original layer weights, adding WinMLCache for
 self-attention KV.  Cross-attention KV is always recomputed from
 encoder_hidden_states (no cache needed).
 
@@ -41,8 +41,7 @@ from optimum.utils.input_generators import DummyTextInputGenerator
 from ...export import register_onnx_overwrite
 from ..winml.pipeline_model import register_pipeline_model
 from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
-from .kv_cache import CapturingStaticCache as _CapturingStaticCache
-from .kv_cache import PastKeyValueInputGenerator
+from .kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 
 # =============================================================================
@@ -76,7 +75,7 @@ class Mu2EncoderWrapper(nn.Module):
 
 
 class Mu2DecoderWrapper(nn.Module):
-    """Wraps Mu2 decoder with CapturingStaticCache for ONNX export.
+    """Wraps Mu2 decoder for ONNX export.
 
     Delegates to the model's own decoder (which now accepts ``past_key_values``
     and ``cache_position``).  This wrapper just builds the cache from flat
@@ -106,27 +105,28 @@ class Mu2DecoderWrapper(nn.Module):
         return tuple(inputs.values())
 
     def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Run decoder with static KV cache.
+        """Run decoder with FIFO KV cache (Slice+Concat).
 
         Positional args (order matches OnnxConfig.inputs):
             decoder_input_ids, encoder_hidden_states, attention_mask (encoder),
-            decoder_attention_mask, cache_position,
+            decoder_attention_mask, position_id,
             past_0_key, past_0_value, past_1_key, past_1_value, ...
 
         Returns:
             (logits, present_0_key, present_0_value, ...) where each
-            present KV is [batch, n_kv_head, 1, head_dim].
+            present KV is the full updated buffer [batch, n_kv_head, max_cache_len, head_dim]
+            (oldest entry evicted, new token appended at end).
         """
         decoder_input_ids = args[0]
         encoder_hidden_states = args[1]
         encoder_attention_mask = args[2]  # "attention_mask" in OnnxConfig
         decoder_attention_mask = args[3]
-        cache_position = args[4]
+        position_id = args[4]  # absolute sequence position for RoPE
         kv_start = 5
 
-        # Build CapturingStaticCache from input KV tensors
-        self_attn_cache = _CapturingStaticCache(self.config, max_cache_len=args[kv_start].size(2))
-        self_attn_cache.early_initialization(
+        # Build WinMLSlidingWindowCache (FIFO: Slice+Concat instead of ScatterElements)
+        cache = WinMLSlidingWindowCache(self.config, max_cache_len=args[kv_start].size(2))
+        cache.early_initialization(
             batch_size=decoder_input_ids.size(0),
             num_heads=self.config.n_kv_head,
             head_dim=self.config.head_dim,
@@ -134,24 +134,25 @@ class Mu2DecoderWrapper(nn.Module):
             device=decoder_input_ids.device,
         )
         for i in range(self.num_layers):
-            self_attn_cache.layers[i].keys = args[kv_start + i * 2]
-            self_attn_cache.layers[i].values = args[kv_start + i * 2 + 1]
+            cache.layers[i].keys = args[kv_start + i * 2]
+            cache.layers[i].values = args[kv_start + i * 2 + 1]
 
-        # Delegate to model's decoder (now supports past_key_values + cache_position)
+        # Delegate to model's decoder — position_id is passed as cache_position
+        # for RoPE computation (WinMLSlidingWindowCache.update ignores it for indexing)
         hidden_states = self.model.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
-            past_key_values=self_attn_cache,
-            cache_position=cache_position,
+            past_key_values=cache,
+            cache_position=position_id,
         )
         logits = self.model.lm_head(hidden_states)
 
-        # Collect captured KV
+        # Output full updated cache buffers (not just new token)
         result: list[torch.Tensor] = [logits]
         for i in range(self.num_layers):
-            k, v = self_attn_cache.captured[i]
+            k, v = cache.updated[i]
             result.extend([k, v])
         return tuple(result)
 
@@ -210,7 +211,7 @@ class Mu2DecoderIOConfig(OnnxConfig):
             "encoder_hidden_states": {0: "batch_size"},
             "attention_mask": {0: "batch_size"},
             "decoder_attention_mask": {0: "batch_size"},
-            "cache_position": {},
+            "position_id": {},
         }
         num_layers = self._normalized_config.num_layers
         for i in range(num_layers):
@@ -240,16 +241,20 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 
 @register_pipeline_model("mu2", "translation")
 class WinMLMu2Model(WinMLEncoderDecoderModel):
-    """Mu2 encoder-decoder model for translation.
+    """Mu2 encoder-decoder model with sliding-window KV cache.
 
-    Declares Mu2 sub-component tasks and generation config defaults.
-    All encoder-decoder forward/cache logic lives in ``WinMLEncoderDecoderModel``.
+    Only differs from T5 in ``get_cache_class`` and ``_SUB_MODEL_CONFIG``.
+    All forward/cache logic lives in ``WinMLEncoderDecoderModel``.
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
         "encoder": "feature-extraction",
         "decoder": "text2text-generation",
     }
+
+    @classmethod
+    def get_cache_class(cls) -> type:  # noqa: D102
+        return WinMLSlidingWindowCache
 
     @property
     def generation_config(self):  # noqa: D102

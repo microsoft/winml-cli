@@ -67,16 +67,16 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 from optimum.utils.input_generators import DummyInputGenerator
-from transformers import Cache, StaticCache
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
 from ..winml.pipeline_model import WinMLPipelineModel
+from .kv_cache import WinMLStaticCache
 
 
 if TYPE_CHECKING:
     from optimum.utils import NormalizedConfig
-    from transformers import PretrainedConfig
+    from transformers import Cache, PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
         "attention_mask",
         "decoder_attention_mask",
         "cache_position",
+        "position_id",
     )
 
     def __init__(
@@ -144,6 +145,8 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
             return torch.ones(self.batch_size, self.max_cache_len, dtype=torch.int64)
         if input_name == "cache_position":
             return torch.tensor([5], dtype=torch.int64)  # arbitrary position for tracing
+        if input_name == "position_id":
+            return torch.tensor([5], dtype=torch.int64)  # absolute seq position for RoPE
         raise ValueError(f"Unknown input: {input_name}")
 
 
@@ -248,6 +251,36 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             "past_key_values": past_key_values,
         }
 
+    # ----- Cache management -----
+
+    @classmethod
+    def get_cache_class(cls) -> type:
+        """Return the WinMLCache subclass for this model. Subclasses override."""
+        return WinMLStaticCache
+
+    def _resolve_cache(self, past_key_values: Any) -> Any:
+        """Unwrap or create the WinMLCache for this generation step.
+
+        1. Unwrap EncoderDecoderCache wrapper (GenerationMixin may add it).
+        2. If already a WinMLCache, return directly.
+        3. Otherwise create a fresh one and reset it.
+        """
+        from .kv_cache import WinMLCache
+
+        # (1) Unwrap EncoderDecoderCache
+        if hasattr(past_key_values, "self_attention_cache"):
+            past_key_values = past_key_values.self_attention_cache
+
+        # (2) Already our cache — return as-is
+        if isinstance(past_key_values, WinMLCache):
+            return past_key_values
+
+        # (3) Create fresh cache and reset
+        kv_shape = self._dec_expected["past_0_key"]
+        cache = self.get_cache_class().create(self.config, kv_shape, self._kv_dtype)
+        cache.reset()
+        return cache
+
     # ----- Forward (decoder via WinMLAutoModel + KV cache) -----
 
     def forward(
@@ -275,55 +308,25 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             raise ValueError("Either encoder_outputs or input_ids required")
         enc_h = encoder_outputs["last_hidden_state"]
 
-        # Resolve the self-attention cache.
-        # GenerationMixin may pass None, a StaticCache, or an
-        # EncoderDecoderCache wrapping a DynamicCache (auto-created).
-        cache = None
-        if isinstance(past_key_values, StaticCache):
-            cache = past_key_values
-        elif hasattr(past_key_values, "self_attention_cache"):
-            sa = past_key_values.self_attention_cache
-            if isinstance(sa, StaticCache):
-                cache = sa
-        if cache is None:
-            # Read KV geometry from ONNX metadata (architecture-agnostic)
-            kv_shape = self._dec_expected["past_0_key"]  # [batch, heads, max_dec, head_dim]
-            cache = StaticCache(self.config, max_cache_len=self._max_dec)
-            cache.early_initialization(
-                batch_size=1,
-                num_heads=kv_shape[1],
-                head_dim=kv_shape[3],
-                dtype=self._kv_dtype,
-                device=torch.device("cpu"),
-            )
+        # Resolve or create cache (subclasses override _create_cache).
+        cache = self._resolve_cache(past_key_values)
 
-        # Determine write position from cache occupancy
-        fc = cache.get_seq_length()
-        dec_mask = torch.zeros(1, self._max_dec, dtype=torch.int64)
-        dec_mask[0, : fc + 1] = 1
+        fc = cache.step
+        dec_mask = cache.build_decoder_mask(self._max_dec)
 
-        # Build feeds: model_kwargs first, then fill in generated inputs
         feeds: dict[str, Any] = dict(model_kwargs)
         feeds.setdefault("encoder_hidden_states", enc_h.detach())
         feeds.setdefault("decoder_attention_mask", dec_mask)
-        feeds.setdefault("cache_position", torch.tensor([fc], dtype=torch.int64))
+        feeds.setdefault(cache.position_input_name, torch.tensor([fc], dtype=torch.int64))
         for i in range(self._num_kv_layers):
-            layer = cache.layers[i]
-            feeds[f"past_{i}_key"] = layer.keys.detach()
-            feeds[f"past_{i}_value"] = layer.values.detach()
+            feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
+            feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
 
-        # Filter to decoder ONNX inputs and pad any undersized tensors
+        # Run decoder ONNX (pad_inputs filters to expected names + pads)
         outputs = self._decoder(**self._pad_inputs(feeds, self._dec_expected))
 
-        # Write new token's KV into the StaticCache in-place
-        cache_kwargs = {"cache_position": torch.tensor([fc], dtype=torch.int64)}
-        for i in range(self._num_kv_layers):
-            cache.update(
-                outputs[f"present_{i}_key"],
-                outputs[f"present_{i}_value"],
-                layer_idx=i,
-                cache_kwargs=cache_kwargs,
-            )
+        # Write present KV back and advance step
+        cache.update_all_layers(outputs)
 
         return Seq2SeqLMOutput(
             logits=outputs["logits"],

@@ -15,14 +15,14 @@ Export Strategy (split by task):
   → generation ONNX (input_ids [1, 1] → logits [1, 1, vocab] + KV [1, kv_heads, 1, head_dim])
 
 Both tasks share the same wrapper class; OnnxConfig determines static shapes.
-Uses ``CapturingStaticCache`` (from ``kv_cache.py``) to return new-token KV
+Uses ``WinMLStaticCache`` (from ``kv_cache.py``) to return new-token KV
 directly as ONNX outputs, eliminating the scatter→gather round-trip.
 
 How it works:
 
 1. ``QwenDecoderWrapper.forward()`` takes positional args (order matches
    OnnxConfig.inputs): input_ids, attention_mask, position_ids, cache_position,
-   past_0_key, past_0_value, ...  It builds a ``CapturingStaticCache`` from the
+   past_0_key, past_0_value, ...  It builds a ``WinMLStaticCache`` from the
    input KV buffers, runs ``Qwen3ForCausalLM``, and returns logits + captured KV.
 
 2. Decoder-only models need NO ``EncoderDecoderCache`` wrapping —
@@ -90,8 +90,7 @@ from ..winml.decoder_only import (
     WinMLDecoderOnlyModel,
 )
 from ..winml.pipeline_model import register_pipeline_model
-from .kv_cache import CapturingStaticCache as _CapturingStaticCache
-from .kv_cache import PastKeyValueInputGenerator
+from .kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
 
 # =============================================================================
@@ -146,9 +145,9 @@ class QwenDecoderWrapper(nn.Module):
         cache_position = args[3]
         kv_start = 4
 
-        # Build CapturingStaticCache from input KV tensors.
+        # Build WinMLStaticCache from input KV tensors.
         # Decoder-only: pass StaticCache directly (no EncoderDecoderCache needed).
-        cache = _CapturingStaticCache(self.config, max_cache_len=args[kv_start].size(2))
+        cache = WinMLStaticCache(self.config, max_cache_len=args[kv_start].size(2))
         cache.early_initialization(
             batch_size=input_ids.size(0),
             num_heads=args[kv_start].size(1),
