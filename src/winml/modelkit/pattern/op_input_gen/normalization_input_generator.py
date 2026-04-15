@@ -421,27 +421,34 @@ class LayerNormalizationInputGenerator(NormalizationInputGenerator):
 # ============================================================================
 # LpNormalization - NOT IMPLEMENTED in ONNXRuntime
 # ============================================================================
-#
-# NOTE: LpNormalization(22) exists in the ONNX spec but is NOT IMPLEMENTED
-# in ONNXRuntime as of the current version. The validation fails with:
-# "NOT_IMPLEMENTED: Could not find an implementation for LpNormalization(22)"
-#
-# Uncomment and use the implementation below when runtime support is added:
-#
-# @register_runtime_checker_op
-# class LpNormalizationInputGenerator(NormalizationInputGenerator):
-#     """Input generator for LpNormalization operator."""
-#     op_name = "LpNormalization"
-#     def get_finite_attribute_sets(self) -> dict[str, list]:
-#         return {"p": [1, 2]}
-#     def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
-#         combinations = []
-#         for shape in self.get_common_data_shapes():
-#             if len(shape) < 3:
-#                 continue
-#             # TODO: add axis
-#             combinations.append({"input": InputShapeConstraint(shape)})
-#         return combinations
+
+
+@register_runtime_checker_op
+class LpNormalizationInputGenerator(NormalizationInputGenerator):
+    """Input generator for LpNormalization operator."""
+
+    op_name = "LpNormalization"
+
+    def get_finite_attribute_sets(self) -> dict[str, list]:
+        """Return finite attribute values for LpNormalization."""
+        return {"p": [1, 2]}
+
+    def get_input_and_infinite_attribute_combinations(self) -> list[dict[str, InputConstraint]]:
+        """Return input combinations for LpNormalization."""
+        combinations = []
+        for shape in self.get_common_data_shapes():
+            if len(shape) < 3:
+                continue
+            combinations.extend(
+                {"input": InputShapeConstraint(shape), "axis": axis} for axis in [0, 1, -1, 2]
+            )
+        return combinations
+
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig] | None:
+        """Return QDQ configuration for LpNormalization operator inputs."""
+        return {
+            self.op_input_names[0]: QDQParameterConfig(support_activation=True),
+        }
 
 
 # ============================================================================
