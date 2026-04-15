@@ -72,6 +72,9 @@ class WinMLCache(StaticCache):
         super().__init__(config, *args, **kwargs)
         self.step: int = 0
         self.num_layers: int = config.num_hidden_layers
+        #: New-token KV captured during ``update()``, keyed by layer index.
+        #: Export wrappers read ``captured[i]`` to build ONNX present outputs.
+        self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
 
     # ----- Interface for WinMLEncoderDecoderModel.forward -----
 
@@ -129,10 +132,6 @@ class WinMLStaticCache(WinMLCache):
 
     position_input_name: str = "cache_position"
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
-
     def update(
         self,
         key_states: torch.Tensor,
@@ -174,17 +173,14 @@ class WinMLStaticCache(WinMLCache):
 class WinMLSlidingWindowCache(WinMLCache):
     """FIFO cache: evict oldest, append new at end (Slice+Concat).
 
-    **Export**: ``update()`` traces as Slice+Concat — no ScatterElements.
-    Present KV output is the full updated buffer.
-    **Inference**: ``update_all_layers`` replaces the full buffer.
+    **Export**: ``update()`` does Slice+Concat on the buffer and captures
+    the new-token KV (same as ``WinMLStaticCache.captured``).  Present KV
+    output is the new token only ``[batch, heads, 1, head_dim]``.
+    **Inference**: ``update_all_layers`` does Slice+Concat from present KV.
     Mask is right-aligned: ``[0, 0, ..., 0, 1, 1, ..., 1]``.
     """
 
     position_input_name: str = "position_id"
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.updated: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
 
     def update(
         self,
@@ -193,8 +189,11 @@ class WinMLSlidingWindowCache(WinMLCache):
         layer_idx: int,
         cache_kwargs: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Drop oldest entry, append new KV at end. Return full buffer."""
+        """Drop oldest, append new KV at end. Capture new-token KV for output."""
         import torch
+
+        # Capture new-token KV for ONNX output (same interface as WinMLStaticCache)
+        self.captured[layer_idx] = (key_states, value_states)
 
         old_k = self.layers[layer_idx].keys[:, :, 1:, :]
         new_k = torch.cat([old_k, key_states], dim=2)
@@ -204,7 +203,6 @@ class WinMLSlidingWindowCache(WinMLCache):
         new_v = torch.cat([old_v, value_states], dim=2)
         self.layers[layer_idx].values = new_v
 
-        self.updated[layer_idx] = (new_k, new_v)
         return new_k, new_v
 
     def build_decoder_mask(self, max_len: int) -> torch.Tensor:
@@ -216,14 +214,17 @@ class WinMLSlidingWindowCache(WinMLCache):
         return mask
 
     def update_all_layers(self, outputs: dict[str, Any]) -> None:
-        """Replace full KV buffers for all layers, then advance."""
+        """Slice+Concat present KV into buffer for all layers, then advance."""
         import torch
 
         for i in range(self.num_layers):
             k = outputs[f"present_{i}_key"]
             v = outputs[f"present_{i}_value"]
-            self.layers[i].keys = k if isinstance(k, torch.Tensor) else torch.tensor(k)
-            self.layers[i].values = v if isinstance(v, torch.Tensor) else torch.tensor(v)
+            k = k if isinstance(k, torch.Tensor) else torch.tensor(k)
+            v = v if isinstance(v, torch.Tensor) else torch.tensor(v)
+            # FIFO: drop oldest, append new token KV
+            self.layers[i].keys = torch.cat([self.layers[i].keys[:, :, 1:, :], k], dim=2)
+            self.layers[i].values = torch.cat([self.layers[i].values[:, :, 1:, :], v], dim=2)
         self.step += 1
 
     def get_seq_length(self, layer_idx: int = 0) -> int:

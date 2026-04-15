@@ -160,10 +160,10 @@ class Mu2DecoderWrapper(nn.Module):
         )
         logits = self.model.lm_head(hidden_states)
 
-        # Output full updated cache buffers (not just new token)
+        # Output new-token KV only (same as T5 — captured during update)
         result: list[torch.Tensor] = [logits]
         for i in range(self.num_layers):
-            k, v = cache.updated[i]
+            k, v = cache.captured[i]
             result.extend([k, v])
         return tuple(result)
 
