@@ -528,7 +528,7 @@ def _resolve_pipeline_components(
 
     import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
 
-    from ..models.winml.pipeline_model import PIPELINE_MODEL_REGISTRY
+    from ..models.winml.composite_model import PIPELINE_MODEL_REGISTRY
 
     # Resolve model_type from HF config if not provided
     resolved_type = model_type

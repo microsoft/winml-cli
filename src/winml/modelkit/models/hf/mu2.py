@@ -50,7 +50,7 @@ from optimum.utils import NormalizedConfig
 from optimum.utils.input_generators import DummyTextInputGenerator
 
 from ...export import register_onnx_overwrite
-from ..winml.pipeline_model import register_pipeline_model
+from ..winml.composite_model import register_composite_model
 from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
 from .kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
@@ -250,7 +250,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 }
 
 
-@register_pipeline_model("mu2", "translation")
+@register_composite_model("mu2", "translation")
 class WinMLMu2Model(WinMLEncoderDecoderModel):
     """Mu2 encoder-decoder model with sliding-window KV cache.
 

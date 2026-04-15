@@ -11,7 +11,7 @@ component names to HF tasks; ``from_pretrained()`` builds them all.
 
 Registry
 --------
-``@register_pipeline_model(model_type, task)`` registers a pipeline class.
+``@register_composite_model(model_type, task)`` registers a pipeline class.
 ``wmk config`` checks the registry to generate one config file per component::
 
     wmk config -m google-t5/t5-small --task translation -o t5.json
@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 PIPELINE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
 
 
-def register_pipeline_model(model_type: str, task: str):
+def register_composite_model(model_type: str, task: str):
     """Class decorator that registers a pipeline model for `wmk config`."""
 
     def decorator(cls: type) -> type:

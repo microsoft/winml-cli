@@ -12,7 +12,7 @@ Class hierarchy::
 
 How it works:
 
-1. ``@register_pipeline_model("qwen3", "text-generation")`` hooks into
+1. ``@register_composite_model("qwen3", "text-generation")`` hooks into
    ``winml config`` so that ``winml config -m Qwen/Qwen3-0.6B --task text-generation``
    generates ``qwen_decoder_prefill.json`` + ``qwen_decoder_gen.json``.
 
@@ -47,7 +47,7 @@ How it works:
    rather than trimming to the last token.  On subsequent calls with a
    populated ``StaticCache``, we trim to the last token as usual.
 
-Design principles (same as pipeline_model.py):
+Design principles (same as composite_model.py):
 
 - ONNX I/O names and shapes are read from ``io_config``, never hardcoded.
 - Inputs smaller than ONNX expected shape are zero-padded via ``_pad_inputs``.
@@ -61,18 +61,17 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 from optimum.utils.input_generators import DummyInputGenerator
-from transformers import Cache, StaticCache
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .pipeline_model import WinMLCompositeModel
+from .composite_model import WinMLCompositeModel
 
 
 _pad_inputs = WinMLCompositeModel._pad_inputs
 
 
 if TYPE_CHECKING:
-    from transformers import PretrainedConfig
+    from transformers import Cache, PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +103,7 @@ class DecoderOnlyInputGenerator(DummyInputGenerator):
         "attention_mask",
         "position_ids",
         "cache_position",
+        "position_id",
     )
 
     _default_seq_len: int = 1
@@ -144,6 +144,8 @@ class DecoderOnlyInputGenerator(DummyInputGenerator):
         if input_name == "position_ids":
             return torch.arange(self.seq_len, dtype=torch.int64).unsqueeze(0)
         if input_name == "cache_position":
+            return torch.arange(self.seq_len, dtype=torch.int64)
+        if input_name == "position_id":
             return torch.arange(self.seq_len, dtype=torch.int64)
         raise ValueError(f"Unknown input: {input_name}")
 
@@ -216,7 +218,24 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         # Prefill chunk size
         self._prefill_seq_len = self._prefill_expected["input_ids"][1]
 
-    # ----- GenerationMixin interface -----
+    # ----- Cache + GenerationMixin interface -----
+
+    @classmethod
+    def get_cache_class(cls) -> type:
+        """Return the WinMLCache subclass. Subclasses must override."""
+        raise NotImplementedError
+
+    def _resolve_cache(self, past_key_values: Any) -> Any:
+        """Unwrap or create WinMLCache for this generation step."""
+        from ..hf.kv_cache import WinMLCache
+
+        if isinstance(past_key_values, WinMLCache):
+            return past_key_values
+
+        kv_shape = [1, self._num_kv_heads, self._max_cache_len, self._head_dim]
+        cache = self.get_cache_class().create(self.config, kv_shape, self._kv_dtype)
+        cache.reset()
+        return cache
 
     def can_generate(self) -> bool:  # noqa: D102
         return True
@@ -228,16 +247,12 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         attention_mask: torch.Tensor | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Build inputs for each generate() step.
+        """Build inputs for each generate() step."""
+        from ..hf.kv_cache import WinMLCache
 
-        GenerationMixin may pass a DynamicCache (auto-created, empty) on the
-        first call.  Only trim to last token when we have a populated
-        StaticCache (i.e., after prefill).
-        """
-        if isinstance(past_key_values, StaticCache) and past_key_values.get_seq_length() > 0:
+        if isinstance(past_key_values, WinMLCache) and past_key_values.get_seq_length() > 0:
             input_ids = input_ids[:, -1:]
         else:
-            # First call or empty cache: pass full prompt for prefill
             past_key_values = None
         return {
             "input_ids": input_ids,
@@ -270,17 +285,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         Returns:
             CausalLMOutputWithPast with logits and updated StaticCache.
         """
-        # Resolve or create StaticCache (same pattern as T5)
-        cache = past_key_values if isinstance(past_key_values, StaticCache) else None
-        if cache is None:
-            cache = StaticCache(self.config, max_cache_len=self._max_cache_len)
-            cache.early_initialization(
-                batch_size=1,
-                num_heads=self._num_kv_heads,
-                head_dim=self._head_dim,
-                dtype=self._kv_dtype,
-                device=torch.device("cpu"),
-            )
+        cache = self._resolve_cache(past_key_values)
 
         seq_len = input_ids.shape[1]
         if seq_len > 1:
@@ -295,11 +300,10 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
 
     # ----- Prefill (chunked) -----
 
-    def _run_prefill(self, input_ids: torch.Tensor, cache: StaticCache) -> torch.Tensor:
+    def _run_prefill(self, input_ids: torch.Tensor, cache: Any) -> torch.Tensor:
         """Run prefill model in a loop over chunks of ``prefill_seq_len``.
 
-        Returns logits for ALL real input positions ``[1, seq_len, vocab_size]``
-        (same convention as HF CausalLM — enables perplexity evaluation).
+        Returns logits for ALL real input positions ``[1, seq_len, vocab_size]``.
         """
         seq_len = input_ids.shape[1]
         all_logits: list[torch.Tensor] = []
@@ -308,76 +312,64 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
             end = min(start + self._prefill_seq_len, seq_len)
             chunk_len = end - start
 
-            # Pad chunk to prefill_seq_len (right-padding)
+            # Left-pad: real tokens at the END of the chunk (matches sliding
+            # window right-alignment so causal mask kv_idx<=q_idx is correct).
+            pad_len = self._prefill_seq_len - chunk_len
             padded_ids = torch.zeros(1, self._prefill_seq_len, dtype=input_ids.dtype)
-            padded_ids[0, :chunk_len] = input_ids[0, start:end]
+            padded_ids[0, pad_len:] = input_ids[0, start:end]
 
-            position_ids = torch.arange(
-                start, start + self._prefill_seq_len, dtype=torch.int64
-            ).unsqueeze(0)
-            cache_position = torch.arange(start, start + self._prefill_seq_len, dtype=torch.int64)
+            position_ids = torch.zeros(1, self._prefill_seq_len, dtype=torch.int64)
+            position_ids[0, pad_len:] = torch.arange(start, start + chunk_len, dtype=torch.int64)
 
-            # Attention mask: 1 for all real tokens so far
+            # Mask: 1s for real tokens (previously cached + current chunk).
+            # With left-padding, real tokens are at the rightmost chunk_len
+            # positions of the prefill_seq_len slot.
+            filled = min(cache.step + chunk_len, self._max_cache_len)
             attn_mask = torch.zeros(1, self._max_cache_len, dtype=torch.int64)
-            attn_mask[0, : start + chunk_len] = 1
+            attn_mask[0, max(0, self._max_cache_len - filled) :] = 1
 
             feeds: dict[str, Any] = {
                 "input_ids": padded_ids,
                 "attention_mask": attn_mask,
                 "position_ids": position_ids,
-                "cache_position": cache_position,
             }
             for i in range(self._num_kv_layers):
                 feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
                 feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
 
-            outputs = self._prefill_model(**_pad_inputs(feeds, self._prefill_expected))
+            outputs = self._prefill_model(**feeds)
 
-            # Write only real tokens' KV into cache (skip padding)
-            real_positions = cache_position[:chunk_len]
-            ck = {"cache_position": real_positions}
-            for i in range(self._num_kv_layers):
-                cache.update(
-                    outputs[f"present_{i}_key"][:, :, :chunk_len, :],
-                    outputs[f"present_{i}_value"][:, :, :chunk_len, :],
-                    layer_idx=i,
-                    cache_kwargs=ck,
-                )
+            # update_all_layers advances step by present KV size (prefill_seq_len).
+            # Correct to chunk_len since padding KV should not count.
+            cache.update_all_layers(outputs)
+            if pad_len > 0:
+                cache.step -= pad_len
 
-            # Keep logits for real tokens only (discard padding positions)
-            all_logits.append(outputs["logits"][:, :chunk_len, :])
+            # With left-padding, real token logits are at positions pad_len:
+            all_logits.append(outputs["logits"][:, pad_len : pad_len + chunk_len, :])
 
         return torch.cat(all_logits, dim=1)
 
     # ----- Generation (single token) -----
 
-    def _run_gen(self, input_ids: torch.Tensor, cache: StaticCache) -> torch.Tensor:
+    def _run_gen(self, input_ids: torch.Tensor, cache: Any) -> torch.Tensor:
         """Run gen model for a single token. Returns logits ``[1, 1, vocab_size]``."""
-        fc = cache.get_seq_length()
+        fc = cache.step
 
+        filled = min(fc + 1, self._max_cache_len)
         attn_mask = torch.zeros(1, self._max_cache_len, dtype=torch.int64)
-        attn_mask[0, : fc + 1] = 1
+        attn_mask[0, max(0, self._max_cache_len - filled) :] = 1
 
         feeds: dict[str, Any] = {
             "input_ids": input_ids,
             "attention_mask": attn_mask,
             "position_ids": torch.tensor([[fc]], dtype=torch.int64),
-            "cache_position": torch.tensor([fc], dtype=torch.int64),
         }
         for i in range(self._num_kv_layers):
             feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
             feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
 
-        outputs = self._gen_model(**_pad_inputs(feeds, self._gen_expected))
-
-        # Write new token's KV into cache
-        ck = {"cache_position": torch.tensor([fc], dtype=torch.int64)}
-        for i in range(self._num_kv_layers):
-            cache.update(
-                outputs[f"present_{i}_key"],
-                outputs[f"present_{i}_value"],
-                layer_idx=i,
-                cache_kwargs=ck,
-            )
+        outputs = self._gen_model(**feeds)
+        cache.update_all_layers(outputs)
 
         return outputs["logits"]

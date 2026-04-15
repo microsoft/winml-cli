@@ -57,8 +57,8 @@ if TYPE_CHECKING:
 class WinMLCache(StaticCache):
     """Abstract base for WinML KV caches (export + inference).
 
-    Subclasses set ``position_input_name`` and implement
-    ``build_decoder_mask`` and ``update_all_layers``.
+    Subclasses set ``position_input_name``, implement ``build_decoder_mask``,
+    and override ``update()`` for cache-specific write logic.
 
     ``step`` tracks the absolute generation position
     (used for RoPE and mask construction).
@@ -82,9 +82,24 @@ class WinMLCache(StaticCache):
     def build_decoder_mask(self, max_len: int) -> torch.Tensor:
         """Build the decoder attention mask for the current step."""
 
-    @abstractmethod
     def update_all_layers(self, outputs: dict[str, Any]) -> None:
-        """Write present KV for all layers from ONNX output and advance step."""
+        """Write present KV for all layers via ``update()`` and advance step.
+
+        Step advances by N where N is the seq_len of the present KV tensors
+        (1 for gen, chunk_len for prefill).
+        """
+        import torch
+
+        ck = {"cache_position": torch.tensor([self.step], dtype=torch.int64)}
+        n = 0
+        for i in range(self.num_layers):
+            k = outputs[f"present_{i}_key"]
+            v = outputs[f"present_{i}_value"]
+            k = k if isinstance(k, torch.Tensor) else torch.tensor(k)
+            v = v if isinstance(v, torch.Tensor) else torch.tensor(v)
+            n = k.size(2)
+            self.update(k, v, i, cache_kwargs=ck)
+        self.step += n
 
     def reset(self) -> None:
         """Zero out all layers and reset step (start of new generation)."""
@@ -151,19 +166,6 @@ class WinMLStaticCache(WinMLCache):
         mask[0, : self.step + 1] = 1
         return mask
 
-    def update_all_layers(self, outputs: dict[str, Any]) -> None:
-        """Write new-token KV at current step for all layers, then advance."""
-        import torch
-
-        ck = {"cache_position": torch.tensor([self.step], dtype=torch.int64)}
-        for i in range(self.num_layers):
-            k = outputs[f"present_{i}_key"]
-            v = outputs[f"present_{i}_value"]
-            k = k if isinstance(k, torch.Tensor) else torch.tensor(k)
-            v = v if isinstance(v, torch.Tensor) else torch.tensor(v)
-            super(WinMLCache, self).update(k, v, i, cache_kwargs=ck)
-        self.step += 1
-
 
 # =============================================================================
 # WinMLSlidingWindowCache — Slice + Concat (FIFO)
@@ -189,17 +191,20 @@ class WinMLSlidingWindowCache(WinMLCache):
         layer_idx: int,
         cache_kwargs: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Drop oldest, append new KV at end. Capture new-token KV for output."""
+        """Drop N oldest, append N new KV at end (N = key_states.size(2)).
+
+        Works for both single-token gen (N=1) and multi-token prefill (N>1).
+        """
         import torch
 
-        # Capture new-token KV for ONNX output (same interface as WinMLStaticCache)
         self.captured[layer_idx] = (key_states, value_states)
 
-        old_k = self.layers[layer_idx].keys[:, :, 1:, :]
+        n = key_states.size(2)
+        old_k = self.layers[layer_idx].keys[:, :, n:, :]
         new_k = torch.cat([old_k, key_states], dim=2)
         self.layers[layer_idx].keys = new_k
 
-        old_v = self.layers[layer_idx].values[:, :, 1:, :]
+        old_v = self.layers[layer_idx].values[:, :, n:, :]
         new_v = torch.cat([old_v, value_states], dim=2)
         self.layers[layer_idx].values = new_v
 
@@ -212,20 +217,6 @@ class WinMLSlidingWindowCache(WinMLCache):
         mask = torch.zeros(1, max_len, dtype=torch.int64)
         mask[0, max(0, max_len - self.step - 1) :] = 1
         return mask
-
-    def update_all_layers(self, outputs: dict[str, Any]) -> None:
-        """Slice+Concat present KV into buffer for all layers, then advance."""
-        import torch
-
-        for i in range(self.num_layers):
-            k = outputs[f"present_{i}_key"]
-            v = outputs[f"present_{i}_value"]
-            k = k if isinstance(k, torch.Tensor) else torch.tensor(k)
-            v = v if isinstance(v, torch.Tensor) else torch.tensor(v)
-            # FIFO: drop oldest, append new token KV
-            self.layers[i].keys = torch.cat([self.layers[i].keys[:, :, 1:, :], k], dim=2)
-            self.layers[i].values = torch.cat([self.layers[i].values[:, :, 1:, :], v], dim=2)
-        self.step += 1
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Filled positions: ``min(step, max_cache_len)``."""

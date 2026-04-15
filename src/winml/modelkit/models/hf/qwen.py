@@ -84,13 +84,13 @@ from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...export.config import WinMLExportConfig
 from ..winml import register_specialization
+from ..winml.composite_model import register_composite_model
 from ..winml.decoder_only import (
     DecoderOnlyInputGenerator,
     DecoderOnlyPrefillInputGenerator,
     WinMLDecoderOnlyModel,
 )
-from ..winml.pipeline_model import register_pipeline_model
-from .kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
+from .kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 
 # =============================================================================
@@ -131,7 +131,7 @@ class QwenDecoderWrapper(nn.Module):
         """Run decoder with static KV cache.
 
         Positional args (order matches OnnxConfig.inputs):
-            input_ids, attention_mask, position_ids, cache_position,
+            input_ids, attention_mask, position_ids, position_id,
             past_0_key, past_0_value, past_1_key, past_1_value, ...
 
         Returns:
@@ -142,12 +142,12 @@ class QwenDecoderWrapper(nn.Module):
         input_ids = args[0]
         attention_mask = args[1]
         position_ids = args[2]
-        cache_position = args[3]
-        kv_start = 4
+        kv_start = 3
 
-        # Build WinMLStaticCache from input KV tensors.
-        # Decoder-only: pass StaticCache directly (no EncoderDecoderCache needed).
-        cache = WinMLStaticCache(self.config, max_cache_len=args[kv_start].size(2))
+        seq_len = input_ids.size(1)
+
+        # Build WinMLSlidingWindowCache from input KV tensors.
+        cache = WinMLSlidingWindowCache(self.config, max_cache_len=args[kv_start].size(2))
         cache.early_initialization(
             batch_size=input_ids.size(0),
             num_heads=args[kv_start].size(1),
@@ -155,9 +155,21 @@ class QwenDecoderWrapper(nn.Module):
             dtype=args[kv_start].dtype,
             device=input_ids.device,
         )
+        max_cache_len = args[kv_start].size(2)
         for i in range(self.num_layers):
             cache.layers[i].keys = args[kv_start + i * 2]
             cache.layers[i].values = args[kv_start + i * 2 + 1]
+
+        # Sliding window: tokens always append at the END of the buffer.
+        # cache_position = buffer positions (right-aligned) so HF's
+        # create_causal_mask builds correct kv_idx <= q_idx constraint.
+        # position_ids (separate) handles RoPE with absolute positions.
+        cache_position = torch.arange(
+            max_cache_len - seq_len,
+            max_cache_len,
+            dtype=torch.int64,
+            device=input_ids.device,
+        )
 
         out = self.model(
             input_ids=input_ids,
@@ -203,7 +215,6 @@ def _qwen_io_inputs(num_layers: int) -> dict[str, dict[int, str]]:
         "input_ids": {0: "batch_size"},
         "attention_mask": {0: "batch_size"},
         "position_ids": {0: "batch_size"},
-        "cache_position": {},
     }
     for i in range(num_layers):
         result[f"past_{i}_key"] = {0: "batch_size"}
@@ -284,7 +295,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 # =============================================================================
 
 
-@register_pipeline_model("qwen3", "text-generation")
+@register_composite_model("qwen3", "text-generation")
 class WinMLQwen3Model(WinMLDecoderOnlyModel):
     """Qwen3 decoder-only model for text generation.
 
@@ -296,6 +307,10 @@ class WinMLQwen3Model(WinMLDecoderOnlyModel):
         "decoder_prefill": "feature-extraction",
         "decoder_gen": "text-generation",
     }
+
+    @classmethod
+    def get_cache_class(cls) -> type:  # noqa: D102
+        return WinMLSlidingWindowCache
 
     @property
     def generation_config(self):  # noqa: D102

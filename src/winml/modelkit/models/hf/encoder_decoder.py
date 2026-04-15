@@ -58,8 +58,7 @@ from optimum.utils.input_generators import DummyInputGenerator
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
-from ..winml.pipeline_model import WinMLCompositeModel
-from .kv_cache import WinMLStaticCache
+from ..winml.composite_model import WinMLCompositeModel
 
 
 if TYPE_CHECKING:
@@ -243,8 +242,8 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
 
     @classmethod
     def get_cache_class(cls) -> type:
-        """Return the WinMLCache subclass for this model. Subclasses override."""
-        return WinMLStaticCache
+        """Return the WinMLCache subclass. Subclasses must override."""
+        raise NotImplementedError
 
     def _resolve_cache(self, past_key_values: Any) -> Any:
         """Unwrap or create the WinMLCache for this generation step.

@@ -35,7 +35,7 @@ from transformers import T5ForConditionalGeneration
 from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
 from ...export import register_onnx_overwrite
-from ..winml.pipeline_model import register_pipeline_model
+from ..winml.composite_model import register_composite_model
 from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
 from .kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 
@@ -279,7 +279,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 # =============================================================================
 
 
-@register_pipeline_model("t5", "translation")
+@register_composite_model("t5", "translation")
 class WinMLT5Model(WinMLEncoderDecoderModel):
     """T5 encoder-decoder model for translation.
 
