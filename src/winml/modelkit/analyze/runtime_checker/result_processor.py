@@ -20,6 +20,7 @@ from ...pattern.op_input_gen import (
     normalize_constraint_dict,
 )
 from ..utils.model_utils import get_op_since_version, make_hashable
+from ..utils.rule_loader import get_runtime_rules_search_dirs
 
 
 def _get_input_constraint_types(
@@ -844,9 +845,7 @@ if __name__ == "__main__":
 
         if args.update_zip:
             rules_dir = (
-                Path(args.rules_dir)
-                if args.rules_dir
-                else (Path(__file__).parent / ".." / "rules" / "runtime_check_rules").resolve()
+                Path(args.rules_dir) if args.rules_dir else get_runtime_rules_search_dirs()[0]
             )
             for group_name, file_list in zip_group.items():
                 rule_zip_path = (
