@@ -6,7 +6,7 @@
 
 Class hierarchy::
 
-    WinMLPipelineModel(PreTrainedModel)          — multi-component base
+    WinMLCompositeModel(PreTrainedModel)          — multi-component base
       └─ WinMLDecoderOnlyModel(GenerationMixin)  — prefill + gen with StaticCache
            └─ WinMLQwen3Model                    — Qwen3 tasks + generation config
 
@@ -65,10 +65,10 @@ from transformers import Cache, StaticCache
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .pipeline_model import WinMLPipelineModel
+from .pipeline_model import WinMLCompositeModel
 
 
-_pad_inputs = WinMLPipelineModel._pad_inputs
+_pad_inputs = WinMLCompositeModel._pad_inputs
 
 
 if TYPE_CHECKING:
@@ -159,7 +159,7 @@ class DecoderOnlyPrefillInputGenerator(DecoderOnlyInputGenerator):
 # =========================================================================
 
 
-class WinMLDecoderOnlyModel(WinMLPipelineModel, GenerationMixin):
+class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
     """Decoder-only pipeline model with HF GenerationMixin support.
 
     Expects sub-components ``"decoder_prefill"`` and ``"decoder_gen"`` in

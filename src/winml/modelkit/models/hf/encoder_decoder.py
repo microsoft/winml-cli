@@ -6,7 +6,7 @@
 
 Class hierarchy::
 
-    WinMLPipelineModel                             — multi-component base
+    WinMLCompositeModel                             — multi-component base
       └─ WinMLEncoderDecoderModel(GenerationMixin) — encoder-decoder inference
            ├─ WinMLT5Model (t5.py)                 — WinMLStaticCache
            └─ WinMLMu2Model (mu2.py)               — WinMLSlidingWindowCache
@@ -58,7 +58,7 @@ from optimum.utils.input_generators import DummyInputGenerator
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
-from ..winml.pipeline_model import WinMLPipelineModel
+from ..winml.pipeline_model import WinMLCompositeModel
 from .kv_cache import WinMLStaticCache
 
 
@@ -143,7 +143,7 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
 # =============================================================================
 
 
-class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
+class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
     """Pipeline model with HF GenerationMixin support.
 
     Expects sub-components ``"encoder"`` and ``"decoder"`` in
@@ -213,7 +213,7 @@ class WinMLEncoderDecoderModel(WinMLPipelineModel, GenerationMixin):
             self._expected = expected
 
         def forward(self, **kwargs: Any) -> BaseModelOutput:
-            feeds = WinMLPipelineModel._pad_inputs(kwargs, self._expected)
+            feeds = WinMLCompositeModel._pad_inputs(kwargs, self._expected)
             return self._encoder(**feeds)
 
     def get_encoder(self) -> torch.nn.Module:

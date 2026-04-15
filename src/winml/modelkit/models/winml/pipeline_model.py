@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """WinML Pipeline Model base and registry.
 
-Provides ``WinMLPipelineModel`` — a base class for models composed of
+Provides ``WinMLCompositeModel`` — a base class for models composed of
 multiple ``WinMLAutoModel`` sub-components (e.g., encoder + decoder,
 prefill + gen).  Each subclass declares ``_SUB_MODEL_CONFIG`` mapping
 component names to HF tasks; ``from_pretrained()`` builds them all.
@@ -25,7 +25,7 @@ Per-component kwargs
 ``sub_model_kwargs`` in ``from_pretrained`` allows different ``shape_config``
 per sub-model (e.g., different ``max_cache_len`` for prefill vs gen)::
 
-    WinMLPipelineModel.from_pretrained(model_id, task="text-generation",
+    WinMLCompositeModel.from_pretrained(model_id, task="text-generation",
         sub_model_kwargs={
             "decoder_prefill": {"shape_config": {"max_cache_len": 256, "seq_len": 64}},
             "decoder_gen":     {"shape_config": {"max_cache_len": 256, "seq_len": 1}},
@@ -74,11 +74,11 @@ def register_pipeline_model(model_type: str, task: str):
 
 
 # =========================================================================
-# WinMLPipelineModel — multi-component base
+# WinMLCompositeModel — multi-component base
 # =========================================================================
 
 
-class WinMLPipelineModel(PreTrainedModel):
+class WinMLCompositeModel(PreTrainedModel):
     """Base class for models composed of multiple WinMLAutoModel sub-components.
 
     Subclasses declare ``_SUB_MODEL_CONFIG``: a mapping of component name to
@@ -108,10 +108,10 @@ class WinMLPipelineModel(PreTrainedModel):
         force_rebuild: bool = False,
         sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
         **kwargs: Any,
-    ) -> WinMLPipelineModel:
+    ) -> WinMLCompositeModel:
         """Build all sub-components and return ready-to-use model.
 
-        When called on ``WinMLPipelineModel`` directly (not a subclass),
+        When called on ``WinMLCompositeModel`` directly (not a subclass),
         ``task`` is required to resolve the concrete class from
         ``PIPELINE_MODEL_REGISTRY``.  When called on a registered subclass
         (e.g., ``WinMLT5Model``), ``task`` is optional.
@@ -184,7 +184,7 @@ class WinMLPipelineModel(PreTrainedModel):
         """Model dtype for HF compatibility."""
         return torch.float32
 
-    def to(self, *args: Any, **kwargs: Any) -> WinMLPipelineModel:
+    def to(self, *args: Any, **kwargs: Any) -> WinMLCompositeModel:
         """No-op for HF pipeline compatibility."""
         return self
 
