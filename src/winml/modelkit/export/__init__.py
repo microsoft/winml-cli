@@ -19,32 +19,6 @@ from .config import (
 )
 
 
-def __getattr__(name: str):
-    """Lazy-load heavy submodules to avoid importing optimum at startup."""
-    _io_names = {
-        "MaxLengthTextInputGenerator",
-        "ONNXConfigNotFoundError",
-        "generate_dummy_inputs",
-        "register_onnx_overwrite",
-        "resolve_io_specs",
-    }
-    if name in _io_names:
-        from . import io
-
-        resolved = getattr(io, name)
-        globals()[name] = resolved
-        return resolved
-
-    _pytorch_names = {"export_pytorch", "export_onnx"}
-    if name in _pytorch_names:
-        from .pytorch import export_pytorch
-
-        globals().update(export_pytorch=export_pytorch, export_onnx=export_pytorch)
-        return globals()[name]
-
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __version__ = "2.1.0"
 
 __all__ = [
@@ -60,3 +34,31 @@ __all__ = [
     "resolve_export_config",
     "resolve_io_specs",
 ]
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "MaxLengthTextInputGenerator": (".io", "MaxLengthTextInputGenerator"),
+    "ONNXConfigNotFoundError": (".io", "ONNXConfigNotFoundError"),
+    "generate_dummy_inputs": (".io", "generate_dummy_inputs"),
+    "register_onnx_overwrite": (".io", "register_onnx_overwrite"),
+    "resolve_io_specs": (".io", "resolve_io_specs"),
+    "export_pytorch": (".pytorch", "export_pytorch"),
+    "export_onnx": (".pytorch", "export_pytorch"),  # alias for export_pytorch
+}
+
+
+def __getattr__(name: str):
+    """Lazy-load heavy exports to avoid importing optimum at package init."""
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
+
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return list(set(list(globals()) + __all__))

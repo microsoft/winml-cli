@@ -171,7 +171,11 @@ class MatMulInputGenerator(OpInputGenerator):
         """Return QDQ configuration for MatMul operator inputs."""
         return {
             "A": QDQParameterConfig(support_activation=True, support_weight=True),
-            "B": QDQParameterConfig(support_activation=True, support_weight=True),
+            "B": QDQParameterConfig(
+                support_activation=True,
+                support_weight=True,
+                qdq_types=[SupportedONNXType.INT4],
+            ),
         }
 
 

@@ -36,6 +36,28 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
+def _delete_onnx_with_external_data(onnx_path: Path) -> None:
+    """Delete an ONNX file and its external data files."""
+    import onnx
+    from onnx.external_data_helper import ExternalDataInfo
+
+    try:
+        model = onnx.load(str(onnx_path), load_external_data=False)
+        ext_files: set[str] = set()
+        for tensor in model.graph.initializer:
+            if tensor.data_location == onnx.TensorProto.EXTERNAL:
+                ext_files.add(ExternalDataInfo(tensor).location)
+        for name in ext_files:
+            data_path = onnx_path.parent / name
+            if data_path.exists():
+                data_path.unlink()
+    except Exception:
+        logger.debug("Could not parse external data from %s", onnx_path, exc_info=True)
+
+    if onnx_path.exists():
+        onnx_path.unlink()
+
+
 @click.command()
 @click.option(
     "--model",
@@ -170,8 +192,8 @@ def export(
     if ctx.obj.get("debug"):
         verbose = True
 
-    from ..export.config import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
-    from ..export.pytorch import export_pytorch as export_onnx
+    from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
+    from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
     # Configure logging based on verbose flag
@@ -244,7 +266,7 @@ def export(
 
         # Auto-resolve input/output tensors via loader + Optimum
         try:
-            from ..export.config import resolve_export_config as resolve_cfg
+            from ..export import resolve_export_config as resolve_cfg
 
             auto_export_cfg, _ = resolve_cfg(
                 model_id=model,
@@ -322,19 +344,27 @@ def export(
         else:
             console.print(f"[dim]Detected task: {detected_task}[/dim]")
 
-        # Export using export_onnx() - the single implementation path
-        result_path = export_onnx(
+        export_stats = export_onnx(
             model=pytorch_model,
             output_path=output_path,
             export_config=cfg,
-            model_id=model,  # For metadata
-            task=detected_task,  # Use detected task for proper OnnxConfig lookup
+            model_id=model,
+            task=detected_task,
             verbose=verbose,
             enable_reporting=with_report,
         )
+        logger.debug("Export stats: %s", export_stats)
+
+        # TODO: re-enable post-export optimization (shape inference, constant folding)
+        # Disabled: needs validation that optimize_onnx preserves HTP hierarchy tags.
+        # from ..optim.api import optimize_onnx
+        # raw_path = output_path.with_stem(f"{output_path.stem}_raw")
+        # output_path.rename(raw_path)
+        # optimize_onnx(raw_path, output=output_path)
+        # _delete_onnx_with_external_data(raw_path)
 
         # Show results
-        console.print(f"\n[bold green]Success![/bold green] Model exported to: {result_path}")
+        console.print(f"\n[bold green]Success![/bold green] Model exported to: {output_path}")
 
         # Show report file locations if enabled
         if with_report:

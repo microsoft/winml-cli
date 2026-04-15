@@ -1044,7 +1044,7 @@ class TestIterQDQCombinationsTagSchema:
 
 
 unary_input_shapes = 8
-binary_input_shapes = 42
+binary_input_shapes = 43
 
 
 class TestIterQDQCombinations:
@@ -1054,15 +1054,22 @@ class TestIterQDQCombinations:
         "op_name,expected_count",
         [
             # All binary use this and it is enough
-            ("Add", binary_input_shapes * (16 * 2 - 4)),  # 1176
+            ("Add", binary_input_shapes * (16 * 2 - 4)),  # 1204
             (
                 "AveragePool",
                 1152,
             ),  # QDQ 4 * shape 3 * combo 3 * finite attributes 2 * 2 * 2 * optional strides, pads 4
             (
                 "Cast",
-                (1 + 12 * 2) * 4 * unary_input_shapes,
-            ),  # float->float, others (12 types) only 1 direction supported
+                # DQ requires float input; Q requires float output (i.e. to=FLOAT).
+                # Only T1=FLOAT input can be DQ-wrapped; only to=FLOAT output can be Q-wrapped.
+                # T1=FLOAT + to=FLOAT:    DQ-in, Q-out, or both -> 3 combos x 4 types = 12
+                # T1=FLOAT + to!=FLOAT (11): DQ-in only        -> 1 combo x 4 types x 11 = 44
+                # T1!=FLOAT (13) + to=FLOAT: Q-out only        -> 1 combo x 4 types x 13 = 52
+                # T1!=FLOAT + to!=FLOAT:     no valid QDQ                                 = 0
+                # 14 T1 types = FLOAT + 11 non-float original types + INT4 + UINT4
+                (12 + 11 * 4 + 13 * 4) * unary_input_shapes,
+            ),  # 108 per shape x 8 shapes = 864
             ("Clip", unary_input_shapes * 4 * (4 + 4 + 4 + 1)),  # act 4 * weight 13
             ("Concat", 240),  # 15 base shapes/axes * 4 variadic counts * 4 activation types
             (
@@ -1079,7 +1086,7 @@ class TestIterQDQCombinations:
                 2816,
             ),  # qdq 4 * is_constant 4 * attributes 4 * (2 + 2 + 4 + 6 + 8 + 10 + 12)
             # All comparison use this
-            ("Equal", binary_input_shapes * 16),  # 672
+            ("Equal", binary_input_shapes * 16),  # 688
             ("Expand", 328),  # case 41 * QDQ 4 * is_constant shape 2
             ("Flatten", 28 * 4),  # 112
             (
@@ -1099,7 +1106,7 @@ class TestIterQDQCombinations:
             ("GlobalAveragePool", 3 * 4),  # 12
             ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
-            ("MatMul", 36 * (16 * 2 - 4)),  # 1008
+            ("MatMul", 36 * (16 * 2 - 4 + 4)),  # 1152: +4/shape for B=INT4
             (
                 "MaxPool",
                 768,
@@ -1141,8 +1148,8 @@ class TestIterQDQCombinations:
             ("Unsqueeze", 208),  # 26 * 4 QDQ types * 2 is_constant axes
             (
                 "Where",
-                (42 * 2 - 7) * 4 * (2 + 4 + 4 + 7),
-            ),  # 5236, 7 cases with same shape, different qdq for x,y
+                (43 * 2 - 7) * 4 * (2 + 4 + 4 + 7),
+            ),  # 5372, 7 cases with same shape, different qdq for x,y
         ],
     )
     def test_qdq_total_count(self, op_name: str, expected_count: int) -> None:
