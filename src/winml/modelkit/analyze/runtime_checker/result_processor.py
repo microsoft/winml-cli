@@ -3,6 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import json
+import os
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from ...pattern.op_input_gen import (
     normalize_constraint_dict,
 )
 from ..utils.model_utils import get_op_since_version, make_hashable
+from ..utils.rule_loader import MODELKIT_RULES_DIR_ENV
 
 
 def _get_input_constraint_types(
@@ -843,11 +845,20 @@ if __name__ == "__main__":
         )
 
         if args.update_zip:
-            rules_dir = (
-                Path(args.rules_dir)
-                if args.rules_dir
-                else (Path(__file__).parent / ".." / "rules" / "runtime_check_rules").resolve()
-            )
+            if args.rules_dir:
+                rules_dir = Path(args.rules_dir)
+            else:
+                _default_rules_dir = (
+                    Path(__file__).parent / ".." / "rules" / "runtime_check_rules"
+                ).resolve()
+                rules_dir = _default_rules_dir
+                env_val = os.environ.get(MODELKIT_RULES_DIR_ENV, "").strip()
+                if env_val:
+                    for _entry in env_val.split(os.pathsep):
+                        _entry = _entry.strip()
+                        if _entry:
+                            rules_dir = Path(_entry).resolve()
+                            break
             for group_name, file_list in zip_group.items():
                 rule_zip_path = (
                     rules_dir
