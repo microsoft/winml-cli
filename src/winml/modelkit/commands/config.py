@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Config generation command for ModelKit CLI.
+"""Config generation command (v2, Rich UI) for ModelKit CLI.
 
 Generates WinMLBuildConfig for a HuggingFace model or a pre-exported ONNX file
 by auto-detecting task, model class, and I/O specifications.
@@ -28,11 +28,20 @@ from pathlib import Path
 from typing import Any
 
 import click
-from rich.console import Console
+
+from ..utils.console import (
+    get_console,
+    print_command_header,
+    print_error,
+    print_io_specs_detail,
+    print_io_specs_na,
+    print_kv,
+    print_success,
+)
 
 
 logger = logging.getLogger(__name__)
-console = Console(stderr=True)
+console = get_console()
 
 
 def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> None:
@@ -49,7 +58,7 @@ def _is_onnx_file(model_input: str) -> bool:
     return path.suffix == ".onnx" and path.exists()
 
 
-@click.command()
+@click.command("config")
 @click.option(
     "-m",
     "--model",
@@ -97,7 +106,7 @@ def _is_onnx_file(model_input: str) -> bool:
     type=click.Path(exists=True),
     default=None,
     help="JSON file with shape overrides passed to dummy input generation. "
-    "Valid keys -- text: sequence_length; "
+    "Valid keys — text: sequence_length; "
     "vision: height, width, num_channels; "
     "audio: feature_size, nb_max_frames, audio_sequence_length.",
 )
@@ -230,6 +239,14 @@ def config(
 
     # Validate: at least one of -m, --model-type, or --model-class is required
     if hf_model is None and model_type is None and model_class is None:
+        # Show header even for errors
+        print_command_header(console, "\U0001f4cb CONFIG GENERATION")
+        print_error(
+            console,
+            "Missing required input",
+            hint="Provide one of: -m/--model, --model-type, or --model-class",
+        )
+        console.print()
         raise click.UsageError(
             "At least one of -m/--model, --model-type, or --model-class is required."
         )
@@ -243,6 +260,8 @@ def config(
 
         # Load override config from JSON file if provided
         override = None
+        _override_file: str | None = None
+        _shape_config_file: str | None = None
         if config_file:
             config_path = Path(config_file)
             try:
@@ -258,7 +277,7 @@ def config(
                 override = WinMLBuildConfig.from_dict(data)
             except json.JSONDecodeError as e:
                 raise click.UsageError(f"Invalid JSON in config file {config_path}: {e}") from e
-            console.print(f"[dim]Loaded overrides from {config_path.name}[/dim]")
+            _override_file = config_path.name
 
         # Load shape_config (shape overrides) from JSON file if provided
         shape_config = None
@@ -278,12 +297,15 @@ def config(
                 raise click.UsageError(
                     f"Invalid JSON in I/O config file {shape_config_path}: {e}"
                 ) from e
-            console.print(f"[dim]Loaded I/O config from {shape_config_path.name}[/dim]")
+            _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
+        if hf_model and _is_onnx_file(hf_model) and module:
+            raise click.UsageError(
+                "--module is not supported with ONNX file input. "
+                "Module discovery requires a HuggingFace model."
+            )
         if hf_model and _is_onnx_file(hf_model):
-            console.print(f"[dim]Generating ONNX build config for {hf_model}...[/dim]")
-
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,
@@ -296,11 +318,15 @@ def config(
             # Apply --no-quant / --no-compile overrides
             _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
 
-            console.print("[green]Generated ONNX build config (export=None)[/green]")
             output_data = config_obj.to_dict()
+            _is_onnx_mode = True
+            _resolved_task = None
+            _resolved_model_class = None
+            _export_cfg = None
+            configs: list = []  # defensive — ONNX + module is rejected above
+            _n_modules = 0
         else:
-            label = hf_model or model_type
-            console.print(f"[dim]Generating config for {label}...[/dim]")
+            _is_onnx_mode = False
 
             # Check pipeline model registry: (model_type, task) → multi-config
             pipeline_components = _resolve_pipeline_components(
@@ -347,38 +373,135 @@ def config(
             if module:
                 # Module mode: result is list[WinMLBuildConfig]
                 configs = result
-                # Apply --no-quant / --no-compile overrides to each config
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
-                console.print(f"[green]Found {len(configs)} submodules matching '{module}'[/green]")
                 output_data = [cfg.to_dict() for cfg in configs]
+                _n_modules = len(configs)
+                # Use first config for display metadata
+                config_obj = configs[0] if configs else None
             else:
                 # Normal mode: result is WinMLBuildConfig
                 config_obj = result
-                # Apply --no-quant / --no-compile overrides
+                configs = []
                 _apply_stage_overrides(config_obj, no_quant=no_quant, no_compile=no_compile)
-                # B-4: Inform user of auto-selected task when --task not provided
-                if not task and not module:
-                    auto_task = config_obj.loader.task
-                    source = model_type or hf_model
-                    console.print(f"[dim]Auto-selected task: {auto_task} (from '{source}')[/dim]")
-                console.print(
-                    f"[green]Generated config for task '{config_obj.loader.task}'[/green]"
-                )
                 output_data = config_obj.to_dict()
+                _n_modules = 0
 
-        # Serialize to JSON
+            _resolved_task = config_obj.loader.task if config_obj else None
+            _resolved_model_class = config_obj.loader.model_class if config_obj else None
+            _export_cfg = config_obj.export if config_obj else None
+
+        # ── Rich console output ──────────────────────────────────────
+        subtitle = "ONNX mode" if _is_onnx_mode else ("module mode" if module else None)
+        print_command_header(console, "\U0001f4cb CONFIG GENERATION", subtitle)
+
+        # Model identity
+        model_label = hf_model or model_type or model_class or "?"
+        print_kv(console, "Model:", model_label, icon="\U0001f4e6")
+
+        if _is_onnx_mode:
+            print_kv(console, "Mode:", "Direct ONNX", note="export=None", icon="\U0001f527")
+        else:
+            # Fix #1: Model class before Task
+            if module:
+                print_kv(console, "Module:", module, icon="\U0001f9e9")
+            elif _resolved_model_class:
+                mc_note = None if model_class else "auto-detected"
+                print_kv(
+                    console,
+                    "Model class:",
+                    _resolved_model_class,
+                    note=mc_note,
+                    icon="\U0001f9e9",
+                )
+            # Fix #2: no trailing space after 🏷️
+            if _resolved_task:
+                task_note = None if task else "auto-detected"
+                print_kv(
+                    console,
+                    "Task:",
+                    _resolved_task,
+                    note=task_note,
+                    icon="\U0001f3f7\ufe0f",
+                )
+
+        # Override files
+        if config_file:
+            console.print(
+                f"   \U0001f4c1 [bold]Overrides:[/bold]    {_override_file}  [green]\u2713[/green]"
+            )
+        if shape_config_file:
+            console.print(
+                f"   \U0001f4c1 [bold]Shape config:[/bold] "
+                f"{_shape_config_file}  [green]\u2713[/green]"
+            )
+
+        console.print()
+
+        # I/O specs (always full detail)
+        if _is_onnx_mode:
+            print_io_specs_na(console)
+        elif _export_cfg is not None:
+            print_io_specs_detail(console, _export_cfg)
+
+        console.print()
+
+        # Resolution — read directly from the config object.
+        # No inference or reverse mapping — display what the config contains.
+        _ref_config = config_obj if not module else (configs[0] if configs else None)
+        if _ref_config is not None:
+            _quant = _ref_config.quant
+
+            console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
+
+            # Fix #4: Device from resolve_device (existing API)
+            from ..sysinfo import resolve_device as _rd
+
+            _resolved_dev, _ = _rd()
+            console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
+
+            # EP — only shown when user explicitly passed --ep
+            if ep:
+                from ..utils.constants import normalize_ep_name
+
+                _ep_full = normalize_ep_name(ep) or ep
+                console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
+
+            # Quant types — display exactly what config contains
+            if _quant:
+                console.print(
+                    f"      Quant:      "
+                    f"[cyan]{_quant.weight_type}/{_quant.activation_type}"
+                    f"[/cyan]  [dim](weight/activation)[/dim]"
+                )
+            else:
+                console.print("      Quant:      [dim]none[/dim]")
+
+        # Module mode: show submodule list
+        if module and not _is_onnx_mode and _n_modules > 0:
+            console.print()
+            console.print(
+                f"   \U0001f9e9 [bold]Submodules:[/bold] "
+                f"[green]{_n_modules}[/green] matching '{module}'"
+            )
+
+        console.print()
+
+        # ── Serialize and output ─────────────────────────────────────
         config_json = json.dumps(output_data, indent=2)
 
-        # Output to file or stdout
         if output:
             output_path = Path(output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(config_json)
-            console.print(f"[green]Config saved to:[/green] {output}")
+            suffix = f"  [dim]({_n_modules} submodules)[/dim]" if _n_modules else ""
+            print_success(console, f"Config saved to: [bold]{output}[/bold]{suffix}")
         else:
+            print_success(console, "Config written to stdout")
             # Print to stdout (not stderr where console prints)
             print(config_json)
+
+        console.print()
 
     except click.UsageError:
         raise  # Let click handle its own errors

@@ -1179,9 +1179,13 @@ class OpInputGenerator(ABC):
             should_val = should_qdq_map.get(input_name)
 
             if isinstance(should_val, SupportedONNXType):
-                # Specific type from qdq_types — always quantize with this type, skip
-                # weight/activation mode checks since the type is fully determined.
-                pass
+                # Sub-byte types (INT4/UINT4) use custom numpy dtypes (num >= 256) that
+                # ORT's session.run() cannot convert to MLDataType.  Only generate these
+                # as constant (initializer) inputs where the data lives in the model
+                # itself and never needs to be fed at runtime.
+                _subbyte_types = {SupportedONNXType.INT4, SupportedONNXType.UINT4}
+                if not is_constant and should_val in _subbyte_types:
+                    return
             else:
                 # should_val is True (from support_weight or support_activation)
                 # If neither flag is set, treat as pass-through.

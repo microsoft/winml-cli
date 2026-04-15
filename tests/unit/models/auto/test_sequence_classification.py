@@ -39,6 +39,7 @@ def create_mock_model(num_labels: int = 2):
         "input_names": ["input_ids", "attention_mask", "token_type_ids"],
         "output_names": ["logits"],
     }
+    mock_session.device = "cpu"
     model._session = mock_session
     model.config = MagicMock()
     model.config.num_labels = num_labels

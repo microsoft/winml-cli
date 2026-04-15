@@ -31,6 +31,7 @@ def create_mock_model():
     mock_session.run.return_value = {
         "last_hidden_state": np.random.randn(1, 8, 384).astype(np.float32),
     }
+    mock_session.device = "cpu"
     model._session = mock_session
     model.config = MagicMock()
     model._onnx_path = "mock.onnx"
@@ -41,14 +42,17 @@ def create_mock_model():
 class TestWinMLModelForFeatureExtractionBasic:
     def test_class_importable(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
+
         assert WinMLModelForFeatureExtraction is not None
 
     def test_inherits_from_base(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction, WinMLPreTrainedModel
+
         assert issubclass(WinMLModelForFeatureExtraction, WinMLPreTrainedModel)
 
     def test_exported_from_winml_package(self):
         from winml.modelkit.models.winml import WinMLModelForFeatureExtraction
+
         assert WinMLModelForFeatureExtraction is not None
 
 
@@ -107,6 +111,7 @@ class TestForwardSentenceEmbedding:
         mock_session.run.return_value = {
             "sentence_embedding": np.zeros((1, 384), dtype=np.float32),
         }
+        mock_session.device = "cpu"
         model._session = mock_session
         model.config = MagicMock()
         model._onnx_path = "mock.onnx"
@@ -130,6 +135,7 @@ class TestForwardSentenceEmbedding:
         mock_session.run.return_value = {
             "pooler_output": np.zeros((1, 768), dtype=np.float32),
         }
+        mock_session.device = "cpu"
         model._session = mock_session
         model.config = MagicMock()
         model._onnx_path = "mock.onnx"
