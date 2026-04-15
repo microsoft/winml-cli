@@ -1,0 +1,170 @@
+[
+  {
+    "hf_id": "ACE-Step/acestep-v15-xl-turbo",
+    "pipeline_tag": "text-to-audio",
+    "downloads": 3522,
+    "likes": 102,
+    "trending_score": 63,
+    "last_modified": "2026-04-07 12:39:26+00:00"
+  },
+  {
+    "hf_id": "CohereLabs/cohere-transcribe-03-2026",
+    "pipeline_tag": "automatic-speech-recognition",
+    "downloads": 183758,
+    "likes": 865,
+    "trending_score": 36,
+    "last_modified": "2026-04-08 22:03:46+00:00"
+  },
+  {
+    "hf_id": "ACE-Step/acestep-v15-xl-base",
+    "pipeline_tag": "text-to-audio",
+    "downloads": 1422,
+    "likes": 63,
+    "trending_score": 32,
+    "last_modified": "2026-04-07 06:16:08+00:00"
+  },
+  {
+    "hf_id": "ACE-Step/Ace-Step1.5",
+    "pipeline_tag": "text-to-audio",
+    "downloads": 46687,
+    "likes": 712,
+    "trending_score": 29,
+    "last_modified": "2026-02-03 11:37:37+00:00"
+  },
+  {
+    "hf_id": "ACE-Step/acestep-v15-xl-sft",
+    "pipeline_tag": "text-to-audio",
+    "downloads": 2549,
+    "likes": 60,
+    "trending_score": 29,
+    "last_modified": "2026-04-07 06:22:59+00:00"
+  },
+  {
+    "hf_id": "microsoft/harrier-oss-v1-0.6b",
+    "pipeline_tag": "feature-extraction",
+    "downloads": 69889,
+    "likes": 199,
+    "trending_score": 28,
+    "last_modified": "2026-03-30 08:00:59+00:00"
+  },
+  {
+    "hf_id": "microsoft/VibeVoice-ASR",
+    "pipeline_tag": "automatic-speech-recognition",
+    "downloads": 685734,
+    "likes": 1030,
+    "trending_score": 26,
+    "last_modified": "2026-01-27 13:12:22+00:00"
+  },
+  {
+    "hf_id": "zai-org/GLM-OCR",
+    "pipeline_tag": "image-to-text",
+    "downloads": 6568928,
+    "likes": 1607,
+    "trending_score": 26,
+    "last_modified": "2026-04-14 14:46:47+00:00"
+  },
+  {
+    "hf_id": "microsoft/VibeVoice-1.5B",
+    "pipeline_tag": "text-to-speech",
+    "downloads": 103369,
+    "likes": 2323,
+    "trending_score": 25,
+    "last_modified": "2026-01-22 07:22:28+00:00"
+  },
+  {
+    "hf_id": "tiiuae/Falcon-Perception",
+    "pipeline_tag": "mask-generation",
+    "downloads": 9558,
+    "likes": 101,
+    "trending_score": 24,
+    "last_modified": "2026-04-03 16:50:50+00:00"
+  },
+  {
+    "hf_id": "openai/whisper-large-v3",
+    "pipeline_tag": "automatic-speech-recognition",
+    "downloads": 4790669,
+    "likes": 5572,
+    "trending_score": 23,
+    "last_modified": "2024-08-12 10:20:10+00:00"
+  },
+  {
+    "hf_id": "facebook/sam3",
+    "pipeline_tag": "mask-generation",
+    "downloads": 1987426,
+    "likes": 1864,
+    "trending_score": 22,
+    "last_modified": "2025-11-20 22:05:08+00:00"
+  },
+  {
+    "hf_id": "nvidia/audio-flamingo-next-hf",
+    "pipeline_tag": "audio-text-to-text",
+    "downloads": 590,
+    "likes": 21,
+    "trending_score": 21,
+    "last_modified": "2026-04-14 01:54:54+00:00"
+  },
+  {
+    "hf_id": "openai/whisper-large-v3-turbo",
+    "pipeline_tag": "automatic-speech-recognition",
+    "downloads": 6431902,
+    "likes": 2924,
+    "trending_score": 20,
+    "last_modified": "2024-10-04 14:51:11+00:00"
+  },
+  {
+    "hf_id": "microsoft/VibeVoice-Realtime-0.5B",
+    "pipeline_tag": "text-to-speech",
+    "downloads": 1049647,
+    "likes": 1195,
+    "trending_score": 19,
+    "last_modified": "2025-12-12 15:35:46+00:00"
+  },
+  {
+    "hf_id": "google/tipsv2-b14",
+    "pipeline_tag": "zero-shot-image-classification",
+    "downloads": 348,
+    "likes": 19,
+    "trending_score": 19,
+    "last_modified": "2026-04-14 21:56:31+00:00"
+  },
+  {
+    "hf_id": "tiiuae/Falcon-OCR",
+    "pipeline_tag": "image-to-text",
+    "downloads": 4618,
+    "likes": 72,
+    "trending_score": 18,
+    "last_modified": "2026-04-01 19:25:14+00:00"
+  },
+  {
+    "hf_id": "bytedance-research/Timer-S1",
+    "pipeline_tag": "time-series-forecasting",
+    "downloads": 297,
+    "likes": 16,
+    "trending_score": 16,
+    "last_modified": "2026-04-10 08:16:30+00:00"
+  },
+  {
+    "hf_id": "microsoft/harrier-oss-v1-27b",
+    "pipeline_tag": "feature-extraction",
+    "downloads": 29605,
+    "likes": 112,
+    "trending_score": 14,
+    "last_modified": "2026-03-30 08:05:42+00:00"
+  },
+  {
+    "hf_id": "jonatasgrosman/wav2vec2-large-xlsr-53-portuguese",
+    "pipeline_tag": "automatic-speech-recognition",
+    "downloads": 4581350,
+    "likes": 51,
+    "trending_score": 13,
+    "last_modified": "2022-12-14 01:59:47+00:00"
+  },
+  {
+    "hf_id": "EasonXiao-888/SpatialEdit-16B",
+    "pipeline_tag": "image-text-to-image",
+    "downloads": 67,
+    "likes": 15,
+    "trending_score": 13,
+    "last_modified": "2026-04-08 06:54:16+00:00"
+  }
+]
