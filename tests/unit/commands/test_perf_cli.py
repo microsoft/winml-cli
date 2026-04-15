@@ -270,15 +270,14 @@ class TestPerfUnifiedPipeline:
         override = mock_from_pretrained.call_args.kwargs["config"]
         assert override is None
 
-    def test_cli_onnx_goes_through_perfbenchmark(self, runner: CliRunner, tmp_path: Path) -> None:
-        """CLI with .onnx file should route through PerfBenchmark, not _run_onnx_benchmark."""
+    def test_cli_onnx_goes_through_onnx_benchmark(self, runner: CliRunner, tmp_path: Path) -> None:
+        """CLI with .onnx file should route through _run_onnx_benchmark."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
         with (
-            patch.object(
-                PerfBenchmark,
-                "run",
+            patch(
+                "winml.modelkit.commands.perf._run_onnx_benchmark",
                 return_value=MagicMock(),
             ) as mock_run,
             patch(

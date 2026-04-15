@@ -635,8 +635,8 @@ class TestBuildAnalyzerLoop:
 
         # Autoconf is part of optimize, not a separate stage
         assert "optimize" in result.stages_completed
-        # Single analyze call (no autoconf suggestions, no loop)
-        assert m.call_count == 1
+        # Two analyze calls: one in loop (no autoconf), one final validation
+        assert m.call_count == 2
 
     def test_autoconf_discovers_and_reoptimizes(
         self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
@@ -650,7 +650,7 @@ class TestBuildAnalyzerLoop:
 
         with patch(
             "winml.modelkit.build.common.analyze_onnx",
-            side_effect=[result_with_gelu, result_converged],
+            side_effect=[result_with_gelu, result_converged, result_converged],
         ) as m_analyze:
             result = build_hf_model(
                 config=sample_config_no_quant_compile,
@@ -661,8 +661,8 @@ class TestBuildAnalyzerLoop:
             )
 
         assert "optimize" in result.stages_completed
-        # 2 analyze calls: initial (found gelu) + after re-optimize (converged)
-        assert m_analyze.call_count == 2
+        # 3 analyze calls: initial (found gelu) + after re-optimize (converged) + final validation
+        assert m_analyze.call_count == 3
         # optimize_onnx called: once initial + once re-optimize in autoconf
         assert mock_pipeline["optimize"].call_count == 2
 
@@ -739,7 +739,7 @@ class TestBuildAnalyzerLoop:
 
         with patch(
             "winml.modelkit.build.common.analyze_onnx",
-            side_effect=[result_with_gelu, result_converged],
+            side_effect=[result_with_gelu, result_converged, result_converged],
         ):
             result = build_hf_model(
                 config=sample_config_no_quant_compile,
@@ -774,7 +774,7 @@ class TestBuildAnalyzerLoop:
 
         with patch(
             "winml.modelkit.build.common.analyze_onnx",
-            side_effect=[result_with_flags, result_converged],
+            side_effect=[result_with_flags, result_converged, result_converged],
         ):
             build_hf_model(
                 config=sample_config_no_quant_compile,
@@ -847,7 +847,7 @@ class TestBuildHfPreQuantized:
     def test_post_export_qdq_runs_analyze_only(
         self, tmp_path: Path, sample_config, mock_pipeline
     ) -> None:
-        """Analyze is called (via run_analyze_only) but optimize is not."""
+        """Pre-quantized path runs optimize but skips autoconf (no analyze)."""
         mock_pipeline["is_quantized_onnx"].return_value = True
 
         output_dir = tmp_path / "output"
@@ -856,7 +856,8 @@ class TestBuildHfPreQuantized:
             output_dir=output_dir,
             pytorch_model=mock_pipeline["model"],
         )
-        mock_pipeline["analyze"].assert_called()
+        # max_optim_iterations=0 means no analyze loop runs
+        mock_pipeline["analyze"].assert_not_called()
         mock_pipeline["optimize"].assert_called_once()
 
     def test_skip_optimize_kwarg(self, tmp_path: Path, sample_config, mock_pipeline) -> None:

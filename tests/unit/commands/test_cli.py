@@ -106,7 +106,7 @@ class TestExportCommand:
         assert "-v" in result.output
 
     @patch("winml.modelkit.loader.load_hf_model")
-    @patch("winml.modelkit.export.pytorch.export_pytorch")
+    @patch("winml.modelkit.export.export_pytorch")
     def test_export_calls_api(
         self,
         mock_export_onnx: MagicMock,

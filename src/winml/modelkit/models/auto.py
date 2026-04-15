@@ -334,6 +334,8 @@ class WinMLAutoModel:
 
         from ..build import build_hf_model
 
+        # Pass resolved EP so the static analyzer targets only this EP
+        resolved_ep = config.compile.ep_config.provider if config.compile is not None else None
         result = build_hf_model(
             config=config,
             output_dir=output_dir,
@@ -342,7 +344,7 @@ class WinMLAutoModel:
             rebuild=force_rebuild,
             trust_remote_code=trust_remote_code,
             cache_key=cache_key,
-            ep=kwargs.get("ep"),
+            ep=resolved_ep,
             device=device,
         )
         onnx_path = result.final_onnx_path
@@ -353,11 +355,13 @@ class WinMLAutoModel:
         winml_class = get_winml_class(model_type, task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
 
-        return winml_class(
+        model = winml_class(
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
         )
+        model._build_config = config  # resolved build config (task, quant, compile)
+        return model
 
     @classmethod
     def supported_tasks(cls) -> list[str]:
