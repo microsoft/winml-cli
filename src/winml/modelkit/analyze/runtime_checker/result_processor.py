@@ -611,7 +611,7 @@ if __name__ == "__main__":
     target_domain = "" if args.opset_domain == "ai.onnx" else args.opset_domain
     domain_str_for_filename = args.opset_domain  # Keep original for filename matching
 
-    json_files = list(input_dir.rglob("*.json"))
+    json_files = list(input_dir.glob("*.json"))
 
     if not json_files:
         print(f"No JSON files found in {input_dir}")
@@ -694,7 +694,6 @@ if __name__ == "__main__":
                 f"_opset{since_version}{qdq_suffix}.json"
             )
             json_file = input_dir / expected_filename
-
             print(f"Processing {expected_filename}...", end=" ")
 
             if not json_file.exists():

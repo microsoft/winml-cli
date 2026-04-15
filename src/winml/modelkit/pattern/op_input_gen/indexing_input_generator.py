@@ -884,11 +884,12 @@ class GatherBlockQuantizedInputGenerator(OpInputGenerator):
 
     Output (T2): Dequantized gathered tensor.
 
-    Since this op is already a fused dequantize+gather, it does not use external
-    QDQ wrapping (no get_qdq_config). The type combinations (T1/T2/Tind) and the
-    coupling between bits and T1 are enumerated explicitly in iter().
+    The op's inputs (INT4/UINT4/UINT8 data, indices, scales, optional zero_points) are
+    not wrapped by external DQ nodes — they are already quantized.  The float output can
+    be followed by a QuantizeLinear node, so get_qdq_config() marks the output as
+    support_activation=True and all inputs as support_non_qdq (pass-through).
 
-    Coverage:
+    Coverage (base models, no QDQ):
     - T1: INT4 (bits=4), UINT4 (bits=4), UINT8 (bits=8)
     - T2: FLOAT, FLOAT16
     - Tind: INT32, INT64
@@ -896,10 +897,12 @@ class GatherBlockQuantizedInputGenerator(OpInputGenerator):
     - gather_axis: 0, 1 for INT4/UINT4; 0 only for UINT8 (spec constraint)
     - zero_points: present / absent (doubles the count)
 
-    Count: 2 INT4 gather_axes x 2 block_sizes x 2 T2 x 2 Tind x 2 zp  = 32
-         + 2 UINT4 gather_axes x 2 block_sizes x 2 T2 x 2 Tind x 2 zp = 32
-         + 1 UINT8 gather_axis x 2 block_sizes x 2 T2 x 2 Tind x 2 zp = 16
-         = 80
+    Base count: 2 INT4 gather_axes x 2 block_sizes x 2 T2 x 2 Tind x 2 zp  = 32
+              + 2 UINT4 gather_axes x 2 block_sizes x 2 T2 x 2 Tind x 2 zp = 32
+              + 1 UINT8 gather_axis x 2 block_sizes x 2 T2 x 2 Tind x 2 zp = 16
+              = 80
+
+    QDQ models (output wrapped by Q): 80 base x 4 activation types = 320
     """
 
     op_name = "GatherBlockQuantized"
@@ -912,6 +915,21 @@ class GatherBlockQuantizedInputGenerator(OpInputGenerator):
     def get_input_and_infinite_attribute_combinations(self) -> list[dict]:
         """Not used: combinations are enumerated directly in iter()."""
         return []
+
+    def get_qdq_config(self) -> dict[str, QDQParameterConfig]:
+        """Return QDQ config: output wrappable by Q; all inputs are pass-through.
+
+        GatherBlockQuantized inputs are already quantized (INT4/UINT4/UINT8) and
+        must not be wrapped by DQ nodes.  Only the float output can be followed by
+        a QuantizeLinear node (support_activation).
+        """
+        return {
+            "data": QDQParameterConfig(support_non_qdq=True),
+            "indices": QDQParameterConfig(support_non_qdq=True),
+            "scales": QDQParameterConfig(support_non_qdq=True),
+            "zero_points": QDQParameterConfig(support_non_qdq=True),
+            "output": QDQParameterConfig(support_activation=True),
+        }
 
     def _iter_constant_combinations(self, kwargs: dict) -> Any:
         """Yield one constant map: data/scales/zero_points are weights; indices is runtime."""
