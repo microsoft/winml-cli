@@ -1179,7 +1179,12 @@ class TestIterMSQDQCombinations:
         "op_name,expected_count",
         [
             # Only T2=FLOAT combos produce QDQ output models (T2=FLOAT16 fails Q input type check).
-            # 40 FLOAT base combos x 4 activation output types (INT8/UINT8/INT16/UINT16) = 160
+            # FLOAT base combos:
+            #   2 INT4  gather_axes x 2 block_sizes x 2 Tind x 2 zp = 16
+            #   2 UINT4 gather_axes x 2 block_sizes x 2 Tind x 2 zp = 16
+            #   1 UINT8 gather_axis x 2 block_sizes x 2 Tind x 2 zp =  8
+            #                                                     total = 40
+            # x 4 activation output types (INT8/UINT8/INT16/UINT16) = 160
             ("GatherBlockQuantized", 160),
         ],
     )
