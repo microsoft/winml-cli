@@ -1041,4 +1041,9 @@ class GatherBlockQuantizedInputGenerator(OpInputGenerator):
             "attr_gather_axis",
             "attr_quantize_axis",
             "attr_block_size",
+            # attr_bits is redundant with T1 type (INT4/UINT4 → 4, UINT8 → 8);
+            # some models omit the bits attribute entirely (attr_bits_is_none=True),
+            # so exclude both from table matching to avoid false gaps.
+            "attr_bits",
+            "attr_bits_is_none",
         ]
