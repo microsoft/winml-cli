@@ -10,7 +10,6 @@ from .expand_input_generator import ExpandInputGenerator
 from .flatten_input_generator import FlattenInputGenerator
 from .global_pooling_input_generator import *
 from .indexing_input_generator import (
-    GatherBlockQuantizedInputGenerator,
     GatherInputGenerator,
     ScatterNDInputGenerator,
     SplitInputGenerator,

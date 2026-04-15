@@ -1170,36 +1170,3 @@ class TestIterQDQCombinations:
 
         # For rerun, could track in https://github.com/gim-home/ModelKit/issues/278
         assert count == expected_count, "If changes, either bug or need to rerun"
-
-
-class TestIterMSQDQCombinations:
-    """Tests for com.microsoft domain ops."""
-
-    @pytest.mark.parametrize(
-        "op_name,expected_count",
-        [
-            # Only T2=FLOAT combos produce QDQ output models (T2=FLOAT16 fails Q input type check).
-            # FLOAT base combos:
-            #   2 INT4  gather_axes x 2 block_sizes x 2 Tind x 2 zp = 16
-            #   2 UINT4 gather_axes x 2 block_sizes x 2 Tind x 2 zp = 16
-            #   1 UINT8 gather_axis x 2 block_sizes x 2 Tind x 2 zp =  8
-            #                                                     total = 40
-            # x 4 activation output types (INT8/UINT8/INT16/UINT16) = 160
-            ("GatherBlockQuantized", 160),
-        ],
-    )
-    def test_com_microsoft_op_qdq_model_count(self, op_name: str, expected_count: int) -> None:
-        """Test QDQ model count for com.microsoft ops."""
-        from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
-        from winml.modelkit.pattern.op_input_gen.qdq_gen import QDQGenerator
-
-        schema = ONNXDomain.COM_MICROSOFT.get_op_schema(op_name, 1)
-        qdq_gen = QDQGenerator(opset_version=1, domain=ONNXDomain.COM_MICROSOFT)
-        generator = get_runtime_checker_op(op_name)(schema, qdq_generator=qdq_gen)
-
-        count = 0
-        for kwargs, tags in generator.iter():
-            for _model, _final_tags in generator.iter_const_and_dynamic_models(kwargs, tags):
-                count += 1
-
-        assert count == expected_count, "If count changes, update both code and this comment"
