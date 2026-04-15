@@ -173,7 +173,7 @@ def eval(
                 dataset_name = build_cfg.quant.dataset_name
 
     if show_schema:
-        from ..eval.base_evaluator import WinMLEvaluator
+        from ..eval import WinMLEvaluator
         from ..eval.evaluate import _EVALUATOR_REGISTRY
 
         if task is None:
@@ -225,7 +225,7 @@ def eval(
         with Path(label_mapping).open() as f:
             parsed_label_mapping = json.load(f)
 
-    from ..datasets.config import DatasetConfig
+    from ..datasets import DatasetConfig
     from ..eval import WinMLEvaluationConfig, evaluate
     from ..sysinfo import resolve_device
 
@@ -255,6 +255,7 @@ def eval(
         result = evaluate(config)
 
         from rich.console import Console
+
         console = Console()
         display_eval_report(result, console)
 

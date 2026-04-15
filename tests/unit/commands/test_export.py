@@ -29,7 +29,7 @@ def runner() -> CliRunner:
 @pytest.fixture
 def mock_export_onnx():
     """Mock export_onnx function to avoid actual model loading."""
-    with patch("winml.modelkit.export.pytorch.export_pytorch") as mock:
+    with patch("winml.modelkit.export.export_pytorch") as mock:
         mock.return_value = Path("test_output.onnx")
         yield mock
 
@@ -448,7 +448,7 @@ class TestExportErrorHandling:
         """Test export handles export_onnx() errors gracefully."""
         from winml.modelkit.commands.export import export
 
-        with patch("winml.modelkit.export.pytorch.export_pytorch") as mock:
+        with patch("winml.modelkit.export.export_pytorch") as mock:
             mock.side_effect = RuntimeError("ONNX export failed")
 
             output_path = tmp_path / "model.onnx"
@@ -490,7 +490,7 @@ class TestExportAutoResolveInputTensors:
         with (
             patch("winml.modelkit.loader.load_hf_model") as mock_load,
             patch(
-                "winml.modelkit.export.config.resolve_export_config",
+                "winml.modelkit.export.resolve_export_config",
                 return_value=(mock_export_cfg, mock_loader_cfg),
             ),
         ):

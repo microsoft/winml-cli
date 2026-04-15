@@ -25,7 +25,8 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE, VALID_EPS
+from ..config import VALID_EPS
+from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE
 from ..onnx import is_compiled_onnx
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
@@ -169,7 +170,7 @@ def compile(
 
     # Handle --list
     if list_compilers_flag:
-        from ..compiler.compiler import list_compilers
+        from ..compiler import list_compilers
 
         provider = _resolve_compile_provider(device, ep)
         click.echo(list_compilers(provider))

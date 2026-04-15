@@ -41,6 +41,7 @@ def create_mock_model(num_labels: int = 1000):
         "input_names": ["pixel_values"],
         "output_names": ["logits"],
     }
+    mock_session.device = "cpu"
     model._session = mock_session
     model.config = MagicMock()
     model.config.num_labels = num_labels

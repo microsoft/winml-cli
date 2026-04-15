@@ -1830,16 +1830,6 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "Xenova/slimsam-77-uniform",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 9389,
-    "last_update_time": "2024-12-12T22:29:52+00:00",
-    "optimum_supported": true
-  },
-  {
     "hf_id": "Zigeng/SlimSAM-uniform-77",
     "task": "mask-generation",
     "model_type": "sam",

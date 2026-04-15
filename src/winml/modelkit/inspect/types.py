@@ -27,6 +27,7 @@ class TensorInfo:
     shape: tuple[int, ...] | None = None
     shape_desc: str | None = None  # Human-readable shape like "[B, 3, 224, 224]"
     dynamic_axes: dict[int, str] | None = None  # {0: "batch", 1: "sequence"}
+    value_range: tuple[float, float] | None = None  # e.g., (0.0, 1.0) for pixel values
 
 
 @dataclass
@@ -90,6 +91,11 @@ class ProcessorInfo:
     tokenizer_class: str | None = None  # e.g., "CLIPTokenizerFast"
     image_processor_class: str | None = None  # e.g., "CLIPImageProcessor"
     feature_extractor_class: str | None = None  # e.g., "Wav2Vec2FeatureExtractor"
+    # Source tracking for transparency (e.g., ResNet -> ConvNextImageProcessorFast)
+    processor_source: str | None = None  # "hub_config" | "auto_class"
+    image_processor_source: str | None = None
+    feature_extractor_source: str | None = None
+    tokenizer_source: str | None = None
 
 
 @dataclass
@@ -110,6 +116,10 @@ class IOConfigInfo:
 
     # General
     hidden_size: int | None = None
+    hidden_sizes: list[int] | None = None  # Per-stage hidden dims (e.g., ResNet)
+
+    # Extra attrs discovered dynamically from OnnxConfig
+    extra: dict[str, Any] | None = None
 
 
 @dataclass

@@ -25,11 +25,10 @@ from typing import TYPE_CHECKING, Any
 import click
 import numpy as np
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from ..utils import cli as cli_utils
-from .live_chart import LiveMonitorDisplay
+from ._live_chart import LiveMonitorDisplay
 
 
 if TYPE_CHECKING:
@@ -179,8 +178,8 @@ def generate_random_inputs(
 ) -> dict[str, np.ndarray]:
     """Generate random inputs based on model io_config.
 
-    Uses modelkit.core.model_input_generator for spec-driven generation,
-    then converts torch tensors to numpy for ONNX Runtime.
+    Uses modelkit.core.model_input_generator for spec-driven generation.
+    Returns numpy arrays directly (no torch dependency).
 
     Args:
         io_config: Model I/O configuration from WinMLSession.io_config.
@@ -192,7 +191,7 @@ def generate_random_inputs(
     Returns:
         Dictionary of input_name -> numpy array
     """
-    from ..core.model_input_generator import generate_dummy_inputs_from_specs
+    from ..core import generate_dummy_inputs_from_specs
 
     specs: dict[str, dict[str, Any]] = {}
     for name, shape, dtype_str in zip(
@@ -218,8 +217,7 @@ def generate_random_inputs(
             "shape": list(resolved_shape),
         }
 
-    torch_inputs = generate_dummy_inputs_from_specs(specs)
-    return {name: tensor.numpy() for name, tensor in torch_inputs.items()}
+    return generate_dummy_inputs_from_specs(specs)
 
 
 def _resolve_shape(
@@ -292,6 +290,16 @@ class PerfBenchmark:
         # [2] Generate inputs
         logger.info("Generating benchmark inputs")
         self._generate_inputs()
+
+        # Compile session early so model.device is resolved for display
+        self._model._session.compile()
+
+        # Print model info before benchmark starts
+        _print_model_info(
+            self._model.io_config,
+            task=self._model.task or self.config.task,
+            device=self._model.device,
+        )
 
         # [3] Run benchmark
         logger.info(
@@ -369,12 +377,7 @@ class PerfBenchmark:
         total_iterations = self.config.warmup + self.config.iterations
 
         with session.perf(warmup=self.config.warmup) as stats:
-            for i in range(total_iterations):
-                session.run(self._inputs)
-
-                # Progress logging (every 10%)
-                if (i + 1) % max(1, total_iterations // 10) == 0:
-                    logger.debug("Progress: %d/%d", i + 1, total_iterations)
+            _run_simple_loop(session, self._inputs, total_iterations)
 
         return stats
 
@@ -417,35 +420,15 @@ class PerfBenchmark:
             hw_monitor as hw,
             ep_monitor as ep_mon,
         ):
-            display = LiveMonitorDisplay(
+            _run_monitored_loop(
+                session,
+                self._inputs,
+                stats,
+                hw,
                 total_iterations=total_iterations,
                 warmup=self.config.warmup,
                 model_id=self.config.model_id,
                 device=self.config.device,
-            )
-            with display:
-                for i in range(total_iterations):
-                    session.run(self._inputs)
-
-                    latest_latency = stats.all_samples_ms[-1] if stats.all_samples_ms else 0
-                    display.update(
-                        iteration=i + 1,
-                        latency_ms=latest_latency,
-                        util_samples=hw.utilization_samples,
-                        memory_local_mb=hw.peak_memory_local_mb,
-                        memory_shared_mb=hw.peak_memory_shared_mb,
-                        cpu_pct=hw.mean_cpu_pct,
-                        ram_mb=hw.ram_used_mb,
-                        cpu_samples=hw.cpu_samples,
-                    )
-
-            # Print final monitor snapshot
-            display.print_final_snapshot(
-                util_samples=hw.utilization_samples,
-                memory_mb=hw.peak_memory_mb,
-                latency_ms=stats.mean_ms,
-                hw_dict=hw.to_dict(),
-                cpu_samples=hw.cpu_samples,
             )
 
             # Store hardware metrics
@@ -495,9 +478,9 @@ class PerfBenchmark:
             # Throughput
             samples_per_sec=samples_per_sec,
             batches_per_sec=batches_per_sec,
-            # Actual values
-            actual_device=self._model._session.device,
-            actual_task=self.config.task or "auto-detected",
+            # Actual values (resolved after build + compile)
+            actual_device=self._model.device,
+            actual_task=self._model.task or self.config.task or "auto-detected",
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -720,24 +703,26 @@ def _perf_modules(
 
 def display_console_report(result: BenchmarkResult, console: Console) -> None:
     """Display benchmark results in formatted console output."""
-    # Header
+    # Info section — show "requested (resolved)" when they differ
     console.print()
-    console.print(
-        Panel.fit(
-            f"[bold]Benchmark: {result.config.model_id}[/bold]",
-            border_style="blue",
-        )
-    )
 
-    # Info section
-    console.print()
-    console.print(f"[dim]Device:[/dim]      {result.actual_device}")
-    console.print(f"[dim]Precision:[/dim]   {result.config.precision}")
-    console.print(f"[dim]Task:[/dim]        {result.actual_task}")
-    console.print(
-        f"[dim]Iterations:[/dim]  {result.config.iterations} (+ {result.config.warmup} warmup)"
-    )
-    console.print(f"[dim]Batch Size:[/dim]  {result.config.batch_size}")
+    req_device = result.config.device
+    act_device = result.actual_device
+    device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    console.print(f"[dim]Device:[/dim]      {device_str}")
+
+    # TODO: show resolved precision once WinMLPreTrainedModel.precision
+    # is implemented (derive from _build_config.quant.weight_type)
+
+    act_task = result.actual_task
+    if act_task.startswith("n/a"):
+        task_str = act_task
+    else:
+        req_task = result.config.task or "auto"
+        task_str = f"{req_task} ({act_task})" if req_task != act_task else act_task
+    console.print(f"[dim]Task:[/dim]        {task_str}")
+
+    # I/O tensor info is printed before the benchmark via _print_model_info()
 
     # Latency table
     console.print()
@@ -813,6 +798,203 @@ def generate_output_path(model_id: str) -> Path:
         return Path(f"{p.stem}_perf.json")
     slug = model_id.replace("/", "_").replace("\\", "_")
     return Path(f"{slug}_perf.json")
+
+
+# =============================================================================
+# Shared benchmark helpers
+# =============================================================================
+
+
+def _print_model_info(
+    io_config: dict,
+    *,
+    task: str | None = None,
+    device: str = "auto",
+) -> None:
+    """Print model I/O metadata before the benchmark starts."""
+    console = Console(stderr=True)
+    console.print()
+    console.print(f"[dim]Device:[/dim]      {device}")
+    # TODO: show resolved precision once WinMLPreTrainedModel.precision
+    # is implemented (derive from _build_config.quant.weight_type)
+    if task:
+        console.print(f"[dim]Task:[/dim]        {task}")
+
+    names = io_config.get("input_names", [])
+    shapes = io_config.get("input_shapes", [])
+    types = io_config.get("input_types", [])
+    if names:
+        label = "[dim]Inputs:[/dim]      "
+        pad = "             "
+        for i, name in enumerate(names):
+            shape = shapes[i] if i < len(shapes) else []
+            dtype = str(types[i]) if i < len(types) else ""
+            shape_str = f"{shape!s}"
+            line = f"{name:<20s} {shape_str:<22s} {dtype}"
+            console.print(f"{label if i == 0 else pad}{line}")
+
+    out_names = io_config.get("output_names", [])
+    out_shapes = io_config.get("output_shapes", [])
+    if out_names:
+        label = "[dim]Outputs:[/dim]     "
+        pad = "             "
+        for i, name in enumerate(out_names):
+            shape = out_shapes[i] if i < len(out_shapes) else []
+            console.print(f"{label if i == 0 else pad}{name:<20s} {shape!s}")
+
+    console.print()
+
+
+def _run_monitored_loop(
+    session: Any,
+    inputs: dict[str, Any],
+    stats: PerfStats,
+    hw: Any,
+    *,
+    total_iterations: int,
+    warmup: int,
+    model_id: str,
+    device: str,
+) -> None:
+    """Run the benchmark iteration loop with live hardware monitoring.
+
+    Shared by both HF-path (PerfBenchmark) and ONNX-path (_run_onnx_benchmark).
+    """
+    display = LiveMonitorDisplay(
+        total_iterations=total_iterations,
+        warmup=warmup,
+        model_id=model_id,
+        device=device,
+    )
+    with display:
+        for i in range(total_iterations):
+            session.run(inputs)
+
+            latest_latency = stats.all_samples_ms[-1] if stats.all_samples_ms else 0
+            display.update(
+                iteration=i + 1,
+                latency_ms=latest_latency,
+                util_samples=hw.utilization_samples,
+                memory_local_mb=hw.peak_memory_local_mb,
+                memory_shared_mb=hw.peak_memory_shared_mb,
+                cpu_pct=hw.mean_cpu_pct,
+                ram_mb=hw.ram_used_mb,
+                cpu_samples=hw.cpu_samples,
+            )
+
+
+def _run_simple_loop(
+    session: Any,
+    inputs: dict[str, Any],
+    total_iterations: int,
+) -> None:
+    """Run the benchmark iteration loop with periodic debug logging.
+
+    Shared by both HF-path (PerfBenchmark) and ONNX-path (_run_onnx_benchmark).
+    """
+    for i in range(total_iterations):
+        session.run(inputs)
+
+        if (i + 1) % max(1, total_iterations // 10) == 0:
+            logger.debug("Progress: %d/%d", i + 1, total_iterations)
+
+
+# =============================================================================
+# ONNX Direct Benchmark
+# =============================================================================
+
+
+def _run_onnx_benchmark(
+    onnx_path: Path,
+    *,
+    device: str,
+    iterations: int,
+    warmup: int,
+    batch_size: int,
+    config: BenchmarkConfig,
+) -> BenchmarkResult:
+    """Benchmark an ONNX file directly via WinMLSession (no HF build).
+
+    Creates a WinMLSession, reads io_config for input shapes,
+    generates random inputs, and runs the standard benchmark loop.
+    """
+    from ..session import WinMLSession
+
+    session = WinMLSession(onnx_path=onnx_path, device=device)
+
+    # Generate random inputs from session's I/O config
+    io_cfg = session.io_config
+    inputs = generate_random_inputs(io_config=io_cfg, batch_size=batch_size)
+
+    # Compile session early so session.device is resolved for display
+    session.compile()
+
+    # Print model info before benchmark starts
+    _print_model_info(io_cfg, device=session.device)
+
+    # Run benchmark
+    total_iterations = warmup + iterations
+    hw_metrics = None
+    hw_ctx = None
+
+    # Determine if hardware monitoring is available
+    if config.monitor:
+        from ..session.monitor.hw_monitor import HWMonitor
+
+        if HWMonitor.is_available():
+            hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+        else:
+            Console(stderr=True).print(
+                "[yellow]Warning:[/yellow] HWMonitor unavailable. "
+                "Running ONNX benchmark without monitoring."
+            )
+
+    if hw_ctx:
+        with session.perf(warmup=warmup) as stats, hw_ctx as hw:
+            _run_monitored_loop(
+                session,
+                inputs,
+                stats,
+                hw,
+                total_iterations=total_iterations,
+                warmup=warmup,
+                model_id=str(onnx_path.name),
+                device=device,
+            )
+            hw_metrics = hw.to_dict()
+    else:
+        with session.perf(warmup=warmup) as stats:
+            _run_simple_loop(session, inputs, total_iterations)
+
+    # Collect results
+    mean_latency_sec = stats.mean_ms / 1000.0
+    samples_per_sec = batch_size / mean_latency_sec if mean_latency_sec > 0 else 0
+    batches_per_sec = 1.0 / mean_latency_sec if mean_latency_sec > 0 else 0
+    samples = stats.samples_ms
+    std_ms = float(np.std(samples)) if samples else 0.0
+
+    return BenchmarkResult(
+        config=config,
+        input_names=io_cfg["input_names"],
+        input_shapes=[list(s) if s else [] for s in io_cfg["input_shapes"]],
+        input_types=[str(t) for t in io_cfg["input_types"]],
+        output_names=io_cfg["output_names"],
+        output_shapes=[list(s) if s else [] for s in io_cfg["output_shapes"]],
+        mean_ms=stats.mean_ms,
+        min_ms=stats.min_ms,
+        max_ms=stats.max_ms,
+        p50_ms=stats.p50_ms,
+        p90_ms=stats.p90_ms,
+        p95_ms=stats.p95_ms,
+        p99_ms=stats.p99_ms,
+        std_ms=std_ms,
+        raw_samples_ms=stats.samples_ms,
+        samples_per_sec=samples_per_sec,
+        batches_per_sec=batches_per_sec,
+        actual_device=session.device,
+        actual_task="n/a (direct ONNX)",
+        hw_monitor=hw_metrics,
+    )
 
 
 # =============================================================================
@@ -984,7 +1166,7 @@ def perf(
     from the model's I/O configuration.
 
     Accepts both HuggingFace model IDs and local .onnx files.
-    Both paths go through PerfBenchmark with WinMLAutoModel.
+    HF models go through PerfBenchmark; .onnx files use _run_onnx_benchmark.
 
     \b
     Examples:
@@ -1114,10 +1296,11 @@ def perf(
     )
 
     try:
-        # Both ONNX and HF go through PerfBenchmark (unified pipeline)
         model_path = Path(hf_model)
         is_onnx = model_path.suffix.lower() == ".onnx"
+
         if is_onnx:
+            # ONNX direct path -- skip HF build, benchmark via WinMLSession
             if shape_config:
                 console.print(
                     "[yellow]Warning:[/yellow] --shape-config is ignored for "
@@ -1126,14 +1309,28 @@ def perf(
                 config.shape_config = None
             if not model_path.exists():
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
-            console.print(f"[dim]Building + benchmarking ONNX:[/dim] {model_path}")
+            console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
+
+            from ..sysinfo import resolve_device
+
+            resolved_device, _ = resolve_device(device=config.device)
+
+            result = _run_onnx_benchmark(
+                model_path,
+                device=resolved_device,
+                iterations=iterations,
+                warmup=warmup,
+                batch_size=batch_size,
+                config=config,
+            )
         else:
+            # HF model path -- full build + benchmark via PerfBenchmark
             if precision != "auto":
                 console.print(f"[dim]Precision: {precision} (applied during model build)[/dim]")
             console.print(f"[dim]Loading model:[/dim] {hf_model}")
 
-        benchmark = PerfBenchmark(config)
-        result = benchmark.run()
+            benchmark = PerfBenchmark(config)
+            result = benchmark.run()
 
         # Display console report
         display_console_report(result, console)
@@ -1153,9 +1350,9 @@ def perf(
                 console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
                 raise SystemExit(1)
 
-            from ..optracing.registry import get_tracer
-            from ..optracing.report import (
+            from ..optracing import (
                 display_op_trace_report,
+                get_tracer,
                 write_op_trace_json,
             )
 

@@ -580,6 +580,14 @@ if __name__ == "__main__":
         "(new values override old keys, old-only keys are preserved) and sort.",
     )
     parser.add_argument(
+        "--rules-dir",
+        type=str,
+        default=None,
+        help="Directory where rule zip files are written when --update-zip is set. "
+        "Defaults to the runtime_check_rules folder relative to this script "
+        "(../rules/runtime_check_rules).",
+    )
+    parser.add_argument(
         "-range",
         "--opset_range_ref_op",
         type=str,
@@ -835,9 +843,15 @@ if __name__ == "__main__":
         )
 
         if args.update_zip:
+            rules_dir = (
+                Path(args.rules_dir)
+                if args.rules_dir
+                else (Path(__file__).parent / ".." / "rules" / "runtime_check_rules").resolve()
+            )
             for group_name, file_list in zip_group.items():
-                rule_zip_path = input_dir.parent.joinpath(
-                    f"rules/{group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip"
+                rule_zip_path = (
+                    rules_dir
+                    / f"{group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip"
                 )
 
                 # In append mode, load existing zip entries to preserve files not being updated
