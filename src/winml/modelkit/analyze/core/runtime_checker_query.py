@@ -1042,7 +1042,8 @@ class RuntimeCheckerQuery:
 
         for domain, opset_version in self.opset_versions.items():
             file_prefix = domain.name
-            base = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}"
+            # Device type is uppercased to align with the convention used by check ops.
+            base = f"{self.ep_name}_{self.device_type.upper()}_{file_prefix}_opset{opset_version}"
             rule_zip_path = resolve_rule_zip_path(f"{base}.zip")
             rule_file = f"{base}_negative_rules.json"
             qdq_rule_file = f"{base}_negative_rules_qdq.json"
