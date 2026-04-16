@@ -62,9 +62,9 @@ class TestInputGeneratorValidation:
     """Test validation of unary operator input generators."""
 
     @pytest.mark.parametrize("op_name", get_registered_operators())
-    @pytest.mark.parametrize("opset_version", [17, 22, 23])
+    @pytest.mark.parametrize("opset_version", [1, 17, 22, 23])
     def test_operator_validation(self, op_name: str, opset_version: int) -> None:
-        """Test that each operator's input generator validates successfully.
+        """Test that each operator's input generator instantiates and validates successfully.
 
         Args:
             op_name: Registry key (e.g. "Relu" or "com.microsoft::Gelu")
@@ -80,33 +80,17 @@ class TestInputGeneratorValidation:
         generator_class = get_runtime_checker_op(op_name)
         gen = generator_class(schema)
 
+        assert gen.op_name == op_type
+        assert gen.schema == schema
+
         if domain == ONNXDomain.AI_ONNX and op_type == "LpNormalization" and opset_version >= 22:
             # LpNormalization >= 22 is not supported by onnnxruntime 1.23
             return
-
-        # Should not raise any exceptions
-        gen.validate_inputs()
-
-    @pytest.mark.parametrize("op_name", get_registered_operators())
-    def test_operator_instantiation(self, op_name: str) -> None:
-        """Test that each operator's input generator can be instantiated.
-
-        Args:
-            op_name: Registry key (e.g. "Relu" or "com.microsoft::Gelu")
-        """
-        domain, op_type = _parse_registry_key(op_name)
-        # For com.microsoft ops, opset 1 is the standard version
-        opset_version = 1 if domain == ONNXDomain.COM_MICROSOFT else 23
-        try:
-            schema = domain.get_op_schema(op_type, opset_version)
-        except SchemaError:
+        if domain == ONNXDomain.AI_ONNX and opset_version == 1:
+            # Opset 1 schemas are too old
             return
 
-        generator_class = get_runtime_checker_op(op_name)
-        gen = generator_class(schema)
-
-        assert gen.op_name == op_type
-        assert gen.schema == schema
+        gen.validate_inputs()
 
 
 class TestFilterKwargsByOpset:
