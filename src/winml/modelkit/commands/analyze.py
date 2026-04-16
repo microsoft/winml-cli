@@ -516,6 +516,10 @@ def analyze(
         run_unknown_op_for_ep = run_unknown_op
         if ep == "VitisAIExecutionProvider":
             run_unknown_op_for_ep = False
+            logger.info(
+                "Disabling --run-unknown-op for VitisAIExecutionProvider: "
+                "AMD op runtime results are not available yet"
+            )
 
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
