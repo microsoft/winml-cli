@@ -650,7 +650,7 @@ def get_query_conditions_for_node(
 
     # create runtime checker op
     try:
-        runtime_checker_op = get_runtime_checker_op(node.op_type)(schema)
+        runtime_checker_op = get_runtime_checker_op(node.op_type, domain=domain.value)(schema)
     except KeyError:
         raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
     type_vars = {}
