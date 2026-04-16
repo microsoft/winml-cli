@@ -50,8 +50,6 @@ How it works:
 Design principles (same as composite_model.py):
 
 - ONNX I/O names and shapes are read from ``io_config``, never hardcoded.
-- Inputs smaller than ONNX expected shape are zero-padded via ``_pad_inputs``.
-- ``_pad_inputs`` is reused from ``WinMLEncoderDecoderModel`` (static method).
 """
 
 from __future__ import annotations
@@ -65,9 +63,6 @@ from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from .composite_model import WinMLCompositeModel
-
-
-_pad_inputs = WinMLCompositeModel._pad_inputs
 
 
 if TYPE_CHECKING:
