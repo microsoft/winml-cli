@@ -30,21 +30,6 @@
     "reason": "Build hangs >14000s, m2m_100 enc-dec export issue"
   },
   {
-    "hf_id": "google-t5/t5-3b",
-    "task": "translation",
-    "reason": "Build hangs >14000s, t5 enc-dec + network download issue"
-  },
-  {
-    "hf_id": "google-t5/t5-base",
-    "task": "summarization",
-    "reason": "Build hangs >2000s, t5 enc-dec export issue"
-  },
-  {
-    "hf_id": "google-t5/t5-small",
-    "task": "translation",
-    "reason": "Build hangs >8000s, t5 enc-dec export issue"
-  },
-  {
     "hf_id": "knkarthick/MEETING_SUMMARY",
     "task": "summarization",
     "reason": "Build hangs >3000s, bart enc-dec export issue"

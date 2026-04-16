@@ -280,8 +280,9 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 
 
 @register_composite_model("t5", "translation")
+@register_composite_model("t5", "summarization")
 class WinMLT5Model(WinMLEncoderDecoderModel):
-    """T5 encoder-decoder model for translation.
+    """T5 encoder-decoder model for seq2seq tasks (translation, summarization).
 
     Declares T5 sub-component tasks and generation config defaults.
     All encoder-decoder forward/cache logic lives in ``WinMLEncoderDecoderModel``.
