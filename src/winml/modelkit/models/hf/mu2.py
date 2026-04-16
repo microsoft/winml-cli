@@ -67,7 +67,9 @@ from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import NormalizedConfig
 from optimum.utils.input_generators import DummyTextInputGenerator
 
+from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
+from ...optim import WinMLOptimizationConfig
 from ..winml.composite_model import register_composite_model
 from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
 from .kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
@@ -267,6 +269,16 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("mu2", "text2text-generation"): Mu2DecoderWrapper,
 }
 
+MU2_CONFIG = WinMLBuildConfig(
+    optim=WinMLOptimizationConfig(
+        gelu_fusion=True,
+        fuse_rmsnorm=True,
+        matmul_add_fusion=True,
+        clamp_constant_values=True,
+        remove_isnan_in_attention_mask=True,
+    ),
+)
+
 
 @register_composite_model("mu2", "translation")
 class WinMLMu2Model(WinMLEncoderDecoderModel):
@@ -314,6 +326,7 @@ class WinMLMu2Model(WinMLEncoderDecoderModel):
 
 __all__ = [
     "MODEL_CLASS_MAPPING",
+    "MU2_CONFIG",
     "Mu2DecoderIOConfig",
     "Mu2DecoderWrapper",
     "Mu2EncoderIOConfig",

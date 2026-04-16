@@ -438,17 +438,18 @@ def _run_build(
 
 def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
     """Extract ONNX path from build subprocess output."""
+    # Patterns used by winml build to report the artifact path
+    markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
     onnx_path = None
-    for line in build_proc["stderr"].splitlines():
-        if "Final artifact:" in line:
-            onnx_path = line.split("Final artifact:")[-1].strip()
+    for line in (build_proc["stderr"] + build_proc["stdout"]).splitlines():
+        for marker in markers:
+            if marker in line:
+                candidate = line.split(marker)[-1].strip()
+                if candidate and Path(candidate).exists():
+                    onnx_path = candidate
+                    break
+        if onnx_path:
             break
-
-    if not onnx_path:
-        for line in build_proc["stdout"].splitlines():
-            if "Final artifact:" in line:
-                onnx_path = line.split("Final artifact:")[-1].strip()
-                break
 
     if not onnx_path or not Path(onnx_path).exists():
         onnx_path = _find_cached_model(hf_id, build_proc, task)

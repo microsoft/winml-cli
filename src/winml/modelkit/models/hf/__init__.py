@@ -37,6 +37,7 @@ from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # t
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
 from .mu2 import MODEL_CLASS_MAPPING as _MU2_CLASS_MAPPING
+from .mu2 import MU2_CONFIG
 from .mu2 import Mu2DecoderIOConfig as _Mu2DecoderIOConfig  # triggers registration
 from .mu2 import Mu2EncoderIOConfig as _Mu2EncoderIOConfig  # triggers registration
 from .qwen import MODEL_CLASS_MAPPING as _QWEN_CLASS_MAPPING
@@ -49,6 +50,7 @@ from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
 from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
 from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
 from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
+from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
@@ -77,7 +79,9 @@ MODEL_BUILD_CONFIGS = {
     "clip-vision-model": CLIP_CONFIG,
     "detr": DETR_CONFIG,
     "roberta": ROBERTA_FAMILY_CONFIG,
+    "mu2": MU2_CONFIG,
     "qwen3": QWEN_CONFIG,
+    "t5": T5_CONFIG,
     "vision-encoder-decoder": VISION_ENCODER_DECODER_CONFIG,
     "xlm-roberta": ROBERTA_FAMILY_CONFIG,
 }

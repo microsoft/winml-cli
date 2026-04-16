@@ -102,6 +102,7 @@ from transformers import AutoModelForCausalLM
 from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...export.config import WinMLExportConfig
+from ...optim import WinMLOptimizationConfig
 from ..winml import register_specialization
 from ..winml.composite_model import register_composite_model
 from ..winml.decoder_only import (
@@ -297,6 +298,13 @@ class QwenGenIOConfig(OnnxConfig):
 
 QWEN_CONFIG = WinMLBuildConfig(
     export=WinMLExportConfig(dynamo=True, opset_version=18),
+    optim=WinMLOptimizationConfig(
+        gelu_fusion=True,
+        fuse_rmsnorm=True,
+        matmul_add_fusion=True,
+        clamp_constant_values=True,
+        remove_isnan_in_attention_mask=True,
+    ),
 )
 
 
