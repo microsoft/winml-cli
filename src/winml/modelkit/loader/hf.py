@@ -81,8 +81,7 @@ def resolve_hf_model_class(class_name: str) -> type:
             return cls
 
     raise ImportError(
-        f"Model class '{class_name}' not found in any of: "
-        f"{', '.join(_HF_MODEL_MODULES)}"
+        f"Model class '{class_name}' not found in any of: {', '.join(_HF_MODEL_MODULES)}"
     )
 
 
@@ -131,14 +130,10 @@ def _load_class_from_script(script_path: str, class_name: str) -> type:
 
     # Validate it looks like a model class
     if not isinstance(model_class, type):
-        raise TypeError(
-            f"'{class_name}' in script is not a class, got {type(model_class)}"
-        )
+        raise TypeError(f"'{class_name}' in script is not a class, got {type(model_class)}")
 
     if not hasattr(model_class, "from_pretrained"):
-        raise TypeError(
-            f"Class '{class_name}' must have 'from_pretrained' method"
-        )
+        raise TypeError(f"Class '{class_name}' must have 'from_pretrained' method")
 
     logger.debug("Successfully loaded class: %s", model_class)
     return model_class
@@ -199,25 +194,24 @@ def load_hf_model(
     """
     logger.info("Loading HF model: %s", model_name_or_path)
 
-    # Validate user_script requires trust_remote_code
-    if user_script is not None and not trust_remote_code:
-        raise ValueError(
-            "user_script requires trust_remote_code=True for security. "
-            "Loading arbitrary Python code is potentially dangerous."
-        )
+    # Validate user_script requirements before any network calls
+    if user_script is not None:
+        if not trust_remote_code:
+            raise ValueError(
+                "user_script requires trust_remote_code=True for security. "
+                "Loading arbitrary Python code is potentially dangerous."
+            )
+        if model_class is None:
+            raise ValueError("model_class must be specified when using user_script")
 
     # [1] Load HF Config
     hf_config = AutoConfig.from_pretrained(
-        model_name_or_path, trust_remote_code=trust_remote_code,
+        model_name_or_path,
+        trust_remote_code=trust_remote_code,
     )
 
     # [2] Task & Model Class Resolution
-    # Special case: user_script requires model_class
     if user_script is not None:
-        if model_class is None:
-            raise ValueError(
-                "model_class must be specified when using user_script"
-            )
         resolved_class = _load_class_from_script(user_script, model_class)
         logger.info("Using custom model class from script: %s", model_class)
 
@@ -233,8 +227,7 @@ def load_hf_model(
             )
         except ValueError as e:
             raise ValueError(
-                f"Cannot resolve task/model for {model_name_or_path}. "
-                f"Original error: {e}"
+                f"Cannot resolve task/model for {model_name_or_path}. Original error: {e}"
             ) from e
 
     # [4] Model Instantiation
