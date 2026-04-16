@@ -174,6 +174,57 @@ class WinMLCompositeModel(PreTrainedModel):
 
         return cls(sub_models=sub_models, config=hf_config)
 
+    @classmethod
+    def from_onnx(
+        cls,
+        onnx_path: dict[str, str],
+        *,
+        task: str | None = None,
+        **kwargs: Any,
+    ) -> WinMLCompositeModel:
+        """Load composite model from pre-built ONNX files.
+
+        Resolves the concrete model class from the registry using *task*
+        and ``hf_config.model_type``, then builds each sub-component via
+        ``WinMLAutoModel.from_onnx``.
+
+        Args:
+            onnx_path: Maps component name (e.g., ``"encoder"``,
+                ``"decoder_prefill"``) to its ONNX file path.
+            task: Pipeline task (e.g., ``"translation"``,
+                ``"text-generation"``).
+            **kwargs: Must include ``hf_config`` (``PretrainedConfig``).
+                May include ``sub_model_kwargs`` for per-component
+                overrides.  Remaining kwargs are forwarded to
+                ``WinMLAutoModel.from_onnx`` for every component.
+        """
+        from pathlib import Path
+
+        hf_config = kwargs.pop("hf_config", None)
+        sub_model_kwargs = kwargs.pop("sub_model_kwargs", None) or {}
+
+        # Resolve concrete class from registry
+        model_type = getattr(hf_config, "model_type", None) if hf_config else None
+        if not cls._SUB_MODEL_CONFIG:
+            resolved_cls = PIPELINE_MODEL_REGISTRY.get((model_type, task))
+            if resolved_cls is None:
+                raise ValueError(
+                    f"No composite model for ({model_type!r}, {task!r}). "
+                    f"Registered: {list(PIPELINE_MODEL_REGISTRY.keys())}"
+                )
+        else:
+            resolved_cls = cls
+
+        from ..auto import WinMLAutoModel
+
+        sub_models: dict[str, Any] = {}
+        for name, path in onnx_path.items():
+            component_task = resolved_cls._SUB_MODEL_CONFIG.get(name)
+            merged = {**kwargs, "task": component_task, **sub_model_kwargs.get(name, {})}
+            sub_models[name] = WinMLAutoModel.from_onnx(Path(path), **merged)
+
+        return resolved_cls(sub_models=sub_models, config=hf_config)
+
     @property
     def device(self) -> torch.device:
         """Device (CPU — ORT handles actual placement)."""
