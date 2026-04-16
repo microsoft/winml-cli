@@ -195,3 +195,30 @@ class TestFromPretrainedDelegatesToFromOnnx:
 
         call_kwargs = mock_from_onnx.call_args.kwargs
         assert call_kwargs["ep"] == "qnn"
+
+
+# =============================================================================
+# from_onnx dict dispatch → WinMLCompositeModel.from_onnx
+# =============================================================================
+
+
+class TestFromOnnxDictDispatch:
+    """from_onnx with dict onnx_path delegates to WinMLCompositeModel.from_onnx."""
+
+    def test_dict_dispatches_to_composite(self, tmp_path: Path):
+        """Dict onnx_path calls WinMLCompositeModel.from_onnx."""
+        with patch(
+            "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx"
+        ) as mock_from_onnx:
+            mock_from_onnx.return_value = MagicMock()
+
+            WinMLAutoModel.from_onnx(
+                {"encoder": str(tmp_path / "enc.onnx"), "decoder": str(tmp_path / "dec.onnx")},
+                task="translation",
+                skip_build=True,
+            )
+
+            mock_from_onnx.assert_called_once()
+            call_kwargs = mock_from_onnx.call_args.kwargs
+            assert call_kwargs["task"] == "translation"
+            assert call_kwargs["skip_build"] is True

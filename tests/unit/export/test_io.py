@@ -829,3 +829,135 @@ class TestQwenGenKVInputs:
     def test_input_ids_single_token(self, qwen_config) -> None:
         inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
         assert inputs["input_ids"].shape == (1, 1)
+
+
+# =============================================================================
+# WinMLCache — build_decoder_mask and prepare_prefill_chunk
+# =============================================================================
+
+
+def _make_cache(cls, num_layers=2, num_heads=2, max_cache_len=16, head_dim=8):
+    """Create a WinMLCache instance with minimal config.
+
+    Uses a real PretrainedConfig subclass because HF StaticCache.__init__
+    calls config.get_text_config().
+    """
+    from transformers import PretrainedConfig
+
+    config = PretrainedConfig(num_hidden_layers=num_layers)
+    cache = cls.create(config, [1, num_heads, max_cache_len, head_dim], torch.float32)
+    cache.reset()
+    return cache
+
+
+class TestStaticCacheBuildDecoderMask:
+    """WinMLStaticCache.build_decoder_mask — left-aligned mask."""
+
+    def test_default_single_token(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        cache.step = 3
+        mask = cache.build_decoder_mask(16)
+        assert mask.shape == (1, 16)
+        assert mask[0, :4].tolist() == [1, 1, 1, 1]
+        assert mask[0, 4:].sum().item() == 0
+
+    def test_num_new_tokens(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        cache.step = 2
+        mask = cache.build_decoder_mask(16, num_new_tokens=4)
+        assert mask[0, :6].tolist() == [1, 1, 1, 1, 1, 1]
+        assert mask[0, 6:].sum().item() == 0
+
+
+class TestSlidingWindowCacheBuildDecoderMask:
+    """WinMLSlidingWindowCache.build_decoder_mask — right-aligned mask."""
+
+    def test_default_single_token(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        cache.step = 3
+        mask = cache.build_decoder_mask(16)
+        # rightmost 4 positions should be 1
+        assert mask[0, -4:].tolist() == [1, 1, 1, 1]
+        assert mask[0, :-4].sum().item() == 0
+
+    def test_num_new_tokens(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        cache.step = 2
+        mask = cache.build_decoder_mask(16, num_new_tokens=4)
+        # rightmost 6 positions
+        assert mask[0, -6:].tolist() == [1, 1, 1, 1, 1, 1]
+        assert mask[0, :-6].sum().item() == 0
+
+    def test_saturates_at_max_len(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache, max_cache_len=8)
+        cache.step = 10
+        mask = cache.build_decoder_mask(8, num_new_tokens=4)
+        # min(10+4, 8)=8 → all 1s
+        assert mask[0].sum().item() == 8
+
+
+class TestStaticCachePreparePrefillChunk:
+    """WinMLStaticCache.prepare_prefill_chunk — right-pad."""
+
+    def test_full_chunk_no_padding(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        chunk = torch.tensor([[10, 20, 30, 40]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=0, prefill_seq_len=4
+        )
+        assert pad_len == 0
+        assert padded_ids[0].tolist() == [10, 20, 30, 40]
+        assert pos_ids[0].tolist() == [0, 1, 2, 3]
+
+    def test_partial_chunk_right_padded(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        chunk = torch.tensor([[10, 20]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=4, prefill_seq_len=4
+        )
+        assert pad_len == 0
+        assert padded_ids[0, :2].tolist() == [10, 20]
+        assert padded_ids[0, 2:].tolist() == [0, 0]
+        assert pos_ids[0].tolist() == [4, 5, 6, 7]
+
+
+class TestSlidingWindowCachePreparePrefillChunk:
+    """WinMLSlidingWindowCache.prepare_prefill_chunk — left-pad."""
+
+    def test_full_chunk_no_padding(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        chunk = torch.tensor([[10, 20, 30, 40]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=0, prefill_seq_len=4
+        )
+        assert pad_len == 0
+        assert padded_ids[0].tolist() == [10, 20, 30, 40]
+        assert pos_ids[0].tolist() == [0, 1, 2, 3]
+
+    def test_partial_chunk_left_padded(self) -> None:
+        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        chunk = torch.tensor([[10, 20]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=4, prefill_seq_len=4
+        )
+        assert pad_len == 2
+        assert padded_ids[0].tolist() == [0, 0, 10, 20]
+        assert pos_ids[0].tolist() == [0, 0, 4, 5]
