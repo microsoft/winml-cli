@@ -5,8 +5,8 @@
 """Qwen3 HuggingFace Model Configuration.
 
 Provides decoder export wrappers and OnnxConfig registrations for
-Qwen3 decoder-only models with static KV cache, split into prefill
-and generation sub-models.
+Qwen3 decoder-only models with KV cache, split into prefill and
+generation sub-models.
 
 Export Strategy (split by task):
 - QwenDecoderWrapper + QwenPrefillIOConfig: ``feature-extraction`` task
@@ -15,15 +15,16 @@ Export Strategy (split by task):
   → generation ONNX (input_ids [1, 1] → logits [1, 1, vocab] + KV [1, kv_heads, 1, head_dim])
 
 Both tasks share the same wrapper class; OnnxConfig determines static shapes.
-Uses ``WinMLStaticCache`` (from ``kv_cache.py``) to return new-token KV
-directly as ONNX outputs, eliminating the scatter→gather round-trip.
+The wrapper captures new-token KV directly as ONNX outputs, eliminating the
+scatter→gather round-trip.
 
 How it works:
 
 1. ``QwenDecoderWrapper.forward()`` takes positional args (order matches
-   OnnxConfig.inputs): input_ids, attention_mask, position_ids, cache_position,
-   past_0_key, past_0_value, ...  It builds a ``WinMLStaticCache`` from the
-   input KV buffers, runs ``Qwen3ForCausalLM``, and returns logits + captured KV.
+   OnnxConfig.inputs): input_ids, attention_mask, position_ids,
+   past_0_key, past_0_value, ...  It builds a ``WinMLSlidingWindowCache``
+   from the input KV buffers, computes right-aligned ``cache_position``
+   internally, runs ``Qwen3ForCausalLM``, and returns logits + captured KV.
 
 2. Decoder-only models need NO ``EncoderDecoderCache`` wrapping —
    ``StaticCache`` is passed directly as ``past_key_values``.  (Contrast with
@@ -37,6 +38,24 @@ How it works:
 4. ``dynamo=True`` is required for Qwen3 ONNX export — the TorchScript
    exporter fails with an internal error.  Dynamo produces opset 18 models;
    opset 17 downconversion currently fails for these graphs.
+
+Cache type:
+
+The default configuration uses ``WinMLSlidingWindowCache`` (FIFO
+Slice+Concat).  ``WinMLDecoderOnlyModel`` is cache-agnostic — padding,
+mask construction, and cache updates are all delegated to the cache class
+via ``prepare_prefill_chunk``, ``build_decoder_mask``, and
+``update_all_layers``.  To switch to ``WinMLStaticCache`` (index_copy_):
+
+1. **Export wrapper**: change ``QwenDecoderWrapper.forward()`` to use
+   ``WinMLStaticCache``, take ``cache_position`` as an explicit ONNX
+   input (instead of computing it internally), and set ``kv_start = 4``.
+2. **OnnxConfig inputs**: add ``"cache_position": {}`` to
+   ``_qwen_io_inputs`` (after ``position_ids``, before ``past_*``).
+3. **Inference**: override ``get_cache_class()`` to return
+   ``WinMLStaticCache``.  ``WinMLDecoderOnlyModel`` passes
+   ``cache_position`` in feeds automatically when the ONNX model
+   expects it.
 
 Task name constraints (Optimum compatibility):
 

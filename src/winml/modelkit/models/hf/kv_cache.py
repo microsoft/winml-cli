@@ -79,8 +79,34 @@ class WinMLCache(StaticCache):
     # ----- Interface for WinMLEncoderDecoderModel.forward -----
 
     @abstractmethod
-    def build_decoder_mask(self, max_len: int) -> torch.Tensor:
-        """Build the decoder attention mask for the current step."""
+    def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
+        """Build the decoder attention mask for the current step.
+
+        Args:
+            max_len: Total cache buffer length.
+            num_new_tokens: Number of new tokens being added (1 for gen,
+                chunk_len for prefill).
+        """
+
+    @abstractmethod
+    def prepare_prefill_chunk(
+        self,
+        chunk_ids: torch.Tensor,
+        start: int,
+        prefill_seq_len: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        """Pad tokens and build position IDs for one prefill chunk.
+
+        Args:
+            chunk_ids: ``[1, chunk_len]`` — real tokens for this chunk.
+            start: Absolute position of the first real token.
+            prefill_seq_len: ONNX model's fixed prefill input length.
+
+        Returns:
+            padded_ids: ``[1, prefill_seq_len]`` — padded input token IDs.
+            position_ids: ``[1, prefill_seq_len]`` — position encoding input.
+            pad_len: Number of leading padding positions (0 for right-pad).
+        """
 
     def update_all_layers(self, outputs: dict[str, Any]) -> None:
         """Write present KV for all layers via ``update()`` and advance step.
@@ -90,7 +116,6 @@ class WinMLCache(StaticCache):
         """
         import torch
 
-        ck = {"cache_position": torch.tensor([self.step], dtype=torch.int64)}
         n = 0
         for i in range(self.num_layers):
             k = outputs[f"present_{i}_key"]
@@ -98,6 +123,7 @@ class WinMLCache(StaticCache):
             k = k if isinstance(k, torch.Tensor) else torch.tensor(k)
             v = v if isinstance(v, torch.Tensor) else torch.tensor(v)
             n = k.size(2)
+            ck = {"cache_position": torch.arange(self.step, self.step + n, dtype=torch.int64)}
             self.update(k, v, i, cache_kwargs=ck)
         self.step += n
 
@@ -158,13 +184,30 @@ class WinMLStaticCache(WinMLCache):
         self.captured[layer_idx] = (key_states, value_states)
         return super().update(key_states, value_states, layer_idx, cache_kwargs)
 
-    def build_decoder_mask(self, max_len: int) -> torch.Tensor:
-        """Left-aligned: first ``step + 1`` positions are 1."""
+    def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
+        """Left-aligned: first ``step + num_new_tokens`` positions are 1."""
         import torch
 
         mask = torch.zeros(1, max_len, dtype=torch.int64)
-        mask[0, : self.step + 1] = 1
+        mask[0, : self.step + num_new_tokens] = 1
         return mask
+
+    def prepare_prefill_chunk(
+        self,
+        chunk_ids: torch.Tensor,
+        start: int,
+        prefill_seq_len: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        """Right-pad: real tokens at START, padding at end."""
+        import torch
+
+        chunk_len = chunk_ids.shape[1]
+        padded_ids = torch.zeros(1, prefill_seq_len, dtype=chunk_ids.dtype)
+        padded_ids[0, :chunk_len] = chunk_ids[0]
+
+        position_ids = torch.arange(start, start + prefill_seq_len, dtype=torch.int64).unsqueeze(0)
+
+        return padded_ids, position_ids, 0
 
 
 # =============================================================================
@@ -210,13 +253,34 @@ class WinMLSlidingWindowCache(WinMLCache):
 
         return new_k, new_v
 
-    def build_decoder_mask(self, max_len: int) -> torch.Tensor:
-        """Right-aligned: rightmost ``step + 1`` positions are 1."""
+    def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
+        """Right-aligned: rightmost ``step + num_new_tokens`` positions are 1."""
         import torch
 
+        filled = min(self.step + num_new_tokens, max_len)
         mask = torch.zeros(1, max_len, dtype=torch.int64)
-        mask[0, max(0, max_len - self.step - 1) :] = 1
+        mask[0, max(0, max_len - filled) :] = 1
         return mask
+
+    def prepare_prefill_chunk(
+        self,
+        chunk_ids: torch.Tensor,
+        start: int,
+        prefill_seq_len: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        """Left-pad: padding at start, real tokens at END."""
+        import torch
+
+        chunk_len = chunk_ids.shape[1]
+        pad_len = prefill_seq_len - chunk_len
+
+        padded_ids = torch.zeros(1, prefill_seq_len, dtype=chunk_ids.dtype)
+        padded_ids[0, pad_len:] = chunk_ids[0]
+
+        position_ids = torch.zeros(1, prefill_seq_len, dtype=torch.int64)
+        position_ids[0, pad_len:] = torch.arange(start, start + chunk_len, dtype=torch.int64)
+
+        return padded_ids, position_ids, pad_len
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Filled positions: ``min(step, max_cache_len)``."""

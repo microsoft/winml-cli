@@ -312,41 +312,38 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
             end = min(start + self._prefill_seq_len, seq_len)
             chunk_len = end - start
 
-            # Left-pad: real tokens at the END of the chunk (matches sliding
-            # window right-alignment so causal mask kv_idx<=q_idx is correct).
-            pad_len = self._prefill_seq_len - chunk_len
-            padded_ids = torch.zeros(1, self._prefill_seq_len, dtype=input_ids.dtype)
-            padded_ids[0, pad_len:] = input_ids[0, start:end]
-
-            position_ids = torch.zeros(1, self._prefill_seq_len, dtype=torch.int64)
-            position_ids[0, pad_len:] = torch.arange(start, start + chunk_len, dtype=torch.int64)
-
-            # Mask: 1s for real tokens (previously cached + current chunk).
-            # With left-padding, real tokens are at the rightmost chunk_len
-            # positions of the prefill_seq_len slot.
-            filled = min(cache.step + chunk_len, self._max_cache_len)
-            attn_mask = torch.zeros(1, self._max_cache_len, dtype=torch.int64)
-            attn_mask[0, max(0, self._max_cache_len - filled) :] = 1
+            padded_ids, position_ids, pad_len = cache.prepare_prefill_chunk(
+                input_ids[:, start:end],
+                start,
+                self._prefill_seq_len,
+            )
+            attn_mask = cache.build_decoder_mask(self._max_cache_len, chunk_len)
 
             feeds: dict[str, Any] = {
                 "input_ids": padded_ids,
                 "attention_mask": attn_mask,
                 "position_ids": position_ids,
             }
+            if "cache_position" in self._prefill_expected:
+                feeds["cache_position"] = position_ids.squeeze(0)
             for i in range(self._num_kv_layers):
                 feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
                 feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
 
             outputs = self._prefill_model(**feeds)
 
-            # update_all_layers advances step by present KV size (prefill_seq_len).
-            # Correct to chunk_len since padding KV should not count.
-            cache.update_all_layers(outputs)
-            if pad_len > 0:
-                cache.step -= pad_len
+            # Slice out padding — real tokens are at [pad_len : pad_len+chunk_len]
+            real = slice(pad_len, pad_len + chunk_len)
+            all_logits.append(outputs["logits"][:, real, :])
 
-            # With left-padding, real token logits are at positions pad_len:
-            all_logits.append(outputs["logits"][:, pad_len : pad_len + chunk_len, :])
+            # Strip padding KV before updating cache so step advances by
+            # chunk_len (not prefill_seq_len).
+            real_outputs = {k: v for k, v in outputs.items() if not k.startswith("present_")}
+            for k, v in outputs.items():
+                if k.startswith("present_"):
+                    t = v if isinstance(v, torch.Tensor) else torch.tensor(v)
+                    real_outputs[k] = t[:, :, real, :]
+            cache.update_all_layers(real_outputs)
 
         return torch.cat(all_logits, dim=1)
 
@@ -355,16 +352,15 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
     def _run_gen(self, input_ids: torch.Tensor, cache: Any) -> torch.Tensor:
         """Run gen model for a single token. Returns logits ``[1, 1, vocab_size]``."""
         fc = cache.step
-
-        filled = min(fc + 1, self._max_cache_len)
-        attn_mask = torch.zeros(1, self._max_cache_len, dtype=torch.int64)
-        attn_mask[0, max(0, self._max_cache_len - filled) :] = 1
+        attn_mask = cache.build_decoder_mask(self._max_cache_len)
 
         feeds: dict[str, Any] = {
             "input_ids": input_ids,
             "attention_mask": attn_mask,
             "position_ids": torch.tensor([[fc]], dtype=torch.int64),
         }
+        if "cache_position" in self._gen_expected:
+            feeds["cache_position"] = feeds["position_ids"].squeeze(0)
         for i in range(self._num_kv_layers):
             feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
             feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
