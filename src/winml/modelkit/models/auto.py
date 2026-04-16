@@ -109,7 +109,7 @@ class WinMLAutoModel:
         skip_build: bool = False,
         session_options: Any | None = None,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel | "WinMLCompositeModel":
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:  # noqa: F821
         """Build from a pre-exported ONNX file.
 
         Runs optimize -> [quantize] -> [compile] via ``build_onnx_model()``.
