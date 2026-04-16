@@ -38,7 +38,6 @@ from .winml import get_supported_tasks, get_winml_class
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
     from .winml.base import WinMLPreTrainedModel
-    from .winml.composite_model import WinMLCompositeModel
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +109,7 @@ class WinMLAutoModel:
         skip_build: bool = False,
         session_options: Any | None = None,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel | WinMLCompositeModel:
+    ) -> WinMLPreTrainedModel | "WinMLCompositeModel":
         """Build from a pre-exported ONNX file.
 
         Runs optimize -> [quantize] -> [compile] via ``build_onnx_model()``.
