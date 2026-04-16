@@ -71,6 +71,9 @@ class TestInputGeneratorValidation:
             opset_version: The ONNX opset version to test with
         """
         domain, op_type = _parse_registry_key(op_name)
+        # ai.onnx opset 1 schemas predate current input signatures; generators target modern opsets
+        if domain == ONNXDomain.AI_ONNX and opset_version == 1:
+            return
         try:
             schema = domain.get_op_schema(op_type, opset_version)
         except SchemaError:
@@ -85,9 +88,6 @@ class TestInputGeneratorValidation:
 
         if domain == ONNXDomain.AI_ONNX and op_type == "LpNormalization" and opset_version >= 22:
             # LpNormalization >= 22 is not supported by onnnxruntime 1.23
-            return
-        if domain == ONNXDomain.AI_ONNX and opset_version == 1:
-            # Opset 1 schemas are too old
             return
 
         gen.validate_inputs()
