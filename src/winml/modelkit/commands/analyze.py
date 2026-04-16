@@ -513,6 +513,14 @@ def analyze(
         live: Live | None = None
         ep_counter = 0
 
+        run_unknown_op_for_ep = run_unknown_op
+        if ep == "VitisAIExecutionProvider":
+            run_unknown_op_for_ep = False
+            logger.info(
+                "Disabling --run-unknown-op for VitisAIExecutionProvider: "
+                "AMD op runtime results are not available yet"
+            )
+
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
             nonlocal live
@@ -607,7 +615,7 @@ def analyze(
                     device=device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                    run_unknown_op=run_unknown_op,
+                    run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                     on_node_result=on_node_result,
                     on_ep_start=on_ep_start,
@@ -654,7 +662,7 @@ def analyze(
                 device=device,
                 enable_information=information,
                 htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                run_unknown_op=run_unknown_op,
+                run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
             )
 
