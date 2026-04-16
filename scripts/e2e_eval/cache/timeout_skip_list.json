@@ -43,5 +43,25 @@
     "hf_id": "philschmid/bart-large-cnn-samsum",
     "task": "summarization",
     "reason": "Build hangs >10000s, bart enc-dec export issue"
+  },
+  {
+    "hf_id": "apple/DepthPro-hf",
+    "task": "depth-estimation",
+    "reason": "OOM in quantization (model too large for in-process quantize)"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-0.6B",
+    "task": "text-generation",
+    "reason": "OOM in quantization (segfault during quantize, 2.9GB model)"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-1.7B",
+    "task": "text-generation",
+    "reason": "OOM in quantization (model too large for in-process quantize)"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-8B",
+    "task": "text-generation",
+    "reason": "OOM in quantization (model too large for in-process quantize)"
   }
 ]
