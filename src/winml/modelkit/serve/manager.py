@@ -54,27 +54,21 @@ class ModelManager(Protocol):
         ``task`` is a routing hint used by ModelSlotManager when ``model_id``
         is the sentinel ``"_"``.
         """
-        ...
 
     async def list_models(self) -> list[dict]:
         """Return metadata for all currently registered/loaded models."""
-        ...
 
     def get_engine(self, model_id: str | None = None) -> InferenceEngine | None:
         """Get engine for a model, or the first available engine."""
-        ...
 
     def get_all_engines(self) -> list[InferenceEngine]:
         """Get all loaded engines."""
-        ...
 
     async def get_model_stats(self, model_id: str) -> tuple[InferenceEngine, str]:
         """Get (engine, status) for a model. Raises KeyError if not found."""
-        ...
 
     def shutdown(self) -> None:
         """Release all resources on server shutdown."""
-        ...
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +86,7 @@ class SingleModelManager:
 
         mgr = SingleModelManager(engine, idle_timeout_sec=300)
         async with mgr.borrow("_") as engine:
-            result = engine.predict(image_bytes=data)
+            result = engine.predict(files=[data])
     """
 
     def __init__(
@@ -190,7 +184,7 @@ class SingleModelManager:
                     )
                     self._engine.unload()
         except asyncio.CancelledError:
-            pass
+            pass  # Timer was cancelled because a new request arrived — expected
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +220,7 @@ class ModelSlotManager:
 
         mgr = ModelSlotManager(memory_budget_mb=4096, idle_timeout_sec=300)
         async with mgr.borrow("microsoft/resnet-50") as engine:
-            result = engine.predict(image_bytes=data)
+            result = engine.predict(files=[data])
     """
 
     def __init__(
@@ -471,7 +465,7 @@ class ModelSlotManager:
                     slot.engine.unload()
                     del self._slots[model_id]
         except asyncio.CancelledError:
-            pass
+            pass  # Slot was re-acquired before expiry — expected
 
     async def _maybe_evict(self, exclude: str) -> None:
         """Evict LRU idle slot if total memory would exceed budget."""

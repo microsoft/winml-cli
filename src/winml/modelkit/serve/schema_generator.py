@@ -115,7 +115,7 @@ class APISchemaGenerator:
         Returns: {"type": "object", "properties": {...}, "required": [...]}
 
         Strategy:
-        1. Add task-specific required input (image_bytes, prompt)
+        1. Add task-specific required input (files, prompt)
         2. Copy manifest["parameters"] as optional properties
         """
         properties: dict[str, Any] = {}
@@ -123,11 +123,12 @@ class APISchemaGenerator:
 
         # Step 1: Task-specific required inputs
         if self._is_image_task():
-            properties["image_bytes"] = {
-                "type": "string",
-                "description": "Base64-encoded image data",
+            properties["files"] = {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Base64-encoded media files (image, audio, …)",
             }
-            required.append("image_bytes")
+            required.append("files")
 
         elif self._is_text_task():
             properties["prompt"] = {

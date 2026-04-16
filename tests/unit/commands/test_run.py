@@ -284,15 +284,15 @@ class TestRunCLI:
         assert "KEY=VALUE" in result.output
 
     def test_missing_model_path(self, runner: CliRunner) -> None:
-        result = runner.invoke(run, ["--input", "test"])
+        result = runner.invoke(run, ["--text", "test"])
         assert result.exit_code != 0
 
     def test_missing_input(self, runner: CliRunner) -> None:
-        result = runner.invoke(run, ["some-model"])
+        result = runner.invoke(run, ["--model", "some-model"])
         assert result.exit_code != 0
 
     def test_embedded_text_inference(self, runner: CliRunner) -> None:
-        """Text input → engine.predict(text=...) path."""
+        """--text → engine.predict(text=...) path."""
         engine = _make_mock_engine(
             {
                 **_MINIMAL_RESULT,
@@ -304,7 +304,7 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["test-model", "--input", "hello world", "--no-connect"],
+                ["--model", "test-model", "--text", "hello world"],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -315,10 +315,10 @@ class TestRunCLI:
             device="auto",
             ep=None,
         )
-        engine.predict.assert_called_once_with(text="hello world")
+        engine.predict.assert_called_once_with(files=None, text="hello world")
 
-    def test_embedded_image_inference(self, runner: CliRunner, tmp_path: Path) -> None:
-        """File input → engine.predict(image_bytes=...) path."""
+    def test_embedded_file_inference(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--file → engine.predict(files=[...]) path."""
         img = tmp_path / "cat.jpg"
         img.write_bytes(b"\xff\xd8fake-jpeg")
 
@@ -332,14 +332,42 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["resnet", "--input", str(img), "--no-connect"],
+                ["--model", "resnet", "--file", str(img)],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         assert "cat" in result.output
         engine.predict.assert_called_once()
         call_kwargs = engine.predict.call_args.kwargs
-        assert call_kwargs["image_bytes"] == b"\xff\xd8fake-jpeg"
+        assert call_kwargs["files"] == [b"\xff\xd8fake-jpeg"]
+
+    def test_multiple_files(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Multiple --file flags pass a list of bytes to engine.predict."""
+        f1 = tmp_path / "a.jpg"
+        f2 = tmp_path / "b.jpg"
+        f1.write_bytes(b"img-a")
+        f2.write_bytes(b"img-b")
+
+        engine = _make_mock_engine(_MINIMAL_RESULT)
+
+        with patch(_ENGINE_PATH, return_value=engine):
+            result = runner.invoke(
+                run,
+                ["--model", "llava", "--file", str(f1), "--file", str(f2), "--text", "Compare"],
+            )
+
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        call_kwargs = engine.predict.call_args.kwargs
+        assert call_kwargs["files"] == [b"img-a", b"img-b"]
+        assert call_kwargs["text"] == "Compare"
+
+    def test_file_not_found_exits_2(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            run,
+            ["--model", "model", "--file", "/nonexistent/path.jpg"],
+        )
+        assert result.exit_code == 2
+        assert "file not found" in result.output
 
     def test_json_output_format(self, runner: CliRunner) -> None:
         engine = _make_mock_engine(
@@ -352,7 +380,7 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["model", "--input", "text", "--format", "json", "--no-connect"],
+                ["--model", "model", "--text", "hello", "--format", "json"],
             )
 
         assert result.exit_code == 0
@@ -367,12 +395,12 @@ class TestRunCLI:
             result = runner.invoke(
                 run,
                 [
+                    "--model",
                     "model",
-                    "--input",
-                    "text",
+                    "--text",
+                    "hello",
                     "--format",
                     "json",
-                    "--no-connect",
                     "-o",
                     str(out),
                 ],
@@ -388,7 +416,7 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["bad-model", "--input", "text", "--no-connect"],
+                ["--model", "bad-model", "--text", "hello"],
             )
 
         assert result.exit_code == 3
@@ -401,7 +429,7 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["model", "--input", "text", "--no-connect"],
+                ["--model", "model", "--text", "hello"],
             )
 
         assert result.exit_code == 4
@@ -414,12 +442,12 @@ class TestRunCLI:
             result = runner.invoke(
                 run,
                 [
+                    "--model",
                     "model.onnx",
-                    "--input",
-                    "text",
+                    "--text",
+                    "hello",
                     "--task",
                     "image-classification",
-                    "--no-connect",
                 ],
             )
 
@@ -438,14 +466,14 @@ class TestRunCLI:
             result = runner.invoke(
                 run,
                 [
+                    "--model",
                     "model",
-                    "--input",
-                    "text",
+                    "--text",
+                    "hello",
                     "--device",
                     "gpu",
                     "--ep",
                     "dml",
-                    "--no-connect",
                 ],
             )
 
@@ -466,7 +494,7 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["model", "--input", "text", "-P", "max_new_tokens=100", "--no-connect"],
+                ["--model", "model", "--text", "hello", "-P", "max_new_tokens=100"],
             )
 
         assert result.exit_code == 0
@@ -480,10 +508,10 @@ class TestRunCLI:
             result = runner.invoke(
                 run,
                 [
+                    "--model",
                     "model",
-                    "--input",
-                    "text",
-                    "--no-connect",
+                    "--text",
+                    "hello",
                     "-P",
                     "max_new_tokens=50",
                     "-P",
@@ -506,7 +534,7 @@ class TestRunCLI:
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["model", "--input", "text", "-P", "top_k=10", "--no-connect"],
+                ["--model", "model", "--text", "hello", "-P", "top_k=10"],
             )
 
         assert result.exit_code == 0
@@ -515,7 +543,7 @@ class TestRunCLI:
     def test_invalid_param_format_exits_2(self, runner: CliRunner) -> None:
         result = runner.invoke(
             run,
-            ["model", "--input", "text", "-P", "badformat", "--no-connect"],
+            ["--model", "model", "--text", "hello", "-P", "badformat"],
         )
         assert result.exit_code == 2
         assert "invalid --param format" in result.output
@@ -564,7 +592,7 @@ class TestAutoConnect:
         )
 
         with patch("httpx.Client", return_value=ctx):
-            result = runner.invoke(run, ["my-model", "--input", "hello"])
+            result = runner.invoke(run, ["--model", "my-model", "--text", "hello", "--connect"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         assert "pos" in result.output
@@ -576,7 +604,7 @@ class TestAutoConnect:
             patch("httpx.Client", side_effect=ConnectionError("refused")),
             patch(_ENGINE_PATH, return_value=engine),
         ):
-            result = runner.invoke(run, ["model", "--input", "text"])
+            result = runner.invoke(run, ["--model", "model", "--text", "hello", "--connect"])
 
         assert result.exit_code == 0
         engine.load.assert_called_once()
@@ -591,7 +619,7 @@ class TestAutoConnect:
             patch("httpx.Client", return_value=ctx),
             patch(_ENGINE_PATH, return_value=engine),
         ):
-            result = runner.invoke(run, ["my-model", "--input", "text"])
+            result = runner.invoke(run, ["--model", "my-model", "--text", "hello", "--connect"])
 
         assert result.exit_code == 0
         engine.load.assert_called_once()
@@ -634,7 +662,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                input_data="t",
+                files=(),
+                text="t",
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None
@@ -645,7 +674,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                input_data="t",
+                files=(),
+                text="t",
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None
@@ -656,7 +686,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="my-model",
-                input_data="t",
+                files=(),
+                text="t",
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None
@@ -672,7 +703,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="my-model",
-                input_data="hello",
+                files=(),
+                text="hello",
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result == expected
@@ -687,7 +719,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=9000,
                 model_path="m",
-                input_data="some text",
+                files=(),
+                text="some text",
                 pipeline_kwargs={"top_k": 3},
             )
 
@@ -711,7 +744,8 @@ class TestTryServerPredict:
             _try_server_predict(
                 port=8000,
                 model_path="m",
-                input_data="text",
+                files=(),
+                text="text",
                 pipeline_kwargs={"top_k": 5, "max_new_tokens": 100, "temperature": 0.7},
             )
 
@@ -720,7 +754,7 @@ class TestTryServerPredict:
         assert body["params"]["max_new_tokens"] == 100
         assert body["params"]["temperature"] == 0.7
 
-    def test_file_input_posts_to_predict_file(self, tmp_path: Path) -> None:
+    def test_single_file_posts_to_predict_file(self, tmp_path: Path) -> None:
         img = tmp_path / "photo.png"
         img.write_bytes(b"fake-png")
 
@@ -733,7 +767,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                input_data=str(img),
+                files=(str(img),),
+                text=None,
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
 
@@ -742,7 +777,7 @@ class TestTryServerPredict:
         call_args = client.post.call_args
         assert "/v1/predict/file" in call_args.args[0]
 
-    def test_file_input_forwards_kwargs_as_params_json(self, tmp_path: Path) -> None:
+    def test_single_file_forwards_kwargs_as_params_json(self, tmp_path: Path) -> None:
         img = tmp_path / "img.jpg"
         img.write_bytes(b"fake")
 
@@ -754,7 +789,8 @@ class TestTryServerPredict:
             _try_server_predict(
                 port=8000,
                 model_path="m",
-                input_data=str(img),
+                files=(str(img),),
+                text=None,
                 pipeline_kwargs={"top_k": 3, "threshold": 0.5},
             )
 
@@ -763,6 +799,34 @@ class TestTryServerPredict:
         params = json.loads(form_data["params"])
         assert params["top_k"] == 3
         assert params["threshold"] == 0.5
+
+    def test_multiple_files_posts_to_predict_json(self, tmp_path: Path) -> None:
+        f1 = tmp_path / "a.jpg"
+        f2 = tmp_path / "b.jpg"
+        f1.write_bytes(b"img-a")
+        f2.write_bytes(b"img-b")
+
+        expected = {"predictions": []}
+        ctx = self._make_client_mock(
+            health_json={"model_id": "m"},
+            predict_json=expected,
+        )
+        with patch("httpx.Client", return_value=ctx):
+            result = _try_server_predict(
+                port=8000,
+                model_path="m",
+                files=(str(f1), str(f2)),
+                text="Compare",
+                pipeline_kwargs=_DEFAULT_KWARGS,
+            )
+
+        assert result == expected
+        client = ctx.__enter__.return_value
+        call_args = client.post.call_args
+        assert "/v1/predict" in call_args.args[0]
+        body = call_args.kwargs["json"]
+        assert len(body["files"]) == 2
+        assert body["text"] == "Compare"
 
     def test_custom_port(self) -> None:
         expected = {"predictions": []}
@@ -774,7 +838,8 @@ class TestTryServerPredict:
             _try_server_predict(
                 port=1234,
                 model_path="m",
-                input_data="t",
+                files=(),
+                text="t",
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         client = ctx.__enter__.return_value
@@ -786,7 +851,8 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                input_data="t",
+                files=(),
+                text="t",
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None

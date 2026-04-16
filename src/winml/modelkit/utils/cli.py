@@ -8,11 +8,13 @@ from pathlib import Path
 
 import click
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
 
 
-def model_option(required=True):
-    """Add --model option to a Click command.
+def model_path_option(required=True):
+    """Add --model option that accepts a local ONNX file path.
+
+    The path is validated for existence on disk.
 
     Args:
         required: Whether the model option is required (default: True)
@@ -26,6 +28,27 @@ def model_option(required=True):
         required=required,
         type=click.Path(exists=True, path_type=Path),
         help="Path to ONNX model file to analyze",
+    )
+
+
+def model_option(required=True):
+    """Add --model option that accepts any model reference.
+
+    Accepts a HuggingFace model ID, build output directory, or .onnx file path.
+    No path existence validation is performed.
+
+    Args:
+        required: Whether the model option is required (default: True)
+
+    Returns:
+        Decorator function
+    """
+    return click.option(
+        "--model",
+        "-m",
+        required=required,
+        default=None,
+        help="Model: HF model ID, build output directory, or .onnx file path",
     )
 
 
@@ -58,7 +81,7 @@ def ep_option(required=True, optional_message=None):
     )
 
 
-def device_option(required=True, optional_message=None, default="NPU"):
+def device_option(required=True, optional_message=None, default="NPU", include_auto=False):
     """Add --device option to a Click command.
 
     Args:
@@ -67,11 +90,14 @@ def device_option(required=True, optional_message=None, default="NPU"):
             optional (e.g., "If not specified, uses NPU as
             default.")
         default: Default value when optional (default: "NPU")
+        include_auto: Whether to include "auto" as a valid choice
+            (default: False).
 
     Returns:
         Decorator function
     """
-    help_text = "Target device type (CPU, GPU, NPU)"
+    choices = SUPPORTED_DEVICES_WITH_AUTO if include_auto else SUPPORTED_DEVICES
+    help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
@@ -79,7 +105,8 @@ def device_option(required=True, optional_message=None, default="NPU"):
         "--device",
         required=required,
         default=default if not required else None,
-        type=click.Choice(SUPPORTED_DEVICES, case_sensitive=True),
+        show_default=True,
+        type=click.Choice(choices, case_sensitive=False),
         help=help_text,
     )
 

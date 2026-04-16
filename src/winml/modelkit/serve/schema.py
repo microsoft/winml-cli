@@ -27,13 +27,19 @@ class EpSwitchRequest(BaseModel):
 
 
 class PredictJsonRequest(BaseModel):
-    """POST /v1/predict — image (base64), text, or raw tensor inputs."""
+    """POST /v1/predict — file(s) (base64), text, or raw tensor inputs."""
 
-    image_bytes: str | None = Field(None, description="Base64-encoded image data (JPEG, PNG, …)")
+    files: list[str] | None = Field(
+        None,
+        description=(
+            "Base64-encoded media files (image, audio, video). "
+            "Each element is one file. Task determines how they are interpreted."
+        ),
+    )
+    text: str | None = Field(None, description="Text input for NLP / multimodal tasks")
     inputs: dict[str, list[Any]] | None = Field(
         None, description="Map of input_name → nested list (numpy-serialisable)"
     )
-    text: str | None = Field(None, description="Text input for NLP tasks")
     task: str | None = Field(
         None,
         description=(

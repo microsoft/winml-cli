@@ -80,6 +80,7 @@ optional-dependencies.dev = [
   "tqdm>=4.67",
   "types-colorama>=0.4.15.20250801",
 ]
+optional-dependencies.audio = [ "soundfile>=0.13" ]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",

@@ -223,20 +223,21 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         )
 
     # ------------------------------------------------------------------
-    # POST /v1/predict — file upload
+    # POST /v1/predict/file — single file upload
     # ------------------------------------------------------------------
     @app.post(
         "/v1/predict/file",
         response_model=PredictionResult,
         tags=["inference"],
-        summary="Image file upload inference",
+        summary="Single file upload inference (image, audio, …)",
     )
     async def predict_file(
-        file: UploadFile = File(..., description="Image file (JPEG, PNG, …)"),
+        file: UploadFile = File(..., description="Media file (image, audio, …)"),
         model_id: str = Form("_", description="Model ID (multi-model mode). Omit to auto-route."),
         task: str | None = Form(
             None, description="Task hint for routing, e.g. 'image-classification'"
         ),
+        text: str | None = Form(None, description="Text input for multimodal tasks"),
         params: str = Form(
             "{}",
             description='JSON pipeline parameters (e.g. {"top_k": 5, "threshold": 0.5})',
@@ -254,19 +255,20 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
             async with mgr.borrow(model_id, task=task) as engine:
                 loop = asyncio.get_running_loop()
                 return await loop.run_in_executor(
-                    None, lambda: engine.predict(image_bytes=data, **pipe_params)
+                    None,
+                    lambda: engine.predict(files=[data], text=text, **pipe_params),
                 )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
-    # POST /v1/predict — JSON tensors
+    # POST /v1/predict — JSON (files / text / raw tensors)
     # ------------------------------------------------------------------
     @app.post(
         "/v1/predict",
         response_model=PredictionResult,
         tags=["inference"],
-        summary="JSON tensor inputs inference",
+        summary="JSON inference — file(s), text, or raw tensors",
     )
     async def predict_json(
         request: PredictJsonRequest,
@@ -277,30 +279,33 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
             async with mgr.borrow(model_id, task=request.task) as engine:
                 loop = asyncio.get_running_loop()
                 pipe_params = request.params
-                if request.image_bytes is not None:
+
+                # Decode base64 files
+                file_bytes: list[bytes] | None = None
+                if request.files:
                     try:
-                        data = base64.b64decode(request.image_bytes)
+                        file_bytes = [base64.b64decode(f) for f in request.files]
                     except Exception as exc:
                         raise HTTPException(
-                            status_code=422, detail=f"Invalid base64 image_bytes: {exc}"
+                            status_code=422, detail=f"Invalid base64 in files: {exc}"
                         ) from exc
-                    if len(data) > 20 * 1024 * 1024:
-                        raise HTTPException(status_code=413, detail="Image too large (max 20 MB)")
+                    for fb in file_bytes:
+                        if len(fb) > 20 * 1024 * 1024:
+                            raise HTTPException(
+                                status_code=413, detail="File too large (max 20 MB per file)"
+                            )
+
+                if file_bytes is not None or request.text is not None:
                     return await loop.run_in_executor(
-                        None, lambda: engine.predict(image_bytes=data, **pipe_params)
+                        None,
+                        lambda: engine.predict(files=file_bytes, text=request.text, **pipe_params),
                     )
-                if request.text is not None:
+                if request.inputs is not None:
                     return await loop.run_in_executor(
-                        None, lambda: engine.predict(text=request.text, **pipe_params)
+                        None,
+                        lambda: engine.predict(tensor_inputs=request.inputs, **pipe_params),
                     )
-                if request.inputs is None:
-                    raise HTTPException(
-                        status_code=422, detail="Provide 'image_bytes', 'text', or 'inputs'"
-                    )
-                return await loop.run_in_executor(
-                    None,
-                    lambda: engine.predict(tensor_inputs=request.inputs, **pipe_params),
-                )
+                raise HTTPException(status_code=422, detail="Provide 'files', 'text', or 'inputs'")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -700,7 +705,7 @@ def _build_model_schema(manifest: dict) -> dict[str, Any]:
     endpoints: dict[str, Any] = {}
 
     # Collect pipeline params from manifest (everything except the primary input)
-    primary_inputs = {"image_bytes", "prompt", "text"}
+    primary_inputs = {"files", "image_bytes", "prompt", "text"}
     pipeline_props = {k: v for k, v in _fmt_params(properties).items() if k not in primary_inputs}
     params_field: dict[str, Any] = {
         "type": "object (JSON string for multipart)",
@@ -719,13 +724,18 @@ def _build_model_schema(manifest: dict) -> dict[str, Any]:
                 "file": {
                     "type": "file",
                     "required": True,
-                    "description": "Image file (JPEG, PNG, etc.)",
+                    "description": "Media file (image, audio, …)",
+                },
+                "text": {
+                    "type": "string",
+                    "required": False,
+                    "description": "Text input for multimodal tasks",
                 },
                 "params": params_field,
             },
             "curl": (
                 f"curl -X POST {base}/v1/predict/file"
-                ' -F "file=@photo.jpg" -F \'params={"top_k":5}\''
+                ' -F "file=@photo.jpg" -F \'params={{"top_k":5}}\''
             ),
         }
         endpoints["predict_json"] = {
@@ -733,16 +743,16 @@ def _build_model_schema(manifest: dict) -> dict[str, Any]:
             "path": "/v1/predict",
             "content_type": "application/json",
             "parameters": {
-                "image_bytes": {
-                    "type": "string",
+                "files": {
+                    "type": "array[string]",
                     "required": True,
-                    "description": "Base64-encoded image data",
+                    "description": "Base64-encoded media files",
                 },
                 "params": params_field,
             },
             "curl": (
                 f"curl -X POST {base}/v1/predict {json_hdr}"
-                ' -d \'{"image_bytes":"<base64>","params":{"top_k":5}}\''
+                ' -d \'{"files":["<base64>"],"params":{"top_k":5}}\''
             ),
         }
     elif is_text:

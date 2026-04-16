@@ -6,12 +6,14 @@
 """One-shot inference command — winml run.
 
 Usage:
-    winml run microsoft/resnet-50 --input cat.jpg
-    winml run ./build/resnet50/ --input cat.jpg --device gpu
-    winml run model.onnx --task image-classification --input photo.png
-    winml run microsoft/resnet-50 --input "A photo of a cat" --task text-classification
-    winml run microsoft/resnet-50 --input cat.jpg --format json
-    winml run model --input "Once upon" -P max_new_tokens=100 -P temperature=0.7
+    winml run --model microsoft/resnet-50 --file cat.jpg
+    winml run --model ./build/resnet50/ --file cat.jpg --device gpu
+    winml run --model model.onnx --task image-classification --file photo.png
+    winml run --model whisper --file speech.wav
+    winml run --model llava --file img.jpg --text "What is this?"
+    winml run --model bert --text "Hello world" --task text-classification
+    winml run --model model --text "Once upon" -P max_new_tokens=100 -P temperature=0.7
+    winml run --model microsoft/resnet-50 --file cat.jpg --format json
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from pathlib import Path
 from typing import Any
 
 import click
+
+from ..utils import cli as cli_utils
 
 
 logger = logging.getLogger(__name__)
@@ -49,22 +53,23 @@ def _parse_param_value(value: str) -> int | float | bool | str:
 
 
 @click.command("run")
-@click.argument("model_path")
+@cli_utils.model_option(required=True)
 @click.option(
-    "--input",
-    "-i",
-    "input_data",
-    required=True,
-    help="Input: image file path, or text string for NLP tasks",
+    "--file",
+    "-f",
+    "files",
+    multiple=True,
+    help="Input media file: image, audio, or video (repeatable)",
+)
+@click.option(
+    "--text",
+    "-t",
+    default=None,
+    help="Text input for NLP / multimodal tasks",
 )
 @click.option("--task", default=None, help="Task type (auto-detected when possible)")
-@click.option(
-    "--device",
-    default="auto",
-    show_default=True,
-    help="Device: auto, cpu, gpu, npu",
-)
-@click.option("--ep", default=None, help="Explicit execution provider short name")
+@cli_utils.device_option(required=False, default="auto", include_auto=True)
+@cli_utils.ep_option(required=False)
 @click.option(
     "-P",
     "--param",
@@ -96,16 +101,17 @@ def _parse_param_value(value: str) -> int | float | bool | str:
     help="Port to check for a running winml serve instance (auto-connect)",
 )
 @click.option(
-    "--no-connect",
+    "--connect",
     is_flag=True,
     default=False,
-    help="Disable auto-connect; always use embedded inference",
+    help="Auto-connect to a running winml serve instance instead of embedded inference",
 )
 @click.pass_context
 def run(
     ctx: click.Context,
-    model_path: str,
-    input_data: str,
+    model: str,
+    files: tuple[str, ...],
+    text: str | None,
     task: str | None,
     device: str,
     ep: str | None,
@@ -113,33 +119,43 @@ def run(
     output_format: str,
     output: str | None,
     port: int,
-    no_connect: bool,
+    connect: bool,
 ) -> None:
     r"""Run one-shot inference on a model.
 
-    Automatically connects to a running ``winml serve`` instance when available,
-    falling back to embedded inference otherwise.
+    Uses embedded inference by default. Pass ``--connect`` to route
+    through a running ``winml serve`` instance instead.
 
     Examples:
     \b
-        # Image classification from file
-        winml run microsoft/resnet-50 --input cat.jpg
+        # Image classification
+        winml run --model microsoft/resnet-50 --file cat.jpg
 
         # From build output directory
-        winml run ./build/resnet50/ --input cat.jpg --device gpu
+        winml run --model ./build/resnet50/ --file cat.jpg --device gpu
 
-        # Raw ONNX file
-        winml run model.onnx --task image-classification --input photo.png
+        # Audio (speech recognition)
+        winml run --model openai/whisper --file speech.wav
 
-        # JSON output
-        winml run microsoft/resnet-50 --input cat.jpg --format json
+        # Multimodal (image + text)
+        winml run --model llava --file img.jpg --text "Describe this image"
+
+        # Multiple images
+        winml run --model llava --file a.jpg --file b.jpg --text "Compare"
+
+        # Text only
+        winml run --model bert --text "Hello world"
 
         # Extra pipeline parameters
-        winml run model --input "Once upon" -P max_new_tokens=100 -P temperature=0.7
+        winml run --model model --text "Once upon" -P max_new_tokens=100 -P temperature=0.7
 
-        # Disable auto-connect (always embedded)
-        winml run microsoft/resnet-50 --input cat.jpg --no-connect
+        # Route through a running serve instance
+        winml run --model microsoft/resnet-50 --file cat.jpg --connect
     """
+    if not files and text is None:
+        click.echo("Error: provide at least --file or --text.", err=True)
+        ctx.exit(2)
+
     if ctx.obj and ctx.obj.get("debug"):
         logging.getLogger("modelkit").setLevel(logging.DEBUG)
 
@@ -152,14 +168,24 @@ def run(
         k, v = p.split("=", 1)
         pipeline_kwargs[k] = _parse_param_value(v)
 
+    # Read file bytes
+    file_bytes_list: list[bytes] = []
+    for fp in files:
+        p = Path(fp)
+        if not p.exists() or not p.is_file():
+            click.echo(f"Error: file not found: {fp}", err=True)
+            ctx.exit(2)
+        file_bytes_list.append(p.read_bytes())
+
     # ------------------------------------------------------------------
     # Try auto-connect to running winml serve
     # ------------------------------------------------------------------
-    if not no_connect:
+    if connect:
         result = _try_server_predict(
             port=port,
-            model_path=model_path,
-            input_data=input_data,
+            model_path=model,
+            files=files,
+            text=text,
             pipeline_kwargs=pipeline_kwargs,
         )
         if result is not None:
@@ -173,18 +199,17 @@ def run(
 
     engine = InferenceEngine()
     try:
-        engine.load(model_path, task=task, device=device, ep=ep)
+        engine.load(model, task=task, device=device, ep=ep)
     except Exception as exc:
         click.echo(f"Error loading model: {exc}", err=True)
         ctx.exit(3)
 
-    input_path = Path(input_data)
     try:
-        if input_path.exists() and input_path.is_file():
-            image_bytes = input_path.read_bytes()
-            result = engine.predict(image_bytes=image_bytes, **pipeline_kwargs)
-        else:
-            result = engine.predict(text=input_data, **pipeline_kwargs)
+        result = engine.predict(
+            files=file_bytes_list or None,
+            text=text,
+            **pipeline_kwargs,
+        )
     except Exception as exc:
         click.echo(f"Error during inference: {exc}", err=True)
         ctx.exit(4)
@@ -201,7 +226,8 @@ def _try_server_predict(
     *,
     port: int,
     model_path: str,
-    input_data: str,
+    files: tuple[str, ...],
+    text: str | None,
     pipeline_kwargs: dict[str, Any],
 ) -> dict | None:
     """Check if winml serve is running and route the request there.
@@ -230,19 +256,30 @@ def _try_server_predict(
                 )
                 return None
 
-            input_path = Path(input_data)
-            if input_path.exists() and input_path.is_file():
-                with input_path.open("rb") as f:
+            if len(files) == 1:
+                # Single file → multipart upload
+                fp = Path(files[0])
+                with fp.open("rb") as f:
                     resp = client.post(
                         f"{base_url}/v1/predict/file",
-                        files={"file": (input_path.name, f, "application/octet-stream")},
+                        files={"file": (fp.name, f, "application/octet-stream")},
                         data={"params": json.dumps(pipeline_kwargs)},
                         timeout=60,
                     )
             else:
+                # Multiple files or text-only → JSON endpoint
+                import base64
+
+                payload: dict[str, Any] = {"params": pipeline_kwargs}
+                if files:
+                    payload["files"] = [
+                        base64.b64encode(Path(fp).read_bytes()).decode() for fp in files
+                    ]
+                if text is not None:
+                    payload["text"] = text
                 resp = client.post(
                     f"{base_url}/v1/predict",
-                    json={"text": input_data, "params": pipeline_kwargs},
+                    json=payload,
                     timeout=60,
                 )
             resp.raise_for_status()

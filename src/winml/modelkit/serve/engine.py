@@ -43,12 +43,16 @@ logger = logging.getLogger(__name__)
 # Rolling window size for latency tracking (bounds memory for long-running servers)
 _LATENCY_WINDOW = 200
 
-# Tasks where pipeline input is an image
+# Tasks where pipeline input is an image (single file)
 _IMAGE_TASKS = {
     "image-classification",
     "image-segmentation",
     "object-detection",
     "semantic-segmentation",
+    "depth-estimation",
+    "image-to-text",
+    "zero-shot-image-classification",
+    "zero-shot-object-detection",
 }
 
 # Tasks where pipeline input is text
@@ -56,6 +60,24 @@ _TEXT_TASKS = {
     "text-classification",
     "sentiment-analysis",
     "token-classification",
+    "text-generation",
+    "text2text-generation",
+    "fill-mask",
+    "question-answering",
+    "zero-shot-classification",
+}
+
+# Tasks where pipeline input is audio (single file)
+_AUDIO_TASKS = {
+    "audio-classification",
+    "automatic-speech-recognition",
+}
+
+# Tasks that accept file(s) + text together
+_MULTIMODAL_TASKS = {
+    "visual-question-answering",
+    "document-question-answering",
+    "image-text-to-text",
 }
 
 
@@ -148,7 +170,7 @@ class InferenceEngine:
     def predict(
         self,
         *,
-        image_bytes: bytes | None = None,
+        files: list[bytes] | None = None,
         text: str | None = None,
         tensor_inputs: dict[str, list] | None = None,
         top_k: int = 5,
@@ -157,8 +179,9 @@ class InferenceEngine:
         """Run inference via HF Pipeline and return structured result.
 
         Args:
-            image_bytes: Raw image file bytes (for image tasks).
-            text: Input text string (for text tasks).
+            files: Raw media file bytes (image, audio, video).  Task
+                determines interpretation.  Most tasks use ``files[0]``.
+            text: Input text string (for text / multimodal tasks).
             tensor_inputs: Raw tensor dict — bypasses pipeline, runs
                 model directly.
             top_k: Max predictions for classification tasks.
@@ -179,7 +202,7 @@ class InferenceEngine:
             predictions = self._predict_raw_tensors(tensor_inputs)
         elif self._pipeline is not None:
             predictions = self._predict_pipeline(
-                image_bytes=image_bytes,
+                files=files,
                 text=text,
                 **pipeline_kwargs,
             )
@@ -312,35 +335,62 @@ class InferenceEngine:
     def _predict_pipeline(
         self,
         *,
-        image_bytes: bytes | None,
+        files: list[bytes] | None,
         text: str | None,
         **pipe_kwargs: Any,
     ) -> list[Prediction] | dict[str, Any]:
         """Run inference through HF Pipeline (handles preprocess + postprocess).
 
-        Known image/text tasks get input-type validation; unknown tasks
-        accept whichever input is provided.  All ``pipe_kwargs`` are
-        forwarded to the HF pipeline unchanged.
+        Known tasks get input-type validation; unknown tasks accept
+        whichever input is provided.  All ``pipe_kwargs`` are forwarded
+        to the HF pipeline unchanged.
         """
         from PIL import Image
 
+        first_file = files[0] if files else None
+
         if self._task in _IMAGE_TASKS:
-            if image_bytes is None:
-                raise ValueError("image_bytes required for image tasks")
-            pipe_input: Any = Image.open(BytesIO(image_bytes)).convert("RGB")
+            if first_file is None:
+                raise ValueError("Image file required for image tasks")
+            pipe_input: Any = Image.open(BytesIO(first_file)).convert("RGB")
+        elif self._task in _AUDIO_TASKS:
+            if first_file is None:
+                raise ValueError("Audio file required for audio tasks")
+            pipe_input = self._decode_audio(first_file)
+        elif self._task in _MULTIMODAL_TASKS:
+            if first_file is None:
+                raise ValueError("File required for multimodal tasks")
+            pipe_input = {
+                "image": Image.open(BytesIO(first_file)).convert("RGB"),
+                "question": text or "",
+            }
         elif self._task in _TEXT_TASKS:
             if text is None:
-                raise ValueError("text required for text tasks")
+                raise ValueError("Text required for text tasks")
             pipe_input = text
-        elif image_bytes is not None:
-            pipe_input = Image.open(BytesIO(image_bytes)).convert("RGB")
+        elif first_file is not None:
+            pipe_input = Image.open(BytesIO(first_file)).convert("RGB")
         elif text is not None:
             pipe_input = text
         else:
-            raise ValueError("Provide image_bytes or text for pipeline inference")
+            raise ValueError("Provide file(s) or text for pipeline inference")
 
         raw_result = self._pipeline(pipe_input, **pipe_kwargs)
         return self._normalize_pipeline_output(raw_result)
+
+    @staticmethod
+    def _decode_audio(data: bytes) -> dict[str, Any]:
+        """Decode audio bytes into a dict accepted by HF audio pipelines.
+
+        Returns ``{"raw": np.ndarray, "sampling_rate": int}``.
+        """
+        import numpy as np
+        import soundfile as sf
+
+        audio_array, sampling_rate = sf.read(BytesIO(data))
+        if audio_array.ndim > 1:
+            audio_array = audio_array.mean(axis=1)
+        return {"raw": audio_array.astype(np.float32), "sampling_rate": sampling_rate}
 
     def _normalize_pipeline_output(self, raw: Any) -> list[Prediction] | dict[str, Any]:
         """Convert HF pipeline output to our standard format."""
