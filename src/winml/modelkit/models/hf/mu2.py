@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Mu2 encoder-decoder model with sliding-window KV cache.
+"""Mu2 encoder-decoder model with KV cache.
 
 Export wrappers, OnnxConfig registrations, and ``WinMLMu2Model`` inference
 class for Mu2 (custom ``trust_remote_code`` model).
@@ -11,7 +11,7 @@ Export Strategy:
 - Mu2EncoderWrapper (``feature-extraction``): encoder-only ONNX.
 - Mu2DecoderWrapper (``text2text-generation``): decoder with
   ``WinMLSlidingWindowCache`` (Slice+Concat, no ScatterElements).
-  Present KV output is the full updated buffer.
+  Present KV output is the new-token KV only.
 
 Custom model integration (``auto_map``):
     The Mu2 model uses ``trust_remote_code=True`` with ``auto_map`` in
@@ -31,6 +31,24 @@ Key decisions:
 - Mu2's ``Mu2Config`` must pass ``pad_token_id`` / ``bos_token_id`` /
   ``eos_token_id`` to ``super().__init__()`` or PretrainedConfig
   overrides them to None.
+
+Cache type:
+
+The default configuration uses ``WinMLSlidingWindowCache`` (FIFO
+Slice+Concat).  ``WinMLEncoderDecoderModel`` is cache-agnostic — mask
+construction and cache updates are delegated to the cache class via
+``build_decoder_mask``, ``position_input_name``, and
+``update_all_layers``.  To switch to ``WinMLStaticCache`` (index_copy_):
+
+1. **Export wrapper**: change ``Mu2DecoderWrapper.forward()`` to use
+   ``WinMLStaticCache`` and rename the position arg from ``position_id``
+   to ``cache_position``.
+2. **OnnxConfig inputs**: change ``"position_id"`` to
+   ``"cache_position"`` in ``Mu2DecoderIOConfig.inputs``.
+3. **Inference**: override ``get_cache_class()`` to return
+   ``WinMLStaticCache``.  ``WinMLEncoderDecoderModel`` uses
+   ``cache.position_input_name`` to select the correct ONNX input name
+   automatically.
 
 Usage::
 
