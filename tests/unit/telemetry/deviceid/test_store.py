@@ -79,3 +79,30 @@ def test_overwrite_updates_value(isolated_store):
     _store.write_key("deviceid", "first")
     _store.write_key("deviceid", "second")
     assert _store.read_key("deviceid") == "second"
+
+
+def test_read_registry_ignores_non_string_values(isolated_store):
+    """Regression guard: externally planted REG_DWORD or REG_BINARY must not
+    be coerced to a surprise string."""
+    if os.name != "nt":
+        pytest.skip("Windows-only")
+
+    import winreg
+
+    # Write a REG_DWORD under our per-pid test key.
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _store._REGISTRY_KEY) as key:
+        winreg.SetValueEx(key, "deviceid", 0, winreg.REG_DWORD, 12345)
+    # Reading via _store.read_key should treat this as absent (None).
+    assert _store.read_key("deviceid") is None
+
+
+def test_read_file_ignores_non_string_values(monkeypatch, tmp_path):
+    """Non-Windows: a non-string value in state.json is treated as absent."""
+    if os.name == "nt":
+        pytest.skip("file backend is non-Windows only")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    state = _store._state_file()
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text('{"deviceid": 12345}', encoding="utf-8")
+    assert _store.read_key("deviceid") is None

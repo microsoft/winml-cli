@@ -73,12 +73,12 @@ def _read_registry(name: str) -> str | None:
 
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REGISTRY_KEY) as key:
-            value, _ = winreg.QueryValueEx(key, name)
-            return str(value)
+            value, value_type = winreg.QueryValueEx(key, name)
     except FileNotFoundError:
         return None
-    except OSError:
+    if value_type != winreg.REG_SZ:
         return None
+    return value  # already str for REG_SZ
 
 
 def _write_registry(name: str, value: str) -> None:
@@ -98,8 +98,6 @@ def _delete_registry(name: str) -> None:
             winreg.DeleteValue(key, name)
     except FileNotFoundError:
         pass
-    except OSError:
-        pass
 
 
 # --- File backend (Linux/macOS; used in parity tests) ---
@@ -115,7 +113,7 @@ def _read_file(name: str) -> str | None:
     except (FileNotFoundError, json.JSONDecodeError):
         return None
     value = data.get(name)
-    return str(value) if value is not None else None
+    return value if isinstance(value, str) else None
 
 
 def _write_file(name: str, value: str) -> None:
@@ -125,7 +123,9 @@ def _write_file(name: str, value: str) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         data = {}
     data[name] = value
-    path.write_text(json.dumps(data), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(path)
 
 
 def _delete_file(name: str) -> None:
@@ -135,4 +135,6 @@ def _delete_file(name: str) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         return
     data.pop(name, None)
-    path.write_text(json.dumps(data), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(path)
