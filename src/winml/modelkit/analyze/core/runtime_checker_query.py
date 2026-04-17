@@ -1847,7 +1847,12 @@ class RuntimeCheckerQuery:
 
         # Check cache using table_filter_conditions as key
         cache_key = make_hashable(table_filter_conditions)
-        if cache_key in self._node_result_cache:
+        try:
+            hash(cache_key)
+            _cache_key_hashable = True
+        except TypeError:
+            _cache_key_hashable = False
+        if _cache_key_hashable and cache_key in self._node_result_cache:
             cached = self._node_result_cache[cache_key]
             return PatternRuntime(
                 pattern_id=pattern_id,
@@ -1880,7 +1885,8 @@ class RuntimeCheckerQuery:
                     conditions=None,
                 )
                 if local_result is not None:
-                    self._node_result_cache[cache_key] = local_result
+                    if _cache_key_hashable:
+                        self._node_result_cache[cache_key] = local_result
                     return local_result
 
             result = RuntimeTestResult(
@@ -1903,7 +1909,8 @@ class RuntimeCheckerQuery:
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
-            self._node_result_cache[cache_key] = pattern_runtime
+            if _cache_key_hashable:
+                self._node_result_cache[cache_key] = pattern_runtime
             return pattern_runtime
 
         # Phase 4: Apply negative rules and table matching
@@ -1995,7 +2002,8 @@ class RuntimeCheckerQuery:
                                 conditions=make_hashable(table_filter_conditions),
                             )
                             if local_result is not None:
-                                self._node_result_cache[cache_key] = local_result
+                                if _cache_key_hashable:
+                                    self._node_result_cache[cache_key] = local_result
                                 return local_result
 
                         result = RuntimeTestResult(
@@ -2014,7 +2022,8 @@ class RuntimeCheckerQuery:
                             alternatives=self.alternatives,
                             pattern_match=pattern_match,
                         )
-                        self._node_result_cache[cache_key] = pattern_runtime
+                        if _cache_key_hashable:
+                            self._node_result_cache[cache_key] = pattern_runtime
                         return pattern_runtime
                 else:  # no table data
                     if run_unknown_op:
@@ -2031,7 +2040,8 @@ class RuntimeCheckerQuery:
                             conditions=None,
                         )
                         if local_result is not None:
-                            self._node_result_cache[cache_key] = local_result
+                            if _cache_key_hashable:
+                                self._node_result_cache[cache_key] = local_result
                             return local_result
 
                     table_source = "qdq" if is_qdq else "non_qdq"
@@ -2088,7 +2098,8 @@ class RuntimeCheckerQuery:
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
-                    self._node_result_cache[cache_key] = pattern_runtime
+                    if _cache_key_hashable:
+                        self._node_result_cache[cache_key] = pattern_runtime
                     return pattern_runtime
         except (OpOptionalInputSupportError, OpLackOfRequiredInformationError) as e:
             exception_type = type(e).__name__
@@ -2123,7 +2134,8 @@ class RuntimeCheckerQuery:
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
-            self._node_result_cache[cache_key] = pattern_runtime
+            if _cache_key_hashable:
+                self._node_result_cache[cache_key] = pattern_runtime
             return pattern_runtime
 
         result = RuntimeTestResult(
@@ -2149,7 +2161,8 @@ class RuntimeCheckerQuery:
             alternatives=self.alternatives,
             pattern_match=pattern_match,
         )
-        self._node_result_cache[cache_key] = pattern_runtime
+        if _cache_key_hashable:
+            self._node_result_cache[cache_key] = pattern_runtime
         return pattern_runtime
 
     def run_for_subgraph(
