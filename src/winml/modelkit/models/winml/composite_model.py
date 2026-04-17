@@ -93,9 +93,11 @@ class WinMLCompositeModel(PreTrainedModel):
         self,
         sub_models: dict[str, Any],
         config: PretrainedConfig,
+        device: str = "cpu",
     ) -> None:
         self.sub_models = sub_models
         self.config = config
+        self._device = device
 
     @classmethod
     def from_pretrained(
@@ -235,6 +237,11 @@ class WinMLCompositeModel(PreTrainedModel):
         return torch.device("cpu")
 
     @property
+    def ort_device(self) -> str:
+        """ORT execution provider target (e.g. "npu", "gpu", "cpu", "auto")."""
+        return self._device
+
+    @property
     def dtype(self) -> torch.dtype:
         """Model dtype for HF compatibility."""
         return torch.float32
@@ -250,31 +257,3 @@ class WinMLCompositeModel(PreTrainedModel):
     def forward(self, **kwargs: Any) -> Any:
         """Subclasses implement task-specific logic."""
         raise NotImplementedError
-
-    @staticmethod
-    def _pad_inputs(
-        source: dict[str, Any],
-        expected: dict[str, list[int]],
-    ) -> dict[str, Any]:
-        """Filter *source* to keys in *expected* and pad undersized tensors.
-
-        For each name in *expected*, if *source* has a tensor for it, pad
-        any dimension smaller than the ONNX expected shape (skips batch dim).
-        Non-tensor values are passed through. Missing names are skipped.
-        """
-        result: dict[str, Any] = {}
-        for name, expected_shape in expected.items():
-            val = source.get(name)
-            if val is None:
-                continue
-            if isinstance(val, torch.Tensor):
-                # TODO: support dynamic shape ONNX models (None in expected_shape)
-                ndim = min(len(val.shape), len(expected_shape))
-                pad: list[int] = []
-                for dim in reversed(range(1, ndim)):
-                    deficit = expected_shape[dim] - val.shape[dim]
-                    pad.extend([0, max(deficit, 0)])
-                if any(p > 0 for p in pad):
-                    val = torch.nn.functional.pad(val, pad)
-            result[name] = val
-        return result

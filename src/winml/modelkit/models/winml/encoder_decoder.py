@@ -22,7 +22,7 @@ How ``forward()`` works:
 
 3. Feeds are built from ``model_kwargs`` (decoder_input_ids, attention_mask)
    plus generated inputs (encoder_hidden_states, decoder_attention_mask,
-   position input, KV buffers).  ``_pad_inputs`` filters to ONNX input
+   position input, KV buffers).  ``pad_inputs`` filters to ONNX input
    names and pads undersized tensors.
 
 4. After ONNX inference, ``cache.update_all_layers(outputs)`` writes
@@ -58,6 +58,7 @@ from optimum.utils.input_generators import DummyInputGenerator
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
+from ...utils.data_utils import pad_inputs
 from .composite_model import WinMLCompositeModel
 
 
@@ -212,7 +213,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             self._expected = expected
 
         def forward(self, **kwargs: Any) -> BaseModelOutput:
-            feeds = WinMLCompositeModel._pad_inputs(kwargs, self._expected)
+            feeds = pad_inputs(kwargs, self._expected)
             return self._encoder(**feeds)
 
     def get_encoder(self) -> torch.nn.Module:
@@ -310,7 +311,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
 
         # Run decoder ONNX (pad_inputs filters to expected names + pads)
-        outputs = self._decoder(**self._pad_inputs(feeds, self._dec_expected))
+        outputs = self._decoder(**pad_inputs(feeds, self._dec_expected))
 
         # Write present KV back and advance step
         cache.update_all_layers(outputs)
