@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML Decoder-Only Pipeline Model.
+"""WinML Decoder-Only composite model.
 
 Class hierarchy::
 
@@ -157,7 +157,7 @@ class DecoderOnlyPrefillInputGenerator(DecoderOnlyInputGenerator):
 
 
 class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
-    """Decoder-only pipeline model with HF GenerationMixin support.
+    """Decoder-only composite model with HF GenerationMixin support.
 
     Expects sub-components ``"decoder_prefill"`` and ``"decoder_gen"`` in
     ``_SUB_MODEL_CONFIG``.  Provides the full interface required by

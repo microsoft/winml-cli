@@ -328,12 +328,12 @@ def config(
         else:
             _is_onnx_mode = False
 
-            # Check pipeline model registry: (model_type, task) → multi-config
-            pipeline_components = _resolve_pipeline_components(
+            # Check composite model registry: (model_type, task) -> multi-config
+            pipeline_components = _resolve_composite_model_components(
                 hf_model, model_type, task, trust_remote_code=trust_remote_code
             )
             if pipeline_components:
-                # Pipeline model: generate one config per sub-component
+                # composite model: generate one config per sub-component
                 _generate_pipeline_configs(
                     pipeline_components,
                     hf_model=hf_model,
@@ -513,13 +513,13 @@ def config(
         raise click.ClickException(f"Unexpected error: {e}") from e
 
 
-def _resolve_pipeline_components(
+def _resolve_composite_model_components(
     hf_model: str | None,
     model_type: str | None,
     task: str | None,
     trust_remote_code: bool = False,
 ) -> dict[str, str] | None:
-    """Check if (model_type, task) is a registered pipeline model.
+    """Check if (model_type, task) is a registered composite model.
 
     Returns _SUB_MODEL_CONFIG dict if found, None otherwise.
     """

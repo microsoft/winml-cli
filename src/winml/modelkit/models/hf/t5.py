@@ -287,7 +287,7 @@ T5_CONFIG = WinMLBuildConfig(
 
 
 # =============================================================================
-# WinMLT5Model — inference wrapper (registered as pipeline model)
+# WinMLT5Model — inference wrapper (registered as composite model)
 # =============================================================================
 
 

@@ -318,7 +318,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
 }
 
 # =============================================================================
-# WinMLQwen3Model — inference wrapper (registered as pipeline model)
+# WinMLQwen3Model — inference wrapper (registered as composite model)
 # =============================================================================
 
 

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML Pipeline Model base and registry.
+"""WinML composite model base and registry.
 
 Provides ``WinMLCompositeModel`` — a base class for models composed of
 multiple ``WinMLAutoModel`` sub-components (e.g., encoder + decoder,
@@ -31,7 +31,7 @@ per sub-model (e.g., different ``max_cache_len`` for prefill vs gen)::
             "decoder_gen":     {"shape_config": {"max_cache_len": 256, "seq_len": 1}},
         })
 
-Concrete pipeline models live alongside their export configs:
+Concrete composite models live alongside their export configs:
 
 - ``models.hf.t5.WinMLT5Model`` (encoder-decoder, T5)
 - ``models.hf.mu2.WinMLMu2Model`` (encoder-decoder, Mu2)
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================================
-# Pipeline Model Registry
+# composite model Registry
 # =========================================================================
 
 # Maps (model_type, task) → pipeline class with _SUB_MODEL_CONFIG.
@@ -64,7 +64,7 @@ PIPELINE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
 
 
 def register_composite_model(model_type: str, task: str):
-    """Class decorator that registers a pipeline model for `wmk config`."""
+    """Class decorator that registers a composite model for `wmk config`."""
 
     def decorator(cls: type) -> type:
         PIPELINE_MODEL_REGISTRY[(model_type, task)] = cls
@@ -146,7 +146,7 @@ class WinMLCompositeModel(PreTrainedModel):
             resolved_cls = PIPELINE_MODEL_REGISTRY.get((model_type, task))
             if resolved_cls is None:
                 raise ValueError(
-                    f"No pipeline model registered for ({model_type!r}, {task!r}). "
+                    f"No composite model registered for ({model_type!r}, {task!r}). "
                     f"Registered: {list(PIPELINE_MODEL_REGISTRY.keys())}"
                 )
             return resolved_cls.from_pretrained(

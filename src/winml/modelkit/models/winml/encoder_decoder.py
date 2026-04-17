@@ -144,7 +144,7 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):
 
 
 class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
-    """Pipeline model with HF GenerationMixin support.
+    """composite model with HF GenerationMixin support.
 
     Expects sub-components ``"encoder"`` and ``"decoder"`` in
     ``_SUB_MODEL_CONFIG``. Provides the full interface required by
