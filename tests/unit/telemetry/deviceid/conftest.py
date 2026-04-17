@@ -15,24 +15,17 @@ from winml.modelkit.telemetry.deviceid import _store
 
 
 @pytest.fixture
-def isolated_store(monkeypatch, tmp_path):
-    """Redirect _store to per-test scratch space.
+def isolated_store(monkeypatch):
+    """Redirect _store to a per-pid registry subkey so tests don't touch
+    real state. Best-effort cleanup on teardown."""
+    subkey = rf"SOFTWARE\Microsoft\DeveloperTools\.modelkit-test-{os.getpid()}"
+    monkeypatch.setattr(_store, "_REGISTRY_KEY", subkey)
+    yield
+    import winreg
 
-    On Windows: uses a per-pid registry subkey to avoid test pollution.
-    On other platforms: redirects HOME to a temp dir.
-    """
-    if os.name == "nt":
-        subkey = rf"SOFTWARE\Microsoft\DeveloperTools\.modelkit-test-{os.getpid()}"
-        monkeypatch.setattr(_store, "_REGISTRY_KEY", subkey)
-        yield
-        import winreg
-
-        try:
-            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
-        except OSError:
-            # Best-effort fixture cleanup; a teardown failure must not
-            # mask the test result.
-            return
-    else:
-        monkeypatch.setenv("HOME", str(tmp_path))
-        yield
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
+    except OSError:
+        # Best-effort fixture cleanup; a teardown failure must not mask
+        # the test result.
+        return
