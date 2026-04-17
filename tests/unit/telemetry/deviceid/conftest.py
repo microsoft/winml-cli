@@ -30,7 +30,9 @@ def isolated_store(monkeypatch, tmp_path):
         try:
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
         except OSError:
-            pass
+            # Best-effort fixture cleanup; a teardown failure must not
+            # mask the test result.
+            return
     else:
         monkeypatch.setenv("HOME", str(tmp_path))
         yield

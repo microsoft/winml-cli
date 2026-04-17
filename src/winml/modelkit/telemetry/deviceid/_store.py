@@ -97,7 +97,8 @@ def _delete_registry(name: str) -> None:
         ) as key:
             winreg.DeleteValue(key, name)
     except FileNotFoundError:
-        pass
+        # Value or key already absent — delete is idempotent.
+        return
 
 
 # --- File backend (Linux/macOS; used in parity tests) ---
