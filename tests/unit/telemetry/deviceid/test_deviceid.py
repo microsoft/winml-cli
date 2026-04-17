@@ -4,35 +4,13 @@
 # --------------------------------------------------------------------------
 
 import hashlib
-import os
 import re
-
-import pytest
 
 from winml.modelkit.telemetry.deviceid import _store
 from winml.modelkit.telemetry.deviceid.deviceid import get_or_create_device_id
 
 
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
-
-
-@pytest.fixture
-def isolated_store(monkeypatch, tmp_path):
-    """Same fixture pattern as test_store.py — redirect storage to per-test
-    scratch space."""
-    if os.name == "nt":
-        subkey = rf"SOFTWARE\Microsoft\DeveloperTools\.modelkit-test-{os.getpid()}"
-        monkeypatch.setattr(_store, "_REGISTRY_KEY", subkey)
-        yield
-        import winreg
-
-        try:
-            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
-        except OSError:
-            pass
-    else:
-        monkeypatch.setenv("HOME", str(tmp_path))
-        yield
 
 
 def test_fresh_state_generates_new_device_id(isolated_store):

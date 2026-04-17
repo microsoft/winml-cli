@@ -33,29 +33,6 @@ def test_get_telemetry_base_dir_falls_back_when_home_unset(monkeypatch, tmp_path
         assert result == Path("/var/tmp") / "DeveloperTools" / ".modelkit"  # noqa: S108
 
 
-@pytest.fixture
-def isolated_store(monkeypatch, tmp_path):
-    """Redirect _store to a temp directory so tests don't touch real state.
-
-    On Windows we still use the registry but under a unique per-test subkey
-    prefix; on non-Windows we point LOCALAPPDATA/HOME at tmp_path.
-    """
-    if os.name == "nt":
-        # Use a per-test registry subkey to avoid test pollution.
-        subkey = rf"SOFTWARE\Microsoft\DeveloperTools\.modelkit-test-{os.getpid()}"
-        monkeypatch.setattr(_store, "_REGISTRY_KEY", subkey)
-        yield
-        import winreg
-
-        try:
-            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
-        except OSError:
-            pass
-    else:
-        monkeypatch.setenv("HOME", str(tmp_path))
-        yield
-
-
 def test_write_then_read_returns_value(isolated_store):
     _store.write_key("deviceid", "abc123")
     assert _store.read_key("deviceid") == "abc123"

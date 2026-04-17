@@ -20,7 +20,7 @@ from .serialization import _build_envelope, _serialize_batch
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from opentelemetry.sdk._logs._internal import ReadableLogRecord
+    from opentelemetry.sdk._logs import ReadableLogRecord
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +32,15 @@ class OneCollectorLogExporter(LogRecordExporter):
     """Post Common Schema 4.0 event envelopes to the OneCollector endpoint."""
 
     def __init__(self, ikey: str, endpoint: str) -> None:
+        # Fail loudly rather than silently POST ``{"iKey": ""}`` to the
+        # endpoint. In dev installs ``constants.INSTRUMENTATION_KEY`` is
+        # empty; the Telemetry singleton guards against that, and this
+        # second guard keeps the invariant a property of the library
+        # itself (defense in depth).
+        if not ikey:
+            raise ValueError("ikey must be non-empty")
+        if not endpoint:
+            raise ValueError("endpoint must be non-empty")
         self._ikey = ikey
         self._endpoint = endpoint
         # _shutdown is read on the BatchLogRecordProcessor export thread and

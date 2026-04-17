@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 from opentelemetry._logs import LogRecord
-from opentelemetry.sdk._logs._internal import ReadableLogRecord
+from opentelemetry.sdk._logs import ReadableLogRecord
 from opentelemetry.sdk._logs.export import LogRecordExportResult
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
@@ -41,6 +41,22 @@ def exporter():
         ikey="o:abc",
         endpoint="https://example.invalid/OneCollector/1.0/",
     )
+
+
+@pytest.mark.parametrize(
+    "ikey,endpoint",
+    [
+        ("", "https://example.invalid/"),
+        ("o:abc", ""),
+        ("", ""),
+    ],
+)
+def test_constructor_rejects_empty_ikey_or_endpoint(ikey, endpoint):
+    """Defense-in-depth: no accidental POST with an empty iKey, even if
+    the Telemetry singleton's gating is bypassed (e.g. direct instantiation
+    from a test or a future callsite)."""
+    with pytest.raises(ValueError):
+        OneCollectorLogExporter(ikey=ikey, endpoint=endpoint)
 
 
 def test_export_success_returns_success(exporter):
