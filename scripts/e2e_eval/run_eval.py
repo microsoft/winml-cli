@@ -397,6 +397,7 @@ def _run_build(
     onnx_paths: list[str] = []
     last_proc = config_proc
 
+    # TODO: remove for loop once wimnl build supports building composite model to multiple onnx files
     for sub_cfg in sub_configs:
         label = sub_cfg.stem.removeprefix(f"{config_path.stem}_") if len(sub_configs) > 1 else ""
         if label:
