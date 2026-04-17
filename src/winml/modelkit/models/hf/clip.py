@@ -74,17 +74,18 @@ CLIP_CONFIG = WinMLBuildConfig(
 # =============================================================================
 @register_onnx_overwrite("clip_text_model", "feature-extraction", library_name="transformers")
 class CLIPTextModelIOConfig(CLIPTextWithProjectionOnnxConfig):
-    """ONNX config for CLIP text models (both with and without projection).
+    """ONNX config for CLIPTextModelWithProjection from transformers.
 
-    Handles two architectures that share model_type ``clip_text_model``:
+    Model: openai/clip-vit-base-patch32 (text encoder only)
+    model.config.model_type = "clip_text_model"
 
-    - **CLIPTextModelWithProjection** (standalone CLIP text encoder):
-      Outputs ``text_embeds`` + ``last_hidden_state``
-    - **CLIPTextModel** (e.g., Stable Diffusion text encoder):
-      Outputs ``last_hidden_state`` only
+    Inputs:
+        - input_ids: {0: "batch_size", 1: "sequence_length"}
+        - attention_mask: {0: "batch_size", 1: "sequence_length"}
 
-    The ``outputs`` property auto-detects which variant to use based on
-    ``config.architectures``.
+    Outputs:
+        - text_embeds: {0: "batch_size"}
+        - last_hidden_state: {0: "batch_size", 1: "sequence_length"}
 
     Key difference from Optimum's default:
         - sequence_length = max_position_embeddings (77 for CLIP)
@@ -103,29 +104,6 @@ class CLIPTextModelIOConfig(CLIPTextWithProjectionOnnxConfig):
         return {
             "input_ids": {0: "batch_size", 1: "sequence_length"},
             "attention_mask": {0: "batch_size", 1: "sequence_length"},
-        }
-
-    @property
-    def outputs(self) -> dict[str, dict[int, str]]:
-        """Return output tensors, adapting to the model architecture.
-
-        CLIPTextModelWithProjection produces ``text_embeds`` (projected)
-        and ``last_hidden_state``.  CLIPTextModel (used in Stable Diffusion)
-        produces only ``last_hidden_state``.
-
-        Default (architectures unset) assumes projection model for backward
-        compatibility.
-        """
-        architectures = getattr(self._config, "architectures", None) or []
-        # CLIPTextModel (non-projection, e.g. SD text_encoder)
-        if "CLIPTextModel" in architectures and "CLIPTextModelWithProjection" not in architectures:
-            return {
-                "last_hidden_state": {0: "batch_size", 1: "sequence_length"},
-            }
-        # Default: projection model outputs (backward compatible)
-        return {
-            "text_embeds": {0: "batch_size"},
-            "last_hidden_state": {0: "batch_size", 1: "sequence_length"},
         }
 
 
