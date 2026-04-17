@@ -86,6 +86,9 @@ def check_patterns(
     # Store results for all patterns
     all_results: dict[str, dict[str, Any]] = {}
 
+    if opset_mapping is None:
+        raise ValueError("opset_mapping must be provided for pattern model generation")
+
     # Convert opset_mapping to ONNXDomain keys if provided
     domain_versions = {
         ONNXDomain.from_str(domain): version for domain, version in opset_mapping.items()
@@ -227,7 +230,7 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
         ValueError: If the execution provider name is not supported.
     """
     device_type = constants.DEVICE_TO_DEVICE_TYPE[device]
-    ep_name_to_checker: dict[str, type[EPChecker]] = {
+    ep_name_to_checker: dict[str, Any] = {
         "QNNExecutionProvider": QNNNPUChecker,
         "OpenVINOExecutionProvider": OpenVINONPUChecker,
         # Add other EPChecker subclasses here as needed
@@ -241,8 +244,8 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     return ep_name_to_checker[ep_name](device_type=device_type)
 
 
-def parse_and_check() -> None:
-    """Main entry point for command-line execution."""
+def build_parser():
+    """Build argument parser for check_patterns-style commands."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Test ONNX patterns on execution provider")
@@ -284,12 +287,33 @@ def parse_and_check() -> None:
         choices=["CPU", "GPU", "NPU"],
         help="Target device type (CPU, GPU, NPU).",
     )
-    parser.add_argument(
+
+    opset_group = parser.add_mutually_exclusive_group(required=True)
+    opset_group.add_argument(
         "--opset_mapping",
         type=str,
         nargs="+",
-        required=True,
-        help=("Domain:version pairs for ONNX opset versions, e.g., ai.onnx:17 com.microsoft:1"),
+        help=(
+            "Domain:version pairs for ONNX opset versions, "
+            "e.g., ai.onnx:17 com.microsoft:1"
+        ),
+    )
+    opset_group.add_argument(
+        "--opset_version",
+        type=int,
+        help=(
+            "ONNX opset version to use together with --opset_domain. "
+            "If used without --opset_mapping, com.microsoft:1 is added automatically."
+        ),
+    )
+    parser.add_argument(
+        "--opset_domain",
+        type=str,
+        default=ONNXDomain.AI_ONNX.value,
+        help=(
+            "ONNX opset domain to use with --opset_version "
+            f"(default: {ONNXDomain.AI_ONNX.value})"
+        ),
     )
     parser.add_argument(
         "--validate_inputs",
@@ -308,16 +332,35 @@ def parse_and_check() -> None:
         default=None,
         help="Limit number of test cases per pattern (default: run all cases)",
     )
-    parser.add_argument(
+
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--rerun_failed",
         action="store_true",
-        help="Rerun failed cases (compile or run failed)",
+        help=(
+            "Rerun only failed cases (compile failed or run failed). "
+            "Mutually exclusive with --delta_only and --case_index."
+        ),
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--delta_only",
         action="store_true",
-        help="Only run new test cases not in existing results",
+        help=(
+            "Only run new test cases that do not exist in the existing results file. "
+            "Mutually exclusive with --rerun_failed and --case_index."
+        ),
     )
+    mode_group.add_argument(
+        "--case_index",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "Only process cases matching these case_index hashes. "
+            "Mutually exclusive with --rerun_failed and --delta_only."
+        ),
+    )
+
     parser.add_argument(
         "--dry_run",
         action="store_true",
@@ -330,30 +373,62 @@ def parse_and_check() -> None:
         help="Initial id used for not_run placeholder reasons (not_run_<id>) (default: 1)",
     )
     parser.add_argument(
-        "--case_index",
-        type=str,
-        nargs="+",
-        default=None,
-        help="Filter to specific test cases by hashed case_index signature(s)",
-    )
-    parser.add_argument(
         "--save_failed_model",
         action="store_true",
         help="Save the model for compile failed test cases",
     )
-    args = parser.parse_args()
+    return parser
 
-    # Parse opset_mapping from "domain:version" pairs
-    opset_mapping = None
+
+def _parse_opset_mapping(args: Any) -> dict[str, int]:
+    """Parse opset mapping from CLI args.
+
+    Supports either:
+    - --opset_mapping domain:version [domain:version ...]
+    - --opset_version + optional --opset_domain
+    """
     if args.opset_mapping:
-        opset_mapping = {}
+        opset_mapping: dict[str, int] = {}
         for pair in args.opset_mapping:
-            domain, version = pair.split(":")
-            opset_mapping[domain] = int(version)
+            if ":" not in pair:
+                raise ValueError(
+                    "Invalid --opset_mapping value "
+                    f"'{pair}'. Expected format: domain:version"
+                )
+            domain, version_text = pair.split(":", 1)
+            if not domain:
+                raise ValueError(f"Invalid --opset_mapping value '{pair}': empty domain")
+            try:
+                opset_mapping[domain] = int(version_text)
+            except ValueError as exc:
+                raise ValueError(
+                    "Invalid --opset_mapping value "
+                    f"'{pair}'. Version must be an integer"
+                ) from exc
+        return opset_mapping
+
+    if args.opset_version is None:
+        raise ValueError("Either --opset_mapping or --opset_version must be provided")
+
+    opset_mapping = {args.opset_domain: int(args.opset_version)}
+
+    # Keep compatibility with existing pattern generators that expect this domain.
+    if args.opset_domain != ONNXDomain.COM_MICROSOFT.value:
+        opset_mapping.setdefault(ONNXDomain.COM_MICROSOFT.value, 1)
+
+    return opset_mapping
+
+
+def run_from_args(args: Any) -> None:
+    """Run check_patterns from parsed CLI args."""
+    available_patterns = get_registered_pattern_input_generators()
 
     # Determine which patterns to test
     patterns_to_check = available_patterns if args.all_patterns else args.patterns
     ep_checker = get_ep_checker(args.ep, device=args.device)
+
+    # Parse opset mapping from either mapping pairs or opset_domain/opset_version
+    opset_mapping = _parse_opset_mapping(args)
 
     # Run the tests
     check_patterns(
@@ -370,6 +445,13 @@ def parse_and_check() -> None:
         case_index=args.case_index,
         opset_mapping=opset_mapping,
     )
+
+
+def parse_and_check() -> None:
+    """Main entry point for command-line execution."""
+    parser = build_parser()
+    args = parser.parse_args()
+    run_from_args(args)
 
 
 if __name__ == "__main__":
