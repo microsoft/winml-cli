@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
-def build_envelope(
+def _build_envelope(
     name: str,
     ikey: str,
     timestamp: datetime,
@@ -47,6 +47,6 @@ def _format_time(ts: datetime) -> str:
     return ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}Z"
 
 
-def serialize_batch(envelopes: list[dict[str, Any]]) -> bytes:
+def _serialize_batch(envelopes: list[dict[str, Any]]) -> bytes:
     """Serialize a batch of envelopes as a compact JSON array."""
     return json.dumps(envelopes, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
