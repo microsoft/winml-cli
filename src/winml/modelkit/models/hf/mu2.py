@@ -71,8 +71,8 @@ from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
 from ..winml.composite_model import register_composite_model
-from .encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
-from .kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
+from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
+from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 
 # =============================================================================

@@ -38,7 +38,7 @@ from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
     _populate_image_size_from_preprocessor,
 )
-from winml.modelkit.models.hf.kv_cache import PastKeyValueInputGenerator
+from winml.modelkit.models.winml.kv_cache import PastKeyValueInputGenerator
 
 
 # =============================================================================
@@ -854,7 +854,7 @@ class TestStaticCacheBuildDecoderMask:
     """WinMLStaticCache.build_decoder_mask — left-aligned mask."""
 
     def test_default_single_token(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
 
         cache = _make_cache(WinMLStaticCache)
         cache.step = 3
@@ -864,7 +864,7 @@ class TestStaticCacheBuildDecoderMask:
         assert mask[0, 4:].sum().item() == 0
 
     def test_num_new_tokens(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
 
         cache = _make_cache(WinMLStaticCache)
         cache.step = 2
@@ -877,7 +877,7 @@ class TestSlidingWindowCacheBuildDecoderMask:
     """WinMLSlidingWindowCache.build_decoder_mask — right-aligned mask."""
 
     def test_default_single_token(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
 
         cache = _make_cache(WinMLSlidingWindowCache)
         cache.step = 3
@@ -887,7 +887,7 @@ class TestSlidingWindowCacheBuildDecoderMask:
         assert mask[0, :-4].sum().item() == 0
 
     def test_num_new_tokens(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
 
         cache = _make_cache(WinMLSlidingWindowCache)
         cache.step = 2
@@ -897,7 +897,7 @@ class TestSlidingWindowCacheBuildDecoderMask:
         assert mask[0, :-6].sum().item() == 0
 
     def test_saturates_at_max_len(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
 
         cache = _make_cache(WinMLSlidingWindowCache, max_cache_len=8)
         cache.step = 10
@@ -910,7 +910,7 @@ class TestStaticCachePreparePrefillChunk:
     """WinMLStaticCache.prepare_prefill_chunk — right-pad."""
 
     def test_full_chunk_no_padding(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
 
         cache = _make_cache(WinMLStaticCache)
         chunk = torch.tensor([[10, 20, 30, 40]])
@@ -922,7 +922,7 @@ class TestStaticCachePreparePrefillChunk:
         assert pos_ids[0].tolist() == [0, 1, 2, 3]
 
     def test_partial_chunk_right_padded(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLStaticCache
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
 
         cache = _make_cache(WinMLStaticCache)
         chunk = torch.tensor([[10, 20]])
@@ -939,7 +939,7 @@ class TestSlidingWindowCachePreparePrefillChunk:
     """WinMLSlidingWindowCache.prepare_prefill_chunk — left-pad."""
 
     def test_full_chunk_no_padding(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
 
         cache = _make_cache(WinMLSlidingWindowCache)
         chunk = torch.tensor([[10, 20, 30, 40]])
@@ -951,7 +951,7 @@ class TestSlidingWindowCachePreparePrefillChunk:
         assert pos_ids[0].tolist() == [0, 1, 2, 3]
 
     def test_partial_chunk_left_padded(self) -> None:
-        from winml.modelkit.models.hf.kv_cache import WinMLSlidingWindowCache
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
 
         cache = _make_cache(WinMLSlidingWindowCache)
         chunk = torch.tensor([[10, 20]])

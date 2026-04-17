@@ -222,7 +222,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
 
     def _resolve_cache(self, past_key_values: Any) -> Any:
         """Unwrap or create WinMLCache for this generation step."""
-        from ..hf.kv_cache import WinMLCache
+        from .kv_cache import WinMLCache
 
         if isinstance(past_key_values, WinMLCache):
             return past_key_values
@@ -243,7 +243,7 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Build inputs for each generate() step."""
-        from ..hf.kv_cache import WinMLCache
+        from .kv_cache import WinMLCache
 
         if isinstance(past_key_values, WinMLCache) and past_key_values.get_seq_length() > 0:
             input_ids = input_ids[:, -1:]

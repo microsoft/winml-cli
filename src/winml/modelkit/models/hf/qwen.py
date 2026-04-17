@@ -110,7 +110,7 @@ from ..winml.decoder_only import (
     DecoderOnlyPrefillInputGenerator,
     WinMLDecoderOnlyModel,
 )
-from .kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
+from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLSlidingWindowCache
 
 
 # =============================================================================

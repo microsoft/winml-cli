@@ -58,7 +58,7 @@ from optimum.utils.input_generators import DummyInputGenerator
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 
-from ..winml.composite_model import WinMLCompositeModel
+from .composite_model import WinMLCompositeModel
 
 
 if TYPE_CHECKING:
