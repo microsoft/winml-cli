@@ -180,6 +180,8 @@ class WinMLCompositeModel(PreTrainedModel):
         onnx_path: dict[str, str],
         *,
         task: str | None = None,
+        hf_config: PretrainedConfig | None = None,
+        sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> WinMLCompositeModel:
         """Load composite model from pre-built ONNX files.
@@ -193,15 +195,17 @@ class WinMLCompositeModel(PreTrainedModel):
                 ``"decoder_prefill"``) to its ONNX file path.
             task: Pipeline task (e.g., ``"translation"``,
                 ``"text-generation"``).
-            **kwargs: Must include ``hf_config`` (``PretrainedConfig``).
-                May include ``sub_model_kwargs`` for per-component
-                overrides.  Remaining kwargs are forwarded to
-                ``WinMLAutoModel.from_onnx`` for every component.
+            hf_config: HF ``PretrainedConfig`` for the model. Used to
+                resolve the concrete class from the registry via
+                ``hf_config.model_type``.
+            sub_model_kwargs: Per-component kwargs merged on top of
+                ``**kwargs`` for each sub-model's ``from_onnx`` call.
+            **kwargs: Forwarded to ``WinMLAutoModel.from_onnx`` for every
+                component (overridden by ``sub_model_kwargs``).
         """
         from pathlib import Path
 
-        hf_config = kwargs.pop("hf_config", None)
-        sub_model_kwargs = kwargs.pop("sub_model_kwargs", None) or {}
+        per_component = sub_model_kwargs or {}
 
         # Resolve concrete class from registry
         model_type = getattr(hf_config, "model_type", None) if hf_config else None
@@ -220,7 +224,7 @@ class WinMLCompositeModel(PreTrainedModel):
         sub_models: dict[str, Any] = {}
         for name, path in onnx_path.items():
             component_task = resolved_cls._SUB_MODEL_CONFIG.get(name)
-            merged = {**kwargs, "task": component_task, **sub_model_kwargs.get(name, {})}
+            merged = {**kwargs, "task": component_task, **per_component.get(name, {})}
             sub_models[name] = WinMLAutoModel.from_onnx(Path(path), **merged)
 
         return resolved_cls(sub_models=sub_models, config=hf_config)
