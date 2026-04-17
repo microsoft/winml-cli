@@ -2078,15 +2078,5 @@
     "downloads": 0,
     "last_update_time": "2022-09-25T13:17:44+00:00",
     "optimum_supported": false
-  },
-  {
-    "hf_id": "google/flan-t5-base",
-    "task": "text2text-generation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1372124,
-    "last_update_time": "2023-07-17T12:48:39+00:00",
-    "optimum_supported": true
   }
 ]
