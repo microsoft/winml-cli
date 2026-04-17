@@ -382,7 +382,7 @@ def _run_build(
     if config_proc["exit_code"] != 0:
         return {
             "success": False,
-            "onnx_paths": [],
+            "onnx_paths": {},
             "stage": "config",
             "proc": config_proc,
         }
@@ -394,7 +394,8 @@ def _run_build(
         sub_configs = [config_path]
 
     # Step 2: build each sub-config
-    onnx_paths: list[str] = []
+    # Map component label → ONNX path. Single model uses "" as label.
+    onnx_paths: dict[str, str] = {}
     last_proc = config_proc
 
     # TODO: remove for loop once wimnl build supports building composite model to multiple onnx files
@@ -427,7 +428,7 @@ def _run_build(
         task_hint = _extract_task_from_config(sub_cfg) or entry.task
         path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
         if path:
-            onnx_paths.append(path)
+            onnx_paths[label] = path
 
     return {
         "success": len(onnx_paths) == len(sub_configs),
@@ -504,12 +505,12 @@ def run_model(
     entry: ModelEntry,
     device: str,
     timeout: int,
-    onnx_paths: list[str] | None = None,
+    onnx_paths: dict[str, str] | None = None,
 ) -> dict:
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
     When onnx_paths is provided, benchmarks each pre-built ONNX directly.
-    Single model is just the list-of-1 case. Results are merged (worst exit
+    Single model is the {"": path} case. Results are merged (worst exit
     code, concatenated stdout/stderr, summed elapsed).
     """
     if not onnx_paths:
@@ -549,19 +550,18 @@ def run_model(
     any_timeout = False
     commands: list[str] = []
 
-    for path in onnx_paths:
-        component = Path(path).parent.name if len(onnx_paths) > 1 else ""
-        if component:
-            safe_print(f"    perf: {component}")
+    for label, path in onnx_paths.items():
+        if label:
+            safe_print(f"    perf: {label}")
 
         args = [*WINML_CLI, "perf", "-m", path, "--device", device]
         args += ["--iterations", "10", "--warmup", "2"]
         args += entry.perf_args
 
         proc = _run_subprocess(args, timeout)
-        if component:
-            all_stdout.append(f"=== {component} ===\n{proc['stdout']}")
-            all_stderr.append(f"=== {component} ===\n{proc['stderr']}")
+        if label:
+            all_stdout.append(f"=== {label} ===\n{proc['stdout']}")
+            all_stderr.append(f"=== {label} ===\n{proc['stderr']}")
         else:
             all_stdout.append(proc["stdout"])
             all_stderr.append(proc["stderr"])
@@ -1276,7 +1276,9 @@ def main() -> None:
                 args.timeout,
                 model_dir,
             )
-            onnx_paths = build_result["onnx_paths"] if build_result["success"] else []
+            onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
+            # First ONNX path for accuracy phase (TODO: composite model support)
+            first_path = next(iter(onnx_paths.values()), None) if onnx_paths else None
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
@@ -1295,8 +1297,7 @@ def main() -> None:
                     args.device,
                     args.timeout,
                     model_dir,
-                    # TODO: fix for composite model once supported
-                    onnx_paths[0] if onnx_paths else None,
+                    first_path,
                 )
             elif args.eval_type == "perf":
                 perf_proc = run_model(entry, args.device, args.timeout, onnx_paths)
@@ -1311,8 +1312,7 @@ def main() -> None:
                         args.device,
                         args.timeout,
                         model_dir,
-                        # TODO: fix for composite model once supported
-                        onnx_paths[0] if onnx_paths else None,
+                        first_path,
                     )
 
         except KeyboardInterrupt:
