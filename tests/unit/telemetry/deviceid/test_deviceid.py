@@ -1,0 +1,82 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
+import hashlib
+import os
+import re
+
+import pytest
+
+from winml.modelkit.telemetry.deviceid import _store
+from winml.modelkit.telemetry.deviceid.deviceid import get_or_create_device_id
+
+
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+@pytest.fixture
+def isolated_store(monkeypatch, tmp_path):
+    """Same fixture pattern as test_store.py — redirect storage to per-test
+    scratch space."""
+    if os.name == "nt":
+        subkey = rf"SOFTWARE\Microsoft\DeveloperTools\.modelkit-test-{os.getpid()}"
+        monkeypatch.setattr(_store, "_REGISTRY_KEY", subkey)
+        yield
+        import winreg
+
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
+        except OSError:
+            pass
+    else:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        yield
+
+
+def test_fresh_state_generates_new_device_id(isolated_store):
+    device_id, status = get_or_create_device_id()
+    assert status == "NEW"
+    # SHA256 hex digest: 64 lowercase hex chars
+    assert _HEX64_RE.match(device_id)
+
+
+def test_subsequent_call_returns_existing(isolated_store):
+    first_id, _ = get_or_create_device_id()
+    second_id, status = get_or_create_device_id()
+    assert status == "EXISTING"
+    assert second_id == first_id
+
+
+def test_storage_write_failure_returns_failed(isolated_store, monkeypatch):
+    def boom(name, value):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(_store, "write_key", boom)
+    device_id, status = get_or_create_device_id()
+    assert status == "FAILED"
+    assert device_id == ""
+
+
+def test_storage_read_failure_falls_through_to_new(isolated_store, monkeypatch):
+    def boom(name):
+        raise OSError("registry down")
+
+    monkeypatch.setattr(_store, "read_key", boom)
+    # Writing still works; we should generate a NEW id rather than FAILED
+    device_id, status = get_or_create_device_id()
+    assert status == "NEW"
+    assert _HEX64_RE.match(device_id)
+
+
+def test_hash_stability_across_calls(isolated_store):
+    # Same underlying UUID → same hex digest (regression guard against
+    # accidental dependence on bytes representation).
+    import uuid
+
+    from winml.modelkit.telemetry.deviceid.deviceid import _hash_uuid
+
+    u = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    assert _hash_uuid(u) == _hash_uuid(u)
+    assert _hash_uuid(u) == hashlib.sha256(str(u).encode("utf-8")).hexdigest()
