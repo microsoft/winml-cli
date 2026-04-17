@@ -19,7 +19,7 @@ from opentelemetry.sdk._logs.export import LogRecordExportResult
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
 
-from winml.modelkit.telemetry.library.exporter import OneCollectorLogExporter
+from winml.modelkit.telemetry.library import OneCollectorLogExporter
 
 
 def _make_log_data(body: str, attrs: dict, resource: Resource | None = None) -> ReadableLogRecord:

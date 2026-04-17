@@ -6,8 +6,7 @@
 import hashlib
 import re
 
-from winml.modelkit.telemetry.deviceid import _store
-from winml.modelkit.telemetry.deviceid.deviceid import get_or_create_device_id
+from winml.modelkit.telemetry.deviceid import _store, get_or_create_device_id
 
 
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")

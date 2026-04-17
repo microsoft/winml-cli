@@ -18,7 +18,7 @@ from opentelemetry.sdk.resources import Resource
 from .exporter import OneCollectorLogExporter
 
 
-__all__ = ["DEFAULT_ENDPOINT", "create_logger_provider"]
+__all__ = ["DEFAULT_ENDPOINT", "OneCollectorLogExporter", "create_logger_provider"]
 
 DEFAULT_ENDPOINT = "https://mobile.events.data.microsoft.com/OneCollector/1.0/"
 

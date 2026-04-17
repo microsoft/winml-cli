@@ -24,8 +24,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_MIN_HTTP_TIMEOUT = 0.1
-_DEFAULT_HTTP_TIMEOUT = 10.0
+_HTTP_TIMEOUT = 10.0
 
 
 class OneCollectorLogExporter(LogRecordExporter):
@@ -78,12 +77,11 @@ class OneCollectorLogExporter(LogRecordExporter):
             _LOGGER.debug("telemetry serialization failed", exc_info=True)
             return LogRecordExportResult.FAILURE
 
-        timeout = max(_MIN_HTTP_TIMEOUT, _DEFAULT_HTTP_TIMEOUT)
         try:
             response = self._session.post(
                 self._endpoint,
                 data=body,
-                timeout=timeout,
+                timeout=_HTTP_TIMEOUT,
             )
         except (requests.ConnectionError, requests.Timeout):
             _LOGGER.debug("telemetry network failure", exc_info=True)
