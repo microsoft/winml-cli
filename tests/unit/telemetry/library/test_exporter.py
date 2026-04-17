@@ -54,10 +54,10 @@ def test_export_success_returns_success(exporter):
 
     assert result == LogRecordExportResult.SUCCESS
     mock_post.assert_called_once()
-    # Content-Type + iKey in the POST
-    _, kwargs = mock_post.call_args
-    assert kwargs["headers"]["Content-Type"].startswith("application/json")
+    # Content-Type is set on the session (applied to every request).
+    assert exporter._session.headers["Content-Type"].startswith("application/json")
     # Body is JSON array containing the event
+    _, kwargs = mock_post.call_args
     body = kwargs["data"]
     assert b'"ModelKitAction"' in body
     assert b'"iKey":"o:abc"' in body
@@ -145,3 +145,29 @@ def test_export_empty_batch_is_noop(exporter):
     with patch.object(exporter._session, "post") as mock_post:
         assert exporter.export([]) == LogRecordExportResult.SUCCESS
         mock_post.assert_not_called()
+
+
+# --- _resource_to_ext direct unit tests ---
+
+
+from winml.modelkit.telemetry.library.exporter import _resource_to_ext  # noqa: E402
+
+
+def test_resource_to_ext_none_returns_empty_dict():
+    assert _resource_to_ext(None) == {}
+
+
+def test_resource_to_ext_empty_resource_returns_empty_dict():
+    assert _resource_to_ext(Resource.create({})) == {}
+
+
+def test_resource_to_ext_partial_only_populates_present_slots():
+    # Only an os.name is present → only the "os" sub-dict should appear.
+    ext = _resource_to_ext(Resource.create({"os.name": "Windows"}))
+    assert ext == {"os": {"name": "Windows"}}
+
+
+def test_resource_to_ext_unknown_attributes_are_ignored():
+    # Attributes outside the mapping table do not leak into ext.
+    ext = _resource_to_ext(Resource.create({"os.name": "Windows", "custom.attr": "x"}))
+    assert ext == {"os": {"name": "Windows"}}

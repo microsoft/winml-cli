@@ -34,6 +34,9 @@ class OneCollectorLogExporter(LogRecordExporter):
     def __init__(self, ikey: str, endpoint: str) -> None:
         self._ikey = ikey
         self._endpoint = endpoint
+        # _shutdown is read on the BatchLogRecordProcessor export thread and
+        # written on the shutdown thread; bool assignment is atomic under the
+        # CPython GIL, so no lock is needed.
         self._shutdown = False
         # Close the session if post-creation setup fails, so we never leak a
         # Session object (and its connection pool) when init raises.
@@ -50,7 +53,12 @@ class OneCollectorLogExporter(LogRecordExporter):
         self._session = session
 
     def export(self, batch: Sequence[ReadableLogRecord]) -> LogRecordExportResult:
-        """Serialize *batch* and POST to the configured OneCollector endpoint."""
+        """Serialize *batch* and POST to the configured OneCollector endpoint.
+
+        Retries are **not** implemented at this layer; the upstream
+        ``BatchLogRecordProcessor`` re-queues batches for which ``export``
+        returns ``FAILURE``.
+        """
         if self._shutdown or not batch:
             return LogRecordExportResult.SUCCESS
 
@@ -66,7 +74,6 @@ class OneCollectorLogExporter(LogRecordExporter):
             response = self._session.post(
                 self._endpoint,
                 data=body,
-                headers={"Content-Type": "application/json; charset=utf-8"},
                 timeout=timeout,
             )
         except (requests.ConnectionError, requests.Timeout):
@@ -88,7 +95,7 @@ class OneCollectorLogExporter(LogRecordExporter):
         try:
             self._session.close()
         except Exception:
-            pass
+            _LOGGER.debug("session close failed", exc_info=True)
 
     # --- internal ---
 
