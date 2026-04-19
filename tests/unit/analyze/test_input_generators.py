@@ -29,7 +29,7 @@ class TestInputGeneratorRegistry:
     def test_all_operators_registered(self) -> None:
         """Test that all operators are registered."""
         # Verify count
-        assert len(get_registered_operators()) == 117
+        assert len(get_registered_operators()) == 118
 
     def test_get_runtime_checker_op(self) -> None:
         """Test retrieving operator generators by name."""
@@ -67,6 +67,10 @@ class TestInputGeneratorValidation:
 
         generator_class = get_runtime_checker_op(op_name)
         gen = generator_class(schema)
+
+        if op_name == "LpNormalization" and opset_version >= 22:
+            # LpNormalization >= 22 is not supported by onnnxruntime 1.23
+            return
 
         # Should not raise any exceptions
         gen.validate_inputs()

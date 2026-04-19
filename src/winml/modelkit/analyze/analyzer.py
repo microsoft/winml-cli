@@ -799,6 +799,7 @@ def analyze_onnx(
     ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
+    run_unknown_op: bool = True,
     on_ep_start: Callable | None = None,
     on_node_result: Callable | None = None,
 ) -> AnalyzeResult:
@@ -856,6 +857,7 @@ def analyze_onnx(
         ep=ep,
         device=device,
         enable_information=autoconf,
+        run_unknown_op=run_unknown_op,
         on_ep_start=on_ep_start,
         on_node_result=on_node_result,
     )
