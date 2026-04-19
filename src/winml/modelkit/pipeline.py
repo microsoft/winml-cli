@@ -81,14 +81,17 @@ def _adapt_tokenizer_padding(pipe: Any, task: str, model: Any) -> None:
 
     Detection is property-driven (not task-name driven):
     the adaptation fires when the pipeline has a tokenizer AND the
-    model's first input shape has a fixed integer second dimension.
+    model's first input shape is 2-D with a fixed integer second
+    dimension (batch, sequence_length).  4-D shapes (N, C, H, W) are
+    image tensors and are explicitly skipped.
     """
     if pipe.tokenizer is None:
         return
 
     io_config = getattr(model, "io_config", None) or {}
     shapes = io_config.get("input_shapes", [[]])
-    if not (shapes and len(shapes[0]) > 1 and isinstance(shapes[0][1], int)):
+    # Only 2-D shapes (batch, seq_len) — skip 4-D image tensors (N, C, H, W)
+    if not (shapes and len(shapes[0]) == 2 and isinstance(shapes[0][1], int)):
         return
 
     max_length = shapes[0][1]
@@ -129,6 +132,12 @@ def _adapt_image_processor_size(pipe: Any, task: str, model: Any) -> None:
         return
 
     _, _, h, w = input_shapes[0]
-    pipe.image_processor.size = {"height": h, "width": w}
+    # Preserve the image processor's existing size key format.
+    # Some processors use {"shortest_edge": N}, others {"height": H, "width": W}.
+    existing = getattr(pipe.image_processor, "size", {})
+    if "shortest_edge" in existing:
+        pipe.image_processor.size = {"shortest_edge": min(h, w)}
+    else:
+        pipe.image_processor.size = {"height": h, "width": w}
     if hasattr(pipe.image_processor, "do_pad"):
         pipe.image_processor.do_pad = False
