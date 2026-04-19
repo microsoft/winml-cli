@@ -124,10 +124,10 @@ def verbosity_options(f):
 
 
 def build_config_option(func):
-    """Add -C/--build-config option for WinMLBuildConfig JSON file."""
+    """Add -c/--config option for WinMLBuildConfig JSON file."""
     return click.option(
-        "-C",
-        "--build-config",
+        "-c",
+        "--config",
         "config_file",
         type=click.Path(exists=True, path_type=Path),
         default=None,
