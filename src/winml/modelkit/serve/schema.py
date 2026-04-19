@@ -27,25 +27,35 @@ class EpSwitchRequest(BaseModel):
 
 
 class PredictJsonRequest(BaseModel):
-    """POST /v1/predict — file(s) (base64), text, or raw tensor inputs."""
+    """POST /v1/predict — named inputs + pipeline parameters.
 
-    files: list[str] | None = Field(
-        None,
+    Binary inputs (image, audio, video) are sent as raw base64 strings.
+    The server decodes them based on the task's user_inputs schema.
+
+    Example::
+
+        {
+            "inputs": {
+                "question": "Who is the CEO?",
+                "context": "Tim Cook is the CEO of Apple Inc."
+            },
+            "params": {"top_k": 5}
+        }
+    """
+
+    inputs: dict[str, Any] = Field(
+        ...,
         description=(
-            "Base64-encoded media files (image, audio, video). "
-            "Each element is one file. Task determines how they are interpreted."
+            "Named inputs: {name: value, ...}. "
+            "Binary inputs (image/audio/video) as base64 strings. "
+            "Text as strings. JSON as objects/arrays. Numbers and booleans as-is."
         ),
-    )
-    text: str | None = Field(None, description="Text input for NLP / multimodal tasks")
-    inputs: dict[str, list[Any]] | None = Field(
-        None, description="Map of input_name → nested list (numpy-serialisable)"
     )
     task: str | None = Field(
         None,
         description=(
             "Task hint for model routing (multi-model mode). "
-            "When model_id is omitted, the server picks the loaded model whose task matches. "
-            "Example: 'image-classification', 'text-classification', 'object-detection'."
+            "When model_id is omitted, the server picks the loaded model whose task matches."
         ),
     )
     params: dict[str, Any] = Field(
@@ -59,26 +69,6 @@ class PredictJsonRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Responses
 # ---------------------------------------------------------------------------
-
-
-class Prediction(BaseModel):
-    """Single classification prediction."""
-
-    label: str
-    score: float
-
-
-class PredictionResult(BaseModel):
-    """POST /v1/predict response."""
-
-    task: str
-    model_id: str | None = None
-    device: str
-    ep: str | None = None
-    predictions: list[Prediction] | dict[str, Any] = Field(
-        ..., description="list[Prediction] for classification; raw dict for other tasks"
-    )
-    latency_ms: float
 
 
 class HealthResponse(BaseModel):

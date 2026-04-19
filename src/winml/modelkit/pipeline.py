@@ -18,6 +18,7 @@ padded/resized before hitting the ONNX runtime.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -26,20 +27,6 @@ if TYPE_CHECKING:
     from .models.winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
-
-# Tasks where the ONNX model has fixed text input shapes
-_TEXT_TASKS = {
-    "text-classification",
-    "sentiment-analysis",
-    "token-classification",
-}
-
-# Tasks where the ONNX model has fixed image input shapes (NCHW)
-_IMAGE_TASKS_WITH_FIXED_SHAPE = {
-    "object-detection",
-    "image-segmentation",
-    "semantic-segmentation",
-}
 
 
 def create_pipeline(
@@ -91,9 +78,11 @@ def _adapt_tokenizer_padding(pipe: Any, task: str, model: Any) -> None:
     ONNX models are exported with a fixed sequence_length dimension.
     Without padding, the tokenizer produces variable-length tensors
     that cause INVALID_ARGUMENT errors at inference time.
+
+    Detection is property-driven (not task-name driven):
+    the adaptation fires when the pipeline has a tokenizer AND the
+    model's first input shape has a fixed integer second dimension.
     """
-    if task not in _TEXT_TASKS:
-        return
     if pipe.tokenizer is None:
         return
 
@@ -104,8 +93,11 @@ def _adapt_tokenizer_padding(pipe: Any, task: str, model: Any) -> None:
 
     max_length = shapes[0][1]
 
-    if task == "token-classification":
-        # Token classification pipeline uses tokenizer_params
+    # Some pipelines (e.g. TokenClassificationPipeline) nest tokenizer
+    # settings under a `tokenizer_params` kwarg instead of top-level
+    # preprocess params.  Detect this from the pipeline class signature.
+    preprocess_sig = inspect.signature(type(pipe).preprocess)
+    if "tokenizer_params" in preprocess_sig.parameters:
         pipe._preprocess_params.setdefault("tokenizer_params", {})
         tok_params = pipe._preprocess_params["tokenizer_params"]
         tok_params.setdefault("padding", "max_length")
@@ -121,11 +113,13 @@ def _adapt_tokenizer_padding(pipe: Any, task: str, model: Any) -> None:
 def _adapt_image_processor_size(pipe: Any, task: str, model: Any) -> None:
     """Match image processor size to ONNX fixed input shape (NCHW).
 
-    Object detection and segmentation models have fixed spatial dimensions.
+    Models with 4D input shapes have fixed spatial dimensions.
     The image processor must resize to exactly those dimensions.
+
+    Detection is property-driven (not task-name driven):
+    the adaptation fires when the pipeline has an image_processor AND
+    the model's first input shape is 4D (N, C, H, W).
     """
-    if task not in _IMAGE_TASKS_WITH_FIXED_SHAPE:
-        return
     if not hasattr(pipe, "image_processor"):
         return
 

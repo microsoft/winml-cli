@@ -14,6 +14,13 @@ Usage:
     winml run --model bert --text "Hello world" --task text-classification
     winml run --model model --text "Once upon" -P max_new_tokens=100 -P temperature=0.7
     winml run --model microsoft/resnet-50 --file cat.jpg --format json
+
+    # Named inputs (any model):
+    winml run --model roberta-qa --input question="Who?" --input context="Tim Cook is..."
+    winml run --model sam --file img.jpg --input input_points='[[100,200]]'
+
+    # Schema discovery:
+    winml run --model ./build/roberta-qa/ --schema
 """
 
 from __future__ import annotations
@@ -35,8 +42,13 @@ _DEFAULT_PORT = 8000
 _CONNECT_TIMEOUT = 0.5  # seconds to wait for health check
 
 
+# ---------------------------------------------------------------------------
+# Input parsing helpers
+# ---------------------------------------------------------------------------
+
+
 def _parse_param_value(value: str) -> int | float | bool | str:
-    """Auto-parse a string value to int, float, bool, or str."""
+    """Auto-parse a -P value to int, float, bool, or str."""
     try:
         return int(value)
     except ValueError:
@@ -52,6 +64,299 @@ def _parse_param_value(value: str) -> int | float | bool | str:
     return value
 
 
+def _coerce_value(value: str, field_type: str, name: str) -> Any:
+    """Coerce a raw --input string value based on the schema type."""
+    from ..inference.tasks import BINARY_TYPES
+
+    if field_type in BINARY_TYPES:
+        if not value.startswith("@"):
+            raise click.ClickException(
+                f"--input {name}: file inputs must use @path syntax (e.g. --input {name}=@file.jpg)"
+            )
+        path = Path(value[1:])
+        if not path.exists():
+            raise click.ClickException(f"--input {name}: file not found: {path}")
+        return path.read_bytes()
+    if field_type == "text":
+        return value  # always string, never JSON-parsed
+    if field_type == "json":
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as e:
+            raise click.ClickException(f"--input {name}: invalid JSON: {e}") from e
+    if field_type == "number":
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError:
+            raise click.ClickException(f"--input {name}: expected number, got '{value}'") from None
+    if field_type == "boolean":
+        if value.lower() == "true":
+            return True
+        if value.lower() == "false":
+            return False
+        raise click.ClickException(f"--input {name}: expected true/false, got '{value}'")
+    return value
+
+
+def _parse_heuristic(value: str) -> Any:
+    """No schema: @path → bytes; valid JSON → parse; otherwise → string."""
+    if value.startswith("@"):
+        path = Path(value[1:])
+        if path.exists():
+            return path.read_bytes()
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return value
+
+
+def _coerce_inputs(
+    raw: dict[str, str],
+    schema: list | None,
+) -> dict[str, Any]:
+    """Coerce raw --input string values based on schema types.
+
+    When schema is None (unregistered task / raw tensor), uses heuristics.
+    """
+    if schema is None:
+        return {k: _parse_heuristic(v) for k, v in raw.items()}
+
+    schema_map = {f.name: f for f in schema}
+    result: dict[str, Any] = {}
+    for name, value in raw.items():
+        field = schema_map.get(name)
+        if field is None:
+            # Unknown input — will be caught by _validate_inputs later
+            result[name] = _parse_heuristic(value)
+        else:
+            result[name] = _coerce_value(value, field.type, name)
+    return result
+
+
+def _resolve_shortcuts(
+    file_bytes_list: list[bytes],
+    text: str | None,
+    named_inputs: dict[str, Any],
+    schema: list | None,
+) -> dict[str, Any]:
+    """Merge --file/--text shortcuts with --input into a unified inputs dict.
+
+    Raises ClickException on ambiguity or conflict.
+    """
+    from ..inference.tasks import BINARY_TYPES
+
+    inputs = dict(named_inputs)
+
+    if file_bytes_list and len(file_bytes_list) > 1:
+        raise click.ClickException(
+            f"--file accepts only one file via shortcut (got {len(file_bytes_list)}). "
+            "Use --input for multiple file inputs "
+            "(e.g. --input image_0=@a.jpg --input image_1=@b.jpg)."
+        )
+
+    if file_bytes_list:
+        if schema is None:
+            # No schema — use 'file' as fallback name
+            if "file" in inputs:
+                raise click.ClickException(
+                    "Input 'file' specified twice (via --file and --input file=@...)."
+                )
+            inputs["file"] = file_bytes_list[0]
+        else:
+            binary_fields = [f for f in schema if f.type in BINARY_TYPES]
+            if len(binary_fields) == 0:
+                raise click.ClickException(
+                    "--file not supported: task has no file-type input. "
+                    "Use --input to specify inputs."
+                )
+            if len(binary_fields) > 1:
+                names = [f.name for f in binary_fields]
+                raise click.ClickException(
+                    f"--file is ambiguous for this task (has {len(binary_fields)} file inputs: "
+                    f"{', '.join(names)}). Use --input to specify: "
+                    + " ".join(f"--input {n}=@path" for n in names)
+                )
+            name = binary_fields[0].name
+            if name in inputs:
+                raise click.ClickException(
+                    f"Input '{name}' specified twice (via --file and --input {name}=@...)."
+                )
+            inputs[name] = file_bytes_list[0]
+
+    if text is not None:
+        if schema is None:
+            if "text" in inputs:
+                raise click.ClickException(
+                    "Input 'text' specified twice (via --text and --input text=...)."
+                )
+            inputs["text"] = text
+        else:
+            text_fields = [f for f in schema if f.type == "text"]
+            if len(text_fields) == 0:
+                raise click.ClickException(
+                    "--text not supported: task has no text-type input. "
+                    "Use --input to specify inputs."
+                )
+            if len(text_fields) > 1:
+                names = [f.name for f in text_fields]
+                raise click.ClickException(
+                    f"--text is ambiguous for this task (has {len(text_fields)} text inputs: "
+                    f"{', '.join(names)}). Use --input to specify: "
+                    + " ".join(f'--input {n}="..."' for n in names)
+                )
+            name = text_fields[0].name
+            if name in inputs:
+                raise click.ClickException(
+                    f"Input '{name}' specified twice (via --text and --input {name}=...)."
+                )
+            inputs[name] = text
+
+    return inputs
+
+
+# ---------------------------------------------------------------------------
+# Schema display
+# ---------------------------------------------------------------------------
+
+
+def _print_schema(engine: Any) -> None:
+    """Print model schema (inputs + parameters) and exit."""
+    click.echo()
+    click.echo(f"Model: {engine.model_id or 'unknown'}")
+    click.echo(f"Task:  {engine.task or 'unknown'}")
+    click.echo()
+
+    schema = engine.user_input_schema
+    if schema:
+        click.echo("Inputs (--input / -I):")
+        for f in schema:
+            if f.required:
+                req = "(required)"
+            elif f.default is not None:
+                req = f"(default: {f.default})"
+            else:
+                req = "(optional)"
+            click.echo(f"  {f.name:<16s} {f.type:<8s} {req}  {f.description}")
+    else:
+        click.echo("Inputs: (no schema — pass inputs directly)")
+
+    click.echo()
+    params = engine.pipeline_params
+    if params:
+        click.echo("Parameters (-P):")
+        for p in params:
+            default_str = f"(default: {p['default']})" if "default" in p else ""
+            click.echo(f"  {p['name']:<16s} {p['type']:<8s} {default_str}")
+    else:
+        click.echo("Parameters: (none discovered)")
+
+    # Print a ready-to-copy example command
+    example = _build_example_command(engine.model_path or "MODEL", schema, params)
+    if example:
+        click.echo()
+        click.echo("Example:")
+        click.echo(f"  {example}")
+    click.echo()
+
+
+# Placeholder values for --schema example, keyed by InputField.type
+_EXAMPLE_VALUES: dict[str, str] = {
+    "image": "@image.jpg",
+    "audio": "@audio.wav",
+    "video": "@video.mp4",
+    "text": '"hello world"',
+    "json": '\'["a","b"]\'',
+    "number": "0.5",
+    "boolean": "true",
+}
+
+
+def _build_example_command(
+    model_path: str,
+    schema: list | None,
+    params: list[dict] | None,
+) -> str | None:
+    """Build a ready-to-copy example command from schema + params."""
+    if not schema:
+        return None
+
+    from ..inference.tasks import BINARY_TYPES
+
+    parts = [f"winml run --model {model_path}"]
+
+    # Try shortcuts first (--file / --text) for simple models
+    binary_fields = [f for f in schema if f.type in BINARY_TYPES and f.required]
+    text_fields = [f for f in schema if f.type == "text" and f.required]
+    other_fields = [
+        f for f in schema if f.required and f.type not in BINARY_TYPES and f.type != "text"
+    ]
+
+    used_shortcut_names: set[str] = set()
+    if len(binary_fields) == 1 and not other_fields:
+        # Single binary → --file shortcut
+        parts.append(f"--file {_EXAMPLE_VALUES[binary_fields[0].type][1:]}")  # strip @
+        used_shortcut_names.add(binary_fields[0].name)
+    if len(text_fields) == 1 and not other_fields:
+        # Single text → --text shortcut
+        parts.append(f"--text {_EXAMPLE_VALUES['text']}")
+        used_shortcut_names.add(text_fields[0].name)
+
+    # Remaining required inputs via --input
+    for f in schema:
+        if not f.required or f.name in used_shortcut_names:
+            continue
+        val = _EXAMPLE_VALUES.get(f.type, '"..."')
+        parts.append(f"-I {f.name}={val}")
+
+    # Add a representative -P param with a sample value
+    if params:
+        for p in params:
+            val = p.get("sample_value")
+            if val is not None:
+                parts.append(f"-P {p['name']}={val}")
+                break
+
+    return " ".join(parts)
+
+
+def _print_input_hint(engine: Any) -> None:
+    """Print available inputs as a hint when no inputs are provided."""
+    click.echo()
+    click.echo(f"Model: {engine.model_id or 'unknown'}")
+    click.echo(f"Task:  {engine.task or 'unknown'}")
+    click.echo()
+
+    schema = engine.user_input_schema
+    if schema:
+        click.echo("Inputs (--input / -I):")
+        for f in schema:
+            if f.required:
+                req = "(required)"
+            elif f.default is not None:
+                req = f"(default: {f.default})"
+            else:
+                req = "(optional)"
+            click.echo(f"  {f.name:<16s} {f.type:<8s} {req}  {f.description}")
+        click.echo()
+        click.echo(
+            "Hint: run with --input to start inference, "
+            "or --schema to also show pipeline parameters (-P)."
+        )
+    else:
+        click.echo("Error: provide at least --input. Use --schema to see available inputs.")
+    click.echo()
+
+
+# ---------------------------------------------------------------------------
+# CLI command
+# ---------------------------------------------------------------------------
+
+
 @click.command("run")
 @cli_utils.model_option(required=True)
 @click.option(
@@ -59,13 +364,23 @@ def _parse_param_value(value: str) -> int | float | bool | str:
     "-f",
     "files",
     multiple=True,
-    help="Input media file: image, audio, or video (repeatable)",
+    help="Input media file: image, audio, or video (shortcut for single-file models)",
 )
 @click.option(
     "--text",
     "-t",
     default=None,
-    help="Text input for NLP / multimodal tasks",
+    help="Text input (shortcut for single-text models)",
+)
+@click.option(
+    "--input",
+    "-I",
+    "input_args",
+    multiple=True,
+    help="Named input as NAME=VALUE (repeatable). "
+    "File inputs: -I image=@photo.jpg  "
+    'Text inputs: -I question="Who?"  '
+    'JSON inputs: -I labels=\'["a","b"]\'',
 )
 @click.option("--task", default=None, help="Task type (auto-detected when possible)")
 @cli_utils.device_option(required=False, default="auto", include_auto=True)
@@ -78,6 +393,13 @@ def _parse_param_value(value: str) -> int | float | bool | str:
     help="Pipeline parameter as KEY=VALUE (repeatable). "
     "Values auto-parsed as int/float/bool/str. "
     "E.g. -P max_new_tokens=100 -P temperature=0.7",
+)
+@click.option(
+    "--schema",
+    "show_schema",
+    is_flag=True,
+    default=False,
+    help="Print model schema (inputs + parameters) and exit",
 )
 @click.option(
     "--format",
@@ -112,10 +434,12 @@ def run(
     model: str,
     files: tuple[str, ...],
     text: str | None,
+    input_args: tuple[str, ...],
     task: str | None,
     device: str,
     ep: str | None,
     params: tuple[str, ...],
+    show_schema: bool,
     output_format: str,
     output: str | None,
     port: int,
@@ -128,38 +452,25 @@ def run(
 
     Examples:
     \b
-        # Image classification
+        # Image classification (shortcut)
         winml run --model microsoft/resnet-50 --file cat.jpg
 
-        # From build output directory
-        winml run --model ./build/resnet50/ --file cat.jpg --device gpu
+        # Named inputs (any model)
+        winml run --model roberta-qa -I question="Who?" -I context="Tim Cook is..."
 
-        # Audio (speech recognition)
-        winml run --model openai/whisper --file speech.wav
+        # Mixed: shortcut + named input
+        winml run --model vilt --file photo.jpg -I question="What color?"
 
-        # Multimodal (image + text)
-        winml run --model llava --file img.jpg --text "Describe this image"
-
-        # Multiple images
-        winml run --model llava --file a.jpg --file b.jpg --text "Compare"
-
-        # Text only
-        winml run --model bert --text "Hello world"
+        # Schema discovery
+        winml run --model ./build/roberta-qa/ --schema
 
         # Extra pipeline parameters
-        winml run --model model --text "Once upon" -P max_new_tokens=100 -P temperature=0.7
-
-        # Route through a running serve instance
-        winml run --model microsoft/resnet-50 --file cat.jpg --connect
+        winml run --model model --text "Once upon" -P max_new_tokens=100
     """
-    if not files and text is None:
-        click.echo("Error: provide at least --file or --text.", err=True)
-        ctx.exit(2)
-
     if ctx.obj and ctx.obj.get("debug"):
-        logging.getLogger("modelkit").setLevel(logging.DEBUG)
+        logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
-    # Build pipeline_kwargs from -P/--param entries
+    # Parse -P/--param entries
     pipeline_kwargs: dict[str, Any] = {}
     for p in params:
         if "=" not in p:
@@ -168,7 +479,16 @@ def run(
         k, v = p.split("=", 1)
         pipeline_kwargs[k] = _parse_param_value(v)
 
-    # Read file bytes
+    # Parse --input entries (raw strings, coerced after model load)
+    raw_inputs: dict[str, str] = {}
+    for inp in input_args:
+        if "=" not in inp:
+            click.echo(f"Error: invalid --input format: '{inp}'. Use NAME=VALUE.", err=True)
+            ctx.exit(2)
+        k, v = inp.split("=", 1)
+        raw_inputs[k] = v
+
+    # Read file bytes (for --file shortcut)
     file_bytes_list: list[bytes] = []
     for fp in files:
         p = Path(fp)
@@ -177,15 +497,27 @@ def run(
             ctx.exit(2)
         file_bytes_list.append(p.read_bytes())
 
+    if len(file_bytes_list) > 1:
+        click.echo(
+            f"Error: --file accepts only one file (got {len(file_bytes_list)}). "
+            "Use --input for multiple file inputs (e.g. -I image_0=@a.jpg -I image_1=@b.jpg).",
+            err=True,
+        )
+        ctx.exit(2)
+
+    # Check if any input was provided
+    has_inputs = bool(file_bytes_list) or text is not None or bool(raw_inputs)
+
     # ------------------------------------------------------------------
     # Try auto-connect to running winml serve
     # ------------------------------------------------------------------
-    if connect:
+    if connect and has_inputs:
         result = _try_server_predict(
             port=port,
             model_path=model,
-            files=files,
+            file_paths=files,
             text=text,
+            raw_inputs=raw_inputs,
             pipeline_kwargs=pipeline_kwargs,
         )
         if result is not None:
@@ -193,24 +525,52 @@ def run(
             return
 
     # ------------------------------------------------------------------
-    # Embedded inference fallback
+    # Embedded inference
     # ------------------------------------------------------------------
-    from ..serve.engine import InferenceEngine
+    from ..inference import InferenceEngine
 
     engine = InferenceEngine()
     try:
         engine.load(model, task=task, device=device, ep=ep)
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         click.echo(f"Error loading model: {exc}", err=True)
         ctx.exit(3)
 
-    try:
-        result = engine.predict(
-            files=file_bytes_list or None,
-            text=text,
-            **pipeline_kwargs,
+    # --schema: print schema and exit
+    if show_schema:
+        _print_schema(engine)
+        return
+
+    # No inputs: print hint and exit
+    if not has_inputs:
+        _print_input_hint(engine)
+        ctx.exit(0)
+
+    # Coerce --input values based on schema types
+    schema = engine.user_input_schema
+    coerced_inputs = _coerce_inputs(raw_inputs, schema)
+
+    # Check --input / -P collision
+    collision = set(coerced_inputs.keys()) & set(pipeline_kwargs.keys())
+    if collision:
+        key = sorted(collision)[0]
+        click.echo(
+            f"Error: '{key}' specified as both --input and -P. "
+            f"Use --input for model inputs and -P for pipeline parameters.",
+            err=True,
         )
-    except Exception as exc:
+        ctx.exit(2)
+
+    # Merge --file/--text shortcuts with --input
+    try:
+        inputs = _resolve_shortcuts(file_bytes_list, text, coerced_inputs, schema)
+    except click.ClickException as exc:
+        click.echo(f"Error: {exc.format_message()}", err=True)
+        ctx.exit(2)
+
+    try:
+        result = engine.predict(inputs=inputs, **pipeline_kwargs)
+    except (ValueError, TypeError, RuntimeError, OSError) as exc:
         click.echo(f"Error during inference: {exc}", err=True)
         ctx.exit(4)
 
@@ -226,8 +586,9 @@ def _try_server_predict(
     *,
     port: int,
     model_path: str,
-    files: tuple[str, ...],
+    file_paths: tuple[str, ...],
     text: str | None,
+    raw_inputs: dict[str, str],
     pipeline_kwargs: dict[str, Any],
 ) -> dict | None:
     """Check if winml serve is running and route the request there.
@@ -256,36 +617,53 @@ def _try_server_predict(
                 )
                 return None
 
-            if len(files) == 1:
-                # Single file → multipart upload
-                fp = Path(files[0])
+            # Route 1: file present → multipart /v1/predict/file
+            #   The server resolves the correct schema field name via
+            #   _build_file_inputs, so we don't need to know it here.
+            #   The endpoint supports an optional `text` form field too.
+            if file_paths:
+                if raw_inputs:
+                    # Can't forward arbitrary --input via multipart; fall
+                    # back to embedded inference (client doesn't know the
+                    # schema field names the server expects).
+                    logger.debug(
+                        "Auto-connect: --file + --input not supported via server — "
+                        "using embedded inference"
+                    )
+                    return None
+                fp = Path(file_paths[0])
+                form_data: dict[str, str] = {
+                    "params": json.dumps(pipeline_kwargs),
+                }
+                if text is not None:
+                    form_data["text"] = text
                 with fp.open("rb") as f:
                     resp = client.post(
                         f"{base_url}/v1/predict/file",
                         files={"file": (fp.name, f, "application/octet-stream")},
-                        data={"params": json.dumps(pipeline_kwargs)},
+                        data=form_data,
                         timeout=60,
                     )
-            else:
-                # Multiple files or text-only → JSON endpoint
-                import base64
+                resp.raise_for_status()
+                logger.debug("Auto-connected to winml serve at %s", base_url)
+                return resp.json()
 
-                payload: dict[str, Any] = {"params": pipeline_kwargs}
-                if files:
-                    payload["files"] = [
-                        base64.b64encode(Path(fp).read_bytes()).decode() for fp in files
-                    ]
-                if text is not None:
-                    payload["text"] = text
-                resp = client.post(
-                    f"{base_url}/v1/predict",
-                    json=payload,
-                    timeout=60,
-                )
+            # Route 2: no file → JSON /v1/predict with named inputs
+            inputs: dict[str, Any] = {}
+            inputs.update(raw_inputs)
+            if text is not None:
+                inputs["text"] = text
+
+            payload: dict[str, Any] = {"inputs": inputs, "params": pipeline_kwargs}
+            resp = client.post(
+                f"{base_url}/v1/predict",
+                json=payload,
+                timeout=60,
+            )
             resp.raise_for_status()
             logger.debug("Auto-connected to winml serve at %s", base_url)
             return resp.json()
-    except Exception as exc:
+    except (httpx.HTTPError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.debug("Auto-connect failed (%s) — using embedded inference", exc)
         return None
 
@@ -296,7 +674,14 @@ def _models_match(server_model: str, requested: str) -> bool:
         return False
     if server_model == requested:
         return True
-    return Path(server_model).name == Path(requested).name
+    if Path(server_model).name == Path(requested).name:
+        logger.warning(
+            "Auto-connect: basename match '%s' ≈ '%s' (org may differ)",
+            server_model,
+            requested,
+        )
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -337,12 +722,21 @@ def _format_text(result: dict) -> str:
     lines.append("")
 
     predictions = result.get("predictions", [])
-    if isinstance(predictions, list):
+    if isinstance(predictions, list) and predictions and isinstance(predictions[0], dict):
+        # Classification-style: list of {label, score, ...}
+        has_scores = "score" in predictions[0]
         lines.append("Results:")
         for i, p in enumerate(predictions, 1):
             label = p.get("label", str(i))
-            score = p.get("score", 0.0)
-            lines.append(f"  {i:2d}. {label:<30s} {score:.4f}")
+            if has_scores:
+                score = p.get("score", 0.0)
+                lines.append(f"  {i:2d}. {label:<30s} {score:.4f}")
+            else:
+                lines.append(f"  {i:2d}. {p}")
+    elif isinstance(predictions, dict):
+        lines.append("Output:")
+        for k, v in predictions.items():
+            lines.append(f"  {k}: {v}")
     else:
         lines.append(f"Output: {predictions}")
 

@@ -5,12 +5,12 @@
 """WinML ModelKit serving package.
 
 Public API:
-    InferenceEngine  — core inference component
+    InferenceEngine  — core inference component (re-exported from inference/)
     create_app       — FastAPI application factory
 """
 
+from ..inference import InferenceEngine
 from .app import create_app
-from .engine import InferenceEngine
 
 
 __all__ = ["InferenceEngine", "create_app"]

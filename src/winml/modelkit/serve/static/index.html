@@ -333,7 +333,7 @@ canvas.spark{width:100%;height:60px;display:block}
       <div class="panel-sec" id="imageInputSection">
         <div class="sec-title">Input Image</div>
         <div class="drop-zone" id="dropZone">
-          <input type="file" id="fileInput" accept="image/*" onchange="onFileSelect(event)">
+          <input type="file" id="fileInput" accept="image/*,audio/*,video/*" onchange="onFileSelect(event)">
           <div style="font-size:28px;margin-bottom:6px">🖼️</div>
           <div class="drop-hint">Drop image or <strong>browse</strong></div>
         </div>
@@ -474,11 +474,6 @@ canvas.spark{width:100%;height:60px;display:block}
             </select>
             <select class="hub-filter" id="hubTaskFilter" onchange="filterHub()">
               <option value="">All tasks</option>
-              <option value="text-classification">Text classification</option>
-              <option value="token-classification">Token classification</option>
-              <option value="image-classification">Image classification</option>
-              <option value="object-detection">Object detection</option>
-              <option value="image-segmentation">Image segmentation</option>
             </select>
           </div>
         </div>
@@ -949,11 +944,11 @@ async function connectServer() {
     const d = await r.json();
     setStatus('ok', `${d.mode} · ${d.model_id || 'no model'}`);
     applyServerMode(d.mode);
-    if (d.mode !== 'multi' && d.task) setInputMode(d.task);
+    if (d.mode !== 'multi' && d.task) _setInputModeFromSchema(d.task);
     checkRunReady();
     startPolling();
     // Pre-fetch hub catalog in background
-    fetch(`${serverUrl}/v1/hub`).then(r => r.json()).then(hd => { _hubCatalog = hd.models || []; }).catch(() => {});
+    fetch(`${serverUrl}/v1/hub`).then(r => r.json()).then(hd => { _hubCatalog = hd.models || []; _populateHubTaskFilter(); }).catch(() => {});
   } catch {
     setStatus('err', 'Cannot reach server');
     stopPolling();
@@ -969,8 +964,7 @@ const TEXT_EXAMPLES = {
   'sentiment-analysis':   ['I love this product! Highly recommended.', 'Very disappointed with the quality.'],
   'feature-extraction':   ['The quick brown fox jumps over the lazy dog.'],
 };
-const TEXT_TASKS = new Set(['text-classification','sentiment-analysis','feature-extraction','token-classification','question-answering','summarization','translation']);
-const IMAGE_TASKS = new Set(['image-classification','image-segmentation','object-detection','depth-estimation']);
+const _BINARY_INPUT_TYPES = new Set(['image', 'audio', 'video']);
 
 function applyServerMode(mode) {
   _serverMode = mode;
@@ -986,13 +980,36 @@ function onModelChange() {
   // Parse task from option text: "microsoft/resnet-50 (image-classification)"
   const match = opt?.textContent?.match(/\(([^)]+)\)$/);
   const task = match ? match[1].trim() : '';
-  setInputMode(task);
+  const modelId = sel.value || null;
+  // Fetch schema to determine input mode from user_inputs types
+  _setInputModeFromSchema(task, modelId);
   checkRunReady();
 }
 
-function setInputMode(task) {
-  const isText = TEXT_TASKS.has(task) || (task && !IMAGE_TASKS.has(task) && task.includes('text'));
-  _inputMode = isText ? 'text' : 'image';
+async function _setInputModeFromSchema(task, modelId) {
+  // Try model-specific schema first (multi-model), fall back to /v1/schema (single)
+  const urls = modelId
+    ? [`${serverUrl}/v1/models/${encodeURIComponent(modelId)}/schema`, `${serverUrl}/v1/schema`]
+    : [`${serverUrl}/v1/schema`];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      if (r.ok) {
+        const schema = await r.json();
+        const inputs = schema.user_inputs || [];
+        const hasBinary = inputs.some(f => _BINARY_INPUT_TYPES.has(f.type));
+        setInputMode(task, hasBinary ? 'image' : 'text');
+        return;
+      }
+    } catch { /* try next */ }
+  }
+  // Fallback: default to image mode (file upload works for any binary type)
+  setInputMode(task, 'image');
+}
+
+function setInputMode(task, mode) {
+  _inputMode = mode || 'image';
+  const isText = _inputMode === 'text';
 
   document.getElementById('imageInputSection').style.display = isText ? 'none' : '';
   document.getElementById('textInputSection').style.display  = isText ? '' : 'none';
@@ -1065,7 +1082,7 @@ function setFile(file) {
 const dz = document.getElementById('dropZone');
 dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
 dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) setFile(f); });
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f) setFile(f); });
 
 // ══════════════════════════════════════════════════
 // Inference
@@ -1087,10 +1104,11 @@ async function runInference() {
       // ── Text inference ──
       const text = document.getElementById('textInput').value.trim();
       if (!text) { showToast('Please enter some text'); return; }
-      const body = JSON.stringify({ text, top_k: topK });
+      const payload = { inputs: { text }, params: { top_k: topK } };
+      const body = JSON.stringify(payload);
       const url = `${serverUrl}/v1/predict?model_id=${encodeURIComponent(modelId)}`;
-      reqDesc = `POST /v1/predict\nContent-Type: application/json\n\n${JSON.stringify({ text, top_k: topK }, null, 2)}`;
-      curlCmd = `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ text, top_k: topK })}'`;
+      reqDesc = `POST /v1/predict\nContent-Type: application/json\n\n${JSON.stringify(payload, null, 2)}`;
+      curlCmd = `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`;
       document.getElementById('infReproReq').textContent = reqDesc;
       document.getElementById('infReproCurl').textContent = curlCmd;
       res = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
@@ -1099,10 +1117,10 @@ async function runInference() {
       if (!selectedFile) { showToast('Please select an image'); return; }
       const fd = new FormData();
       fd.append('file', selectedFile);
-      fd.append('top_k', topK);
       fd.append('model_id', modelId);
-      reqDesc = `POST /v1/predict/file (multipart/form-data)\n\nfile:     ${selectedFile.name} (${(selectedFile.size/1024).toFixed(1)} KB)\ntop_k:    ${topK}\nmodel_id: ${modelId}`;
-      curlCmd = `curl -X POST ${serverUrl}/v1/predict/file \\\n  -F "file=@${selectedFile.name}" \\\n  -F "top_k=${topK}" \\\n  -F "model_id=${modelId}"`;
+      fd.append('params', JSON.stringify({ top_k: topK }));
+      reqDesc = `POST /v1/predict/file (multipart/form-data)\n\nfile:     ${selectedFile.name} (${(selectedFile.size/1024).toFixed(1)} KB)\nmodel_id: ${modelId}\nparams:   ${JSON.stringify({ top_k: topK })}`;
+      curlCmd = `curl -X POST ${serverUrl}/v1/predict/file \\\n  -F "file=@${selectedFile.name}" \\\n  -F "model_id=${modelId}" \\\n  -F 'params=${JSON.stringify({ top_k: topK })}'`;
       document.getElementById('infReproReq').textContent = reqDesc;
       document.getElementById('infReproCurl').textContent = curlCmd;
       res = await fetch(`${serverUrl}/v1/predict/file`, { method: 'POST', body: fd });
@@ -1125,10 +1143,33 @@ async function runInference() {
 function renderResult(data, clientMs) {
   const es = document.getElementById('emptyState');
   if (es) es.remove();
-  const preds = Array.isArray(data.predictions) ? data.predictions : [];
-  const maxScore = preds.length ? Math.max(...preds.map(p => p.score)) : 1;
+  const preds = data.predictions;
+  const isClassification = Array.isArray(preds) && preds.length && preds[0]?.label != null && preds[0]?.score != null;
+  const isDict = preds && typeof preds === 'object' && !Array.isArray(preds);
+  const maxScore = isClassification ? Math.max(...preds.map(p => p.score)) : 1;
   const card = document.createElement('div');
   card.className = 'result-card';
+
+  let bodyHtml;
+  if (isClassification) {
+    bodyHtml = `<div class="pred-list">${preds.map((p,i) => `
+      <div class="pred-item">
+        <div class="pred-top">
+          <span class="pred-label">${i===0?'🏆 ':''}${escHtml(p.label)}</span>
+          <span class="pred-score">${(p.score*100).toFixed(2)}%</span>
+        </div>
+        <div class="pred-bar-bg"><div class="pred-bar" style="width:${(p.score/maxScore*100).toFixed(1)}%"></div></div>
+      </div>`).join('')}</div>`;
+  } else if (isDict) {
+    bodyHtml = `<div style="display:flex;flex-direction:column;gap:6px">${Object.entries(preds).map(([k,v]) => `
+      <div style="display:flex;gap:8px;align-items:baseline">
+        <span style="font-size:11px;font-weight:600;color:var(--accent);min-width:80px">${escHtml(k)}</span>
+        <span style="font-size:12px;word-break:break-all">${escHtml(typeof v === 'string' ? v : JSON.stringify(v))}</span>
+      </div>`).join('')}</div>`;
+  } else {
+    bodyHtml = `<pre style="font-size:11px;color:var(--text2);overflow:auto;max-height:200px;background:var(--surface2);padding:8px;border-radius:5px;white-space:pre-wrap;word-break:break-all">${escHtml(JSON.stringify(preds, null, 2))}</pre>`;
+  }
+
   card.innerHTML = `
     <div class="result-header">
       <div class="result-meta">
@@ -1139,20 +1180,7 @@ function renderResult(data, clientMs) {
       </div>
       <span class="result-lat">⏱ ${data.latency_ms?.toFixed(1)}ms server · ${clientMs.toFixed(0)}ms total</span>
     </div>
-    <div class="result-body">
-      <div class="pred-list">
-        ${preds.length ? preds.map((p,i) => `
-          <div class="pred-item">
-            <div class="pred-top">
-              <span class="pred-label">${i===0?'🏆 ':''}${escHtml(p.label)}</span>
-              <span class="pred-score">${(p.score*100).toFixed(2)}%</span>
-            </div>
-            <div class="pred-bar-bg"><div class="pred-bar" style="width:${(p.score/maxScore*100).toFixed(1)}%"></div></div>
-          </div>`).join('') : `
-          <div style="color:var(--yellow);font-size:11px;margin-bottom:6px">⚠️ Raw output — task not detected</div>
-          <pre style="font-size:10px;color:var(--text2);overflow:auto;max-height:160px;background:var(--surface2);padding:8px;border-radius:5px;white-space:pre-wrap;word-break:break-all">${escHtml(JSON.stringify(data.predictions).slice(0,500))}…</pre>`}
-      </div>
-    </div>`;
+    <div class="result-body">${bodyHtml}</div>`;
   document.getElementById('resultsArea').insertBefore(card, document.getElementById('resultsArea').firstChild);
 }
 
@@ -1209,6 +1237,7 @@ async function refreshModels() {
       try {
         const hd = await hubRes.json();
         _hubCatalog = hd.models || [];
+        _populateHubTaskFilter();
       } catch {}
     }
 
@@ -1290,6 +1319,15 @@ function renderModelCards(models, statsMap) {
 // ── Hub Catalog ─────────────────────────────────
 function filterHub() {
   renderHubCards();
+}
+
+function _populateHubTaskFilter() {
+  const sel = document.getElementById('hubTaskFilter');
+  const prev = sel.value;
+  const tasks = [...new Set(_hubCatalog.map(m => m.task).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All tasks</option>' +
+    tasks.map(t => `<option value="${t}">${t.replace(/-/g, ' ')}</option>`).join('');
+  if (prev) sel.value = prev;
 }
 
 function renderHubCards() {
@@ -1377,6 +1415,12 @@ function hubLoad(modelId, task) {
 }
 
 function goInferWithModel(modelId) {
+  // Select the model in the dropdown
+  const sel = document.getElementById('modelId');
+  if (sel && modelId) {
+    sel.value = modelId;
+    onModelChange();
+  }
   // Switch to Inference tab
   const tab = document.querySelector('.nav-tab[onclick*="inference"]');
   if (tab) showPage('inference', tab);
@@ -1966,17 +2010,17 @@ function renderTools(toolsList) {
         const pdefault = pschema.default !== undefined ? ` = ${JSON.stringify(pschema.default)}` : '';
         const isRequired = required.includes(pname) ? '' : ' (optional)';
         return `<div class="tool-param">
-          <span class="tool-param-name">${escapeHtml(pname)}</span><span class="tool-param-type">${escapeHtml(ptype)}${isRequired}</span>${pdefault ? `<span class="tool-param-default">${escapeHtml(pdefault)}</span>` : ''}
-          ${pdesc ? `<div style="font-size:10px;margin-top:2px;color:var(--text2)">${escapeHtml(pdesc)}</div>` : ''}
+          <span class="tool-param-name">${escHtml(pname)}</span><span class="tool-param-type">${escHtml(ptype)}${isRequired}</span>${pdefault ? `<span class="tool-param-default">${escHtml(pdefault)}</span>` : ''}
+          ${pdesc ? `<div style="font-size:10px;margin-top:2px;color:var(--text2)">${escHtml(pdesc)}</div>` : ''}
         </div>`;
       }).join('')
       : '<div class="tool-empty">No parameters</div>';
 
     return `<div class="tool-card">
       <div class="tool-header">
-        <span class="tool-name">${escapeHtml(name)}</span>
+        <span class="tool-name">${escHtml(name)}</span>
       </div>
-      ${desc ? `<div class="tool-desc">${escapeHtml(desc)}</div>` : ''}
+      ${desc ? `<div class="tool-desc">${escHtml(desc)}</div>` : ''}
       ${paramEntries.length > 0 ? `<div class="tool-section">
         <div class="tool-section-title">Parameters</div>
         <div class="tool-params">${paramHtml}</div>
@@ -2005,11 +2049,7 @@ function copyToolDef(idx) {
   });
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+// escHtml defined above (line ~1733) — single definition used everywhere
 
 // ══════════════════════════════════════════════════
 // Integration Guide
@@ -2463,19 +2503,19 @@ function renderMCP(data) {
     <div class="mcp-info">
       <div class="mcp-info-row">
         <span class="mcp-info-label">Server</span>
-        <span class="mcp-info-value">${escapeHtml(info.name || 'ModelKit')}</span>
+        <span class="mcp-info-value">${escHtml(info.name || 'ModelKit')}</span>
       </div>
       <div class="mcp-info-row">
         <span class="mcp-info-label">Version</span>
-        <span class="mcp-info-value">${escapeHtml(info.version || 'unknown')}</span>
+        <span class="mcp-info-value">${escHtml(info.version || 'unknown')}</span>
       </div>
       <div class="mcp-info-row">
         <span class="mcp-info-label">Model</span>
-        <span class="mcp-info-value">${escapeHtml((info.models || []).map(m => m.model_id).join(', ') || 'unknown')}</span>
+        <span class="mcp-info-value">${escHtml((info.models || []).map(m => m.model_id).join(', ') || 'unknown')}</span>
       </div>
       <div class="mcp-info-row">
         <span class="mcp-info-label">Task</span>
-        <span class="mcp-info-value">${escapeHtml((info.models || []).map(m => m.task).join(', ') || 'unknown')}</span>
+        <span class="mcp-info-value">${escHtml((info.models || []).map(m => m.task).join(', ') || 'unknown')}</span>
       </div>
     </div>
   `;
@@ -2488,9 +2528,9 @@ function renderMCP(data) {
       const toolJson = JSON.stringify(tool, null, 2);
       html += `
         <div style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;">
-          <div style="font-weight:600;color:var(--accent);margin-bottom:8px;font-family:monospace;font-size:12px">${escapeHtml(tool.name || 'unknown')}</div>
-          ${tool.description ? `<div style="font-size:11px;color:var(--text2);margin-bottom:10px">${escapeHtml(tool.description)}</div>` : ''}
-          <div class="mcp-code-block">${escapeHtml(toolJson)}</div>
+          <div style="font-weight:600;color:var(--accent);margin-bottom:8px;font-family:monospace;font-size:12px">${escHtml(tool.name || 'unknown')}</div>
+          ${tool.description ? `<div style="font-size:11px;color:var(--text2);margin-bottom:10px">${escHtml(tool.description)}</div>` : ''}
+          <div class="mcp-code-block">${escHtml(toolJson)}</div>
           <button class="mcp-copy-btn" onclick="copyMCPTool(${idx})">Copy Tool Definition</button>
         </div>
       `;
@@ -2504,7 +2544,7 @@ function renderMCP(data) {
   html += `
     <div class="mcp-section" style="margin-top:20px;">
       <div class="mcp-section-title">Full Schema</div>
-      <div class="mcp-code-block">${escapeHtml(JSON.stringify(data, null, 2))}</div>
+      <div class="mcp-code-block">${escHtml(JSON.stringify(data, null, 2))}</div>
       <button class="mcp-copy-btn" onclick="copyMCPSchema()">Copy Full Schema</button>
     </div>
   `;

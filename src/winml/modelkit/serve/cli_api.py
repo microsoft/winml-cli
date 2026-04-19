@@ -51,6 +51,7 @@ _ALL_COMMANDS = _HEAVY_COMMANDS | _LIGHT_COMMANDS
 _heavy_semaphore = asyncio.Semaphore(1)
 _light_semaphore = asyncio.Semaphore(2)  # inspect can trigger AutoProcessor — limit concurrency
 _SEMAPHORE_TIMEOUT_SEC = 120
+_EXEC_TIMEOUT_SEC = 600  # max time for a single CLI command execution
 
 _start_time = time.time()
 
@@ -143,7 +144,14 @@ app = FastAPI(
     version=__version__,
 )
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Permissive CORS for local dev server; no credentials to protect.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.exists():
@@ -184,17 +192,30 @@ def _args_to_flags(args: dict[str, Any]) -> list[str]:
 def _extract_json_from_stdout(stdout: str) -> dict[str, Any] | list[Any] | None:
     """Try to parse the last JSON object/array from stdout.
 
-    Some commands print rich text before JSON; we scan from the last ``{``
-    or ``[`` to handle that.
+    Some commands print rich text before JSON.  We search backwards for
+    the outermost ``{``/``[`` that, together with a matching closing
+    delimiter at or after it, forms valid JSON.  This avoids the edge
+    case where ``rfind('{')`` and ``rfind('}')`` pick delimiters from
+    different JSON fragments.
     """
     for start_char, end_char in [("{", "}"), ("[", "]")]:
-        start = stdout.rfind(start_char)
-        end = stdout.rfind(end_char)
-        if start != -1 and end > start:
-            try:
-                return json.loads(stdout[start : end + 1])
-            except json.JSONDecodeError:
-                pass
+        # Walk backwards through every occurrence of end_char
+        pos = len(stdout)
+        while True:
+            end = stdout.rfind(end_char, 0, pos)
+            if end == -1:
+                break
+            # Try every start_char from rightmost to leftmost up to `end`
+            start = end
+            while True:
+                start = stdout.rfind(start_char, 0, start)
+                if start == -1:
+                    break
+                try:
+                    return json.loads(stdout[start : end + 1])
+                except json.JSONDecodeError:
+                    continue
+            pos = end  # try next (earlier) end_char
     return None
 
 
@@ -276,7 +297,15 @@ async def _run_with_semaphore(command: str, args: dict[str, Any]) -> CliResponse
     try:
         # CliRunner is synchronous — run in executor to avoid blocking event loop
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _invoke, command, args)
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, _invoke, command, args),
+            timeout=_EXEC_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Command '{command}' timed out after {_EXEC_TIMEOUT_SEC}s.",
+        ) from exc
     finally:
         sem.release()
 

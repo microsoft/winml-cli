@@ -31,7 +31,7 @@ from winml.modelkit.commands.run import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-_ENGINE_PATH = "winml.modelkit.serve.engine.InferenceEngine"
+_ENGINE_PATH = "winml.modelkit.inference.InferenceEngine"
 
 
 @pytest.fixture
@@ -45,6 +45,9 @@ def _make_mock_engine(result_dict: dict) -> MagicMock:
     mock_result.model_dump.return_value = result_dict
     engine = MagicMock()
     engine.predict.return_value = mock_result
+    # New API: schema is None by default (no registry resolution in mocked engine)
+    engine.user_input_schema = None
+    engine.task = result_dict.get("task")
     return engine
 
 
@@ -287,12 +290,17 @@ class TestRunCLI:
         result = runner.invoke(run, ["--text", "test"])
         assert result.exit_code != 0
 
-    def test_missing_input(self, runner: CliRunner) -> None:
-        result = runner.invoke(run, ["--model", "some-model"])
-        assert result.exit_code != 0
+    def test_missing_input_shows_hint(self, runner: CliRunner) -> None:
+        """No inputs → load model, print hint, exit 0."""
+        engine = _make_mock_engine(_MINIMAL_RESULT)
+        with patch(_ENGINE_PATH, return_value=engine):
+            result = runner.invoke(run, ["--model", "some-model"])
+        assert result.exit_code == 0
+        # With no schema, shows "provide at least --input" or with schema shows "Hint"
+        assert "--input" in result.output or "--schema" in result.output
 
     def test_embedded_text_inference(self, runner: CliRunner) -> None:
-        """--text → engine.predict(text=...) path."""
+        """--text → engine.predict(inputs={"text": ...}) path."""
         engine = _make_mock_engine(
             {
                 **_MINIMAL_RESULT,
@@ -315,10 +323,10 @@ class TestRunCLI:
             device="auto",
             ep=None,
         )
-        engine.predict.assert_called_once_with(files=None, text="hello world")
+        engine.predict.assert_called_once_with(inputs={"text": "hello world"})
 
     def test_embedded_file_inference(self, runner: CliRunner, tmp_path: Path) -> None:
-        """--file → engine.predict(files=[...]) path."""
+        """--file → engine.predict(inputs={"file": ...}) path (no schema fallback)."""
         img = tmp_path / "cat.jpg"
         img.write_bytes(b"\xff\xd8fake-jpeg")
 
@@ -339,27 +347,25 @@ class TestRunCLI:
         assert "cat" in result.output
         engine.predict.assert_called_once()
         call_kwargs = engine.predict.call_args.kwargs
-        assert call_kwargs["files"] == [b"\xff\xd8fake-jpeg"]
+        assert call_kwargs["inputs"] == {"file": b"\xff\xd8fake-jpeg"}
 
-    def test_multiple_files(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Multiple --file flags pass a list of bytes to engine.predict."""
-        f1 = tmp_path / "a.jpg"
-        f2 = tmp_path / "b.jpg"
-        f1.write_bytes(b"img-a")
-        f2.write_bytes(b"img-b")
+    def test_file_and_text_combined(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--file + --text → both resolved in inputs dict (no schema fallback)."""
+        img = tmp_path / "a.jpg"
+        img.write_bytes(b"img-a")
 
         engine = _make_mock_engine(_MINIMAL_RESULT)
 
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
                 run,
-                ["--model", "llava", "--file", str(f1), "--file", str(f2), "--text", "Compare"],
+                ["--model", "llava", "--file", str(img), "--text", "Describe"],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         call_kwargs = engine.predict.call_args.kwargs
-        assert call_kwargs["files"] == [b"img-a", b"img-b"]
-        assert call_kwargs["text"] == "Compare"
+        assert call_kwargs["inputs"]["file"] == b"img-a"
+        assert call_kwargs["inputs"]["text"] == "Describe"
 
     def test_file_not_found_exits_2(self, runner: CliRunner) -> None:
         result = runner.invoke(
@@ -425,6 +431,7 @@ class TestRunCLI:
     def test_predict_error_exits_4(self, runner: CliRunner) -> None:
         engine = MagicMock()
         engine.predict.side_effect = RuntimeError("inference failed")
+        engine.user_input_schema = None
 
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
@@ -460,7 +467,7 @@ class TestRunCLI:
         )
 
     def test_device_and_ep_forwarded(self, runner: CliRunner) -> None:
-        engine = _make_mock_engine({**_MINIMAL_RESULT, "device": "gpu", "ep": "dml"})
+        engine = _make_mock_engine({**_MINIMAL_RESULT, "device": "gpu", "ep": "qnn"})
 
         with patch(_ENGINE_PATH, return_value=engine):
             result = runner.invoke(
@@ -473,16 +480,16 @@ class TestRunCLI:
                     "--device",
                     "gpu",
                     "--ep",
-                    "dml",
+                    "qnn",
                 ],
             )
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
         engine.load.assert_called_once_with(
             "model",
             task=None,
             device="gpu",
-            ep="dml",
+            ep="qnn",
         )
 
     # ---- -P / --param tests ----
@@ -662,8 +669,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                files=(),
+                file_paths=(),
                 text="t",
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None
@@ -674,8 +682,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                files=(),
+                file_paths=(),
                 text="t",
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None
@@ -686,8 +695,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="my-model",
-                files=(),
+                file_paths=(),
                 text="t",
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None
@@ -703,8 +713,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="my-model",
-                files=(),
+                file_paths=(),
                 text="hello",
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result == expected
@@ -719,8 +730,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=9000,
                 model_path="m",
-                files=(),
+                file_paths=(),
                 text="some text",
+                raw_inputs={},
                 pipeline_kwargs={"top_k": 3},
             )
 
@@ -730,7 +742,7 @@ class TestTryServerPredict:
         call_kwargs = client.post.call_args
         assert "/v1/predict" in call_kwargs.args[0]
         body = call_kwargs.kwargs["json"]
-        assert body["text"] == "some text"
+        assert body["inputs"]["text"] == "some text"
         assert body["params"]["top_k"] == 3
 
     def test_text_input_forwards_extra_kwargs(self) -> None:
@@ -744,8 +756,9 @@ class TestTryServerPredict:
             _try_server_predict(
                 port=8000,
                 model_path="m",
-                files=(),
+                file_paths=(),
                 text="text",
+                raw_inputs={},
                 pipeline_kwargs={"top_k": 5, "max_new_tokens": 100, "temperature": 0.7},
             )
 
@@ -767,8 +780,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                files=(str(img),),
+                file_paths=(str(img),),
                 text=None,
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
 
@@ -789,8 +803,9 @@ class TestTryServerPredict:
             _try_server_predict(
                 port=8000,
                 model_path="m",
-                files=(str(img),),
+                file_paths=(str(img),),
                 text=None,
+                raw_inputs={},
                 pipeline_kwargs={"top_k": 3, "threshold": 0.5},
             )
 
@@ -799,34 +814,6 @@ class TestTryServerPredict:
         params = json.loads(form_data["params"])
         assert params["top_k"] == 3
         assert params["threshold"] == 0.5
-
-    def test_multiple_files_posts_to_predict_json(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.jpg"
-        f2 = tmp_path / "b.jpg"
-        f1.write_bytes(b"img-a")
-        f2.write_bytes(b"img-b")
-
-        expected = {"predictions": []}
-        ctx = self._make_client_mock(
-            health_json={"model_id": "m"},
-            predict_json=expected,
-        )
-        with patch("httpx.Client", return_value=ctx):
-            result = _try_server_predict(
-                port=8000,
-                model_path="m",
-                files=(str(f1), str(f2)),
-                text="Compare",
-                pipeline_kwargs=_DEFAULT_KWARGS,
-            )
-
-        assert result == expected
-        client = ctx.__enter__.return_value
-        call_args = client.post.call_args
-        assert "/v1/predict" in call_args.args[0]
-        body = call_args.kwargs["json"]
-        assert len(body["files"]) == 2
-        assert body["text"] == "Compare"
 
     def test_custom_port(self) -> None:
         expected = {"predictions": []}
@@ -838,8 +825,9 @@ class TestTryServerPredict:
             _try_server_predict(
                 port=1234,
                 model_path="m",
-                files=(),
+                file_paths=(),
                 text="t",
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         client = ctx.__enter__.return_value
@@ -851,8 +839,9 @@ class TestTryServerPredict:
             result = _try_server_predict(
                 port=8000,
                 model_path="m",
-                files=(),
+                file_paths=(),
                 text="t",
+                raw_inputs={},
                 pipeline_kwargs=_DEFAULT_KWARGS,
             )
         assert result is None

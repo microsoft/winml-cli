@@ -38,8 +38,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from ..inference import APISchemaGenerator, InferenceEngine
+from ..inference.types import PredictionResult
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
-from .engine import InferenceEngine
 from .manager import ModelSlotManager, SingleModelManager
 from .schema import (
     EpSwitchRequest,
@@ -48,12 +49,10 @@ from .schema import (
     ModelInfo,
     ModelLoadRequest,
     ModelStatsResponse,
-    PredictionResult,
     PredictJsonRequest,
     ResourceResponse,
     ToolsResponse,
 )
-from .schema_generator import APISchemaGenerator
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +77,7 @@ class _RingHandler(logging.Handler):
                 "seq": self._seq,
                 "ts": round(record.created, 3),
                 "level": record.levelname,
-                "name": record.name.removeprefix("modelkit."),
+                "name": record.name.removeprefix("winml.modelkit."),
                 "msg": self.format(record),
             }
         )
@@ -90,8 +89,8 @@ class _RingHandler(logging.Handler):
 _log_handler = _RingHandler()
 _log_handler.setFormatter(logging.Formatter("%(message)s"))
 # Attach to modelkit root logger so all sub-loggers feed into the ring
-logging.getLogger("modelkit").addHandler(_log_handler)
-logging.getLogger("modelkit").setLevel(logging.INFO)
+logging.getLogger("winml.modelkit").addHandler(_log_handler)
+logging.getLogger("winml.modelkit").setLevel(logging.INFO)
 
 # ---------------------------------------------------------------------------
 # Valid EP shorthands accepted by POST /v1/ep
@@ -162,9 +161,11 @@ def create_app(
         ),
         lifespan=lifespan,
     )
+    # Permissive CORS for local dev server; no credentials to protect.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -254,21 +255,24 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         try:
             async with mgr.borrow(model_id, task=task) as engine:
                 loop = asyncio.get_running_loop()
+                inputs = _build_file_inputs(data, text, engine.user_input_schema)
                 return await loop.run_in_executor(
                     None,
-                    lambda: engine.predict(files=[data], text=text, **pipe_params),
+                    lambda: engine.predict(inputs=inputs, **pipe_params),
                 )
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
-    # POST /v1/predict — JSON (files / text / raw tensors)
+    # POST /v1/predict — JSON (named inputs)
     # ------------------------------------------------------------------
     @app.post(
         "/v1/predict",
         response_model=PredictionResult,
         tags=["inference"],
-        summary="JSON inference — file(s), text, or raw tensors",
+        summary="JSON inference — named inputs with optional pipeline params",
     )
     async def predict_json(
         request: PredictJsonRequest,
@@ -278,36 +282,31 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         try:
             async with mgr.borrow(model_id, task=request.task) as engine:
                 loop = asyncio.get_running_loop()
-                pipe_params = request.params
 
-                # Decode base64 files
-                file_bytes: list[bytes] | None = None
-                if request.files:
-                    try:
-                        file_bytes = [base64.b64decode(f) for f in request.files]
-                    except Exception as exc:
-                        raise HTTPException(
-                            status_code=422, detail=f"Invalid base64 in files: {exc}"
-                        ) from exc
-                    for fb in file_bytes:
-                        if len(fb) > 20 * 1024 * 1024:
-                            raise HTTPException(
-                                status_code=413, detail="File too large (max 20 MB per file)"
-                            )
+                # Decode base64 for binary inputs based on schema
+                inputs = _decode_rest_inputs(request.inputs, engine.user_input_schema)
 
-                if file_bytes is not None or request.text is not None:
-                    return await loop.run_in_executor(
-                        None,
-                        lambda: engine.predict(files=file_bytes, text=request.text, **pipe_params),
+                # Check inputs/params collision
+                collision = set(inputs.keys()) & set(request.params.keys())
+                if collision:
+                    key = sorted(collision)[0]
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"'{key}' specified in both inputs and params. "
+                            "Use inputs for model inputs and params for pipeline parameters."
+                        ),
                     )
-                if request.inputs is not None:
-                    return await loop.run_in_executor(
-                        None,
-                        lambda: engine.predict(tensor_inputs=request.inputs, **pipe_params),
-                    )
-                raise HTTPException(status_code=422, detail="Provide 'files', 'text', or 'inputs'")
-        except ValueError as exc:
+
+                pipe_params = dict(request.params)
+                return await loop.run_in_executor(
+                    None,
+                    lambda: engine.predict(inputs=inputs, **pipe_params),
+                )
+        except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
     # GET /v1/tools — OpenAI tool definitions
@@ -333,7 +332,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                 tools.extend(APISchemaGenerator(manifest).generate_tools_list())
             logger.info("Generated %d tools from %d model(s)", len(tools), len(manifests))
             return ToolsResponse(tools=tools)
-        except Exception as e:
+        except (KeyError, ValueError, TypeError) as e:
             logger.error("Error generating tools: %s", e)
             raise HTTPException(
                 status_code=500,
@@ -387,7 +386,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                     ],
                 },
             }
-        except Exception as e:
+        except (KeyError, ValueError, TypeError) as e:
             logger.error("Error generating MCP schema: %s", e)
             raise HTTPException(
                 status_code=500,
@@ -476,7 +475,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                 alias=request.alias,
                 description=request.description,
             )
-        except Exception as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return {"status": "ok", "model_id": request.model_id}
 
@@ -540,14 +539,14 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     async def model_schema(model_id: str) -> dict[str, Any]:
         """Return the request/response schema for a specific model.
 
-        Manifest-driven: parameters, input/output shapes, and response
-        format are all derived from build_manifest.json.
-        Includes curl examples for every endpoint.
+        User inputs from TASK_REGISTRY, pipeline parameters discovered
+        from the loaded pipeline's _sanitize_parameters signature.
         """
         manifest = _load_manifest(model_id)
         if manifest is None:
             raise HTTPException(status_code=404, detail=f"Model '{model_id}' not loaded")
-        return _build_model_schema(manifest)
+        engine = _get_mgr().get_engine(model_id)
+        return _build_model_schema(manifest, engine)
 
     # ------------------------------------------------------------------
     # GET /v1/schema — request/response schema (single-model shortcut)
@@ -562,7 +561,8 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         manifest = _load_manifest()
         if manifest is None:
             raise HTTPException(status_code=503, detail="No model loaded")
-        return _build_model_schema(manifest)
+        engine = _get_mgr().get_engine()
+        return _build_model_schema(manifest, engine)
 
     # ------------------------------------------------------------------
     # GET /v1/hub — built-in catalog + user cached models
@@ -654,7 +654,7 @@ def _manifest_from_engine(engine: InferenceEngine) -> dict:
         if manifest_file.exists():
             try:
                 return json.loads(manifest_file.read_text())
-            except Exception as e:
+            except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Failed to load manifest: %s", e)
 
     return {
@@ -666,176 +666,117 @@ def _manifest_from_engine(engine: InferenceEngine) -> dict:
     }
 
 
-def _build_model_schema(manifest: dict) -> dict[str, Any]:
-    """Build request/response schema from manifest, with curl examples.
+def _build_model_schema(manifest: dict, engine: InferenceEngine | None = None) -> dict[str, Any]:
+    """Build request/response schema from TASK_REGISTRY + engine.
 
-    Manifest-driven: parameters come from build_manifest.json, not hardcoded.
+    User inputs come from TASK_REGISTRY[task]. Pipeline parameters come from
+    the engine's _discover_pipeline_params (if available).
     """
-    gen = APISchemaGenerator(manifest)
-    task = gen.task
-    model_id = gen.model_id or "unknown"
-    is_image = gen._is_image_task()
-    is_text = gen._is_text_task()
-    base = "{server_url}"
-    json_hdr = '-H "Content-Type: application/json"'
+    from ..inference.tasks import TASK_REGISTRY
 
-    # --- Build parameter list from manifest ---
-    # Reuse the same logic as /v1/tools
-    param_schema = gen._build_parameters_schema()
-    properties = param_schema.get("properties", {})
-    required = set(param_schema.get("required", []))
+    task = manifest.get("task", "")
+    model_id = manifest.get("model_id", "unknown")
 
-    def _fmt_params(props: dict) -> dict:
-        """Convert OpenAI-style properties to REST schema format."""
-        out: dict[str, Any] = {}
-        for name, spec in props.items():
-            entry: dict[str, Any] = {"type": spec.get("type", "string")}
-            entry["required"] = name in required
-            if "default" in spec:
-                entry["default"] = spec["default"]
-            if "description" in spec:
-                entry["description"] = spec["description"]
-            if "minimum" in spec:
-                entry["minimum"] = spec["minimum"]
-            if "maximum" in spec:
-                entry["maximum"] = spec["maximum"]
-            out[name] = entry
-        return out
+    # User inputs from registry
+    user_inputs: list[dict[str, Any]] = []
+    spec = TASK_REGISTRY.get(task)
+    if spec:
+        for f in spec.user_inputs:
+            entry: dict[str, Any] = {
+                "name": f.name,
+                "type": f.type,
+                "required": f.required,
+                "description": f.description,
+            }
+            if not f.required and f.default is not None:
+                entry["default"] = f.default
+            user_inputs.append(entry)
 
-    endpoints: dict[str, Any] = {}
-
-    # Collect pipeline params from manifest (everything except the primary input)
-    primary_inputs = {"files", "image_bytes", "prompt", "text"}
-    pipeline_props = {k: v for k, v in _fmt_params(properties).items() if k not in primary_inputs}
-    params_field: dict[str, Any] = {
-        "type": "object (JSON string for multipart)",
-        "required": False,
-        "description": "Pipeline parameters forwarded to inference",
-    }
-    if pipeline_props:
-        params_field["properties"] = pipeline_props
-
-    if is_image:
-        endpoints["predict_file"] = {
-            "method": "POST",
-            "path": "/v1/predict/file",
-            "content_type": "multipart/form-data",
-            "parameters": {
-                "file": {
-                    "type": "file",
-                    "required": True,
-                    "description": "Media file (image, audio, …)",
-                },
-                "text": {
-                    "type": "string",
-                    "required": False,
-                    "description": "Text input for multimodal tasks",
-                },
-                "params": params_field,
-            },
-            "curl": (
-                f"curl -X POST {base}/v1/predict/file"
-                ' -F "file=@photo.jpg" -F \'params={{"top_k":5}}\''
-            ),
-        }
-        endpoints["predict_json"] = {
-            "method": "POST",
-            "path": "/v1/predict",
-            "content_type": "application/json",
-            "parameters": {
-                "files": {
-                    "type": "array[string]",
-                    "required": True,
-                    "description": "Base64-encoded media files",
-                },
-                "params": params_field,
-            },
-            "curl": (
-                f"curl -X POST {base}/v1/predict {json_hdr}"
-                ' -d \'{"files":["<base64>"],"params":{"top_k":5}}\''
-            ),
-        }
-    elif is_text:
-        endpoints["predict_json"] = {
-            "method": "POST",
-            "path": "/v1/predict",
-            "content_type": "application/json",
-            "parameters": {
-                "text": {
-                    "type": "string",
-                    "required": True,
-                    "description": "Text input",
-                },
-                "params": params_field,
-            },
-            "curl": (
-                f"curl -X POST {base}/v1/predict {json_hdr}"
-                ' -d \'{"text":"your text here","params":{"top_k":5}}\''
-            ),
-        }
-    else:
-        endpoints["predict_json"] = {
-            "method": "POST",
-            "path": "/v1/predict",
-            "content_type": "application/json",
-            "parameters": {
-                "inputs": {
-                    "type": "object",
-                    "required": True,
-                    "description": "Map of input_name to tensor (nested list)",
-                },
-                "params": params_field,
-            },
-            "curl": (f"curl -X POST {base}/v1/predict {json_hdr} -d '{{\"inputs\":{{...}}}}'"),
-        }
-
-    # --- Response example (task-driven) ---
-    resp_base: dict[str, Any] = {
-        "task": task,
-        "model_id": model_id,
-        "device": "auto",
-        "ep": None,
-        "latency_ms": 12.0,
-    }
-
-    classification_tasks = (
-        "image-classification",
-        "text-classification",
-        "sentiment-analysis",
-    )
-    if task in classification_tasks:
-        resp_base["predictions"] = [
-            {"label": "class_a", "score": 0.95},
-            {"label": "class_b", "score": 0.03},
-        ]
-    elif task == "object-detection":
-        resp_base["predictions"] = {
-            "pred_boxes": "[[x1,y1,x2,y2], ...]",
-            "logits": "[[...]]",
-        }
-    elif task in ("image-segmentation", "semantic-segmentation"):
-        resp_base["predictions"] = {
-            "pred_masks": "[[...]]",
-            "logits": "[[...]]",
-        }
-    elif task == "token-classification":
-        resp_base["predictions"] = {
-            "entities": [
-                {"token_idx": 0, "label": "B-PER"},
-                {"token_idx": 1, "label": "I-PER"},
-            ],
-        }
-    else:
-        resp_base["predictions"] = {"raw": "..."}
+    # Pipeline parameters from engine
+    parameters: list[dict] = []
+    if engine is not None and engine.pipeline_params:
+        parameters = engine.pipeline_params
 
     return {
         "model_id": model_id,
         "task": task,
-        "input_type": "image" if is_image else "text" if is_text else "tensor",
-        "parameters_from": "build_manifest.json",
-        "endpoints": endpoints,
-        "response_example": resp_base,
+        "user_inputs": user_inputs,
+        "parameters": parameters,
+        "endpoints": {
+            "predict": "/v1/predict",
+            "predict_file": "/v1/predict/file",
+            "schema": "/v1/schema",
+            "tools": "/v1/tools",
+        },
     }
+
+
+# ---------------------------------------------------------------------------
+# Input helpers for REST endpoints
+# ---------------------------------------------------------------------------
+
+
+def _decode_rest_inputs(
+    inputs: dict[str, Any],
+    schema: list | None,
+) -> dict[str, Any]:
+    """Decode base64 strings for binary-typed inputs based on schema.
+
+    Raises ValueError on invalid base64.
+    """
+    if not schema:
+        return inputs
+
+    from ..inference.tasks import BINARY_TYPES
+
+    schema_map = {f.name: f for f in schema}
+    result = dict(inputs)
+    for name, value in result.items():
+        field = schema_map.get(name)
+        if field and field.type in BINARY_TYPES and isinstance(value, str):
+            try:
+                result[name] = base64.b64decode(value)
+            except (ValueError, base64.binascii.Error) as exc:
+                raise ValueError(f"Invalid base64 for input '{name}': {exc}") from exc
+    return result
+
+
+def _build_file_inputs(
+    data: bytes,
+    text: str | None,
+    schema: list | None,
+) -> dict[str, Any]:
+    """Build inputs dict from a file upload + optional text.
+
+    Maps the uploaded file to the sole binary-typed input in the schema.
+    Raises ValueError on ambiguity.
+    """
+    from ..inference.tasks import BINARY_TYPES
+
+    if schema:
+        binary_fields = [f for f in schema if f.type in BINARY_TYPES]
+        if len(binary_fields) != 1:
+            raise ValueError(
+                f"File upload requires exactly one binary input in schema. "
+                f"Found {len(binary_fields)}. Use POST /v1/predict with JSON instead."
+            )
+        inputs: dict[str, Any] = {binary_fields[0].name: data}
+        if text is not None:
+            text_fields = [f for f in schema if f.type == "text"]
+            if len(text_fields) == 1:
+                inputs[text_fields[0].name] = text
+            elif len(text_fields) > 1:
+                raise ValueError(
+                    "Ambiguous: multiple text inputs in schema. "
+                    "Use POST /v1/predict with JSON to specify named inputs."
+                )
+    else:
+        # No schema — use generic names
+        inputs = {"file": data}
+        if text is not None:
+            inputs["text"] = text
+
+    return inputs
 
 
 def print_startup_banner(

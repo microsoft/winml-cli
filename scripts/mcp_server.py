@@ -9,10 +9,10 @@ This script is intentionally self-contained and does NOT import from
 winml.modelkit, avoiding heavy ML dependency imports (PyTorch etc.)
 that would cause Claude Desktop MCP connection timeouts.
 
-Multi-model aware: queries /v1/models at startup and generates a
-uniquely-named tool per loaded model (e.g. classify_image_resnet_50,
-detect_object_yolov8).  If the server is unreachable, registers a
-generic fallback tool.
+Schema-driven: queries ``/v1/models`` at startup and fetches per-model
+schemas via ``/v1/models/{model_id}/schema``.  Each loaded model gets a
+uniquely-named tool whose handler and docstring are generated directly
+from the schema — no hardcoded task-category branching.
 
 Usage:
     python scripts/mcp_server.py
@@ -35,23 +35,10 @@ from mcp.server import FastMCP
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 
-# Task category constants (mirrors schema_generator.py, no hardcoded models)
-_IMAGE_PREFIXES = (
-    "image-classification",
-    "image-segmentation",
-    "image-to-text",
-    "object-detection",
-    "semantic-segmentation",
-)
-_TEXT_TASKS = ("text-classification", "sentiment-analysis", "token-classification")
+# Binary input types that require file reading
+_BINARY_TYPES = frozenset({"image", "audio", "video"})
 
-
-def _is_image_task(task: str) -> bool:
-    return any(task.startswith(p) for p in _IMAGE_PREFIXES) or task.startswith("image-")
-
-
-def _is_text_task(task: str) -> bool:
-    return task in _TEXT_TASKS or task.startswith("text-")
+_MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
 # ---------------------------------------------------------------------------
@@ -62,31 +49,97 @@ def _is_text_task(task: str) -> bool:
 def _build_tool_name(task: str, model_id: str) -> str:
     """Derive a unique tool name from task + model_id.
 
-    Examples:
-        ("image-classification", "facebook/convnext-tiny-224")
-        → "classification_image_facebook_convnext_tiny_224"
+    Convention: ``task_model``, hyphens→underscores, non-alphanum removed,
+    truncated to 64 chars.
 
-        ("object-detection", "facebook/detr-resnet-50")
-        → "detection_object_facebook_detr_resnet_50"
+    Examples:
+        ("image-classification", "microsoft/resnet-50")
+        → "image_classification_resnet_50"
     """
-    task_parts = task.lower().split("-")
-    if len(task_parts) >= 2:
-        verb = task_parts[-1]
-        noun = "_".join(task_parts[:-1])
-        task_prefix = f"{verb}_{noun}"
-    else:
-        task_prefix = task.replace("-", "_")
+    task_part = task.replace("-", "_")
 
     if model_id:
-        model_part = re.sub(r"[/\-.]", "_", model_id).lower()
-        model_part = re.sub(r"_+", "_", model_part)
-        name = f"{task_prefix}_{model_part}"
+        short = model_id.rsplit("/", 1)[-1]
+        model_part = re.sub(r"[^a-z0-9]", "_", short.lower())
+        model_part = re.sub(r"_+", "_", model_part).strip("_")
+        name = f"{task_part}_{model_part}"
     else:
-        name = task_prefix
+        name = task_part
 
     name = re.sub(r"[^a-z0-9_]", "_", name)
     name = re.sub(r"_+", "_", name).strip("_")
-    return name or "predict"
+    return name[:64] or "predict"
+
+
+# ---------------------------------------------------------------------------
+# Tool docstring generation (schema-driven)
+# ---------------------------------------------------------------------------
+
+
+def _build_tool_doc(
+    task: str,
+    model_id: str,
+    user_inputs: list[dict],
+    has_binary: bool,
+) -> str:
+    """Generate a rich tool docstring from the model schema."""
+    task_display = task.replace("-", " ").title()
+    lines = [f"{task_display} using {model_id}.", ""]
+
+    if user_inputs:
+        lines.append("Model inputs:")
+        for inp in user_inputs:
+            req = "required" if inp.get("required") else "optional"
+            desc = inp.get("description", inp["name"])
+            lines.append(f"  {inp['name']} ({inp['type']}, {req}): {desc}")
+        lines.append("")
+
+    # Usage hints
+    lines.append("Args:")
+    if has_binary:
+        lines.append("    file_path: Absolute path to the input file (image, audio, or video)")
+    text_fields = [f for f in user_inputs if f["type"] == "text"]
+    if len(text_fields) == 1:
+        lines.append(f"    text: {text_fields[0].get('description', 'Text input')}")
+    non_shortcut = [
+        f
+        for f in user_inputs
+        if f["type"] not in _BINARY_TYPES and not (f["type"] == "text" and len(text_fields) == 1)
+    ]
+    if non_shortcut:
+        example_keys = ", ".join(f'"{f["name"]}": ...' for f in non_shortcut)
+        lines.append(f"    inputs_json: JSON with named inputs, e.g. {{{example_keys}}}")
+    lines.append('    params_json: JSON pipeline parameters (e.g. {"top_k": 5})')
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Media type guessing (for multipart uploads)
+# ---------------------------------------------------------------------------
+
+
+_MEDIA_TYPES: dict[str, str] = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".webp": "image/webp",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+    ".ogg": "audio/ogg",
+    ".mp4": "video/mp4",
+    ".avi": "video/x-msvideo",
+    ".mov": "video/quicktime",
+}
+
+
+def _guess_media_type(path: Path) -> str:
+    return _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +148,7 @@ def _build_tool_name(task: str, model_id: str) -> str:
 
 
 def create_server(model_url: str) -> FastMCP:
-    """Create MCP server with per-model tools from ModelKit."""
+    """Create MCP server with schema-driven per-model tools."""
     model_url = model_url.rstrip("/")
     mcp = FastMCP("modelkit-inference")
 
@@ -109,131 +162,193 @@ def create_server(model_url: str) -> FastMCP:
                 resp = await client.get(f"{model_url}/v1/models")
                 resp.raise_for_status()
                 return json.dumps(resp.json(), indent=2)
-        except Exception as e:
+        except httpx.HTTPError as e:
             return f"Error: {e}"
 
     # -- Dynamic per-model tools -------------------------------------------
 
     models = _fetch_models(model_url)
-    if models:
+    if models is None:
+        # Server unreachable — register a generic fallback tool
+        _register_fallback_predict(mcp, model_url)
+    elif models:
         for model_info in models:
             if model_info.get("status") != "ready":
                 continue
-            task = model_info.get("task", "")
             model_id = model_info.get("model_id", "unknown")
-            _register_model_tool(mcp, model_url, task, model_id)
+            task = model_info.get("task", "")
+            schema = _fetch_model_schema(model_url, model_id)
+            user_inputs = schema.get("user_inputs", []) if schema else []
+            _register_model_tool(mcp, model_url, model_id, task, user_inputs)
     else:
+        # Server reachable but no models loaded yet — register fallback
+        logger.info("Server reachable but no models loaded — registering fallback tool")
         _register_fallback_predict(mcp, model_url)
 
     return mcp
 
 
+# ---------------------------------------------------------------------------
+# Data fetching (best-effort, sync at startup)
+# ---------------------------------------------------------------------------
+
+
 def _fetch_models(model_url: str) -> list[dict] | None:
-    """Fetch /v1/models to get all loaded models (best-effort)."""
+    """Fetch /v1/models to get all loaded models.
+
+    Returns:
+        list[dict]: List of model info dicts (may be empty).
+        None: Server is unreachable.
+    """
     try:
         with httpx.Client(timeout=5) as client:
             resp = client.get(f"{model_url}/v1/models")
             resp.raise_for_status()
             models = resp.json()
-            if isinstance(models, list) and models:
+            if isinstance(models, list):
                 logger.info("Found %d model(s) on %s", len(models), model_url)
                 return models
-    except Exception as e:
+    except httpx.HTTPError as e:
         logger.info("Cannot reach %s: %s (using fallback tools)", model_url, e)
     return None
 
 
+def _fetch_model_schema(model_url: str, model_id: str) -> dict | None:
+    """Fetch /v1/models/{model_id}/schema for a specific model."""
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.get(f"{model_url}/v1/models/{model_id}/schema")
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("Cannot fetch schema for '%s': %s", model_id, e)
+    return None
+
+
 # ---------------------------------------------------------------------------
-# Per-model tool registration (dispatches by task type)
+# Schema-driven tool registration
 # ---------------------------------------------------------------------------
 
 
-def _register_model_tool(mcp: FastMCP, model_url: str, task: str, model_id: str) -> None:
-    """Register one tool for a specific model, named and typed by its task."""
+def _register_model_tool(
+    mcp: FastMCP,
+    model_url: str,
+    model_id: str,
+    task: str,
+    user_inputs: list[dict],
+) -> None:
+    """Register one tool for a model.  Handler params derived from schema."""
     tool_name = _build_tool_name(task, model_id)
-    task_display = task.replace("-", " ").title()
+    has_binary = any(f["type"] in _BINARY_TYPES for f in user_inputs)
+    doc = _build_tool_doc(task, model_id, user_inputs, has_binary)
 
-    if _is_image_task(task):
-        _register_image_tool(mcp, model_url, model_id, tool_name, task_display)
-    elif _is_text_task(task):
-        _register_text_tool(mcp, model_url, model_id, tool_name, task_display)
-    else:
-        logger.warning("Skipping unknown task '%s' for model '%s'", task, model_id)
-        return
+    async def _handler(
+        file_path: str | None = None,
+        text: str | None = None,
+        inputs_json: str = "{}",
+        params_json: str = "{}",
+    ) -> str:
+        try:
+            pipe_params = json.loads(params_json)
+        except json.JSONDecodeError as e:
+            return f"Error: invalid params_json: {e}"
+        try:
+            extra_inputs = json.loads(inputs_json)
+        except json.JSONDecodeError as e:
+            return f"Error: invalid inputs_json: {e}"
 
+        # -- Route 1: file_path provided → multipart /v1/predict/file ------
+        if file_path:
+            return await _predict_file(
+                model_url,
+                model_id,
+                file_path,
+                text,
+                pipe_params,
+            )
+
+        # -- Route 2: no file → JSON /v1/predict ---------------------------
+        inputs: dict = {}
+
+        # Map `text` shortcut to the first text-type field in schema
+        if text is not None:
+            text_fields = [f for f in user_inputs if f["type"] == "text"]
+            if len(text_fields) == 1:
+                inputs[text_fields[0]["name"]] = text
+            else:
+                # Multiple or zero text fields — fall through to inputs_json
+                inputs["text"] = text
+
+        inputs.update(extra_inputs)
+
+        if not inputs:
+            return "Error: provide file_path, text, or inputs_json"
+
+        return await _predict_json(model_url, model_id, inputs, pipe_params)
+
+    _handler.__name__ = tool_name
+    _handler.__doc__ = doc
+    mcp.tool()(_handler)
     logger.info("Registered tool '%s' (%s, %s)", tool_name, task, model_id)
 
 
 # ---------------------------------------------------------------------------
-# Image tool
+# Predict helpers (shared by model tools and fallback)
 # ---------------------------------------------------------------------------
 
 
-def _register_image_tool(
-    mcp: FastMCP, model_url: str, model_id: str, tool_name: str, task_display: str
-) -> None:
-    async def _handler(image_path: str, top_k: int = 5) -> str:
-        path = Path(image_path)
-        if not path.is_file():
-            return f"Error: File not found: {image_path}"
-        image_data = path.read_bytes()
-        if len(image_data) > 20 * 1024 * 1024:
-            return "Error: Image too large (max 20 MB)"
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{model_url}/v1/predict/file",
-                    files={"file": (path.name, image_data, _guess_media_type(path))},
-                    data={
-                        "model_id": model_id,
-                        "params": json.dumps({"top_k": top_k}),
-                    },
-                )
-                resp.raise_for_status()
-                return json.dumps(resp.json(), indent=2)
-        except Exception as e:
-            return f"Error: {e}"
-
-    _handler.__name__ = tool_name
-    _handler.__doc__ = (
-        f"{task_display} using {model_id}.\n\n"
-        "Analyzes a local image file.\n\n"
-        "Args:\n"
-        "    image_path: Absolute path to the image file (JPEG, PNG, etc.)\n"
-        "    top_k: Number of top results to return (default: 5)"
-    )
-    mcp.tool()(_handler)
+async def _predict_file(
+    model_url: str,
+    model_id: str,
+    file_path: str,
+    text: str | None,
+    pipe_params: dict,
+) -> str:
+    """Send a file to /v1/predict/file and return the JSON result."""
+    path = Path(file_path)
+    if not path.is_file():
+        return f"Error: file not found: {file_path}"
+    data = path.read_bytes()
+    if len(data) > _MAX_FILE_SIZE:
+        return f"Error: file too large (max {_MAX_FILE_SIZE // (1024 * 1024)} MB)"
+    try:
+        form_data: dict[str, str] = {
+            "model_id": model_id,
+            "params": json.dumps(pipe_params),
+        }
+        if text is not None:
+            form_data["text"] = text
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{model_url}/v1/predict/file",
+                files={"file": (path.name, data, _guess_media_type(path))},
+                data=form_data,
+            )
+            resp.raise_for_status()
+            return json.dumps(resp.json(), indent=2)
+    except httpx.HTTPError as e:
+        return f"Error: {e}"
 
 
-# ---------------------------------------------------------------------------
-# Text tool
-# ---------------------------------------------------------------------------
-
-
-def _register_text_tool(
-    mcp: FastMCP, model_url: str, model_id: str, tool_name: str, task_display: str
-) -> None:
-    async def _handler(text: str, top_k: int = 5) -> str:
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{model_url}/v1/predict",
-                    params={"model_id": model_id},
-                    json={"text": text, "params": {"top_k": top_k}},
-                )
-                resp.raise_for_status()
-                return json.dumps(resp.json(), indent=2)
-        except Exception as e:
-            return f"Error: {e}"
-
-    _handler.__name__ = tool_name
-    _handler.__doc__ = (
-        f"{task_display} using {model_id}.\n\n"
-        "Args:\n"
-        "    text: The text to analyze\n"
-        "    top_k: Number of top results to return (default: 5)"
-    )
-    mcp.tool()(_handler)
+async def _predict_json(
+    model_url: str,
+    model_id: str,
+    inputs: dict,
+    pipe_params: dict,
+) -> str:
+    """Send named inputs to /v1/predict and return the JSON result."""
+    try:
+        payload = {"inputs": inputs, "params": pipe_params}
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{model_url}/v1/predict",
+                params={"model_id": model_id},
+                json=payload,
+            )
+            resp.raise_for_status()
+            return json.dumps(resp.json(), indent=2)
+    except httpx.HTTPError as e:
+        return f"Error: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -244,67 +359,42 @@ def _register_text_tool(
 def _register_fallback_predict(mcp: FastMCP, model_url: str) -> None:
     @mcp.tool()
     async def predict(
-        image_path: str | None = None, text: str | None = None, top_k: int = 5
+        file_path: str | None = None,
+        text: str | None = None,
+        inputs_json: str = "{}",
+        params_json: str = "{}",
     ) -> str:
         """Run inference on the ModelKit server.
 
-        For image tasks, provide image_path (absolute file path).
-        For text tasks, provide text.
-        Use list_models first to discover loaded models.
+        Use list_models first to discover loaded models and their schemas.
 
         Args:
-            image_path: Absolute path to image file (for image tasks)
-            text: Input text (for text/NLP tasks)
-            top_k: Number of top results (default: 5)
+            file_path: Absolute path to a local file (image, audio, or video)
+            text: Text input for text-based models
+            inputs_json: JSON object with named inputs for multi-input models
+            params_json: JSON pipeline parameters (e.g. {"top_k": 5})
         """
-        if image_path:
-            path = Path(image_path)
-            if not path.is_file():
-                return f"Error: File not found: {image_path}"
-            image_data = path.read_bytes()
-            try:
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.post(
-                        f"{model_url}/v1/predict/file",
-                        files={"file": (path.name, image_data, _guess_media_type(path))},
-                        data={"params": json.dumps({"top_k": top_k})},
-                    )
-                    resp.raise_for_status()
-                    return json.dumps(resp.json(), indent=2)
-            except Exception as e:
-                return f"Error: {e}"
-        elif text:
-            try:
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.post(
-                        f"{model_url}/v1/predict",
-                        json={"text": text, "params": {"top_k": top_k}},
-                    )
-                    resp.raise_for_status()
-                    return json.dumps(resp.json(), indent=2)
-            except Exception as e:
-                return f"Error: {e}"
-        else:
-            return "Error: Provide either 'image_path' or 'text'"
+        try:
+            pipe_params = json.loads(params_json)
+        except json.JSONDecodeError as e:
+            return f"Error: invalid params_json: {e}"
+        try:
+            extra_inputs = json.loads(inputs_json)
+        except json.JSONDecodeError as e:
+            return f"Error: invalid inputs_json: {e}"
 
+        if file_path:
+            return await _predict_file(model_url, "_", file_path, text, pipe_params)
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+        inputs: dict = {}
+        if text is not None:
+            inputs["text"] = text
+        inputs.update(extra_inputs)
 
+        if not inputs:
+            return "Error: provide file_path, text, or inputs_json"
 
-def _guess_media_type(path: Path) -> str:
-    suffix = path.suffix.lower()
-    return {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".gif": "image/gif",
-        ".bmp": "image/bmp",
-        ".webp": "image/webp",
-        ".tiff": "image/tiff",
-        ".tif": "image/tiff",
-    }.get(suffix, "application/octet-stream")
+        return await _predict_json(model_url, "_", inputs, pipe_params)
 
 
 # ---------------------------------------------------------------------------

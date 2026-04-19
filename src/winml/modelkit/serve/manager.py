@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from .engine import InferenceEngine
+from ..inference import InferenceEngine
 
 
 if TYPE_CHECKING:
@@ -86,7 +86,7 @@ class SingleModelManager:
 
         mgr = SingleModelManager(engine, idle_timeout_sec=300)
         async with mgr.borrow("_") as engine:
-            result = engine.predict(files=[data])
+            result = engine.predict(inputs={"image": data})
     """
 
     def __init__(
@@ -220,7 +220,7 @@ class ModelSlotManager:
 
         mgr = ModelSlotManager(memory_budget_mb=4096, idle_timeout_sec=300)
         async with mgr.borrow("microsoft/resnet-50") as engine:
-            result = engine.predict(files=[data])
+            result = engine.predict(inputs={"image": data})
     """
 
     def __init__(
@@ -234,6 +234,7 @@ class ModelSlotManager:
         self._default_device = default_device
         self._slots: dict[str, ModelSlot] = {}
         self._lock = asyncio.Lock()  # guards _slots mutations
+        self._loading: set[str] = set()  # model IDs currently being loaded
 
     @asynccontextmanager
     async def borrow(
@@ -355,12 +356,16 @@ class ModelSlotManager:
                 return
 
             await self._maybe_evict(exclude=model_id)
-            engine = InferenceEngine()
-            _device = device or self._default_device
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, lambda: engine.load(model_id, task=task, device=_device, ep=ep)
-            )
+
+        # Load outside the lock — this can take seconds/minutes
+        engine = InferenceEngine()
+        _device = device or self._default_device
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, lambda: engine.load(model_id, task=task, device=_device, ep=ep)
+        )
+
+        async with self._lock:
             slot = ModelSlot(
                 model_id=model_id,
                 engine=engine,
@@ -418,29 +423,64 @@ class ModelSlotManager:
             )
 
     async def _acquire_slot(self, model_id: str) -> ModelSlot:
+        # Fast path: model already loaded — just bump refcount under lock.
+        # Also decides whether *this* coroutine is the designated loader.
+        am_loader = False
         async with self._lock:
             slot = self._slots.get(model_id)
+            if slot is not None:
+                if slot.expiry_task and not slot.expiry_task.done():
+                    slot.expiry_task.cancel()
+                    slot.expiry_task = None
+                slot.refcount += 1
+                slot.last_used = time.monotonic()
+                return slot
 
-            if slot is None:
-                # New model — check budget, evict if needed, then load in executor
+            if model_id not in self._loading:
+                # We are the designated loader for this model_id
+                am_loader = True
+                self._loading.add(model_id)
                 await self._maybe_evict(exclude=model_id)
+            # else: another coroutine is already loading — fall through to poll
+
+        if am_loader:
+            # Do the slow load *outside* the lock
+            try:
                 engine = InferenceEngine()
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
                     None, lambda: engine.load(model_id, device=self._default_device)
                 )
+            except BaseException:
+                async with self._lock:
+                    self._loading.discard(model_id)
+                raise
+
+            # Atomically publish the slot and remove from _loading
+            async with self._lock:
+                self._loading.discard(model_id)
                 slot = ModelSlot(model_id=model_id, engine=engine)
                 self._slots[model_id] = slot
                 logger.info("ModelSlotManager: loaded %s", model_id)
+                slot.refcount += 1
+                slot.last_used = time.monotonic()
+                return slot
 
-            # Cancel expiry timer while in use
-            if slot.expiry_task and not slot.expiry_task.done():
-                slot.expiry_task.cancel()
-                slot.expiry_task = None
-
-            slot.refcount += 1
-            slot.last_used = time.monotonic()
-            return slot
+        # Another coroutine is loading this model —
+        # poll until the slot appears (the loader will finish shortly)
+        while True:
+            await asyncio.sleep(0.1)
+            async with self._lock:
+                slot = self._slots.get(model_id)
+                if slot is not None:
+                    if slot.expiry_task and not slot.expiry_task.done():
+                        slot.expiry_task.cancel()
+                        slot.expiry_task = None
+                    slot.refcount += 1
+                    slot.last_used = time.monotonic()
+                    return slot
+                if model_id not in self._loading:
+                    raise RuntimeError(f"Model '{model_id}' failed to load")
 
     async def _release_slot(self, model_id: str) -> None:
         async with self._lock:
@@ -451,6 +491,9 @@ class ModelSlotManager:
             slot.last_used = time.monotonic()
 
             if slot.refcount == 0 and self._idle_timeout > 0:
+                # Cancel any previous expiry task to avoid leaked timers
+                if slot.expiry_task and not slot.expiry_task.done():
+                    slot.expiry_task.cancel()
                 slot.expiry_task = asyncio.get_running_loop().create_task(
                     self._expire_slot(model_id, self._idle_timeout)
                 )

@@ -23,9 +23,6 @@ import click
 from ..utils import cli as cli_utils
 
 
-logger = logging.getLogger(__name__)
-
-
 @click.command("serve")
 @cli_utils.model_option(required=False)
 @click.option("--task", default=None, help="Task type (required for raw .onnx files)")
