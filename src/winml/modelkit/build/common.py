@@ -143,6 +143,7 @@ def _run_analyze_loop(
                 iter_model,
                 ep=ep,
                 device=device,
+                run_unknown_op=False,
                 on_ep_start=on_ep_start,
                 on_node_result=on_node_result,
             )
@@ -188,6 +189,7 @@ def _run_analyze_loop(
             iter_model,
             ep=ep,
             device=device,
+            run_unknown_op=False,
             on_node_result=lambda _: None,
         )
 
