@@ -149,6 +149,50 @@ class TestUniversalCalibDatasetFallback:
         assert isinstance(dataset, RandomDataset)
         assert len(dataset) == 10
 
+    def test_feature_extraction_routes_to_image_dataset_without_tokenizer(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Vision feature-extraction should avoid TextDataset when no tokenizer exists."""
+        import winml.modelkit.datasets as datasets_module
+
+        class DummyTextDataset:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+
+            def __len__(self) -> int:
+                return 1
+
+        class DummyImageDataset:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+
+            def __len__(self) -> int:
+                return 1
+
+        monkeypatch.setitem(
+            datasets_module.TASK_DATASET_MAPPING,
+            "feature-extraction",
+            DummyTextDataset,
+        )
+        monkeypatch.setitem(
+            datasets_module.TASK_DATASET_MAPPING,
+            "image-feature-extraction",
+            DummyImageDataset,
+        )
+        monkeypatch.setattr(datasets_module, "_model_supports_tokenizer", lambda _: False)
+        monkeypatch.setattr(datasets_module, "_model_supports_image_processor", lambda _: True)
+
+        dataset = datasets_module.universal_calib_dataset(
+            model_name="facebook/detr-resnet-50",
+            task="feature-extraction",
+            max_samples=5,
+        )
+
+        assert isinstance(dataset, DummyImageDataset)
+        assert dataset.kwargs["model_name"] == "facebook/detr-resnet-50"
+        assert dataset.kwargs["max_samples"] == 5
+
 
 class TestTaskDatasetMapping:
     """Verify all supported tasks map to correct dataset classes."""

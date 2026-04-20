@@ -21,7 +21,6 @@ from .data_utils import format_data
 from .image import ImageDataset
 from .image_segmentation import ImageSegmentationDataset
 from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionDataset
-from .processor_utils import get_image_processor_config
 from .random_dataset import RandomDataset
 from .text import TextDataset
 
@@ -49,6 +48,51 @@ TASK_DATASET_MAPPING = {
     "random": RandomDataset,
     # Add more task types as needed
 }
+
+
+def _model_supports_tokenizer(model_name: str) -> bool:
+    """Return True when the model exposes a tokenizer."""
+    try:
+        from transformers import AutoTokenizer
+
+        AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        return True
+    except Exception as e:
+        logger.debug("Tokenizer unavailable for %s: %s", model_name, e)
+        return False
+
+
+def _model_supports_image_processor(model_name: str) -> bool:
+    """Return True when the model exposes an image processor."""
+    try:
+        from transformers import AutoImageProcessor
+
+        AutoImageProcessor.from_pretrained(model_name, use_fast=True)
+        return True
+    except Exception as e:
+        logger.debug("Image processor unavailable for %s: %s", model_name, e)
+        return False
+
+
+def _resolve_dataset_task(model_name: str, task: str) -> str:
+    """Resolve dataset task aliases that depend on model modality."""
+    if task != "feature-extraction":
+        return task
+
+    has_tokenizer = _model_supports_tokenizer(model_name)
+    has_image_processor = _model_supports_image_processor(model_name)
+
+    if has_image_processor and not has_tokenizer:
+        resolved_task = "image-feature-extraction"
+        logger.info(
+            "Routing %s calibration for %s to %s",
+            task,
+            model_name,
+            resolved_task,
+        )
+        return resolved_task
+
+    return task
 
 
 def universal_calib_dataset(
@@ -95,6 +139,8 @@ def universal_calib_dataset(
             supported,
         )
         task = "random"
+
+    task = _resolve_dataset_task(model_name, task)
 
     # Create dataset with error handling
     try:
