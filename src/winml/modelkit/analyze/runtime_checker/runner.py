@@ -194,8 +194,8 @@ class ResilientRunner:
         """Best-effort process join that never raises."""
         try:
             proc.join(timeout=timeout)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: failed to join process during executor shutdown: {e}", file=sys.stderr)
 
     @staticmethod
     def _kill_process(proc: Any) -> None:
