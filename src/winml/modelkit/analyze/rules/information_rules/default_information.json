@@ -56,7 +56,7 @@
                     {
                         "type": "GraphOptimization",
                         "optimization_options": {
-                            "highdimRTR-lowdimRTR": true
+                            "highdimRTR_lowdimRTR": true
                         }
                     }
                 ],

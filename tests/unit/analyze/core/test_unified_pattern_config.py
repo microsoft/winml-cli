@@ -31,7 +31,7 @@ class TestUnifiedPatternConfig:
             "SUBGRAPH/GeluPattern",  # Shared by Gelu1-4
             "SUBGRAPH/GemmPattern",  # MatMulAdd
             "SUBGRAPH/LayerNormalizationPattern",  # Shared by Pow and Mul variants
-            "SUBGRAPH/ReshapeTransposeReshapePattern",
+            "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
         }
         assert skeleton_pattern_ids == expected_ids, f"Pattern IDs mismatch: {skeleton_pattern_ids}"
 
