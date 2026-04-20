@@ -3,10 +3,11 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Unit tests for WinMLFillMaskEvaluator."""
+"""Unit tests for WinMLFillMaskEvaluator (pseudo-perplexity)."""
 
 from __future__ import annotations
 
+import math
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,37 +16,25 @@ import torch
 from winml.modelkit.eval import WinMLFillMaskEvaluator
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_tokenizer(vocab_size=100, pad_token_id=0, mask_token_id=103):
-    """Create a mock tokenizer with the minimum interface needed."""
-    tokenizer = MagicMock()
-    tokenizer.pad_token_id = pad_token_id
-    tokenizer.mask_token_id = mask_token_id
-    tokenizer.mask_token = "[MASK]"  # noqa: S105
-    tokenizer.pad_token = "[PAD]"  # noqa: S105
-    tokenizer.eos_token = None
-    tokenizer.__len__ = lambda self: vocab_size
-
-    def _get_special_tokens_mask(ids, already_has_special_tokens=True):
-        return [1 if i in (0,) else 0 for i in range(len(ids))]
-
-    tokenizer.get_special_tokens_mask = _get_special_tokens_mask
-    return tokenizer
+_SPECIAL_IDS = {101, 102, 0}  # CLS, SEP, PAD for the mock tokenizer
 
 
-def _make_evaluator(
-    model=None,
-    max_length=None,
-    columns_mapping=None,
-):
-    """Instantiate WinMLFillMaskEvaluator by patching external dependencies."""
+def _make_tokenizer(vocab_size=50, pad_token_id=0, mask_token_id=103):
+    tok = MagicMock()
+    tok.pad_token_id = pad_token_id
+    tok.mask_token_id = mask_token_id
+    tok.mask_token = "[MASK]"  # noqa: S105
+    tok.pad_token = "[PAD]"  # noqa: S105
+    tok.eos_token = None
+    tok.get_special_tokens_mask = lambda ids, already_has_special_tokens=True: [
+        1 if tid in _SPECIAL_IDS else 0 for tid in ids
+    ]
+    return tok
+
+
+def _make_evaluator(model=None, max_length=None):
     from winml.modelkit.datasets import DatasetConfig
     from winml.modelkit.eval import WinMLEvaluationConfig
-
-    mapping = columns_mapping or {"input_column": "text"}
 
     mock_ds = MagicMock()
     mock_ds.__len__ = lambda self: 5
@@ -55,10 +44,7 @@ def _make_evaluator(
     if model is None:
         model = MagicMock()
         model.config.label2id = None
-        io_config = {}
-        if max_length is not None:
-            io_config["input_shapes"] = [[1, max_length]]
-        model.io_config = io_config
+        model.io_config = {"input_shapes": [[1, max_length]]} if max_length else {}
 
     config = WinMLEvaluationConfig(
         model_id="test/mock-bert",
@@ -66,256 +52,166 @@ def _make_evaluator(
         dataset=DatasetConfig(
             path="Salesforce/wikitext",
             name="wikitext-2-raw-v1",
-            columns_mapping=mapping,
+            columns_mapping={"input_column": "text"},
         ),
     )
 
-    mock_tokenizer = _make_tokenizer()
-
     with patch("datasets.load_dataset", return_value=mock_ds), \
-         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer):
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=_make_tokenizer()):
         return WinMLFillMaskEvaluator(config, model)
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-class TestFillMaskSchema:
-    def test_schema_has_text_column(self) -> None:
+class TestLifecycle:
+    def test_schema(self) -> None:
         schema = WinMLFillMaskEvaluator.schema_info()
         assert len(schema) == 1
         assert schema[0].name == "text"
-
-    def test_schema_column_type(self) -> None:
-        schema = WinMLFillMaskEvaluator.schema_info()
         assert schema[0].type == "Value(string)"
 
+    def test_prepare_pipeline_returns_none(self) -> None:
+        assert _make_evaluator().pipe is None
 
-# ---------------------------------------------------------------------------
-# prepare_pipeline
-# ---------------------------------------------------------------------------
-
-class TestFillMaskPreparePipeline:
-    def test_returns_none(self) -> None:
+    def test_tokenizer_loaded_in_init(self) -> None:
         evaluator = _make_evaluator()
-        assert evaluator.pipe is None
-
-    def test_loads_tokenizer(self) -> None:
-        evaluator = _make_evaluator()
-        assert evaluator._tokenizer is not None
         assert evaluator._tokenizer.mask_token_id == 103
 
-
-# ---------------------------------------------------------------------------
-# _get_max_length
-# ---------------------------------------------------------------------------
-
-class TestGetMaxLength:
-    def test_fixed_shape_returns_length(self) -> None:
-        evaluator = _make_evaluator(max_length=128)
-        assert evaluator._get_max_length() == 128
-
-    def test_no_io_config_returns_none(self) -> None:
+    def test_align_labels_is_noop(self) -> None:
         evaluator = _make_evaluator()
-        assert evaluator._get_max_length() is None
+        ds = MagicMock()
+        assert evaluator.align_labels(ds, MagicMock()) is ds
 
-    def test_dynamic_shape_returns_none(self) -> None:
+
+class TestMaxLength:
+    def test_fixed(self) -> None:
+        assert _make_evaluator(max_length=128)._max_length() == 128
+
+    def test_dynamic_string_dims(self) -> None:
         model = MagicMock()
         model.config.label2id = None
         model.io_config = {"input_shapes": [["batch", "seq"]]}
-        evaluator = _make_evaluator(model=model)
-        assert evaluator._get_max_length() is None
+        assert _make_evaluator(model=model)._max_length() is None
+
+    def test_missing_io_config(self) -> None:
+        model = MagicMock()
+        model.config.label2id = None
+        model.io_config = {}
+        assert _make_evaluator(model=model)._max_length() is None
 
 
-# ---------------------------------------------------------------------------
-# _extract_logits
-# ---------------------------------------------------------------------------
-
-class TestExtractLogits:
-    def test_from_dict_with_logits_key(self) -> None:
-        evaluator = _make_evaluator()
-        logits = torch.randn(1, 10, 100)
-        result = evaluator._extract_logits({"logits": logits, "hidden_states": None})
-        assert torch.equal(result, logits)
-
-    def test_from_dict_without_logits_key(self) -> None:
-        evaluator = _make_evaluator()
-        logits = torch.randn(1, 10, 100)
-        result = evaluator._extract_logits({"output": logits})
-        assert torch.equal(result, logits)
-
-    def test_from_dataclass(self) -> None:
-        evaluator = _make_evaluator()
-        logits = torch.randn(1, 10, 100)
-        output = MagicMock()
-        output.logits = logits
-        result = evaluator._extract_logits(output)
-        assert torch.equal(result, logits)
-
-
-# ---------------------------------------------------------------------------
-# _tokenize_and_mask
-# ---------------------------------------------------------------------------
-
-class TestTokenizeAndMask:
-    def test_empty_text_returns_none(self) -> None:
-        evaluator = _make_evaluator()
-        result = evaluator._tokenize_and_mask(
-            "", evaluator._tokenizer, MagicMock(), None,
-        )
-        assert result is None
-
-    def test_whitespace_only_returns_none(self) -> None:
-        evaluator = _make_evaluator()
-        result = evaluator._tokenize_and_mask(
-            "   ", evaluator._tokenizer, MagicMock(), None,
-        )
-        assert result is None
-
-    def test_short_text_returns_none(self) -> None:
-        """Text with fewer than 3 non-pad tokens should be skipped."""
-        evaluator = _make_evaluator()
-
-        tokenizer = evaluator._tokenizer
-        # Returns only 2 non-pad tokens → skip
-        encoding = {
-            "input_ids": torch.tensor([[101, 102, 0, 0]]),
-            "attention_mask": torch.tensor([[1, 1, 0, 0]]),
-        }
-        tokenizer.return_value = encoding
-
-        result = evaluator._tokenize_and_mask(
-            "Hi", tokenizer, MagicMock(), max_length=4,
-        )
-        assert result is None
-
-    def test_valid_text_returns_tuple(self) -> None:
-        """Valid text should return (model_inputs, labels)."""
-        evaluator = _make_evaluator()
-
-        tokenizer = evaluator._tokenizer
-        encoding = {
-            "input_ids": torch.tensor([[101, 1996, 4937, 2938, 102]]),
-            "attention_mask": torch.tensor([[1, 1, 1, 1, 1]]),
-        }
-        tokenizer.return_value = encoding
-
-        collator = MagicMock()
-        collator.return_value = {
-            "input_ids": torch.tensor([[101, 1996, 103, 2938, 102]]),
-            "labels": torch.tensor([[-100, -100, 4937, -100, -100]]),
-        }
-
-        result = evaluator._tokenize_and_mask(
-            "The cat sat", tokenizer, collator, max_length=None,
+class TestLogits:
+    def test_dict_with_logits_key(self) -> None:
+        logits = torch.randn(1, 5, 50)
+        assert torch.equal(
+            _make_evaluator()._logits({"logits": logits, "aux": None}), logits,
         )
 
-        assert result is not None
-        model_inputs, labels = result
-        assert "input_ids" in model_inputs
-        assert "attention_mask" in model_inputs
-        assert labels.shape == torch.Size([1, 5])
+    def test_dict_without_logits_key(self) -> None:
+        logits = torch.randn(1, 5, 50)
+        assert torch.equal(_make_evaluator()._logits({"output": logits}), logits)
 
-    def test_masked_input_ids_used(self) -> None:
-        """model_inputs should use masked input_ids, not the original."""
-        evaluator = _make_evaluator()
-
-        tokenizer = evaluator._tokenizer
-        encoding = {
-            "input_ids": torch.tensor([[101, 1996, 4937, 102]]),
-            "attention_mask": torch.tensor([[1, 1, 1, 1]]),
-        }
-        tokenizer.return_value = encoding
-
-        masked_ids = torch.tensor([[101, 103, 4937, 102]])
-        collator = MagicMock()
-        collator.return_value = {
-            "input_ids": masked_ids,
-            "labels": torch.tensor([[-100, 1996, -100, -100]]),
-        }
-
-        result = evaluator._tokenize_and_mask(
-            "The cat", tokenizer, collator, max_length=None,
-        )
-        model_inputs, _ = result
-        assert torch.equal(model_inputs["input_ids"], masked_ids)
+    def test_dataclass(self) -> None:
+        logits = torch.randn(1, 5, 50)
+        out = MagicMock()
+        out.logits = logits
+        assert torch.equal(_make_evaluator()._logits(out), logits)
 
 
-# ---------------------------------------------------------------------------
-# compute (integration with mocked model)
-# ---------------------------------------------------------------------------
+class TestScore:
+    def test_one_forward_per_position(self) -> None:
+        evaluator = _make_evaluator(max_length=5)
+        evaluator.model = MagicMock(return_value={"logits": torch.zeros(1, 5, 50)})
+        encoding = {"input_ids": torch.tensor([[101, 10, 20, 30, 102]])}
+        scores = evaluator._score(encoding, [1, 2, 3])
+        assert scores.shape == (3,)
+        assert evaluator.model.call_count == 3
 
-class TestFillMaskCompute:
-    def test_compute_returns_metrics(self) -> None:
-        """Verify compute() returns cross_entropy."""
-        vocab_size = 50
-        seq_len = 8
+    def test_masks_each_position_in_turn(self) -> None:
+        evaluator = _make_evaluator(max_length=5)
+        seen_masks: list[list[int]] = []
 
+        def forward(**kwargs):
+            ids = kwargs["input_ids"][0].tolist()
+            mask_id = evaluator._tokenizer.mask_token_id
+            seen_masks.append([i for i, tid in enumerate(ids) if tid == mask_id])
+            return {"logits": torch.zeros(1, 5, 50)}
+
+        evaluator.model = MagicMock(side_effect=forward)
+        encoding = {"input_ids": torch.tensor([[101, 10, 20, 30, 102]])}
+        evaluator._score(encoding, [1, 2, 3])
+        assert seen_masks == [[1], [2], [3]]
+
+    def test_restores_input_ids(self) -> None:
+        evaluator = _make_evaluator(max_length=5)
+        evaluator.model = MagicMock(return_value={"logits": torch.zeros(1, 5, 50)})
+        encoding = {"input_ids": torch.tensor([[101, 10, 20, 30, 102]])}
+        before = encoding["input_ids"].clone()
+        evaluator._score(encoding, [1, 2, 3])
+        assert torch.equal(encoding["input_ids"], before)
+
+    def test_uniform_logits_yield_minus_log_vocab(self) -> None:
+        vocab = 50
+        evaluator = _make_evaluator(max_length=5)
+        evaluator.model = MagicMock(return_value={"logits": torch.zeros(1, 5, vocab)})
+        encoding = {"input_ids": torch.tensor([[101, 10, 20, 30, 102]])}
+        scores = evaluator._score(encoding, [1, 2, 3])
+        assert torch.allclose(scores, torch.full((3,), -math.log(vocab)))
+
+    def test_empty_positions_no_forward(self) -> None:
+        evaluator = _make_evaluator(max_length=4)
+        evaluator.model = MagicMock()
+        scores = evaluator._score({"input_ids": torch.tensor([[101, 102, 0, 0]])}, [])
+        assert scores.numel() == 0
+        evaluator.model.assert_not_called()
+
+
+class TestCompute:
+    def test_uniform_logits_give_pppl_equal_vocab(self) -> None:
+        vocab, seq_len = 50, 8
         model = MagicMock()
         model.config.label2id = None
         model.io_config = {"input_shapes": [[1, seq_len]]}
-
-        # Model returns random logits
-        model.return_value = {"logits": torch.randn(1, seq_len, vocab_size)}
+        model.return_value = {"logits": torch.zeros(1, seq_len, vocab)}
 
         evaluator = _make_evaluator(model=model, max_length=seq_len)
-
-        # Mock tokenizer to return valid encoding
-        tokenizer = evaluator._tokenizer
-        input_ids = torch.tensor([[101, 10, 20, 30, 40, 102, 0, 0]])
-        encoding = {
-            "input_ids": input_ids,
+        evaluator._tokenizer.return_value = {
+            "input_ids": torch.tensor([[101, 10, 20, 30, 40, 102, 0, 0]]),
             "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 1, 0, 0]]),
         }
-        tokenizer.return_value = encoding
-
-        # Fake dataset with 3 samples
         evaluator.data = [
-            {"text": "Hello world foo"},
-            {"text": "Another sentence here"},
-            {"text": ""},  # empty — should be skipped
+            {"text": "hello"},
+            {"text": "world"},
+            {"text": ""},  # skipped
         ]
+        result = evaluator.compute()
+        assert result["nll"] == pytest.approx(math.log(vocab), abs=1e-3)
+        assert result["pseudo_perplexity"] == pytest.approx(vocab, rel=1e-3)
 
-        with patch("transformers.DataCollatorForLanguageModeling") as mock_collator:
-            collator_instance = MagicMock()
-            collator_instance.return_value = {
-                "input_ids": torch.tensor([[101, 103, 20, 103, 40, 102, 0, 0]]),
-                "labels": torch.tensor([[-100, 10, -100, 30, -100, -100, -100, -100]]),
-            }
-            mock_collator.return_value = collator_instance
+    def test_only_real_tokens_scored(self) -> None:
+        """Special tokens and padding must not trigger forward passes."""
+        vocab, seq_len = 50, 6
+        model = MagicMock()
+        model.config.label2id = None
+        model.io_config = {"input_shapes": [[1, seq_len]]}
+        model.return_value = {"logits": torch.zeros(1, seq_len, vocab)}
 
-            result = evaluator.compute()
+        evaluator = _make_evaluator(model=model, max_length=seq_len)
+        evaluator._tokenizer.return_value = {
+            "input_ids": torch.tensor([[101, 10, 20, 102, 0, 0]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 1, 0, 0]]),
+        }
+        evaluator.data = [{"text": "hi"}]
+        evaluator.compute()
+        # real tokens are the two at indices 1, 2 -> 2 forwards
+        assert model.call_count == 2
 
-        assert "cross_entropy" in result
-        assert result["cross_entropy"] > 0
-
-    def test_compute_no_mask_token_raises(self) -> None:
-        """Should raise if tokenizer has no mask token."""
+    def test_missing_mask_token_raises(self) -> None:
         evaluator = _make_evaluator()
         evaluator._tokenizer.mask_token_id = None
-
         with pytest.raises(RuntimeError, match="no mask token"):
             evaluator.compute()
 
-    def test_compute_all_empty_raises(self) -> None:
-        """Should raise if all samples are empty (no masked tokens)."""
+    def test_all_empty_samples_raises(self) -> None:
         evaluator = _make_evaluator()
         evaluator.data = [{"text": ""}, {"text": "  "}]
-
-        with patch("transformers.DataCollatorForLanguageModeling"), \
-             pytest.raises(ValueError, match="No masked tokens"):
-                evaluator.compute()
-
-
-# ---------------------------------------------------------------------------
-# align_labels (no-op)
-# ---------------------------------------------------------------------------
-
-class TestFillMaskAlignLabels:
-    def test_returns_dataset_unchanged(self) -> None:
-        evaluator = _make_evaluator()
-        mock_ds = MagicMock()
-        mock_config = MagicMock()
-        result = evaluator.align_labels(mock_ds, mock_config)
-        assert result is mock_ds
+        with pytest.raises(ValueError, match="No tokens"):
+            evaluator.compute()

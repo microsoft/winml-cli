@@ -3,27 +3,25 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Fill-mask evaluator using standard MLM loss (cross-entropy on masked tokens).
+"""Fill-mask evaluator using pseudo-perplexity (Salazar et al. 2020).
 
-Evaluates masked language models (BERT, RoBERTa, etc.) by:
-  1. Tokenizing each text sample.
-  2. Randomly masking 15% of tokens (standard MLM protocol via
-     DataCollatorForLanguageModeling).
-  3. Running a single forward pass to get logits.
-  4. Computing cross-entropy loss on the masked positions only.
-  5. Aggregating into mean cross-entropy.
+For each real (non-special, non-pad) token, builds an input where that one
+position is replaced by ``[MASK]``, runs the model, and records
+``log P(original_token | context)``. The aggregate is
+``PPPL = exp(-mean log P)``.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 from .base_evaluator import WinMLEvaluator
-from .metrics import CrossEntropyMetric
+from .metrics import PseudoPerplexityMetric
 
 
 if TYPE_CHECKING:
@@ -34,35 +32,15 @@ if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
     from .config import WinMLEvaluationConfig
 
-logger = logging.getLogger(__name__)
-
-# Standard MLM masking probability (BERT paper convention).
-_MLM_PROBABILITY = 0.15
-
-# Fixed seed for reproducible masking across evaluation runs.
-_MLM_SEED = 42
-
 
 class WinMLFillMaskEvaluator(WinMLEvaluator):
-    """Evaluator for fill-mask (masked language modeling) tasks.
-
-    Uses standard MLM evaluation: 15% random masking with cross-entropy loss.
-    Reports cross_entropy (mean NLL per masked token).
-    """
+    """Evaluate MLMs via pseudo-perplexity."""
 
     @classmethod
     def schema_info(cls) -> list:
-        """Return expected dataset schema for fill-mask evaluation."""
+        """Return expected dataset schema."""
         from .config import SchemaColumn
-
-        return [
-            SchemaColumn(
-                "text",
-                "Value(string)",
-                "input_column",
-                description="text to evaluate (tokens will be randomly masked)",
-            ),
-        ]
+        return [SchemaColumn("text", "Value(string)", "input_column")]
 
     def __init__(
         self,
@@ -70,126 +48,84 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         model: WinMLPreTrainedModel,
     ) -> None:
         self._input_col = config.dataset.columns_mapping.get("input_column", "text")
+        self._tokenizer = AutoTokenizer.from_pretrained(config.model_id)
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
-        """No-op: fill-mask evaluation calls the model directly.
-
-        Loads only the tokenizer (stored as ``self._tokenizer``).
-        Returns ``None`` since the HF pipeline is not used.
-        """
-        from transformers import AutoTokenizer
-
-        self._tokenizer = AutoTokenizer.from_pretrained(self.config.model_id)
+        """No HF pipeline — the model is called directly."""
         return None  # type: ignore[return-value]
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
-        """No-op: fill-mask has no class labels to align."""
+        """No class labels for fill-mask."""
         return dataset
 
-    def _get_max_length(self) -> int | None:
-        """Get fixed sequence length from ONNX model, or None for dynamic."""
+    def _max_length(self) -> int | None:
+        """Fixed seq_len from the ONNX model, else None (HF PyTorch / dynamic)."""
         io_config = getattr(self.model, "io_config", None) or {}
-        shapes = io_config.get("input_shapes", [[]])
-        if shapes and len(shapes[0]) > 1 and isinstance(shapes[0][1], int):
+        shapes = io_config.get("input_shapes") or [[]]
+        if len(shapes[0]) > 1 and isinstance(shapes[0][1], int):
             return shapes[0][1]
         return None
 
-    def _extract_logits(self, outputs: Any) -> torch.Tensor:
-        """Extract logits tensor from model output (dict or HF dataclass)."""
+    def _logits(self, outputs: Any) -> torch.Tensor:
         if isinstance(outputs, dict):
-            if "logits" in outputs:
-                return outputs["logits"]
-            return next(iter(outputs.values()))
+            return outputs["logits"] if "logits" in outputs else next(iter(outputs.values()))
         return outputs.logits
 
-    def _tokenize_and_mask(
+    def _score(
         self,
-        text: str,
-        tokenizer: Any,
-        data_collator: Any,
-        max_length: int | None,
-    ) -> tuple[dict[str, torch.Tensor], torch.Tensor] | None:
-        """Tokenize text, apply MLM masking, and build model inputs.
+        encoding: dict[str, torch.Tensor],
+        positions: list[int],
+    ) -> torch.Tensor:
+        """Return log P(original | context) at each position (one forward per position)."""
+        input_ids = encoding["input_ids"]
+        mask_id = self._tokenizer.mask_token_id
+        log_probs: list[torch.Tensor] = []
 
-        Returns:
-            ``(model_inputs, labels)`` tuple, or ``None`` if the sample
-            should be skipped (empty or too short).
-        """
-        if not text or not text.strip():
-            return None
+        for pos in positions:
+            original = int(input_ids[0, pos])
+            input_ids[0, pos] = mask_id
+            with torch.no_grad():
+                logits = self._logits(self.model(**encoding))
+            log_probs.append(F.log_softmax(logits[0, pos], dim=-1)[original])
+            input_ids[0, pos] = original  # restore for next iteration
 
-        tok_kwargs: dict[str, Any] = {
-            "truncation": True,
-            "return_tensors": "pt",
-        }
+        return torch.stack(log_probs) if log_probs else torch.empty(0)
+
+    def compute(self) -> dict[str, Any]:
+        """Run pseudo-perplexity evaluation over the dataset."""
+        tok = self._tokenizer
+        if tok.mask_token_id is None:
+            raise RuntimeError(f"Tokenizer for {self.config.model_id} has no mask token.")
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token or tok.mask_token
+
+        max_length = self._max_length()
+        tok_kwargs: dict[str, Any] = {"truncation": True, "return_tensors": "pt"}
         if max_length is not None:
             tok_kwargs["padding"] = "max_length"
             tok_kwargs["max_length"] = max_length
-        else:
-            tok_kwargs["padding"] = False
 
-        encoding = tokenizer(text, **tok_kwargs)
-        input_ids = encoding["input_ids"]  # [1, seq_len]
+        metric = PseudoPerplexityMetric()
 
-        # Skip samples that are too short (only special tokens)
-        non_special = (input_ids[0] != tokenizer.pad_token_id).sum().item()
-        if non_special < 3:
-            return None
-
-        # Mask 15% of input_ids; labels hold original tokens at masked
-        # positions and -100 elsewhere.
-        batch = data_collator([{"input_ids": input_ids.squeeze(0)}])
-        masked_input_ids = batch["input_ids"]  # [1, seq_len]
-        labels = batch["labels"]  # [1, seq_len], -100 for non-masked
-
-        # Prepare model inputs and ensure attention_mask distinguishes
-        # real tokens (1) from padding (0).
-        model_inputs = {
-            k: v for k, v in encoding.items() if isinstance(v, torch.Tensor)
-        }
-        model_inputs["input_ids"] = masked_input_ids
-
-        return model_inputs, labels
-
-    def compute(self) -> dict[str, Any]:
-        """Run standard MLM evaluation: 15% masking + cross-entropy loss."""
-        from transformers import DataCollatorForLanguageModeling
-
-        tokenizer = self._tokenizer
-
-        if tokenizer.mask_token_id is None:
-            raise RuntimeError(
-                f"Tokenizer for {self.config.model_id} has no mask token."
-            )
-
-        # Ensure pad token is set (needed for DataCollator)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token or tokenizer.mask_token
-
-        data_collator = DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
-            mlm=True,
-            mlm_probability=_MLM_PROBABILITY,
-            seed=_MLM_SEED,
-        )
-
-        max_length = self._get_max_length()
-        metric = CrossEntropyMetric()
-
-        for sample in tqdm(self.data, desc="Evaluating fill-mask"):
-            result = self._tokenize_and_mask(
-                sample[self._input_col], tokenizer, data_collator, max_length,
-            )
-            if result is None:
+        for sample in tqdm(self.data, desc="Evaluating fill-mask (PPPL)"):
+            text = sample[self._input_col]
+            if not text or not text.strip():
                 continue
 
-            model_inputs, labels = result
+            encoding = {
+                k: v for k, v in tok(text, **tok_kwargs).items()
+                if isinstance(v, torch.Tensor)
+            }
+            ids = encoding["input_ids"][0].tolist()
+            specials = tok.get_special_tokens_mask(ids, already_has_special_tokens=True)
+            positions = [
+                i for i, (t, s) in enumerate(zip(ids, specials, strict=True))
+                if not s and t != tok.pad_token_id
+            ]
+            if not positions:
+                continue
 
-            with torch.no_grad():
-                outputs = self.model(**model_inputs)
-
-            logits = self._extract_logits(outputs)  # [1, seq_len, vocab_size]
-            metric.update(logits[0], labels[0])
+            metric.update(self._score(encoding, positions))
 
         return metric.compute()
