@@ -4,11 +4,19 @@
 # --------------------------------------------------------------------------
 """CLI utilities for ModelKit commands."""
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+
+
+if TYPE_CHECKING:
+    from ..config import WinMLBuildConfig
 
 
 def model_option(required=True):
@@ -113,3 +121,60 @@ def verbosity_options(f):
         help="Increase verbosity (-v=INFO, -vv=DEBUG)",
     )(f)
     return f  # noqa: RET504
+
+
+def build_config_option(func):
+    """Add -c/--config option for WinMLBuildConfig JSON file."""
+    return click.option(
+        "-c",
+        "--config",
+        "config_file",
+        type=click.Path(exists=True, path_type=Path),
+        default=None,
+        help="WinMLBuildConfig JSON file (from winml config). "
+        "Provides defaults; explicit CLI options take precedence.",
+    )(func)
+
+
+def load_build_config(config_path: Path) -> WinMLBuildConfig:
+    """Load a WinMLBuildConfig from a JSON file.
+
+    Args:
+        config_path: Path to JSON config file.
+
+    Returns:
+        Parsed WinMLBuildConfig.
+
+    Raises:
+        click.UsageError: If file is empty or invalid JSON.
+    """
+    from ..config import WinMLBuildConfig
+
+    try:
+        content = config_path.read_text()
+        if not content.strip():
+            raise click.UsageError(f"Config file is empty: {config_path}")
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"Invalid JSON in build config: {e}") from e
+
+    if not isinstance(data, dict):
+        raise click.UsageError(
+            f"Build config must be a JSON object, got {type(data).__name__}"
+        )
+
+    return WinMLBuildConfig.from_dict(data)
+
+
+def is_cli_provided(ctx: click.Context, param_name: str) -> bool:
+    """Check whether a CLI parameter was explicitly provided by the user.
+
+    Args:
+        ctx: Click context.
+        param_name: The parameter name (Python name, e.g. 'model').
+
+    Returns:
+        True if the user explicitly passed the option on the command line.
+    """
+    source = ctx.get_parameter_source(param_name)
+    return source == click.core.ParameterSource.COMMANDLINE

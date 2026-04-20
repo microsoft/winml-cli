@@ -381,7 +381,7 @@ class TestActionItemModelRewrite:
         action_items = entry["actions"][0]["action_items"]
         assert len(action_items) == 1
         assert action_items[0]["type"] == "GraphOptimization"
-        assert action_items[0]["optimization_options"] == {"highdimRTR-lowdimRTR": True}
+        assert action_items[0]["optimization_options"] == {"highdimRTR_lowdimRTR": True}
 
     def test_qc_information_json_has_transpose_attention_entry(self):
         """Test that qc_information.json has the QC-specific TransposeAttentionPattern entry."""
@@ -408,7 +408,7 @@ class TestActionItemModelRewrite:
         action_items = entry["actions"][0]["action_items"]
         assert len(action_items) == 1
         assert action_items[0]["type"] == "GraphOptimization"
-        assert action_items[0]["optimization_options"] == {"attention-expandedattention": True}
+        assert action_items[0]["optimization_options"] == {"attention_expandedattention": True}
 
     def test_default_information_json_does_not_have_transpose_attention_entry(self):
         """Test that TransposeAttentionPattern is NOT in default_information.json (QC-specific)."""

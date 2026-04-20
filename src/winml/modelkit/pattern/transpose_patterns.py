@@ -312,6 +312,11 @@ class ReshapeTransposeReshapeOverlyHighDimPattern(Pattern):
             return None
         return result
 
+    @property
+    def pattern_id(self) -> str:
+        """Return pattern ID matching the information rule configuration."""
+        return f"SUBGRAPH/{type(self).__name__}"
+
     def get_schema(self) -> PatternSchema:
         """Return the schema definition for ReshapeTransposeReshape pattern.
 
@@ -608,6 +613,11 @@ class ReshapeTransposeReshapeLowDimPattern(ReshapeTransposeReshapeOverlyHighDimP
         }
 
         return internal_constants, internal_attributes
+
+    @property
+    def pattern_id(self) -> str:
+        """Return pattern ID matching the information rule configuration."""
+        return f"SUBGRAPH/{type(self).__name__}"
 
     def get_schema(self) -> PatternSchema:
         """Return the schema definition for ReshapeTransposeReshapeLowDim pattern."""
