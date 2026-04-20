@@ -208,6 +208,7 @@ class ResilientRunner:
                     try:
                         proc.kill()
                     except Exception:
+                        # Best-effort cleanup: ignore kill failures so retry flow can continue.
                         pass
                 self.executor = self._new_executor()
                 if attempts >= self.max_retries:
