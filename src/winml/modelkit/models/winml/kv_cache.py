@@ -13,19 +13,24 @@ Hierarchy::
 
 Cache type compatibility:
 
-- **WinMLStaticCache**: Required for models using learned relative position bias
-  (T5, mBART) where ``buffer_position == sequence_position`` must hold.
-  ``T5Attention.compute_bias`` uses ``memory_position = arange(key_length)``
-  so KV entries must stay at their original buffer positions.
+- **WinMLStaticCache**: ``index_copy_`` at ``cache_position`` keeps
+  ``buffer_position == sequence_position``.  Cannot evict — ``max_cache_len``
+  must be ≥ total generated tokens.
 
-- **WinMLSlidingWindowCache**: Compatible with models using RoPE (Mu2, Llama)
-  where position encoding is baked into K/V tensors.  Buffer positions don't
-  matter — attention scores depend only on the RoPE embeddings in each K.
+- **WinMLSlidingWindowCache**: Slice+Concat eviction; works for RoPE models
+  (Mu2, Qwen, Llama) where position is baked into K when K is computed, and
+  for learned relative position bias (T5) as long as the wrapper feeds
+  ``cache_position`` as the query's *buffer index* (see
+  ``get_query_cache_position``).  The invariant ``cache_position = buffer_idx
+  of query`` makes ``j - cache_position`` the correct relative distance for
+  both cache types, so no per-model compute_bias patch is required.
 
 Common interface (called by ``WinMLEncoderDecoderModel.forward``):
 
 - ``position_input_name``: ONNX input name (``"cache_position"`` or ``"position_id"``)
-- ``build_decoder_mask(max_len)``: attention mask for current step
+- ``build_decoder_mask(max_len)``: 2D attention mask for current step
+- ``get_query_cache_position(max_len)``: buffer indices of query tokens
+  (used by HF's ``create_causal_mask`` and by T5's ``compute_bias``)
 - ``update_all_layers(outputs)``: write present KV from ONNX output, advance step
 - ``reset()``: zero out for new generation
 - ``create(config, kv_shape, dtype)``: factory from ONNX metadata
@@ -86,6 +91,20 @@ class WinMLCache(StaticCache):
             max_len: Total cache buffer length.
             num_new_tokens: Number of new tokens being added (1 for gen,
                 chunk_len for prefill).
+        """
+
+    @abstractmethod
+    def get_query_cache_position(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
+        """Buffer indices of the query tokens for HF's ``cache_position`` input.
+
+        HF's ``create_causal_mask`` uses ``cache_position`` as the query's
+        *buffer index* (``kv_idx <= q_idx``).  For static cache the buffer index
+        equals the sequence position (``step``); for sliding window it is the
+        rightmost slot(s) because new tokens are written at the right end.
+
+        Returns:
+            ``[num_new_tokens]`` int64 tensor of buffer positions for the new
+            tokens being processed this step.
         """
 
     @abstractmethod
@@ -192,6 +211,12 @@ class WinMLStaticCache(WinMLCache):
         mask[0, : self.step + num_new_tokens] = 1
         return mask
 
+    def get_query_cache_position(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
+        """Buffer index == sequence position for static cache: ``[step..step+N)``."""
+        import torch
+
+        return torch.arange(self.step, self.step + num_new_tokens, dtype=torch.int64)
+
     def prepare_prefill_chunk(
         self,
         chunk_ids: torch.Tensor,
@@ -261,6 +286,19 @@ class WinMLSlidingWindowCache(WinMLCache):
         mask = torch.zeros(1, max_len, dtype=torch.int64)
         mask[0, max(0, max_len - filled) :] = 1
         return mask
+
+    def get_query_cache_position(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
+        """Query tokens sit at the rightmost ``num_new_tokens`` buffer slots.
+
+        Because new tokens are always written at the right end of the buffer
+        (Slice+Concat), the query's buffer index is ``[max_len-N..max_len)`` —
+        independent of the absolute sequence position.  HF's causal mask
+        then allows attention to every prior buffer slot (``j <= max_len-1``),
+        and the 2D ``build_decoder_mask`` selects the filled region within that.
+        """
+        import torch
+
+        return torch.arange(max_len - num_new_tokens, max_len, dtype=torch.int64)
 
     def prepare_prefill_chunk(
         self,

@@ -38,14 +38,20 @@ Cache-type gotchas (lessons learned):
   column 0.  For single-token KV-cached decoding, the decoder_attention_mask
   alone is sufficient — no tril needed.
 
-- **RoPE position vs buffer position**: With ``WinMLSlidingWindowCache``,
-  the ONNX input is ``position_id`` (absolute sequence position for RoPE).
-  With ``WinMLStaticCache``, it's ``cache_position`` (= buffer position =
-  sequence position).
+- **Position inputs, two roles**: ``forward`` seeds ``cache_position`` from
+  ``cache.get_query_cache_position(...)`` (the query's *buffer index* — used by
+  HF's causal mask ``kv_idx <= q_idx`` and by T5's ``compute_bias``) and
+  ``position_id`` from the absolute sequence step (used by RoPE models).
+  ``pad_inputs`` then filters to whatever the decoder ONNX actually declares,
+  so T5 (consumes ``cache_position``) and Mu2 (consumes ``position_id``) share
+  the same wrapper code.
 
-- **T5 cannot use sliding window**: ``T5Attention.compute_bias`` assumes
-  ``buffer_position == sequence_position`` via ``arange(key_length)``.
-  See ``WinMLT5Model.get_cache_class()`` for details.
+- **T5 on sliding window**: Works without any ``compute_bias`` patch because
+  ``WinMLSlidingWindowCache.get_query_cache_position`` returns
+  ``[max_cache_len - 1]`` (the rightmost buffer slot).  With that value,
+  ``memory_position - context_position = j - (W-1)`` yields the correct
+  negative distances for all buffer slots, and the 2D right-aligned mask
+  selects the filled region.
 """
 
 from __future__ import annotations
@@ -305,7 +311,19 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         feeds: dict[str, Any] = dict(model_kwargs)
         feeds.setdefault("encoder_hidden_states", enc_h.detach())
         feeds.setdefault("decoder_attention_mask", dec_mask)
-        feeds.setdefault(cache.position_input_name, torch.tensor([fc], dtype=torch.int64))
+        # Feed all position-like names; pad_inputs filters to self._dec_expected.
+        # Decouples the cache class from the decoder ONNX's chosen input name.
+        #
+        # "cache_position": buffer index of the query token — used by HF's
+        #   create_causal_mask (``kv_idx <= q_idx``) and by T5.compute_bias.
+        #   For WinMLStaticCache this equals ``step`` (buffer == seq position);
+        #   for WinMLSlidingWindowCache it is the rightmost buffer slot(s).
+        # "position_id": absolute sequence position — used by RoPE-based models
+        #   (Mu2) that compute positional encoding from the actual seq position.
+        cache_pos = cache.get_query_cache_position(self._max_dec).to(torch.int64)
+        seq_pos = torch.tensor([fc], dtype=torch.int64)
+        feeds.setdefault("cache_position", cache_pos)
+        feeds.setdefault("position_id", seq_pos)
         for i in range(self._num_kv_layers):
             feeds[f"past_{i}_key"] = cache.layers[i].keys.detach()
             feeds[f"past_{i}_value"] = cache.layers[i].values.detach()
