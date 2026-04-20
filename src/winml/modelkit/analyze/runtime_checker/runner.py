@@ -202,8 +202,9 @@ class ResilientRunner:
         """Best-effort process kill that never raises."""
         try:
             proc.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            # Keep cleanup non-fatal, but surface the failure for diagnostics.
+            print(f"Warning: failed to kill worker process: {e}", file=sys.stderr)
 
     @staticmethod
     def _close_process(proc: Any) -> None:
