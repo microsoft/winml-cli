@@ -719,7 +719,7 @@ if __name__ == "__main__":
                 domain = ONNXDomain.from_str(op_domain)
                 try:
                     schema = domain.get_op_schema(op_name, opset_version)
-                    input_generator = get_runtime_checker_op(op_name)(
+                    input_generator = get_runtime_checker_op(op_name, domain=op_domain)(
                         schema, qdq_generator=qdq_generator if is_qdq else None
                     )
                 except SchemaError:
