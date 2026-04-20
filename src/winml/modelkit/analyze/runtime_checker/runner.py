@@ -211,8 +211,8 @@ class ResilientRunner:
         """Best-effort process close that never raises."""
         try:
             proc.close()
-        except Exception:
-            pass
+        except Exception as ex:
+            print(f"Warning: failed to close process: {ex}", file=sys.stderr)
 
     def _shutdown_executor_two_phase(
         self,
