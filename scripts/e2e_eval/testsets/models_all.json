@@ -700,6 +700,16 @@
     "optimum_supported": true
   },
   {
+    "hf_id": "google/flan-t5-base",
+    "task": "summarization",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1372124,
+    "last_update_time": "2023-07-17T12:48:39+00:00",
+    "optimum_supported": true
+  },
+  {
     "hf_id": "google-t5/t5-base",
     "task": "translation",
     "model_type": "t5",
@@ -797,6 +807,16 @@
     "priority": "P1",
     "downloads": 356428,
     "last_update_time": "2023-11-27T15:58:35+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/flan-t5-base",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1372124,
+    "last_update_time": "2023-07-17T12:48:39+00:00",
     "optimum_supported": true
   },
   {
@@ -1697,6 +1717,16 @@
     "priority": "P1",
     "downloads": 98025,
     "last_update_time": "2023-12-11T14:31:20+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 20249,
+    "last_update_time": "2022-08-13T08:28:13+00:00",
     "optimum_supported": true
   },
   {
