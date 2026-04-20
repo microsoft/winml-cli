@@ -7,7 +7,6 @@
 
 Public API:
     InferenceEngine       — stateful model loader + HF pipeline runner
-    APISchemaGenerator    — OpenAI tool-definition generator
     TASK_REGISTRY         — task → input schema + pipeline mapping
     InputField, PipelineMapping, TaskInputSpec — schema dataclasses
     BINARY_TYPES          — frozenset of binary input types
@@ -15,7 +14,6 @@ Public API:
 """
 
 from .engine import InferenceEngine
-from .schema_generator import APISchemaGenerator
 from .tasks import (
     BINARY_TYPES,
     TASK_REGISTRY,
@@ -29,7 +27,6 @@ from .types import Prediction, PredictionResult
 __all__ = [
     "BINARY_TYPES",
     "TASK_REGISTRY",
-    "APISchemaGenerator",
     "InferenceEngine",
     "InputField",
     "PipelineMapping",

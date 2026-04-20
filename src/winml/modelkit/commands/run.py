@@ -224,16 +224,71 @@ def _resolve_shortcuts(
 # ---------------------------------------------------------------------------
 
 
-def _print_schema(engine: Any) -> None:
-    """Print model schema (inputs + parameters) and exit."""
-    click.echo()
-    click.echo(f"Model: {engine.model_id or 'unknown'}")
-    click.echo(f"Task:  {engine.task or 'unknown'}")
-    click.echo()
+def _print_schema(
+    engine: Any,
+    *,
+    output_format: str = "text",
+    output_path: str | None = None,
+) -> None:
+    """Print model schema (inputs + parameters) and exit.
+
+    Respects --format (text/json) and -o (output file).
+    """
+    if output_format == "json":
+        text = json.dumps(_schema_to_dict(engine), indent=2)
+    else:
+        text = _schema_to_text(engine)
+
+    if output_path:
+        Path(output_path).write_text(text, encoding="utf-8")
+    else:
+        click.echo(text)
+
+
+def _schema_to_dict(engine: Any) -> dict[str, Any]:
+    """Build schema as a JSON-serialisable dict."""
+    schema = engine.user_input_schema
+    params = engine.pipeline_params
+
+    result: dict[str, Any] = {
+        "model": engine.model_id or engine.model_path or "unknown",
+        "task": engine.task or "unknown",
+    }
+
+    if schema:
+        result["inputs"] = [
+            {
+                "name": f.name,
+                "type": f.type,
+                "required": f.required,
+                "description": f.description,
+                **({"default": f.default} if f.default is not None else {}),
+            }
+            for f in schema
+        ]
+    else:
+        result["inputs"] = []
+
+    result["parameters"] = params or []
+
+    example = _build_example_command(engine.model_path or "MODEL", schema, params)
+    if example:
+        result["example"] = example
+
+    return result
+
+
+def _schema_to_text(engine: Any) -> str:
+    """Build schema as human-readable text."""
+    lines: list[str] = []
+    lines.append("")
+    lines.append(f"Model: {engine.model_id or engine.model_path or 'unknown'}")
+    lines.append(f"Task:  {engine.task or 'unknown'}")
+    lines.append("")
 
     schema = engine.user_input_schema
     if schema:
-        click.echo("Inputs (--input / -I):")
+        lines.append("Inputs (--input / -I):")
         for f in schema:
             if f.required:
                 req = "(required)"
@@ -241,27 +296,27 @@ def _print_schema(engine: Any) -> None:
                 req = f"(default: {f.default})"
             else:
                 req = "(optional)"
-            click.echo(f"  {f.name:<16s} {f.type:<8s} {req}  {f.description}")
+            lines.append(f"  {f.name:<16s} {f.type:<8s} {req}  {f.description}")
     else:
-        click.echo("Inputs: (no schema — pass inputs directly)")
+        lines.append("Inputs: (no schema — pass inputs directly)")
 
-    click.echo()
+    lines.append("")
     params = engine.pipeline_params
     if params:
-        click.echo("Parameters (-P):")
+        lines.append("Parameters (-P):")
         for p in params:
             default_str = f"(default: {p['default']})" if "default" in p else ""
-            click.echo(f"  {p['name']:<16s} {p['type']:<8s} {default_str}")
+            lines.append(f"  {p['name']:<16s} {p['type']:<8s} {default_str}")
     else:
-        click.echo("Parameters: (none discovered)")
+        lines.append("Parameters: (none discovered)")
 
-    # Print a ready-to-copy example command
     example = _build_example_command(engine.model_path or "MODEL", schema, params)
     if example:
-        click.echo()
-        click.echo("Example:")
-        click.echo(f"  {example}")
-    click.echo()
+        lines.append("")
+        lines.append("Example:")
+        lines.append(f"  {example}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 # Placeholder values for --schema example, keyed by InputField.type
@@ -511,7 +566,9 @@ def run(
     # ------------------------------------------------------------------
     # Try auto-connect to running winml serve
     # ------------------------------------------------------------------
-    if connect and has_inputs:
+    # --schema always uses the embedded path (needs local engine for
+    # param discovery), so skip auto-connect when schema is requested.
+    if connect and has_inputs and not show_schema:
         result = _try_server_predict(
             port=port,
             model_path=model,
@@ -523,6 +580,13 @@ def run(
         if result is not None:
             _print_result(result, output_format=output_format, output_path=output)
             return
+
+    if connect and not has_inputs and not show_schema:
+        click.echo(
+            "Warning: --connect ignored — no inputs provided. "
+            "Add --text, --file, or --input to run inference via the server.",
+            err=True,
+        )
 
     # ------------------------------------------------------------------
     # Embedded inference
@@ -538,7 +602,7 @@ def run(
 
     # --schema: print schema and exit
     if show_schema:
-        _print_schema(engine)
+        _print_schema(engine, output_format=output_format, output_path=output)
         return
 
     # No inputs: print hint and exit
@@ -548,24 +612,31 @@ def run(
 
     # Coerce --input values based on schema types
     schema = engine.user_input_schema
-    coerced_inputs = _coerce_inputs(raw_inputs, schema)
-
-    # Check --input / -P collision
-    collision = set(coerced_inputs.keys()) & set(pipeline_kwargs.keys())
-    if collision:
-        key = sorted(collision)[0]
-        click.echo(
-            f"Error: '{key}' specified as both --input and -P. "
-            f"Use --input for model inputs and -P for pipeline parameters.",
-            err=True,
-        )
+    try:
+        coerced_inputs = _coerce_inputs(raw_inputs, schema)
+    except click.ClickException as exc:
+        click.echo(f"Error: {exc.format_message()}", err=True)
         ctx.exit(2)
+        return
 
     # Merge --file/--text shortcuts with --input
     try:
         inputs = _resolve_shortcuts(file_bytes_list, text, coerced_inputs, schema)
     except click.ClickException as exc:
         click.echo(f"Error: {exc.format_message()}", err=True)
+        ctx.exit(2)
+        return
+
+    # Check input / -P collision (after shortcuts are resolved so that
+    # --file and --text shortcut keys are included in the check)
+    collision = set(inputs.keys()) & set(pipeline_kwargs.keys())
+    if collision:
+        key = sorted(collision)[0]
+        click.echo(
+            f"Error: '{key}' specified as both input and -P. "
+            f"Use --input for model inputs and -P for pipeline parameters.",
+            err=True,
+        )
         ctx.exit(2)
 
     try:
@@ -620,23 +691,17 @@ def _try_server_predict(
             # Route 1: file present → multipart /v1/predict/file
             #   The server resolves the correct schema field name via
             #   _build_file_inputs, so we don't need to know it here.
-            #   The endpoint supports an optional `text` form field too.
+            #   The endpoint supports optional `text` and `inputs` form
+            #   fields for multimodal and zero-shot tasks.
             if file_paths:
-                if raw_inputs:
-                    # Can't forward arbitrary --input via multipart; fall
-                    # back to embedded inference (client doesn't know the
-                    # schema field names the server expects).
-                    logger.debug(
-                        "Auto-connect: --file + --input not supported via server — "
-                        "using embedded inference"
-                    )
-                    return None
                 fp = Path(file_paths[0])
                 form_data: dict[str, str] = {
                     "params": json.dumps(pipeline_kwargs),
                 }
                 if text is not None:
                     form_data["text"] = text
+                if raw_inputs:
+                    form_data["inputs"] = json.dumps(raw_inputs)
                 with fp.open("rb") as f:
                     resp = client.post(
                         f"{base_url}/v1/predict/file",
@@ -649,8 +714,10 @@ def _try_server_predict(
                 return resp.json()
 
             # Route 2: no file → JSON /v1/predict with named inputs
+            #   Coerce raw CLI strings (JSON arrays, numbers, booleans)
+            #   so the server receives properly typed values.
             inputs: dict[str, Any] = {}
-            inputs.update(raw_inputs)
+            inputs.update({k: _parse_heuristic(v) for k, v in raw_inputs.items()})
             if text is not None:
                 inputs["text"] = text
 

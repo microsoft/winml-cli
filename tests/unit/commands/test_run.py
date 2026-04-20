@@ -815,6 +815,58 @@ class TestTryServerPredict:
         assert params["top_k"] == 3
         assert params["threshold"] == 0.5
 
+    def test_file_with_raw_inputs_forwards_inputs_field(self, tmp_path: Path) -> None:
+        """--file + --input forwards raw_inputs as 'inputs' JSON form field."""
+        img = tmp_path / "img.jpg"
+        img.write_bytes(b"fake")
+
+        ctx = self._make_client_mock(
+            health_json={"model_id": "m"},
+            predict_json={"predictions": []},
+        )
+        with patch("httpx.Client", return_value=ctx):
+            result = _try_server_predict(
+                port=8000,
+                model_path="m",
+                file_paths=(str(img),),
+                text=None,
+                raw_inputs={"candidate_labels": '["cat","dog"]'},
+                pipeline_kwargs=_DEFAULT_KWARGS,
+            )
+
+        assert result is not None
+        client = ctx.__enter__.return_value
+        call_args = client.post.call_args
+        assert "/v1/predict/file" in call_args.args[0]
+        form_data = call_args.kwargs["data"]
+        extra = json.loads(form_data["inputs"])
+        assert extra["candidate_labels"] == '["cat","dog"]'
+
+    def test_file_with_text_and_raw_inputs(self, tmp_path: Path) -> None:
+        """--file + --text + --input forwards all three via multipart."""
+        img = tmp_path / "img.jpg"
+        img.write_bytes(b"fake")
+
+        ctx = self._make_client_mock(
+            health_json={"model_id": "m"},
+            predict_json={"predictions": []},
+        )
+        with patch("httpx.Client", return_value=ctx):
+            result = _try_server_predict(
+                port=8000,
+                model_path="m",
+                file_paths=(str(img),),
+                text="What is this?",
+                raw_inputs={"top_k": "3"},
+                pipeline_kwargs={},
+            )
+
+        assert result is not None
+        client = ctx.__enter__.return_value
+        form_data = client.post.call_args.kwargs["data"]
+        assert form_data["text"] == "What is this?"
+        assert "inputs" in form_data
+
     def test_custom_port(self) -> None:
         expected = {"predictions": []}
         ctx = self._make_client_mock(

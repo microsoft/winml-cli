@@ -517,7 +517,7 @@ class InferenceEngine:
         if self._task is None or self._model is None:
             return None
 
-        from ..pipeline import create_pipeline
+        from .pipeline import create_pipeline
 
         return create_pipeline(self._task, self._model, self._model_id)
 

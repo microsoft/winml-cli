@@ -38,7 +38,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
-from ..inference import APISchemaGenerator, InferenceEngine
+from ..inference import InferenceEngine
 from ..inference.types import PredictionResult
 from .cli_api import CliRequest, CliResponse, _run_with_semaphore
 from .manager import ModelSlotManager, SingleModelManager
@@ -53,6 +53,7 @@ from .schema import (
     ResourceResponse,
     ToolsResponse,
 )
+from .schema_generator import APISchemaGenerator
 
 
 logger = logging.getLogger(__name__)
@@ -239,6 +240,14 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
             None, description="Task hint for routing, e.g. 'image-classification'"
         ),
         text: str | None = Form(None, description="Text input for multimodal tasks"),
+        inputs: str = Form(
+            "{}",
+            description=(
+                "JSON object of additional named inputs beyond file/text. "
+                'E.g. {"candidate_labels": ["cat","dog"]} for zero-shot tasks. '
+                "Binary values must be base64-encoded."
+            ),
+        ),
         params: str = Form(
             "{}",
             description='JSON pipeline parameters (e.g. {"top_k": 5, "threshold": 0.5})',
@@ -249,16 +258,44 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         if len(data) > 20 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
         try:
+            extra_inputs = json.loads(inputs)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid inputs JSON: {exc}") from exc
+        try:
             pipe_params = json.loads(params)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid params JSON: {exc}") from exc
         try:
             async with mgr.borrow(model_id, task=task) as engine:
                 loop = asyncio.get_running_loop()
-                inputs = _build_file_inputs(data, text, engine.user_input_schema)
+                base_inputs = _build_file_inputs(data, text, engine.user_input_schema)
+
+                # Decode base64 for any binary-typed extra inputs
+                extra = _decode_rest_inputs(extra_inputs, engine.user_input_schema)
+
+                # Collision: same key in file/text auto-mapped AND explicit inputs
+                collision = set(base_inputs.keys()) & set(extra.keys())
+                if collision:
+                    key = sorted(collision)[0]
+                    raise ValueError(
+                        f"'{key}' provided by both file/text upload and inputs field. "
+                        "Remove the duplicate."
+                    )
+
+                merged = {**base_inputs, **extra}
+
+                # Collision: inputs vs params
+                collision = set(merged.keys()) & set(pipe_params.keys())
+                if collision:
+                    key = sorted(collision)[0]
+                    raise ValueError(
+                        f"'{key}' specified in both inputs and params. "
+                        "Use inputs for model inputs and params for pipeline parameters."
+                    )
+
                 return await loop.run_in_executor(
                     None,
-                    lambda: engine.predict(inputs=inputs, **pipe_params),
+                    lambda: engine.predict(inputs=merged, **pipe_params),
                 )
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

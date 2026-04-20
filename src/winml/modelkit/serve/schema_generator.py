@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .tasks import BINARY_TYPES, TASK_REGISTRY
+from ..inference.tasks import BINARY_TYPES, TASK_REGISTRY
 
 
 # user_inputs type → JSON Schema for tool generation
