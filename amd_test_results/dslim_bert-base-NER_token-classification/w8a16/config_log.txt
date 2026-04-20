@@ -1,0 +1,22 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f4cb CONFIG GENERATION
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:         dslim/bert-base-NER
+   \U0001f9e9 Model class:   AutoModelForTokenClassification  (auto-detected)
+   \U0001f3f7\ufe0f Task:          token-classification
+
+   Input:        input_ids          [1, 512]       int32
+                 attention_mask     [1, 512]       int32
+                 token_type_ids     [1, 512]       int32
+   Output:       logits
+
+   \u2699\ufe0f  Resolution:
+      Device:     NPU
+      EP:         VitisAIExecutionProvider
+      Quant:      uint8/uint16  (weight/activation)
+
+   \u2705 Config saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-b
+ase-NER_token-classification\w8a16\config.json
+

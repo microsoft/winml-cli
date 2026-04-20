@@ -1,0 +1,4 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\BAAI_bge-sma
+ll-en-v1.5_sentence-similarity\w8a16\build\quantized.onnx
+check failure: graph.GetNodeArg(name) == nullptrnode arg pooler.dense.weight_quantizedtrans already exists. 

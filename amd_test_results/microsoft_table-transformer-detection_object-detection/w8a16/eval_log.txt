@@ -1,0 +1,16 @@
+[2026-04-20T01:04:51] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 240, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 195, in evaluate
+    task_evaluator = cls(config, model)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\object_detection_evaluator.py", line 88, in __init__
+    super().__init__(config, model)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 50, in __init__
+    self.data = self.prepare_data()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 126, in prepare_data
+    return self.align_labels(dataset, ds)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\object_detection_evaluator.py", line 133, in align_labels
+    raise ValueError(
+ValueError: Dataset label 'person' not in model's label2id. Model labels: ['table', 'table rotated']
+Error: Evaluation failed: Dataset label 'person' not in model's label2id. Model labels: ['table', 'table rotated']

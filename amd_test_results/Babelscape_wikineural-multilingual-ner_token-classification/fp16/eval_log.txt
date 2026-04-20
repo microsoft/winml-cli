@@ -1,0 +1,252 @@
+[2026-04-19T22:59:30] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+
+=== Collected Cache Files (v5 testing) ===
+VFS mode enabled: YES
+Total files: 2
+  [0] partition-info.json (208 bytes)
+  [1] fail_safe_summary.json (87 bytes)
+==========================================
+
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-9
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+ld.lld: warning: :(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: :(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.tctmemstrtab) is being placed in '.tctmemstrtab'
+ld.lld: warning: <internal>:(.tctmemtabl) is being placed in '.tctmemtabl'
+ld.lld: warning: <internal>:(.tctmemtab) is being placed in '.tctmemtab'
+ld.lld: warning: <internal>:(.symtab) is being placed in '.symtab'
+ld.lld: warning: <internal>:(.shstrtab) is being placed in '.shstrtab'
+ld.lld: warning: <internal>:(.strtab) is being placed in '.strtab'
+ld.lld: warning: :(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(umodsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(udivsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.tctmemstrtab) is being placed in '.tctmemstrtab'
+ld.lld: warning: <internal>:(.tctmemtabl) is being placed in '.tctmemtabl'
+ld.lld: warning: <internal>:(.tctmemtab) is being placed in '.tctmemtab'
+ld.lld: warning: <internal>:(.symtab) is being placed in '.symtab'
+ld.lld: warning: <internal>:(.shstrtab) is being placed in '.shstrtab'
+ld.lld: warning: <internal>:(.strtab) is being placed in '.strtab'
+ld.lld: warning: :(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(umodsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(udivsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.tctmemstrtab) is being placed in '.tctmemstrtab'
+ld.lld: warning: <internal>:(.tctmemtabl) is being placed in '.tctmemtabl'
+ld.lld: warning: <internal>:(.tctmemtab) is being placed in '.tctmemtab'
+ld.lld: warning: <internal>:(.symtab) is being placed in '.symtab'
+ld.lld: warning: <internal>:(.shstrtab) is being placed in '.shstrtab'
+ld.lld: warning: <internal>:(.strtab) is being placed in '.strtab'
+ld.lld: warning: :(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(umodsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(udivsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.tctmemstrtab) is being placed in '.tctmemstrtab'
+ld.lld: warning: <internal>:(.tctmemtabl) is being placed in '.tctmemtabl'
+ld.lld: warning: <internal>:(.tctmemtab) is being placed in '.tctmemtab'
+ld.lld: warning: <internal>:(.symtab) is being placed in '.symtab'
+ld.lld: warning: <internal>:(.shstrtab) is being placed in '.shstrtab'
+ld.lld: warning: <internal>:(.strtab) is being placed in '.strtab'
+ld.lld: warning: :(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o:(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(umodsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:\embedded\llvm_aie\lib\clang\20\lib\aie2p-none-unknown-elf\libclang_rt.builtins.a(udivsi3.c.o):(.comment) is being placed in '.comment'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.stack_sizes) is being placed in '.stack_sizes'
+ld.lld: warning: C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.comment) is being placed in '.comment'
+ld.lld: warning: <internal>:(.tctmemstrtab) is being placed in '.tctmemstrtab'
+ld.lld: warning: <internal>:(.tctmemtabl) is being placed in '.tctmemtabl'
+ld.lld: warning: <internal>:(.tctmemtab) is being placed in '.tctmemtab'
+ld.lld: warning: <internal>:(.symtab) is being placed in '.symtab'
+ld.lld: warning: <internal>:(.shstrtab) is being placed in '.shstrtab'
+ld.lld: warning: <internal>:(.strtab) is being placed in '.strtab'
+
++----------------------------------------------------+
+| Evaluation: Babelscape/wikineural-multilingual-ner |
++----------------------------------------------------+
+
+Task:       token-classification
+Device:     npu
+Dataset:    BramVanroy/conll2003
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_w
+ikineural-multilingual-ner_token-classification\fp16\build\optimized.onnx
+
++-----------------------------------------------------------------------------+
+| Metric                |                                               Value |
+|-----------------------+-----------------------------------------------------|
+| LOC                   |          precision=0.8500  recall=0.8226  f1=0.8361 |
+|                       |                                           number=62 |
+| MISC                  |          precision=0.4815  recall=0.5417  f1=0.5098 |
+|                       |                                           number=24 |
+| ORG                   |          precision=0.8214  recall=0.6389  f1=0.7187 |
+|                       |                                           number=36 |
+| PER                   |          precision=1.0000  recall=0.9818  f1=0.9908 |
+|                       |                                           number=55 |
+| overall_precision     |                                              0.8343 |
+| overall_recall        |                                              0.7966 |
+| overall_f1            |                                              0.8150 |
+| overall_accuracy      |                                              0.9673 |
+| total_time_in_seconds |                                              8.0808 |
+| samples_per_second    |                                             12.3749 |
+| latency_in_seconds    |                                              0.0808 |
++-----------------------------------------------------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_w
+ikineural-multilingual-ner_token-classification\fp16\eval.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o

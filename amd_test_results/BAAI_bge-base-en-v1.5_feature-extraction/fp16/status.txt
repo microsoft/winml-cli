@@ -1,0 +1,1 @@
+CONFIG PASS, BUILD optimized(quant_failed), PERF PASS, EVAL PASS

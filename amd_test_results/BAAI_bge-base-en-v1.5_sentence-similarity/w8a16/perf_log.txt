@@ -1,0 +1,18 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\BAAI_bge-bas
+e-en-v1.5_sentence-similarity\w8a16\build\quantized.onnx
+
+Device:      npu
+Inputs:      input_ids            [1, 512]               int32
+             attention_mask       [1, 512]               int32
+             token_type_ids       [1, 512]               int32
+Outputs:     last_hidden_state    [1, 512, 768]
+             1341                 [1, 768]
+
+ERROR: Kernel partition: 0, pdi_id: 0 timed out!
+Details: Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)
+[1;31m2026-04-19 22:00:27.4589512 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)[m
+Error: Benchmark failed: Inference failed | Context: error=[ONNXRuntimeError] :
+6 : RUNTIME_EXCEPTION : Non-zero status code returned while running 
+vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status 
+Message: No such query request (73)

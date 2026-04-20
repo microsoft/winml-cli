@@ -1,0 +1,37 @@
+[2026-04-19T23:06:13] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+
++---------------------------------+
+| Evaluation: dslim/bert-base-NER |
++---------------------------------+
+
+Task:       token-classification
+Device:     npu
+Dataset:    BramVanroy/conll2003
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-b
+ase-NER_token-classification\w8a8\build\quantized.onnx
+
++-----------------------------------------------------------------------------+
+| Metric                |                                               Value |
+|-----------------------+-----------------------------------------------------|
+| LOC                   |          precision=1.0000  recall=0.9677  f1=0.9836 |
+|                       |                                           number=62 |
+| MISC                  |          precision=0.9200  recall=0.9583  f1=0.9388 |
+|                       |                                           number=24 |
+| ORG                   |          precision=0.9714  recall=0.9444  f1=0.9577 |
+|                       |                                           number=36 |
+| PER                   |          precision=0.9821  recall=1.0000  f1=0.9910 |
+|                       |                                           number=55 |
+| overall_precision     |                                              0.9773 |
+| overall_recall        |                                              0.9718 |
+| overall_f1            |                                              0.9745 |
+| overall_accuracy      |                                              0.9967 |
+| total_time_in_seconds |                                             11.3920 |
+| samples_per_second    |                                              8.7781 |
+| latency_in_seconds    |                                              0.1139 |
++-----------------------------------------------------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-b
+ase-NER_token-classification\w8a8\eval.json

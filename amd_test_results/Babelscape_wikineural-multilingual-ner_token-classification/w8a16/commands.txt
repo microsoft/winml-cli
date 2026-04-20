@@ -1,0 +1,11 @@
+# Config
+winml config -m Babelscape/wikineural-multilingual-ner --task token-classification --ep vitisai --precision w8a16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_wikineural-multilingual-ner_token-classification\w8a16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_wikineural-multilingual-ner_token-classification\w8a16\config.json" -m Babelscape/wikineural-multilingual-ner -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_wikineural-multilingual-ner_token-classification\w8a16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_wikineural-multilingual-ner_token-classification\w8a16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id Babelscape/wikineural-multilingual-ner --task token-classification --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_wikineural-multilingual-ner_token-classification\w8a16\eval.json"

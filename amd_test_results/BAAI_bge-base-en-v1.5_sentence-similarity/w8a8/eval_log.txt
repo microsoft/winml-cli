@@ -1,0 +1,22 @@
+
++-----------------------------------+
+| Evaluation: BAAI/bge-base-en-v1.5 |
++-----------------------------------+
+
+Task:       sentence-similarity
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\BAAI_bge-bas
+e-en-v1.5_sentence-similarity\w8a8\build\quantized.onnx
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | 35.8895 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\BAAI_bge-bas
+e-en-v1.5_sentence-similarity\w8a8\eval.json

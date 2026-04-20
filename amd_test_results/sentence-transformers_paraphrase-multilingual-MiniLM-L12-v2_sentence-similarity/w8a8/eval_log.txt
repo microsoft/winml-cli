@@ -1,0 +1,24 @@
+
++-------------------------------------------------------------------------+
+| Evaluation: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 |
++-------------------------------------------------------------------------+
+
+Task:       sentence-similarity
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_sentence-similarity\w8a8\build\
+quantized.onnx
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | 78.8484 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_sentence-similarity\w8a8\eval.j
+son

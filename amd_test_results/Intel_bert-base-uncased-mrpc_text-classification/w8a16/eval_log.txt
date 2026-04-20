@@ -1,0 +1,46 @@
+ERROR: Kernel partition: 0, pdi_id: 0 timed out!
+Details: Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)
+[1;31m2026-04-20 00:29:18.5593426 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)[m
+[2026-04-20T00:29:18] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\session\session.py", line 377, in run
+    outputs = self._session.run(output_names, ort_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 287, in run
+    return self._sess.run(output_names, input_feed, run_options)
+onnxruntime.capi.onnxruntime_pybind11_state.RuntimeException: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 240, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 196, in evaluate
+    metrics = task_evaluator.compute()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 84, in compute
+    return task_evaluator.compute(**kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\evaluate\evaluator\text_classification.py", line 143, in compute
+    predictions, perf_results = self.call_pipeline(pipe, pipe_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\evaluate\evaluator\base.py", line 513, in call_pipeline
+    pipe_output = pipe(*args, **kwargs, **self.PIPELINE_KWARGS)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\text_classification.py", line 168, in __call__
+    result = super().__call__(*inputs, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1448, in __call__
+    outputs = list(final_iterator)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\pt_utils.py", line 126, in __next__
+    item = next(self.iterator)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\pt_utils.py", line 127, in __next__
+    processed = self.infer(item, **self.params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1374, in forward
+    model_outputs = self._forward(model_inputs, **forward_params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\text_classification.py", line 199, in _forward
+    return self.model(**model_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\base.py", line 173, in __call__
+    return self.forward(**kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\sequence_classification.py", line 67, in forward
+    outputs = self._run_inference(formatted)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\base.py", line 164, in _run_inference
+    outputs = self._session.run(inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\session\session.py", line 385, in run
+    raise InferenceError(
+winml.modelkit.session.session.InferenceError: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)

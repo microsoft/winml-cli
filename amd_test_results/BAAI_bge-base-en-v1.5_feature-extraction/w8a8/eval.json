@@ -1,0 +1,23 @@
+{
+  "model_id": "BAAI/bge-base-en-v1.5",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results\\BAAI_bge-base-en-v1.5_feature-extraction\\w8a8\\build\\quantized.onnx",
+  "task": "feature-extraction",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    },
+    "streaming": true
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results\\BAAI_bge-base-en-v1.5_feature-extraction\\w8a8\\eval.json",
+  "metrics": {
+    "cosine_spearman": 35.8895
+  }
+}

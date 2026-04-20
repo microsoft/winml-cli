@@ -1,0 +1,544 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f527 Setup — HuggingFace
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:     microsoft/table-transformer-detection  (pretrained)
+   \U0001f4c1 Config:    config.json
+   \U0001f4c2 Output:    
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a16\build
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f3af Stages
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+Some weights of the model checkpoint at microsoft/table-transformer-detection were not used when initializing TableTransformerForObjectDetection: ['model.backbone.conv_encoder.model.layer2.0.downsample.1.num_batches_tracked', 'model.backbone.conv_encoder.model.layer3.0.downsample.1.num_batches_tracked', 'model.backbone.conv_encoder.model.layer4.0.downsample.1.num_batches_tracked']
+- This IS expected if you are initializing TableTransformerForObjectDetection from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing TableTransformerForObjectDetection from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[04/20/26 00:54:49] WARNING  Output names count mismatch: config has 2         
+                             ['logits', 'pred_boxes'], model trace inferred 4  
+                             ['logits', 'pred_boxes', 'last_hidden_state',     
+                             'encoder_last_hidden_state']. Keeping config names
+                             (from Optimum OnnxConfig).                        
+\u2705 Export                                          12.2s
+   Model class:  AutoModelForObjectDetection
+   Task:         object-detection
+   Input:        pixel_values       [1, 3, 800, 800] float32
+   Output:       logits
+                 pred_boxes
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a16\build\export.onnx  (112.8 MB)
+[04/20/26 00:55:49] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/conv1/Conv):   
+                             input 'B' is optional and not provided, setting   
+                             value to None                                     
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:55:50] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:55:51] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:55:52] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:55:54] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:55:55] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+[04/20/26 00:55:56] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:55:58] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:12] WARNING  Action target pattern                             
+                             'SUBGRAPH/ReshapeGemmReshapePattern' not found in 
+                             alternatives for 'SUBGRAPH/GemmPattern'           
+[04/20/26 00:56:44] WARNING  No pattern matches found by PatternMatcher        
+[04/20/26 00:56:50] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/conv1/Conv):   
+                             input 'B' is optional and not provided, setting   
+                             value to None                                     
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:51] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:52] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:53] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:54] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:56] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+[04/20/26 00:56:57] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:56:59] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:22] WARNING  No pattern matches found by PatternMatcher        
+[04/20/26 00:57:28] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/conv1/Conv):   
+                             input 'B' is optional and not provided, setting   
+                             value to None                                     
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:29] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:30] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:31] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:32] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:33] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+[04/20/26 00:57:34] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:57:36] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+\u2705 Optimize                                        166.8s
+   Analyzing 691 nodes  (iter 1/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Patterns
+     Matmul Add  \u2192 matmul_add_fusion
+   Optimizing  (applying autoconf)
+     {'matmul_add_fusion': True}
+   Analyzing 713 nodes  (iter 2/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Autoconf converged after 2 iteration(s)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a16\build\optimized.onnx  (111.0 
+MB)
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+\u2705 Quantize                                        26.1s
+   Dataset:      default  (object-detection)
+   Calibration:  10 samples  (minmax)
+   Precision:    uint8/uint16  (weight/activation)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a16\build\quantized.onnx  (29.4 
+MB)
+[0;93m2026-04-20 00:59:44.4008800 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.0/encoder_attn/MatMul_output_0)_transposed, type = qlinear-matmul} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.0/encoder_attn/MatMul_output_0)_transposed, type = qlinear-matmul} can not find PDI kernel with aw type 81816 in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [16], weight data type is [USIGN]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:59:44.4494768 [W:onnxruntime:, PartitionPass.cpp:12529 PartitionPass.cpp] xir::Op{name = (pred_boxes)_replaced_input1223, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-20 00:59:44.4508943 [W:onnxruntime:, PartitionPass.cpp:12529 PartitionPass.cpp] xir::Op{name = (logits)_replaced_input1198, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-20 00:59:44.7087566 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.0/encoder_attn/Reshape_3_output_0_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 01:00:59.4561919 [W:onnxruntime:, DpuKernelRunner.cpp:1894 DpuKernelRunner.cpp] XRT run exception...[m
+F20260420 01:00:59.443949 18988 DpuKernelRunner.cpp:1918] DPU timeout: (Exception type: class xrt::run::command_error), Timeout layer name:[subgraph___bbox_predictor_layers_2_Add_output_0_], Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)
+[1;37;41m2026-04-20 01:00:59.4577384 [F:onnxruntime:, DpuKernelRunner.cpp:1918 DpuKernelRunner.cpp] DPU timeout: (Exception type: class xrt::run::command_error), Timeout layer name:[subgraph___bbox_predictor_layers_2_Add_output_0_], Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)[m
+[1;31m2026-04-20 01:00:59.5030386 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running vitis_ai_ep_2 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_2_1' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+[m
+[04/20/26 01:00:59] ERROR    Validation inference failed: [ONNXRuntimeError] : 
+                             6 : RUNTIME_EXCEPTION : Non-zero status code      
+                             returned while running vitis_ai_ep_2 node.        
+                             Name:'VitisAIExecutionProvider_vitis_ai_ep_2_1'   
+                             Status Message: public: int __cdecl               
+                             vaip_core::TarWriter::write(class                 
+                             vaip_core::IStreamReader const & __ptr64,class    
+                             std::basic_string<char,struct                     
+                             std::char_traits<char>,class std::allocator<char> 
+                             > const & __ptr64) __ptr64                        
+                             xir_deserialize_cif                               
+                             xir_deserialize_cif                               
+                             xir_deserialize_cif                               
+                             RtlCaptureContext2                                
+                             vaiml_register_dynamic_custom_op_by_schema        
+                             vaiml_register_dynamic_custom_op_by_schema        
+                             vaiml_register_dynamic_custom_op_by_schema        
+                             vaiml_register_dynamic_custom_op_by_schema        
+                             vaiml_register_dynamic_custom_op_by_schema        
+                             public: class vaip_core::TryFuseProto * __ptr64   
+                             __cdecl                                           
+                             vaip_core::DpuSubgraphEntryProto::mutable_try_fuse
+                             (void) __ptr64                                    
+                             public: class vaip_core::TryFuseProto * __ptr64   
+                             __cdecl                                           
+                             vaip_core::DpuSubgraphEntryProto::mutable_try_fuse
+                             (void) __ptr64                                    
+                             (unknown)                                         
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             PyInit_onnxruntime_pybind11_state                 
+                             (unknown)                                         
+                             PyList_New                                        
+                             _PyObject_MakeTpCall                              
+                             _Py_gitversion                                    
+                                                                               
+\u274c Compile  Validation inference failed: [ONNXRuntimeError] : 6 : 
+RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_2 
+node. Name:'VitisAIExecutionProvider_vitis_ai_ep_2_1' Status Message: public: 
+int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & 
+__ptr64,class std::basic_string<char,struct std::char_traits<char>,class 
+std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl 
+vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl 
+vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+
+   \u274c Build failed: Compilation failed: Validation inference failed: 
+[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned 
+while running vitis_ai_ep_2 node. 
+Name:'VitisAIExecutionProvider_vitis_ai_ep_2_1' Status Message: public: int 
+__cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & 
+__ptr64,class std::basic_string<char,struct std::char_traits<char>,class 
+std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl 
+vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl 
+vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+
+   \U0001f4a1 Try: --no-compile to skip compilation
+
+Error: Build failed: Compilation failed: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_2 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_2_1' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+

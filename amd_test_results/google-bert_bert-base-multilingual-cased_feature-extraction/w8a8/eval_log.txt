@@ -1,0 +1,22 @@
+
++------------------------------------------------------+
+| Evaluation: google-bert/bert-base-multilingual-cased |
++------------------------------------------------------+
+
+Task:       feature-extraction
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_
+bert-base-multilingual-cased_feature-extraction\w8a8\build\quantized.onnx
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | 10.1814 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_
+bert-base-multilingual-cased_feature-extraction\w8a8\eval.json

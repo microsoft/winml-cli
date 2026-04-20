@@ -1,0 +1,11 @@
+# Config
+winml config -m sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --task feature-extraction --ep vitisai --precision w8a8 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\config.json" -m sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --task feature-extraction --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\eval.json"

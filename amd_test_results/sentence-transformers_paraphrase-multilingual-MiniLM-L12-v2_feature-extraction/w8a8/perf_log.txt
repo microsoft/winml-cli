@@ -1,0 +1,28 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\build\q
+uantized.onnx
+
+Device:      npu
+Inputs:      input_ids            [1, 512]               int32
+             attention_mask       [1, 512]               int32
+             token_type_ids       [1, 512]               int32
+Outputs:     last_hidden_state    [1, 512, 384]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++----------------------------------------------------------------+
+|   Avg |   P50 |   P90 |   P95 |    P99 |   Min |    Max |  Std |
+|-------+-------+-------+-------+--------+-------+--------+------|
+| 71.30 | 70.07 | 76.47 | 81.01 | 110.04 | 65.63 | 110.04 | 5.48 |
++----------------------------------------------------------------+
+
+Throughput: 14.03 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\perf.js
+on

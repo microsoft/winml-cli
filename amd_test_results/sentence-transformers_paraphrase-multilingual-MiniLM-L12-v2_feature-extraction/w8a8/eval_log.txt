@@ -1,0 +1,24 @@
+
++-------------------------------------------------------------------------+
+| Evaluation: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 |
++-------------------------------------------------------------------------+
+
+Task:       feature-extraction
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\build\q
+uantized.onnx
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | 78.8484 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction\w8a8\eval.js
+on

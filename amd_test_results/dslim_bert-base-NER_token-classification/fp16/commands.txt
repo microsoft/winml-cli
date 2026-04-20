@@ -1,0 +1,11 @@
+# Config
+winml config -m dslim/bert-base-NER --task token-classification --ep vitisai --precision fp16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-base-NER_token-classification\fp16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-base-NER_token-classification\fp16\config.json" -m dslim/bert-base-NER -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-base-NER_token-classification\fp16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-base-NER_token-classification\fp16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id dslim/bert-base-NER --task token-classification --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\dslim_bert-base-NER_token-classification\fp16\eval.json"

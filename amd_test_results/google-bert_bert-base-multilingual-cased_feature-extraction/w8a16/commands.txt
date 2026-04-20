@@ -1,0 +1,11 @@
+# Config
+winml config -m google-bert/bert-base-multilingual-cased --task feature-extraction --ep vitisai --precision w8a16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_bert-base-multilingual-cased_feature-extraction\w8a16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_bert-base-multilingual-cased_feature-extraction\w8a16\config.json" -m google-bert/bert-base-multilingual-cased -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_bert-base-multilingual-cased_feature-extraction\w8a16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_bert-base-multilingual-cased_feature-extraction\w8a16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id google-bert/bert-base-multilingual-cased --task feature-extraction --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\google-bert_bert-base-multilingual-cased_feature-extraction\w8a16\eval.json"

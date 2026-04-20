@@ -1,0 +1,26 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Intel_bert-b
+ase-uncased-mrpc_text-classification\w8a8\build\quantized.onnx
+
+Device:      npu
+Inputs:      input_ids            [1, 512]               int32
+             attention_mask       [1, 512]               int32
+             token_type_ids       [1, 512]               int32
+Outputs:     logits               [1, 2]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++---------------------------------------------------------------------+
+|    Avg |    P50 |    P90 |    P95 |    P99 |    Min |    Max |  Std |
+|--------+--------+--------+--------+--------+--------+--------+------|
+| 111.82 | 111.59 | 113.07 | 113.79 | 115.10 | 110.37 | 115.10 | 0.87 |
++---------------------------------------------------------------------+
+
+Throughput: 8.94 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Intel_bert-b
+ase-uncased-mrpc_text-classification\w8a8\perf.json

@@ -1,0 +1,454 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f527 Setup — HuggingFace
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:     microsoft/table-transformer-detection  (pretrained)
+   \U0001f4c1 Config:    config.json
+   \U0001f4c2 Output:    
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a8\build
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f3af Stages
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[04/20/26 00:38:36] WARNING  Xet Storage is enabled for this repo, but the     
+                             'hf_xet' package is not installed. Falling back to
+                             regular HTTP download. For better performance,    
+                             install the package with: `pip install            
+                             huggingface_hub[hf_xet]` or `pip install hf_xet`  
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[04/20/26 00:38:40] WARNING  Xet Storage is enabled for this repo, but the     
+                             'hf_xet' package is not installed. Falling back to
+                             regular HTTP download. For better performance,    
+                             install the package with: `pip install            
+                             huggingface_hub[hf_xet]` or `pip install hf_xet`  
+Some weights of the model checkpoint at microsoft/table-transformer-detection were not used when initializing TableTransformerForObjectDetection: ['model.backbone.conv_encoder.model.layer2.0.downsample.1.num_batches_tracked', 'model.backbone.conv_encoder.model.layer3.0.downsample.1.num_batches_tracked', 'model.backbone.conv_encoder.model.layer4.0.downsample.1.num_batches_tracked']
+- This IS expected if you are initializing TableTransformerForObjectDetection from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing TableTransformerForObjectDetection from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[04/20/26 00:38:42] WARNING  Output names count mismatch: config has 2         
+                             ['logits', 'pred_boxes'], model trace inferred 4  
+                             ['logits', 'pred_boxes', 'last_hidden_state',     
+                             'encoder_last_hidden_state']. Keeping config names
+                             (from Optimum OnnxConfig).                        
+\u2705 Export                                          11.3s
+   Model class:  AutoModelForObjectDetection
+   Task:         object-detection
+   Input:        pixel_values       [1, 3, 800, 800] float32
+   Output:       logits
+                 pred_boxes
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a8\build\export.onnx  (112.8 MB)
+[04/20/26 00:39:36] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/conv1/Conv):   
+                             input 'B' is optional and not provided, setting   
+                             value to None                                     
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:37] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:38] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:39] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:40] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:42] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:44] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:39:57] WARNING  Action target pattern                             
+                             'SUBGRAPH/ReshapeGemmReshapePattern' not found in 
+                             alternatives for 'SUBGRAPH/GemmPattern'           
+[04/20/26 00:40:27] WARNING  No pattern matches found by PatternMatcher        
+[04/20/26 00:40:33] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/conv1/Conv):   
+                             input 'B' is optional and not provided, setting   
+                             value to None                                     
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:40:34] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:40:35] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:40:36] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:40:37] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:40:39] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:40:41] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:41:04] WARNING  No pattern matches found by PatternMatcher        
+[04/20/26 00:41:11] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/conv1/Conv):   
+                             input 'B' is optional and not provided, setting   
+                             value to None                                     
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer1/layer1.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer2/layer2.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:41:12] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:41:13] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer3/layer3.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:41:15] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:41:16] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.0
+                             /downsample/downsample.0/Conv): input 'B' is      
+                             optional and not provided, setting value to None  
+                    WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv1/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+[04/20/26 00:41:18] WARNING  Node Conv (name:                                  
+                             /model/backbone/conv_encoder/model/layer4/layer4.1
+                             /conv2/Conv): input 'B' is optional and not       
+                             provided, setting value to None                   
+\u2705 Optimize                                        156.6s
+   Analyzing 691 nodes  (iter 1/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Patterns
+     Matmul Add  \u2192 matmul_add_fusion
+   Optimizing  (applying autoconf)
+     {'matmul_add_fusion': True}
+   Analyzing 713 nodes  (iter 2/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Autoconf converged after 2 iteration(s)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a8\build\optimized.onnx  (111.0 
+MB)
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+\u2705 Quantize                                        20.2s
+   Dataset:      default  (object-detection)
+   Calibration:  10 samples  (minmax)
+   Precision:    uint8/uint8  (weight/activation)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a8\build\quantized.onnx  (28.8 MB)
+[0;93m2026-04-20 00:42:38.3600431 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.0/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.0/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3658665 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.0/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.0/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3682869 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.1/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.1/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3731077 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.1/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.1/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3755907 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.2/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.2/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3804464 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.2/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.2/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3828259 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.3/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.3/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3878644 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.3/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.3/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3903855 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.4/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.4/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3952518 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.4/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.4/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.3975206 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.5/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.5/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4022481 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layers.5/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layers.5/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4045180 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/encoder/layernorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/encoder/layernorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4131477 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.0/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.0/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4154750 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.1/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.1/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4200105 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.1/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.1/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4238223 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.1/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.1/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4261378 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.2/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.2/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4307490 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.2/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.2/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4343742 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.2/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.2/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4366434 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.3/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.3/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4413201 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.3/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.3/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4449166 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.3/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.3/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4471852 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.4/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.4/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4517157 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.4/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.4/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4565484 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.4/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.4/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4587980 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.5/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.5/self_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4633360 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.5/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.5/encoder_attn_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4669388 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layers.5/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layers.5/final_layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4691968 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/model/decoder/layernorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/model/decoder/layernorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-20 00:42:38.4756680 [W:onnxruntime:, PartitionPass.cpp:12529 PartitionPass.cpp] xir::Op{name = (pred_boxes)_replaced_input383, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-20 00:42:38.4762348 [W:onnxruntime:, PartitionPass.cpp:12529 PartitionPass.cpp] xir::Op{name = (logits)_replaced_input359, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-20 00:42:38.5961570 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.1.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.5967940 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.1.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.5974298 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.0.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.5980254 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.0.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.5986830 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layernorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.5992497 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layernorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.5999552 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.5.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6006952 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.5.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6014636 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layernorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6020550 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layernorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6027136 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.5.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6033351 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.5.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6039372 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.5.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6045978 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.4.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6052059 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.5.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6058116 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.4.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6065186 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.4.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6071007 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.4.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6077665 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.3.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6083776 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.3.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6091091 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.3.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6097268 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.3.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6104752 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.2.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6110678 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.2.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6118149 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.2.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6124185 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.2.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6130187 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.1.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6136234 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.1.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6162991 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.1.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6169248 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.0.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6175803 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.0.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6184707 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.5.encoder_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6191270 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.5.encoder_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6197777 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.5.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6203966 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.5.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6210888 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.4.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6217872 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.4.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6224882 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.4.encoder_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6230904 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.4.encoder_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6237583 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.4.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6243758 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.4.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6251775 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.3.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6257469 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.3.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6264917 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.3.encoder_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6271539 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.3.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6278382 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.3.encoder_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6284623 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.2.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6290492 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.2.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6297012 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.3.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6305867 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.2.encoder_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6312325 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.2.encoder_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6319258 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.2.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6326818 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.2.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6334894 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.1.final_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6340953 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.1.final_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6348424 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.1.encoder_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6354660 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.1.encoder_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6361136 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.decoder.layers.1.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6383343 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.0.self_attn_layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-20 00:42:38.6389165 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (model.encoder.layers.0.self_attn_layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+\u2705 Compile                                         65.0s
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\microsoft_ta
+ble-transformer-detection_object-detection\w8a8\build\compiled.onnx  (0.0 MB)
+   \u274c Build failed: [Errno 2] No such file or directory: 
+'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results\\mic
+rosoft_table-transformer-detection_object-detection\\w8a8\\build\\compiled.onnx
+'
+   \U0001f4a1 Check: model path or HuggingFace model ID
+
+Error: Build failed: [Errno 2] No such file or directory: 'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results\\microsoft_table-transformer-detection_object-detection\\w8a8\\build\\compiled.onnx'

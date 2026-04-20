@@ -1,0 +1,233 @@
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+[0;93m2026-04-19 23:28:39.6861208 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.0/layers.0/dwconv/Conv_output_0_vaip_6), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.0/layers.0/dwconv/Conv_output_0_vaip_6), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7013249 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.0/layers.1/dwconv/Conv_output_0_vaip_9), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.0/layers.1/dwconv/Conv_output_0_vaip_9), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7038213 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.0/layers.2/dwconv/Conv_output_0_vaip_12), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.0/layers.2/dwconv/Conv_output_0_vaip_12), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7066926 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.1/layers.0/dwconv/Conv_output_0_vaip_18), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.1/layers.0/dwconv/Conv_output_0_vaip_18), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7091311 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.1/layers.1/dwconv/Conv_output_0_vaip_21), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.1/layers.1/dwconv/Conv_output_0_vaip_21), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7115371 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.1/layers.2/dwconv/Conv_output_0_vaip_24), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.1/layers.2/dwconv/Conv_output_0_vaip_24), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7143259 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.0/dwconv/Conv_output_0_vaip_30), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.0/dwconv/Conv_output_0_vaip_30), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7168028 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.1/dwconv/Conv_output_0_vaip_33), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.1/dwconv/Conv_output_0_vaip_33), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7192316 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.2/dwconv/Conv_output_0_vaip_36), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.2/dwconv/Conv_output_0_vaip_36), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7217046 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.3/dwconv/Conv_output_0_vaip_39), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.3/dwconv/Conv_output_0_vaip_39), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7241479 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.4/dwconv/Conv_output_0_vaip_42), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.4/dwconv/Conv_output_0_vaip_42), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7265688 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.5/dwconv/Conv_output_0_vaip_45), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.5/dwconv/Conv_output_0_vaip_45), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7289952 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.6/dwconv/Conv_output_0_vaip_48), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.6/dwconv/Conv_output_0_vaip_48), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7314155 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.7/dwconv/Conv_output_0_vaip_51), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.7/dwconv/Conv_output_0_vaip_51), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7338785 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.2/layers.8/dwconv/Conv_output_0_vaip_54), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.2/layers.8/dwconv/Conv_output_0_vaip_54), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7367299 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.3/layers.0/dwconv/Conv_output_0_vaip_60), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.3/layers.0/dwconv/Conv_output_0_vaip_60), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7392662 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.3/layers.1/dwconv/Conv_output_0_vaip_63), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.3/layers.1/dwconv/Conv_output_0_vaip_63), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7417099 [W:onnxruntime:, PartitionPass.cpp:12402 PartitionPass.cpp] xir::Op{name = (/convnext/encoder/stages.3/layers.2/dwconv/Conv_output_0_vaip_66), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/convnext/encoder/stages.3/layers.2/dwconv/Conv_output_0_vaip_66), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN16_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [16], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-19 23:28:39.7448814 [W:onnxruntime:, PartitionPass.cpp:12529 PartitionPass.cpp] xir::Op{name = (logits)_replaced_input329, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-19 23:28:39.7617306 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.0.layers.1.dwconv.weight_quantized_vaip_74)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7644462 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.0.layers.1.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7653202 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.0.layers.0.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7659807 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.0.layers.0.dwconv.weight_quantized_vaip_75)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7666470 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.7.dwconv.weight_quantized_vaip_219)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7673755 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.7.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7680494 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.8.dwconv.weight_quantized_vaip_230)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7687589 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.8.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7696971 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.3.layers.0.dwconv.weight_quantized_vaip_69)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7703827 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.3.layers.0.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7710919 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.3.layers.1.dwconv.weight_quantized_vaip_68)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7718882 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.3.layers.1.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7726792 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.3.layers.2.dwconv.weight_quantized_vaip_67)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7734094 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.3.layers.2.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7741836 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.6.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7748684 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.6.dwconv.weight_quantized_vaip_208)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7755939 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.0.layers.2.dwconv.weight_quantized_vaip_73)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7762272 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.0.layers.2.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7770624 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.1.layers.0.dwconv.weight_quantized_vaip_103)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7776824 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.1.layers.0.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7783887 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.1.layers.1.dwconv.weight_quantized_vaip_114)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7790282 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.1.layers.1.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7797178 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.1.layers.2.dwconv.weight_quantized_vaip_125)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7803533 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.1.layers.2.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7811754 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.0.dwconv.weight_quantized_vaip_142)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7818365 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.0.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7825395 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.1.dwconv.weight_quantized_vaip_153)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7831849 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.1.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7839150 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.2.dwconv.weight_quantized_vaip_164)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7849885 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.2.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7858625 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.3.dwconv.weight_quantized_vaip_175)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7868055 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.3.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7878701 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.4.dwconv.weight_quantized_vaip_186)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7889869 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.4.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7898910 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.5.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:28:39.7908034 [W:onnxruntime:, PartitionPass.cpp:12433 PartitionPass.cpp] xir::Op{name = (convnext.encoder.stages.2.layers.5.dwconv.weight_quantized_vaip_197)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-19 23:29:13.3977216 [W:onnxruntime:, DpuKernelRunner.cpp:1894 DpuKernelRunner.cpp] XRT run exception...[m
+F20260419 23:29:13.398203 15052 DpuKernelRunner.cpp:1918] DPU timeout: (Exception type: class xrt::run::command_error), Timeout layer name:[subgraph___convnext_ReduceMean_output_0_vaip_277_], Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)
+[1;37;41m2026-04-19 23:29:13.3985040 [F:onnxruntime:, DpuKernelRunner.cpp:1918 DpuKernelRunner.cpp] DPU timeout: (Exception type: class xrt::run::command_error), Timeout layer name:[subgraph___convnext_ReduceMean_output_0_vaip_277_], Command failed to complete successfully (ERT_CMD_STATE_TIMEOUT)[m
+[1;31m2026-04-19 23:29:13.4112967 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running vitis_ai_ep_19 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_19_18' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+[m
+[2026-04-19T23:29:13] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\session\session.py", line 377, in run
+    outputs = self._session.run(output_names, ort_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 287, in run
+    return self._sess.run(output_names, input_feed, run_options)
+onnxruntime.capi.onnxruntime_pybind11_state.RuntimeException: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_19 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_19_18' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 240, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 196, in evaluate
+    metrics = task_evaluator.compute()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 84, in compute
+    return task_evaluator.compute(**kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\evaluate\evaluator\image_classification.py", line 101, in compute
+    result = super().compute(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\evaluate\evaluator\base.py", line 255, in compute
+    predictions, perf_results = self.call_pipeline(pipe, pipe_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\evaluate\evaluator\base.py", line 513, in call_pipeline
+    pipe_output = pipe(*args, **kwargs, **self.PIPELINE_KWARGS)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\image_classification.py", line 189, in __call__
+    return super().__call__(inputs, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1448, in __call__
+    outputs = list(final_iterator)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\pt_utils.py", line 126, in __next__
+    item = next(self.iterator)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\pt_utils.py", line 127, in __next__
+    processed = self.infer(item, **self.params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1374, in forward
+    model_outputs = self._forward(model_inputs, **forward_params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\image_classification.py", line 199, in _forward
+    model_outputs = self.model(**model_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\base.py", line 173, in __call__
+    return self.forward(**kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\image_classification.py", line 51, in forward
+    outputs = self._run_inference(inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\base.py", line 164, in _run_inference
+    outputs = self._session.run(inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\session\session.py", line 385, in run
+    raise InferenceError(
+winml.modelkit.session.session.InferenceError: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_19 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_19_18' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_19 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_19_18' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+(unknown)
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+PyList_New
+_PyObject_MakeTpCall
+_Py_gitversion
+

@@ -1,0 +1,36 @@
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[2026-04-20T00:23:18] WARNING: Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[2026-04-20T00:23:20] WARNING: Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[2026-04-20T00:23:20] WARNING: Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]Generating train split: 100%|##########| 3668/3668 [00:00<00:00, 368143.27 examples/s]
+Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]Generating validation split: 100%|##########| 408/408 [00:00<00:00, 25338.72 examples/s]
+Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]Generating test split: 100%|##########| 1725/1725 [00:00<00:00, 52846.98 examples/s]
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]Aligning the labels: 100%|##########| 100/100 [00:00<00:00, 3080.47 examples/s]
+Filter:   0%|          | 0/100 [00:00<?, ? examples/s]Filter: 100%|##########| 100/100 [00:00<00:00, 3138.42 examples/s]
+
++------------------------------------------+
+| Evaluation: Intel/bert-base-uncased-mrpc |
++------------------------------------------+
+
+Task:       text-classification
+Device:     npu
+Dataset:    nyu-mll/glue
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Intel_bert-b
+ase-uncased-mrpc_text-classification\w8a8\build\quantized.onnx
+
++---------------------------------+
+| Metric                |   Value |
+|-----------------------+---------|
+| accuracy              |  0.7700 |
+| total_time_in_seconds | 11.9197 |
+| samples_per_second    |  8.3894 |
+| latency_in_seconds    |  0.1192 |
++---------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Intel_bert-b
+ase-uncased-mrpc_text-classification\w8a8\eval.json

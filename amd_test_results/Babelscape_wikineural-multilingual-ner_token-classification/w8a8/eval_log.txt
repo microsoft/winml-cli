@@ -1,0 +1,48 @@
+[2026-04-19T22:45:00] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[2026-04-19T22:45:04] WARNING: Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[2026-04-19T22:45:05] WARNING: Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[2026-04-19T22:45:06] WARNING: Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Generating train split:   0%|          | 0/14041 [00:00<?, ? examples/s]Generating train split: 100%|##########| 14041/14041 [00:00<00:00, 290160.93 examples/s]
+Generating validation split:   0%|          | 0/3250 [00:00<?, ? examples/s]Generating validation split: 100%|##########| 3250/3250 [00:00<00:00, 202746.94 examples/s]
+Generating test split:   0%|          | 0/3453 [00:00<?, ? examples/s]Generating test split: 100%|##########| 3453/3453 [00:00<00:00, 169078.56 examples/s]
+Map:   0%|          | 0/100 [00:00<?, ? examples/s]Map: 100%|##########| 100/100 [00:00<00:00, 2043.02 examples/s]
+Downloading builder script: 0.00B [00:00, ?B/s]Downloading builder script: 6.34kB [00:00, ?B/s]
+
++----------------------------------------------------+
+| Evaluation: Babelscape/wikineural-multilingual-ner |
++----------------------------------------------------+
+
+Task:       token-classification
+Device:     npu
+Dataset:    BramVanroy/conll2003
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_w
+ikineural-multilingual-ner_token-classification\w8a8\build\quantized.onnx
+
++-----------------------------------------------------------------------------+
+| Metric                |                                               Value |
+|-----------------------+-----------------------------------------------------|
+| LOC                   |          precision=0.7742  recall=0.7742  f1=0.7742 |
+|                       |                                           number=62 |
+| MISC                  |          precision=0.3548  recall=0.4583  f1=0.4000 |
+|                       |                                           number=24 |
+| ORG                   |          precision=0.5556  recall=0.4167  f1=0.4762 |
+|                       |                                           number=36 |
+| PER                   |          precision=1.0000  recall=0.9636  f1=0.9815 |
+|                       |                                           number=55 |
+| overall_precision     |                                              0.7341 |
+| overall_recall        |                                              0.7175 |
+| overall_f1            |                                              0.7257 |
+| overall_accuracy      |                                              0.9536 |
+| total_time_in_seconds |                                             11.4407 |
+| samples_per_second    |                                              8.7407 |
+| latency_in_seconds    |                                              0.1144 |
++-----------------------------------------------------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Babelscape_w
+ikineural-multilingual-ner_token-classification\w8a8\eval.json

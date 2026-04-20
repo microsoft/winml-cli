@@ -1,0 +1,26 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\BAAI_bge-bas
+e-en-v1.5_feature-extraction\w8a8\build\quantized.onnx
+
+Device:      npu
+Inputs:      input_ids            [1, 512]               int32
+             attention_mask       [1, 512]               int32
+             token_type_ids       [1, 512]               int32
+Outputs:     last_hidden_state    [1, 512, 768]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++---------------------------------------------------------------------+
+|    Avg |    P50 |    P90 |    P95 |    P99 |    Min |    Max |  Std |
+|--------+--------+--------+--------+--------+--------+--------+------|
+| 139.31 | 139.02 | 142.70 | 143.94 | 148.30 | 134.67 | 148.30 | 2.75 |
++---------------------------------------------------------------------+
+
+Throughput: 7.18 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\BAAI_bge-bas
+e-en-v1.5_feature-extraction\w8a8\perf.json

@@ -1,0 +1,11 @@
+# Config
+winml config -m ProsusAI/finbert --task text-classification --ep vitisai --precision w8a8 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\ProsusAI_finbert_text-classification\w8a8\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\ProsusAI_finbert_text-classification\w8a8\config.json" -m ProsusAI/finbert -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\ProsusAI_finbert_text-classification\w8a8\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\ProsusAI_finbert_text-classification\w8a8\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id ProsusAI/finbert --task text-classification --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\ProsusAI_finbert_text-classification\w8a8\eval.json"

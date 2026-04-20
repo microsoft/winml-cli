@@ -1,0 +1,22 @@
+
++------------------------------------------+
+| Evaluation: Intel/bert-base-uncased-mrpc |
++------------------------------------------+
+
+Task:       feature-extraction
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Intel_bert-b
+ase-uncased-mrpc_feature-extraction\w8a8\build\quantized.onnx
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | -9.4770 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\Intel_bert-b
+ase-uncased-mrpc_feature-extraction\w8a8\eval.json

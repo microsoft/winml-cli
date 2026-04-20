@@ -1,0 +1,5 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results\sentence-tra
+nsformers_paraphrase-multilingual-MiniLM-L12-v2_sentence-similarity\w8a16\build
+\quantized.onnx
+check failure: graph.GetNodeArg(name) == nullptrnode arg pooler.dense.weight_quantizedtrans already exists. 
