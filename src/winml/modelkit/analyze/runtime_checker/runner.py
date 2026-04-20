@@ -225,8 +225,9 @@ class ResilientRunner:
 
         try:
             executor.shutdown(wait=False, cancel_futures=cancel_futures)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Best-effort shutdown: keep cleanup flow non-raising, but surface failure.
+            print(f"Executor shutdown failed during cleanup: {exc}", file=sys.stderr)
 
         timeout = (
             self._GRACEFUL_SHUTDOWN_TIMEOUT_SEC
