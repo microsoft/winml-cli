@@ -475,7 +475,14 @@ def _print_input_hint(engine: Any) -> None:
     default=_DEFAULT_PORT,
     type=int,
     show_default=True,
-    help="Port to check for a running winml serve instance (auto-connect)",
+    help="Port for auto-connect to a running winml serve instance",
+)
+@click.option(
+    "--host",
+    "connect_host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host for auto-connect (use with --connect for remote servers)",
 )
 @click.option(
     "--connect",
@@ -498,6 +505,7 @@ def run(
     output_format: str,
     output: str | None,
     port: int,
+    connect_host: str,
     connect: bool,
 ) -> None:
     r"""Run one-shot inference on a model.
@@ -570,6 +578,7 @@ def run(
     # param discovery), so skip auto-connect when schema is requested.
     if connect and has_inputs and not show_schema:
         result = _try_server_predict(
+            host=connect_host,
             port=port,
             model_path=model,
             file_paths=files,
@@ -655,6 +664,7 @@ def run(
 
 def _try_server_predict(
     *,
+    host: str,
     port: int,
     model_path: str,
     file_paths: tuple[str, ...],
@@ -672,7 +682,7 @@ def _try_server_predict(
         logger.debug("httpx not installed — skipping auto-connect")
         return None
 
-    base_url = f"http://127.0.0.1:{port}"
+    base_url = f"http://{host}:{port}"
     try:
         with httpx.Client(timeout=_CONNECT_TIMEOUT) as client:
             health = client.get(f"{base_url}/v1/health")

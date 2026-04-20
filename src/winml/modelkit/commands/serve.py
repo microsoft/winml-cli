@@ -62,7 +62,7 @@ from ..utils import cli as cli_utils
     help="Memory budget in MB for multi-model manager",
 )
 @click.option(
-    "--reload",
+    "--auto-reload",
     is_flag=True,
     default=False,
     hidden=True,
@@ -80,7 +80,7 @@ def serve(
     idle_timeout: float,
     multi: bool,
     memory_budget: float,
-    reload: bool,
+    auto_reload: bool,
 ) -> None:
     r"""Start ModelKit as a local REST API server.
 
@@ -133,7 +133,7 @@ def serve(
             click.echo(f"Error: Failed to load serving module: {e}", err=True)
             sys.exit(1)
         _banner0(host=host, port=port)
-        uvicorn.run(app, host=host, port=port, reload=reload, log_level="warning")
+        uvicorn.run(app, host=host, port=port, reload=auto_reload, log_level="warning")
         return
 
     # ------------------------------------------------------------------
@@ -170,6 +170,6 @@ def serve(
         inference_app,
         host=host,
         port=port,
-        reload=reload,
+        reload=auto_reload,
         log_level="warning",
     )

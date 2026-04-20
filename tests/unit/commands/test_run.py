@@ -667,6 +667,7 @@ class TestTryServerPredict:
     def test_returns_none_when_httpx_not_installed(self) -> None:
         with patch.dict("sys.modules", {"httpx": None}):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(),
@@ -680,6 +681,7 @@ class TestTryServerPredict:
         ctx = self._make_client_mock(health_json={}, health_status=503)
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(),
@@ -693,6 +695,7 @@ class TestTryServerPredict:
         ctx = self._make_client_mock(health_json={"model_id": "other-model"})
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="my-model",
                 file_paths=(),
@@ -711,6 +714,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="my-model",
                 file_paths=(),
@@ -728,6 +732,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=9000,
                 model_path="m",
                 file_paths=(),
@@ -754,6 +759,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(),
@@ -778,6 +784,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(str(img),),
@@ -801,6 +808,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(str(img),),
@@ -826,6 +834,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(str(img),),
@@ -853,6 +862,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(str(img),),
@@ -875,6 +885,7 @@ class TestTryServerPredict:
         )
         with patch("httpx.Client", return_value=ctx):
             _try_server_predict(
+                host="127.0.0.1",
                 port=1234,
                 model_path="m",
                 file_paths=(),
@@ -889,6 +900,7 @@ class TestTryServerPredict:
     def test_returns_none_on_connection_error(self) -> None:
         with patch("httpx.Client", side_effect=ConnectionError("refused")):
             result = _try_server_predict(
+                host="127.0.0.1",
                 port=8000,
                 model_path="m",
                 file_paths=(),

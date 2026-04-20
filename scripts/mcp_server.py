@@ -16,7 +16,7 @@ from the schema — no hardcoded task-category branching.
 
 Usage:
     python scripts/mcp_server.py
-    python scripts/mcp_server.py --model-url http://localhost:9000
+    python scripts/mcp_server.py --server-url http://localhost:9000
 """
 
 from __future__ import annotations
@@ -406,13 +406,13 @@ def main() -> None:
     """Parse arguments and run the MCP server."""
     parser = ArgumentParser(description="ModelKit MCP Server (standalone)")
     parser.add_argument(
-        "--model-url",
+        "--server-url",
         default="http://localhost:8000",
         help="Base URL of the ModelKit service (default: http://localhost:8000)",
     )
     args = parser.parse_args()
-    server = create_server(args.model_url)
-    logger.info("Starting MCP server (ModelKit: %s)", args.model_url)
+    server = create_server(args.server_url)
+    logger.info("Starting MCP server (ModelKit: %s)", args.server_url)
     server.run(transport="stdio")
 
 

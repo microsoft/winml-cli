@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 class EpSwitchRequest(BaseModel):
     """POST /v1/ep — switch execution provider."""
 
-    ep: str = Field(..., description="EP short name: cpu, dml, qnn, openvino, cuda")
+    ep: str = Field(..., description="EP short name: cpu, dml, qnn, openvino")
 
 
 class PredictJsonRequest(BaseModel):

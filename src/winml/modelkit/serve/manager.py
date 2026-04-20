@@ -54,21 +54,27 @@ class ModelManager(Protocol):
         ``task`` is a routing hint used by ModelSlotManager when ``model_id``
         is the sentinel ``"_"``.
         """
+        ...
 
     async def list_models(self) -> list[dict]:
         """Return metadata for all currently registered/loaded models."""
+        ...
 
     def get_engine(self, model_id: str | None = None) -> InferenceEngine | None:
         """Get engine for a model, or the first available engine."""
+        ...
 
     def get_all_engines(self) -> list[InferenceEngine]:
         """Get all loaded engines."""
+        ...
 
     async def get_model_stats(self, model_id: str) -> tuple[InferenceEngine, str]:
         """Get (engine, status) for a model. Raises KeyError if not found."""
+        ...
 
     def shutdown(self) -> None:
         """Release all resources on server shutdown."""
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +190,8 @@ class SingleModelManager:
                     )
                     self._engine.unload()
         except asyncio.CancelledError:
-            pass  # Timer was cancelled because a new request arrived — expected
+            # Timer was cancelled because a new request arrived — expected.
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +515,8 @@ class ModelSlotManager:
                     slot.engine.unload()
                     del self._slots[model_id]
         except asyncio.CancelledError:
-            pass  # Slot was re-acquired before expiry — expected
+            # Slot was re-acquired before expiry — expected.
+            pass
 
     async def _maybe_evict(self, exclude: str) -> None:
         """Evict LRU idle slot if total memory would exceed budget."""

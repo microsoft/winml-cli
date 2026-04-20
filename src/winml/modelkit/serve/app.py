@@ -15,7 +15,7 @@ Endpoints:
   GET  /v1/models             — list all loaded models (Phase 3)
   GET  /v1/hub                — curated WinML Hub model catalog
 
-EP shorthand mapping (cpu / dml / qnn / openvino / cuda) is handled here
+EP shorthand mapping (cpu / dml / qnn / openvino) is handled here
 in the serve layer, not inside InferenceEngine or WinMLSession.
 """
 
@@ -96,7 +96,7 @@ logging.getLogger("winml.modelkit").setLevel(logging.INFO)
 # ---------------------------------------------------------------------------
 # Valid EP shorthands accepted by POST /v1/ep
 # ---------------------------------------------------------------------------
-_VALID_EPS = {"cpu", "dml", "qnn", "openvino", "cuda", "auto"}
+_VALID_EPS = {"cpu", "dml", "qnn", "openvino", "auto"}
 
 # ---------------------------------------------------------------------------
 # App factory
