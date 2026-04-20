@@ -52,9 +52,7 @@ class _FakeProcess:
 class _FakeExecutor:
     def __init__(self, futures: list[_FakeFuture], processes: list[_FakeProcess] | None = None):
         self._futures = futures
-        self._processes = {
-            idx: proc for idx, proc in enumerate(processes or [])
-        }
+        self._processes = dict(enumerate(processes or []))
         self.shutdown_calls: list[tuple[bool, bool]] = []
         self.submit_calls = 0
 

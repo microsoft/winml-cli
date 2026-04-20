@@ -189,6 +189,30 @@ class ResilientRunner:
         except Exception:
             return False
 
+    @staticmethod
+    def _join_process(proc: Any, timeout: float | None = None) -> None:
+        """Best-effort process join that never raises."""
+        try:
+            proc.join(timeout=timeout)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _kill_process(proc: Any) -> None:
+        """Best-effort process kill that never raises."""
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _close_process(proc: Any) -> None:
+        """Best-effort process close that never raises."""
+        try:
+            proc.close()
+        except Exception:
+            pass
+
     def _shutdown_executor_two_phase(
         self,
         *,
@@ -215,30 +239,18 @@ class ResilientRunner:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            try:
-                proc.join(timeout=remaining)
-            except Exception:
-                pass
+            self._join_process(proc, timeout=remaining)
 
         survivors = [proc for proc in lingering if self._is_process_alive(proc)]
 
         for proc in survivors:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            self._kill_process(proc)
 
         for proc in survivors:
-            try:
-                proc.join(timeout=self._FORCED_KILL_JOIN_TIMEOUT_SEC)
-            except Exception:
-                pass
+            self._join_process(proc, timeout=self._FORCED_KILL_JOIN_TIMEOUT_SEC)
 
         for proc in lingering:
-            try:
-                proc.close()
-            except Exception:
-                pass
+            self._close_process(proc)
 
     def run(self, fn: Callable[[Any, Any], Any] | None = None, *args: Any) -> dict[str, Any]:
         """Execute the function on a single input with automatic retry on failure.
@@ -279,7 +291,7 @@ class ResilientRunner:
                 try:
                     future.cancel()
                 except Exception:
-                        # Best-effort cleanup: ignore kill failures so retry flow can continue.
+                    # Best-effort cleanup: ignore cancel failures so retry flow can continue.
                     pass
 
                 self._shutdown_executor_two_phase(cancel_futures=True)
