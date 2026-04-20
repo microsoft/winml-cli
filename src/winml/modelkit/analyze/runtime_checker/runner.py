@@ -279,6 +279,7 @@ class ResilientRunner:
                 try:
                     future.cancel()
                 except Exception:
+                        # Best-effort cleanup: ignore kill failures so retry flow can continue.
                     pass
 
                 self._shutdown_executor_two_phase(cancel_futures=True)
