@@ -387,6 +387,7 @@ def _render_analysis_summary(
     required=False, optional_message="If not specified, uses NPU as default", default="NPU"
 )
 @cli_utils.verbosity_options
+@cli_utils.build_config_option
 @click.option(
     "--output",
     type=click.Path(path_type=Path),
@@ -422,7 +423,9 @@ def _render_analysis_summary(
     default=None,
     help="Save auto-discovered optimization config to JSON file",
 )
+@click.pass_context
 def analyze(
+    ctx: click.Context,
     model: Path,
     ep: str | None,
     device: str | None,
@@ -430,6 +433,7 @@ def analyze(
     information: bool,
     verbose: int,
     quiet: bool,
+    config_file: Path | None,
     htp_metadata: Path | None,
     run_unknown_op: bool,
     save_node: tuple[str, ...],
@@ -454,6 +458,13 @@ def analyze(
         winml analyze --model model.onnx --ep ov --device GPU
         winml analyze --model model.onnx --output results.json
     """
+    # Apply build config defaults (CLI explicit options take precedence)
+    if config_file is not None:
+        build_cfg = cli_utils.load_build_config(config_file)
+        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
+            ep = build_cfg.compile.ep_config.provider
+
+    # Configure logging
     configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
@@ -512,6 +523,14 @@ def analyze(
         ep_instance_counts: dict[str, dict[str, dict[str, int]]] = {}
         live: Live | None = None
         ep_counter = 0
+
+        run_unknown_op_for_ep = run_unknown_op
+        if ep == "VitisAIExecutionProvider":
+            run_unknown_op_for_ep = False
+            logger.info(
+                "Disabling --run-unknown-op for VitisAIExecutionProvider: "
+                "AMD op runtime results are not available yet"
+            )
 
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
@@ -607,7 +626,7 @@ def analyze(
                     device=device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                    run_unknown_op=run_unknown_op,
+                    run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                     on_node_result=on_node_result,
                     on_ep_start=on_ep_start,
@@ -654,7 +673,7 @@ def analyze(
                 device=device,
                 enable_information=information,
                 htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                run_unknown_op=run_unknown_op,
+                run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
             )
 

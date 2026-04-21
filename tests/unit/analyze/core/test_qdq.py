@@ -1106,6 +1106,7 @@ class TestIterQDQCombinations:
             ("GlobalAveragePool", 3 * 4),  # 12
             ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
+            ("LpNormalization", 3 * 2 * 4 * 4),  # 96: 3 shapes (>=3D) x 2 p x 4 axis x 4 act types
             ("MatMul", 36 * (16 * 2 - 4 + 4)),  # 1152: +4/shape for B=INT4
             (
                 "MaxPool",
@@ -1168,4 +1169,33 @@ class TestIterQDQCombinations:
                 count += 1
 
         # For rerun, could track in https://github.com/gim-home/ModelKit/issues/278
+        assert count == expected_count, "If changes, either bug or need to rerun"
+
+
+class TestIterCOMSOpsModels:
+    """Tests for com.microsoft domain ops registered with a domain-qualified key."""
+
+    @pytest.mark.parametrize(
+        "op_name,expected_count",
+        [
+            # Single input X, no attributes: unary_input_shapes * 4 activation types = 8 * 4 = 32
+            ("Gelu", unary_input_shapes * 4),
+        ],
+    )
+    def test_com_microsoft_op_qdq_count(self, op_name: str, expected_count: int) -> None:
+        """Test QDQ model count for com.microsoft ops registered with domain-qualified key."""
+        from winml.modelkit.pattern.op_input_gen import get_runtime_checker_op
+
+        schema = ONNXDomain.COM_MICROSOFT.get_op_schema(op_name, 1)
+        qdq_gen = QDQGenerator(opset_version=1, domain=ONNXDomain.COM_MICROSOFT)
+        generator = get_runtime_checker_op(op_name, domain="com.microsoft")(
+            schema, qdq_generator=qdq_gen
+        )
+
+        count = 0
+        for kwargs, tags in generator.iter():
+            for _model, final_tags in generator.iter_const_and_dynamic_models(kwargs, tags):
+                assert "qdq_types" in final_tags
+                count += 1
+
         assert count == expected_count, "If changes, either bug or need to rerun"
