@@ -95,6 +95,8 @@ def _write_stored_consent(value: Consent) -> None:
         try:
             tmp_path.unlink()
         except OSError:
+            # Best-effort cleanup; temp file may already be gone or on a
+            # read-only volume. The real failure is re-raised below.
             pass
         raise
 

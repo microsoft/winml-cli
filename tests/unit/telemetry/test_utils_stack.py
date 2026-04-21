@@ -17,6 +17,8 @@ def _raise_chain():
         outer()
     except ValueError as e:
         return e
+    # Unreachable: outer() always raises. Explicit return keeps CodeQL happy.
+    return None  # pragma: no cover
 
 
 def test_extract_exception_stack_returns_list_of_dicts():
