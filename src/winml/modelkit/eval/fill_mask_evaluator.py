@@ -26,6 +26,7 @@ from .metrics import PseudoPerplexityMetric
 
 if TYPE_CHECKING:
     from datasets import Dataset
+    from transformers.pipelines.base import Pipeline
 
     from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
@@ -49,6 +50,16 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         self._input_col = config.dataset.columns_mapping.get("input_column", "text")
         self._tokenizer = AutoTokenizer.from_pretrained(config.model_id)
         super().__init__(config, model)
+
+    def prepare_pipeline(self) -> Pipeline:
+        """Bypass the HF pipeline pattern used by other evaluators.
+
+        Pseudo-perplexity requires a per-position masking protocol (mask one token
+        at a time and score the original token from the logits), which doesn't map
+        to the HF ``fill-mask`` pipeline's top-k prediction output. ``compute()`` is
+        fully overridden and calls the model directly, so ``self.pipe`` is unused.
+        """
+        return None  # type: ignore[return-value]
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No class labels for fill-mask."""

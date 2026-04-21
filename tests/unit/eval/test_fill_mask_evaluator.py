@@ -105,9 +105,10 @@ class TestLogits:
             _make_evaluator()._logits({"logits": logits, "aux": None}), logits,
         )
 
-    def test_dict_without_logits_key(self) -> None:
+    def test_dict_without_logits_key_raises(self) -> None:
         logits = torch.randn(1, 5, 50)
-        assert torch.equal(_make_evaluator()._logits({"output": logits}), logits)
+        with pytest.raises(KeyError, match="no 'logits' key"):
+            _make_evaluator()._logits({"output": logits})
 
     def test_dataclass(self) -> None:
         logits = torch.randn(1, 5, 50)
