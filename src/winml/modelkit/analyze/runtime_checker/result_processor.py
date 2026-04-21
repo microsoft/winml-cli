@@ -701,6 +701,10 @@ if __name__ == "__main__":
                 print(f"{Fore.YELLOW}SKIPPED: File not found. {Style.RESET_ALL}")
                 continue
 
+            if json_file.stat().st_size == 0:
+                print(f"{Fore.YELLOW}SKIPPED: Empty JSON file. {Style.RESET_ALL}")
+                continue
+
             try:
                 with open(json_file, encoding="utf-8") as f:  # noqa: PTH123
                     data = json.load(f)
