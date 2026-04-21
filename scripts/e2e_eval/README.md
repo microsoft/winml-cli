@@ -58,7 +58,7 @@ uv run python scripts/e2e_eval/run_eval.py
 # Filter by priority / task / group
 uv run python scripts/e2e_eval/run_eval.py --priority P0
 uv run python scripts/e2e_eval/run_eval.py --task image-classification
-uv run python scripts/e2e_eval/run_eval.py --group AITK
+uv run python scripts/e2e_eval/run_eval.py --group "Foundry Toolkit"
 
 # Single ad-hoc model
 uv run python scripts/e2e_eval/run_eval.py --hf-model microsoft/resnet-50
@@ -84,7 +84,7 @@ uv run python scripts/e2e_eval/run_eval.py --retry-failed
 | `--task` | — | Filter by HF task |
 | `--priority` | — | Filter: `P0`, `P1`, `P2` |
 | `--model-type` | — | Filter by model_type (e.g. `bert`) |
-| `--group` | — | Filter by group (e.g. `AITK`) |
+| `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
 | `--timeout` | 600 | Per-model timeout (seconds) |
 | `--list` | off | List models and exit |
@@ -118,7 +118,7 @@ uv run python scripts/e2e_eval/generate_report.py --input-dir eval_results/2026-
 | **P1** | Important — tracked closely, regressions flagged |
 | **P2** | Extended coverage — best-effort |
 
-Groups (`AITK`, `Benchmark`, `Top200`, etc.) categorize models by source/purpose.
+Groups (`Foundry Toolkit`, `Benchmark`, `Top200`, etc.) categorize models by source/purpose.
 
 ### Failure Classification
 

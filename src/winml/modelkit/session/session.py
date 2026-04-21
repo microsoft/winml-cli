@@ -139,7 +139,7 @@ class WinMLSession:
         "qnn": "QNNExecutionProvider",
         "dml": "DmlExecutionProvider",
         "migraphx": "MIGraphXExecutionProvider",
-        "tensorrt": "NvTensorRTRTXExecutionProvider",
+        "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
         "vitisai": "VitisAIExecutionProvider",
         "openvino": "OpenVINOExecutionProvider",
         "cuda": "CUDAExecutionProvider",
@@ -182,7 +182,7 @@ class WinMLSession:
             ep_config
                 persist_jit: Persist JIT-compiled EPContext model
                 provider_options: EP-specific options dict
-            ep: Explicit EP short name (e.g., "migraphx", "tensorrt").
+            ep: Explicit EP short name (e.g., "migraphx", "nv_tensorrt_rtx").
                 When set, bypasses policy-based selection and uses
                 add_provider_for_devices to force the specific EP.
             session_options: ORT SessionOptions. If None, creates default with
@@ -416,7 +416,7 @@ class WinMLSession:
         """Build ORT SessionOptions from instance session_options and device.
 
         When ``self._ep`` is set, uses ``add_provider_for_devices`` to
-        explicitly bind a specific EP (e.g., MIGraphX, TensorRT). Otherwise
+        explicitly bind a specific EP (e.g., MIGraphX, NvTensorRTRTX). Otherwise
         falls back to policy-based selection via DEVICE_POLICY_MAP.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to

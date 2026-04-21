@@ -257,7 +257,7 @@ def build_registry(
             if is_p0:
                 priority = "P0"
                 group = p0_group_lookup.get((model_id, task)) or p0_model_group.get(
-                    model_id, "AITK"
+                    model_id, "Foundry Toolkit"
                 )
             else:
                 priority = "P1"
