@@ -215,6 +215,7 @@ class ResilientRunner:
         try:
             proc.close()
         except Exception:
+            # Intentionally suppress cleanup errors to preserve best-effort shutdown semantics.
             pass
 
     def _shutdown_executor_two_phase(
