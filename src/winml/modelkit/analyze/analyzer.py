@@ -395,7 +395,10 @@ class AnalysisResult:
                     continue
 
                 if action_item.optimization_options:
-                    optim_options.update(action_item.optimization_options)
+                    # Normalize kebab-case keys to snake_case (python_name)
+                    # so they match the capability system's python_name format.
+                    for key, value in action_item.optimization_options.items():
+                        optim_options[key.replace("-", "_")] = value
 
         # Create and return config from collected options
         return WinMLOptimizationConfig(**optim_options)
@@ -799,6 +802,7 @@ def analyze_onnx(
     ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
+    run_unknown_op: bool = True,
     on_ep_start: Callable | None = None,
     on_node_result: Callable | None = None,
 ) -> AnalyzeResult:
@@ -856,6 +860,7 @@ def analyze_onnx(
         ep=ep,
         device=device,
         enable_information=autoconf,
+        run_unknown_op=run_unknown_op,
         on_ep_start=on_ep_start,
         on_node_result=on_node_result,
     )
