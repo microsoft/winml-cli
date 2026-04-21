@@ -59,7 +59,14 @@ def _filter_allowlist(event_name: str, attrs: dict[str, Any]) -> dict[str, Any]:
 
 
 class Telemetry:
-    """Process-wide telemetry singleton. Use :meth:`get_or_init` to access."""
+    """Process-wide telemetry singleton. Use :meth:`get_or_init` to access.
+
+    The caller owns the lifecycle: :meth:`shutdown` must be invoked before
+    the process exits to flush any events still queued in the underlying
+    ``BatchLogRecordProcessor``. Phase 3's ``ActionGroup`` will own this
+    in its Click teardown path; until then, direct callers risk losing
+    the last batch on process exit.
+    """
 
     def __init__(self) -> None:
         self._logger = None  # set when enabled; None when disabled
@@ -67,6 +74,11 @@ class Telemetry:
         self._disabled = True  # set to False only after successful init
         self._init_ts = time.time()
         self._app_instance_id = str(uuid.uuid4())
+        # Kept in the event schema for forward-compat: today
+        # `consent.resolve_consent()` returns "disabled" for non-TTY, so
+        # only "Interactive" reaches the wire. If Phase 3 relaxes that
+        # rule (e.g. honors stored consent in non-TTY), no schema change
+        # is needed.
         self._invoked_from = "Script" if not sys.stdin.isatty() else "Interactive"
         self._try_init()
 

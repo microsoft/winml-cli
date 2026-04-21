@@ -74,6 +74,23 @@ def test_trim_path(input_path, expected):
             "user alice@example.com at 10.0.0.1",
             "user <scrubbed> at <scrubbed>",
         ),
+        # Long all-letter identifiers (class / function names) must NOT
+        # be scrubbed - they're diagnostic, not secrets. Regression for
+        # PR 371 review feedback.
+        (
+            "TypeError in WinMLImageFeatureExtractionEvaluator.compute",
+            "TypeError in WinMLImageFeatureExtractionEvaluator.compute",
+        ),
+        # Long token WITH at least one digit is still scrubbed.
+        (
+            "token=abcdef0123456789abcdefghijk",
+            "token=<scrubbed>",
+        ),
+        # Invalid-octet IPv4 is NOT scrubbed (octet > 255 is not a real IP).
+        (
+            "build number 999.888.777.666",
+            "build number 999.888.777.666",
+        ),
     ],
 )
 def test_scrub_pii(before, after):

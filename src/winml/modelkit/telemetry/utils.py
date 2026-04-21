@@ -50,8 +50,16 @@ _PII_PATTERNS: list[re.Pattern[str]] = [
         r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
         r"-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
     ),
-    # IPv4
-    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    # IPv4. Octets are validated to the 0-255 range so obvious nonsense
+    # (e.g. "999.0.0.1") is not scrubbed. 4-part version strings like
+    # "1.18.0.1" will still match - we accept this false positive per
+    # the spec's "conservative over leaky" philosophy; version numbers
+    # in error messages are secondary signal and the user still has
+    # exception_type + stack for triage.
+    re.compile(
+        r"\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}"
+        r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b"
+    ),
     # IPv6. Two alternatives:
     #   1) compressed form with "::" (e.g. 2001:db8::1)
     #   2) full uncompressed form (e.g. 2001:db8:85a3:0:0:8a2e:370:7334)
@@ -61,8 +69,11 @@ _PII_PATTERNS: list[re.Pattern[str]] = [
         r"|\b[0-9a-fA-F]{1,4}::[0-9a-fA-F:]*\b"
     ),
     # Long opaque token (API keys, JWTs, base64 blobs). Runs last so it
-    # doesn't swallow already-scrubbed markers.
-    re.compile(r"\b[A-Za-z0-9_\-]{24,}\b"),
+    # doesn't swallow already-scrubbed markers. Requires at least one
+    # digit so we don't scrub long Pythonic class names (e.g.
+    # "WinMLImageFeatureExtractionEvaluator") that carry diagnostic value
+    # in error messages.
+    re.compile(r"\b(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{24,}\b"),
 ]
 
 _SCRUB_PLACEHOLDER = "<scrubbed>"

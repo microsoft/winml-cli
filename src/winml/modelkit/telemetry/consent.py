@@ -23,7 +23,12 @@ from pathlib import Path
 from typing import Literal
 
 
-_CONFIG_PATH: Path = Path(os.environ.get("USERPROFILE", "")) / ".modelkit" / "config.json"
+# `USERPROFILE` is virtually always set on Windows, but can be missing in
+# minimal service accounts / containers. Fall back to `expanduser("~")`,
+# which honors `HOMEDRIVE+HOMEPATH` or `HOME` if either is set, so we
+# never silently resolve to a CWD-relative `.modelkit/config.json`.
+_USER_HOME = Path(os.environ.get("USERPROFILE") or Path("~").expanduser())
+_CONFIG_PATH: Path = _USER_HOME / ".modelkit" / "config.json"
 
 _CI_ENV_VARS = (
     "CI",
