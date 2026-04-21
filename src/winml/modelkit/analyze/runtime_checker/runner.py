@@ -195,6 +195,8 @@ class ResilientRunner:
         try:
             proc.join(timeout=timeout)
         except Exception:
+            # Intentionally suppress cleanup-time join errors to preserve
+            # resilient shutdown semantics ("never raises").
             pass
 
     @staticmethod
