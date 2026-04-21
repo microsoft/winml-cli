@@ -26,7 +26,6 @@ from .metrics import PseudoPerplexityMetric
 
 if TYPE_CHECKING:
     from datasets import Dataset
-    from transformers.pipelines.base import Pipeline
 
     from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
@@ -51,10 +50,6 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         self._tokenizer = AutoTokenizer.from_pretrained(config.model_id)
         super().__init__(config, model)
 
-    def prepare_pipeline(self) -> Pipeline:
-        """No HF pipeline — the model is called directly."""
-        return None  # type: ignore[return-value]
-
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """No class labels for fill-mask."""
         return dataset
@@ -68,9 +63,11 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         return None
 
     def _logits(self, outputs: Any) -> torch.Tensor:
-        if isinstance(outputs, dict):
-            return outputs["logits"] if "logits" in outputs else next(iter(outputs.values()))
-        return outputs.logits
+        if not isinstance(outputs, dict):
+            return outputs.logits
+        if "logits" not in outputs:
+            raise KeyError(f"Model output dict has no 'logits' key; got keys {list(outputs)}.")
+        return outputs["logits"]
 
     def _score(
         self,
