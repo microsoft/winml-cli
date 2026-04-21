@@ -169,6 +169,19 @@ class GeluInputGenerator(UnaryInputGenerator):
 
 
 @register_runtime_checker_op
+class MicrosoftGeluInputGenerator(UnaryInputGenerator):
+    """Input generator for com.microsoft::Gelu operator.
+
+    Signature: Gelu(X) -> Y
+    Fused Gelu activation from the com.microsoft domain. No attributes
+    (unlike ai.onnx::Gelu which has 'approximate').
+    """
+
+    op_name = "Gelu"
+    op_domain = "com.microsoft"
+
+
+@register_runtime_checker_op
 class IsInfInputGenerator(UnaryInputGenerator):
     """Input generator for IsInf operator.
 

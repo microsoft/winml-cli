@@ -218,3 +218,29 @@ class TestReshapeTransposeReshapeLowDimPattern:
         assert len(results) == 1, (
             "Unmerged 6-D RTR must match ReshapeTransposeReshapeOverlyHighDimPattern"
         )
+
+
+class TestRTRPatternIdAlignment:
+    """Verify pattern_id values match the rule configuration expectations."""
+
+    def test_overly_high_dim_pattern_id(self) -> None:
+        """ReshapeTransposeReshapeOverlyHighDimPattern must have distinct pattern_id."""
+        pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
+        assert pattern.pattern_id == "SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern"
+
+    def test_low_dim_pattern_id(self) -> None:
+        """ReshapeTransposeReshapeLowDimPattern must have distinct pattern_id."""
+        pattern = ReshapeTransposeReshapeLowDimPattern()
+        assert pattern.pattern_id == "SUBGRAPH/ReshapeTransposeReshapeLowDimPattern"
+
+    def test_high_dim_pattern_id_differs_from_schema_name(self) -> None:
+        """HighDim pattern_id must NOT fall back to the shared schema name."""
+        pattern = ReshapeTransposeReshapeOverlyHighDimPattern()
+        schema_based = f"SUBGRAPH/{pattern.get_schema().name}"
+        assert pattern.pattern_id != schema_based
+
+    def test_low_dim_pattern_id_differs_from_schema_name(self) -> None:
+        """LowDim pattern_id must NOT fall back to the shared schema name."""
+        pattern = ReshapeTransposeReshapeLowDimPattern()
+        schema_based = f"SUBGRAPH/{pattern.get_schema().name}"
+        assert pattern.pattern_id != schema_based

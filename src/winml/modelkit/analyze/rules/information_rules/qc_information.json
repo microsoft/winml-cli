@@ -10,7 +10,7 @@
                     {
                         "type": "GraphOptimization",
                         "optimization_options": {
-                            "attention-expandedattention": true
+                            "attention_expandedattention": true
                         }
                     }
                 ],
