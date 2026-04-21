@@ -205,6 +205,8 @@ class ResilientRunner:
         try:
             proc.kill()
         except Exception:
+            # Intentionally ignored: process may already be dead or handle invalid
+            # during teardown, and cleanup must remain best-effort/non-fatal.
             pass
 
     @staticmethod
