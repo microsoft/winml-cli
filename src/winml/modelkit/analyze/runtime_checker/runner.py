@@ -230,8 +230,9 @@ class ResilientRunner:
 
         try:
             executor.shutdown(wait=False, cancel_futures=cancel_futures)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Best-effort shutdown: ignore failures here, but surface context for debugging.
+            print(f"[ResilientRunner] executor.shutdown failed: {exc}", file=sys.stderr)
 
         timeout = (
             self._GRACEFUL_SHUTDOWN_TIMEOUT_SEC
