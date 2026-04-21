@@ -39,7 +39,7 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.commands.run import run
-from winml.modelkit.inference.tasks import TASK_REGISTRY, InputField
+from winml.modelkit.inference import TASK_REGISTRY, InputField
 
 
 if TYPE_CHECKING:

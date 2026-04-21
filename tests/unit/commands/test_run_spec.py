@@ -24,10 +24,11 @@ from winml.modelkit.commands.run import (
     _format_text,
     _models_match,
     _parse_heuristic,
+    _print_result,
     _resolve_shortcuts,
     run,
 )
-from winml.modelkit.inference.tasks import InputField
+from winml.modelkit.inference import InputField
 
 
 if TYPE_CHECKING:
@@ -1107,6 +1108,116 @@ class TestBuildExampleCommand:
         assert "-I question=" in cmd
         assert "-I context=" in cmd
         assert "--text" not in cmd
+
+    def test_task_param_included_in_command(self) -> None:
+        """When task= is provided, --task should appear in the example command."""
+        schema = [InputField(name="text", type="text", required=True)]
+        cmd = _build_example_command("m", schema, None, task="sentence-similarity")
+        assert "--task sentence-similarity" in cmd
+
+    def test_task_none_omits_flag(self) -> None:
+        """When task=None, --task should not appear."""
+        schema = [InputField(name="text", type="text", required=True)]
+        cmd = _build_example_command("m", schema, None, task=None)
+        assert "--task" not in cmd
+
+
+# =============================================================================
+# TC-23b: _format_text segmentation-specific formatting
+# =============================================================================
+
+
+class TestFormatTextSegmentation:
+    def test_segmentation_header(self) -> None:
+        """Segmentation tasks should show 'Results (area coverage):' header."""
+        result = _format_text(
+            {
+                **_MINIMAL_RESULT,
+                "task": "image-segmentation",
+                "predictions": [{"label": "shirt", "score": 0.5}],
+            }
+        )
+        assert "Results (area coverage):" in result
+
+    def test_segmentation_percentage_format(self) -> None:
+        """Segmentation scores should display as percentages."""
+        result = _format_text(
+            {
+                **_MINIMAL_RESULT,
+                "task": "image-segmentation",
+                "predictions": [{"label": "shirt", "score": 0.5}],
+            }
+        )
+        assert "50.0%" in result
+
+    def test_semantic_segmentation_alias(self) -> None:
+        """'semantic-segmentation' should also trigger segmentation formatting."""
+        result = _format_text(
+            {
+                **_MINIMAL_RESULT,
+                "task": "semantic-segmentation",
+                "predictions": [{"label": "pants", "score": 0.25}],
+            }
+        )
+        assert "Results (area coverage):" in result
+        assert "25.0%" in result
+
+    def test_non_segmentation_uses_decimal(self) -> None:
+        """Non-segmentation tasks should use decimal score format."""
+        result = _format_text(
+            {
+                **_MINIMAL_RESULT,
+                "task": "image-classification",
+                "predictions": [{"label": "cat", "score": 0.9}],
+            }
+        )
+        assert "0.9000" in result
+        assert "Results:" in result
+        assert "area coverage" not in result
+
+    def test_none_score_shows_dash(self) -> None:
+        """score=None should display as '—'."""
+        result = _format_text(
+            {
+                **_MINIMAL_RESULT,
+                "predictions": [{"label": "x", "score": None}],
+            }
+        )
+        assert "—" in result
+
+
+# =============================================================================
+# TC-23c: _print_result does not mutate input
+# =============================================================================
+
+
+class TestPrintResultNoMutation:
+    def test_text_format_does_not_pop_mask(self, tmp_path: Path) -> None:
+        """_print_result in text mode should not mutate the original result dict."""
+        result = {
+            **_MINIMAL_RESULT,
+            "task": "image-segmentation",
+            "predictions": [
+                {"label": "shirt", "score": 0.8, "mask": "base64encodeddata"},
+            ],
+        }
+        out = tmp_path / "out.txt"
+        _print_result(result, output_format="text", output_path=str(out))
+        # Original should still have mask
+        assert result["predictions"][0]["mask"] == "base64encodeddata"
+
+    def test_json_format_includes_mask(self, tmp_path: Path) -> None:
+        """_print_result in json mode should include mask data."""
+        result = {
+            **_MINIMAL_RESULT,
+            "task": "image-segmentation",
+            "predictions": [
+                {"label": "shirt", "score": 0.8, "mask": "base64data"},
+            ],
+        }
+        out = tmp_path / "out.json"
+        _print_result(result, output_format="json", output_path=str(out))
+        assert "base64data" in out.read_text()
 
 
 # =============================================================================

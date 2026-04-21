@@ -16,10 +16,16 @@ from pydantic import BaseModel, Field
 
 
 class Prediction(BaseModel):
-    """Single classification prediction."""
+    """Single prediction entry.
+
+    For classification tasks, only ``label`` and ``score`` are populated.
+    For segmentation tasks, ``mask`` holds a base64-encoded PNG of the
+    binary mask so that API consumers can reconstruct per-pixel labels.
+    """
 
     label: str
-    score: float
+    score: float | None = None
+    mask: str | None = None
 
 
 class PredictionResult(BaseModel):

@@ -210,6 +210,7 @@ class ModelSlot:
     expiry_task: asyncio.Task | None = field(default=None, compare=False, repr=False)
     alias: str | None = None
     description: str | None = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False, repr=False)
 
     @property
     def memory_mb(self) -> float:
@@ -258,7 +259,11 @@ class ModelSlotManager:
         resolved = await self._resolve(model_id, task)
         slot = await self._acquire_slot(resolved)
         try:
-            yield slot.engine
+            # Per-slot lock serialises inference for the same model so that
+            # concurrent requests don't race inside the (non-thread-safe)
+            # InferenceEngine / HF Pipeline.  Different models run in parallel.
+            async with slot.lock:
+                yield slot.engine
         finally:
             await self._release_slot(resolved)
 

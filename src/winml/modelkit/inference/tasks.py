@@ -14,8 +14,13 @@ Provides:
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 # ---------------------------------------------------------------------------
@@ -81,10 +86,150 @@ class PipelineMapping:
 
 @dataclass
 class TaskInputSpec:
-    """Single source of truth for a task's user inputs and pipeline dispatch."""
+    """Single source of truth for a task's user inputs and pipeline dispatch.
+
+    Attributes:
+        postprocess: Optional callback
+            ``(raw, *, pipeline=None, inputs=None) -> predictions``
+            that transforms the HF pipeline's raw output into the standard
+            ``list[Prediction] | dict`` format.  The engine passes the
+            pipeline instance and validated user inputs as keyword arguments
+            so that callbacks can access the tokenizer or original texts
+            when needed.  When ``None``, the engine's default normalisation
+            logic is used.
+    """
 
     user_inputs: list[InputField]
     mapping: PipelineMapping
+    postprocess: Callable[..., Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Postprocess callbacks
+# ---------------------------------------------------------------------------
+
+
+def _masked_mean_pool(
+    token_embeddings: np.ndarray,
+    attention_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Mean-pool token embeddings, optionally weighted by attention mask.
+
+    When *attention_mask* is provided, padding tokens are excluded from the
+    average.  This is critical for fixed-shape ONNX models where 98%+ of
+    tokens can be padding — without masking the sentence embedding is
+    dominated by meaningless padding vectors.
+    """
+    if attention_mask is not None:
+        mask = attention_mask.astype(float)
+        denom = mask.sum()
+        if denom > 0:
+            return (token_embeddings * mask[:, None]).sum(0) / denom
+    if token_embeddings.ndim > 1:
+        return token_embeddings.mean(axis=0)
+    return token_embeddings
+
+
+def _encode_mask_png(mask: Any) -> str:
+    """Encode a PIL Image or numpy-array mask as a base64 PNG string."""
+    import base64
+    from io import BytesIO
+
+    import numpy as np
+    from PIL import Image
+
+    if isinstance(mask, np.ndarray):
+        img = Image.fromarray(mask.astype(np.uint8))
+    elif isinstance(mask, Image.Image):
+        img = mask
+    else:
+        img = Image.fromarray(np.asarray(mask).astype(np.uint8))
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _postprocess_segmentation(raw: Any, **_kwargs: Any) -> Any:
+    """Convert segmentation masks to predictions with coverage score and mask.
+
+    Semantic segmentation pipelines return ``score=None`` and a binary mask
+    per class.  We compute the fraction of non-zero pixels (area coverage)
+    as a meaningful numeric score, encode the mask as base64 PNG, filter out
+    empty masks, and sort by coverage descending.
+    """
+    import numpy as np
+
+    from .types import Prediction
+
+    predictions: list[Prediction] = []
+    for item in raw:
+        mask = item.get("mask")
+        if mask is None:
+            continue
+        arr = np.asarray(mask)
+        coverage = float(np.count_nonzero(arr)) / arr.size if arr.size > 0 else 0.0
+        if coverage <= 0:
+            continue
+        predictions.append(
+            Prediction(
+                label=str(item.get("label", "unknown")),
+                score=round(coverage, 6),
+                mask=_encode_mask_png(mask),
+            )
+        )
+    predictions.sort(key=lambda p: p.score or 0, reverse=True)
+    return predictions
+
+
+def _postprocess_sentence_similarity(
+    raw: Any,
+    *,
+    pipeline: Any = None,
+    inputs: dict[str, Any] | None = None,
+) -> Any:
+    """Compute cosine similarity with attention-masked mean pooling.
+
+    Uses the pipeline's tokenizer (when available) to obtain attention masks
+    so that padding tokens are excluded from the mean-pooled sentence
+    embeddings.  This matches the approach used by ``winml eval`` and is
+    critical for fixed-shape ONNX models where most tokens are padding.
+    """
+    import numpy as np
+
+    from .types import Prediction
+
+    if not isinstance(raw, list) or len(raw) < 2:
+        return {"raw": str(raw)}
+
+    arr_1 = np.array(raw[0], dtype=np.float32).squeeze()
+    arr_2 = np.array(raw[1], dtype=np.float32).squeeze()
+
+    # Obtain attention masks from the tokenizer when possible.
+    mask_1, mask_2 = None, None
+    tokenizer = getattr(pipeline, "tokenizer", None) if pipeline else None
+    if tokenizer is not None and inputs is not None:
+        params = getattr(pipeline, "_preprocess_params", {})
+        tok_kwargs: dict[str, Any] = {
+            "padding": params.get("padding", False),
+            "max_length": params.get("max_length", None),
+            "truncation": params.get("truncation", False),
+            "return_tensors": "np",
+        }
+        text_1 = inputs.get("text_1")
+        text_2 = inputs.get("text_2")
+        if text_1 is not None and text_2 is not None:
+            enc_1 = tokenizer(text_1, **tok_kwargs)
+            enc_2 = tokenizer(text_2, **tok_kwargs)
+            mask_1 = enc_1["attention_mask"][0]
+            mask_2 = enc_2["attention_mask"][0]
+
+    emb_1 = _masked_mean_pool(arr_1, mask_1)
+    emb_2 = _masked_mean_pool(arr_2, mask_2)
+
+    norm = float(np.linalg.norm(emb_1) * np.linalg.norm(emb_2))
+    sim = float(np.dot(emb_1, emb_2) / norm) if norm > 0 else 0.0
+    return [Prediction(label="similarity", score=round(sim, 6))]
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +257,7 @@ TASK_REGISTRY: dict[str, TaskInputSpec] = {
             InputField(name="image", type="image", required=True, description="Image to segment"),
         ],
         mapping=PipelineMapping(pipe_input="image"),
+        postprocess=_postprocess_segmentation,
     ),
     "depth-estimation": TaskInputSpec(
         user_inputs=[
@@ -399,3 +545,11 @@ TASK_REGISTRY["ner"] = TASK_REGISTRY["token-classification"]
 TASK_REGISTRY["vqa"] = TASK_REGISTRY["visual-question-answering"]
 TASK_REGISTRY["text-to-speech"] = TASK_REGISTRY["text-to-audio"]
 TASK_REGISTRY["semantic-segmentation"] = TASK_REGISTRY["image-segmentation"]
+TASK_REGISTRY["sentence-similarity"] = TaskInputSpec(
+    user_inputs=[
+        InputField(name="text_1", type="text", required=True, description="First sentence"),
+        InputField(name="text_2", type="text", required=True, description="Second sentence"),
+    ],
+    mapping=PipelineMapping(pipe_input=["text_1", "text_2"], pipe_input_as_list=True),
+    postprocess=_postprocess_sentence_similarity,
+)

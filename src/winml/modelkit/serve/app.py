@@ -293,9 +293,10 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                         "Use inputs for model inputs and params for pipeline parameters."
                     )
 
+                task_override = task
                 return await loop.run_in_executor(
                     None,
-                    lambda: engine.predict(inputs=merged, **pipe_params),
+                    lambda: engine.predict(inputs=merged, task=task_override, **pipe_params),
                 )
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -319,6 +320,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         try:
             async with mgr.borrow(model_id, task=request.task) as engine:
                 loop = asyncio.get_running_loop()
+                task_override = request.task
 
                 # Decode base64 for binary inputs based on schema
                 inputs = _decode_rest_inputs(request.inputs, engine.user_input_schema)
@@ -338,7 +340,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                 pipe_params = dict(request.params)
                 return await loop.run_in_executor(
                     None,
-                    lambda: engine.predict(inputs=inputs, **pipe_params),
+                    lambda: engine.predict(inputs=inputs, task=task_override, **pipe_params),
                 )
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -512,7 +514,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
                 alias=request.alias,
                 description=request.description,
             )
-        except (OSError, ValueError, RuntimeError) as exc:
+        except (OSError, ValueError, RuntimeError, ImportError) as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return {"status": "ok", "model_id": request.model_id}
 
@@ -573,17 +575,19 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         tags=["discovery"],
         summary="Request/response schema and examples for a loaded model",
     )
-    async def model_schema(model_id: str) -> dict[str, Any]:
+    async def model_schema(model_id: str, task: str | None = None) -> dict[str, Any]:
         """Return the request/response schema for a specific model.
 
         User inputs from TASK_REGISTRY, pipeline parameters discovered
         from the loaded pipeline's _sanitize_parameters signature.
+        Optional ``task`` query param overrides the model's default task
+        for input schema resolution (e.g. sentence-similarity vs feature-extraction).
         """
         manifest = _load_manifest(model_id)
         if manifest is None:
             raise HTTPException(status_code=404, detail=f"Model '{model_id}' not loaded")
         engine = _get_mgr().get_engine(model_id)
-        return _build_model_schema(manifest, engine)
+        return _build_model_schema(manifest, engine, task_override=task)
 
     # ------------------------------------------------------------------
     # GET /v1/schema — request/response schema (single-model shortcut)
@@ -593,13 +597,13 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
         tags=["discovery"],
         summary="Request/response schema for the current model",
     )
-    async def current_schema() -> dict[str, Any]:
+    async def current_schema(task: str | None = None) -> dict[str, Any]:
         """Shortcut: returns schema for the first/only loaded model."""
         manifest = _load_manifest()
         if manifest is None:
             raise HTTPException(status_code=503, detail="No model loaded")
         engine = _get_mgr().get_engine()
-        return _build_model_schema(manifest, engine)
+        return _build_model_schema(manifest, engine, task_override=task)
 
     # ------------------------------------------------------------------
     # GET /v1/hub — built-in catalog + user cached models
@@ -703,15 +707,21 @@ def _manifest_from_engine(engine: InferenceEngine) -> dict:
     }
 
 
-def _build_model_schema(manifest: dict, engine: InferenceEngine | None = None) -> dict[str, Any]:
+def _build_model_schema(
+    manifest: dict,
+    engine: InferenceEngine | None = None,
+    task_override: str | None = None,
+) -> dict[str, Any]:
     """Build request/response schema from TASK_REGISTRY + engine.
 
     User inputs come from TASK_REGISTRY[task]. Pipeline parameters come from
     the engine's _discover_pipeline_params (if available).
+    When *task_override* is provided, user_inputs are resolved from that task
+    instead (e.g. ``sentence-similarity`` for a ``feature-extraction`` model).
     """
     from ..inference.tasks import TASK_REGISTRY
 
-    task = manifest.get("task", "")
+    task = task_override or manifest.get("task", "")
     model_id = manifest.get("model_id", "unknown")
 
     # User inputs from registry

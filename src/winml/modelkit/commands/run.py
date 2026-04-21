@@ -242,7 +242,11 @@ def _print_schema(
     if output_path:
         Path(output_path).write_text(text, encoding="utf-8")
     else:
-        click.echo(text)
+        try:
+            click.echo(text)
+        except OSError:
+            sys.stdout.write(text + "\n")
+            sys.stdout.flush()
 
 
 def _schema_to_dict(engine: Any) -> dict[str, Any]:
@@ -271,7 +275,7 @@ def _schema_to_dict(engine: Any) -> dict[str, Any]:
 
     result["parameters"] = params or []
 
-    example = _build_example_command(engine.model_path or "MODEL", schema, params)
+    example = _build_example_command(engine.model_path or "MODEL", schema, params, task=engine.task)
     if example:
         result["example"] = example
 
@@ -310,7 +314,7 @@ def _schema_to_text(engine: Any) -> str:
     else:
         lines.append("Parameters: (none discovered)")
 
-    example = _build_example_command(engine.model_path or "MODEL", schema, params)
+    example = _build_example_command(engine.model_path or "MODEL", schema, params, task=engine.task)
     if example:
         lines.append("")
         lines.append("Example:")
@@ -335,6 +339,7 @@ def _build_example_command(
     model_path: str,
     schema: list | None,
     params: list[dict] | None,
+    task: str | None = None,
 ) -> str | None:
     """Build a ready-to-copy example command from schema + params."""
     if not schema:
@@ -343,6 +348,8 @@ def _build_example_command(
     from ..inference.tasks import BINARY_TYPES
 
     parts = [f"winml run --model {model_path}"]
+    if task:
+        parts.append(f"--task {task}")
 
     # Try shortcuts first (--file / --text) for simple models
     binary_fields = [f for f in schema if f.type in BINARY_TYPES and f.required]
@@ -603,16 +610,22 @@ def run(
     from ..inference import InferenceEngine
 
     engine = InferenceEngine()
+
+    # --schema: lightweight load (no model build / ORT session) and exit
+    if show_schema:
+        try:
+            engine.load_schema_only(model, task=task, device=device, ep=ep)
+        except (OSError, ValueError, RuntimeError) as exc:
+            click.echo(f"Error loading model: {exc}", err=True)
+            ctx.exit(3)
+        _print_schema(engine, output_format=output_format, output_path=output)
+        return
+
     try:
         engine.load(model, task=task, device=device, ep=ep)
     except (OSError, ValueError, RuntimeError) as exc:
         click.echo(f"Error loading model: {exc}", err=True)
         ctx.exit(3)
-
-    # --schema: print schema and exit
-    if show_schema:
-        _print_schema(engine, output_format=output_format, output_path=output)
-        return
 
     # No inputs: print hint and exit
     if not has_inputs:
@@ -660,6 +673,28 @@ def run(
 # ---------------------------------------------------------------------------
 # Auto-connect helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_text_field_via_schema(client: Any, base_url: str) -> str:
+    """Probe ``GET /v1/schema`` to find the correct field name for ``--text``.
+
+    Falls back to ``"text"`` when the schema is unavailable or the task has
+    no text-type input.  This mirrors the embedded-path logic in
+    ``_resolve_shortcuts`` so that ``--connect --text`` works for tasks
+    whose text field is not named ``"text"`` (e.g. question-answering
+    expects ``"question"``).
+    """
+    try:
+        resp = client.get(f"{base_url}/v1/schema", timeout=2)
+        if resp.status_code == 200:
+            schema = resp.json()
+            user_inputs = schema.get("user_inputs", [])
+            text_fields = [f for f in user_inputs if f.get("type") == "text"]
+            if len(text_fields) == 1:
+                return text_fields[0]["name"]
+    except Exception:
+        pass
+    return "text"
 
 
 def _try_server_predict(
@@ -729,7 +764,11 @@ def _try_server_predict(
             inputs: dict[str, Any] = {}
             inputs.update({k: _parse_heuristic(v) for k, v in raw_inputs.items()})
             if text is not None:
-                inputs["text"] = text
+                # Resolve the correct field name via the server schema so
+                # that --text works for tasks whose text field is not named
+                # "text" (e.g. question-answering expects "question").
+                text_field_name = _resolve_text_field_via_schema(client, base_url)
+                inputs[text_field_name] = text
 
             payload: dict[str, Any] = {"inputs": inputs, "params": pipeline_kwargs}
             resp = client.post(
@@ -772,7 +811,21 @@ def _print_result(
     output_format: str,
     output_path: str | None,
 ) -> None:
-    text = json.dumps(result, indent=2) if output_format == "json" else _format_text(result)
+    if output_format == "json":
+        text = json.dumps(result, indent=2)
+    else:
+        # Strip base64 mask data from text display — too large for terminal.
+        # Work on a shallow copy to avoid mutating the caller's dict.
+        import copy
+
+        display_result = copy.copy(result)
+        preds = display_result.get("predictions")
+        if isinstance(preds, list):
+            display_result["predictions"] = [
+                {k: v for k, v in p.items() if k != "mask"} if isinstance(p, dict) else p
+                for p in preds
+            ]
+        text = _format_text(display_result)
 
     if output_path:
         Path(output_path).write_text(text, encoding="utf-8")
@@ -799,15 +852,20 @@ def _format_text(result: dict) -> str:
     lines.append("")
 
     predictions = result.get("predictions", [])
+    is_segmentation = task in {"image-segmentation", "semantic-segmentation"}
     if isinstance(predictions, list) and predictions and isinstance(predictions[0], dict):
         # Classification-style: list of {label, score, ...}
         has_scores = "score" in predictions[0]
-        lines.append("Results:")
+        lines.append("Results:" if not is_segmentation else "Results (area coverage):")
         for i, p in enumerate(predictions, 1):
             label = p.get("label", str(i))
             if has_scores:
-                score = p.get("score", 0.0)
-                lines.append(f"  {i:2d}. {label:<30s} {score:.4f}")
+                score = p.get("score")
+                if score is not None:
+                    score_str = f"{score:5.1%}" if is_segmentation else f"{score:.4f}"
+                else:
+                    score_str = "—"
+                lines.append(f"  {i:2d}. {label:<30s} {score_str}")
             else:
                 lines.append(f"  {i:2d}. {p}")
     elif isinstance(predictions, dict):

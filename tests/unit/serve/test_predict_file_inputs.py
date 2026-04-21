@@ -21,8 +21,7 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from winml.modelkit.inference.tasks import TASK_REGISTRY, InputField
-from winml.modelkit.inference.types import Prediction, PredictionResult
+from winml.modelkit.inference import TASK_REGISTRY, InputField, Prediction, PredictionResult
 from winml.modelkit.serve.app import _register_routes
 from winml.modelkit.serve.manager import SingleModelManager
 

@@ -48,6 +48,9 @@ logger = logging.getLogger(__name__)
 # Rolling window size for latency tracking (bounds memory for long-running servers)
 _LATENCY_WINDOW = 200
 
+# Sentinel for "parameter not provided" (distinct from None)
+_UNSET: Any = object()
+
 # ---------------------------------------------------------------------------
 # Binary decoders — keyed by InputField.type
 # ---------------------------------------------------------------------------
@@ -95,6 +98,81 @@ _DECODERS: dict[str, Any] = {
     "audio": _decode_audio,
     "video": _decode_video,
 }
+
+
+# ---------------------------------------------------------------------------
+# Lightweight schema helpers (no model load required)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_hf_task(model_id: str, task: str | None) -> str | None:
+    """Resolve task from an HF model ID using AutoConfig only (no model weights).
+
+    When *task* is provided, normalises it and returns immediately.
+    Otherwise downloads the small ``config.json`` from the Hub and infers
+    the task via ``resolve_task_and_model_class``.
+    """
+    if task is not None:
+        # If the task has its own entry in TASK_REGISTRY (e.g.
+        # sentence-similarity), preserve it as-is.  Only fall back to
+        # Optimum's synonym mapping for unknown tasks — otherwise
+        # sentence-similarity gets collapsed to feature-extraction and
+        # loses its distinct input schema.
+        if task in TASK_REGISTRY:
+            return task
+        from ..loader import normalize_task
+
+        return normalize_task(task)
+
+    try:
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(model_id)
+
+        from ..loader import resolve_task_and_model_class
+
+        resolved_task, _ = resolve_task_and_model_class(config)
+        return resolved_task
+    except Exception as exc:
+        logger.warning("Could not detect task for %s: %s", model_id, exc)
+        return None
+
+
+def _discover_pipeline_params_from_task(task: str | None) -> list[dict]:
+    """Discover pipeline parameters from the pipeline *class* (no instance needed).
+
+    Looks up the ``transformers`` pipeline class for *task* and inspects
+    ``_sanitize_parameters`` — the same introspection that
+    ``_discover_pipeline_params`` performs on an instance, but without
+    loading any model weights or creating an ORT session.
+    """
+    if task is None:
+        return []
+
+    try:
+        from transformers.pipelines import SUPPORTED_TASKS
+
+        task_info = SUPPORTED_TASKS.get(task)
+        if not task_info:
+            return []
+        pipeline_class = task_info.get("impl")
+        if pipeline_class is None:
+            return []
+
+        sig = inspect.signature(pipeline_class._sanitize_parameters)
+    except (ImportError, ValueError, TypeError, KeyError, AttributeError):
+        return []
+
+    params: list[dict] = []
+    for name, param in sig.parameters.items():
+        if name == "self":
+            continue
+        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            continue
+        entry = _build_param_entry(name, param)
+        if entry is not None:
+            params.append(entry)
+    return params
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +249,61 @@ class InferenceEngine:
         if self._pipeline is not None:
             self._pipeline_params = _discover_pipeline_params(self._pipeline)
 
+    def load_schema_only(
+        self,
+        model_path: str | Path,
+        *,
+        task: str | None = None,
+        device: str = "auto",
+        ep: str | None = None,
+    ) -> None:
+        """Lightweight load for schema display — no model build or ORT session.
+
+        Resolves task and populates ``user_input_schema`` and
+        ``pipeline_params`` without downloading model weights, running the
+        build pipeline (export/optimize/analyze), or creating an ORT
+        session.  For HF model IDs this is orders of magnitude faster
+        than ``load()`` because only the Hub ``config.json`` is fetched.
+
+        For build directories, reads the manifest file directly.
+        For ``.onnx`` files, uses the caller-provided *task*.
+
+        Falls back to ``load()`` only when the task cannot be determined
+        without a full model load.
+        """
+        self._model_path = str(model_path)
+        self._device = device
+        self._ep = ep
+
+        path = Path(model_path)
+
+        if path.is_dir():
+            # Build dir: read manifest for task + model_id (no ORT session)
+            manifest_path = path / "build_manifest.json"
+            if manifest_path.exists():
+                manifest = json.loads(manifest_path.read_text())
+                self._model_id = manifest.get("model_id")
+                self._task = task or manifest.get("task")
+            else:
+                self._task = task
+        elif path.suffix == ".onnx" and path.exists():
+            self._model_id = str(model_path)
+            self._task = task
+        else:
+            # HF model ID: resolve task from config.json only
+            self._model_id = str(model_path)
+            self._task = _resolve_hf_task(str(model_path), task)
+
+        # Resolve user_input_schema from registry (only needs task name)
+        if self._task:
+            spec = TASK_REGISTRY.get(self._task)
+            if spec is not None:
+                self._user_input_schema = spec.user_inputs
+                self._pipeline_mapping = spec.mapping
+
+        # Discover pipeline params from class (no model instance needed)
+        self._pipeline_params = _discover_pipeline_params_from_task(self._task)
+
     def unload(self) -> None:
         """Release ORT session and free memory."""
         self._model = None
@@ -207,6 +340,7 @@ class InferenceEngine:
         self,
         *,
         inputs: dict[str, Any],
+        task: str | None = None,
         **pipeline_kwargs: Any,
     ) -> PredictionResult:
         """Run inference via HF Pipeline and return structured result.
@@ -217,6 +351,11 @@ class InferenceEngine:
                 automatically based on TASK_REGISTRY.
                 For raw tensor mode (no pipeline), values are numpy-
                 serialisable lists passed directly to the model.
+            task: Optional task override.  When provided, input validation
+                and pipeline dispatch use the schema for *task* instead of
+                the model's loaded task.  This allows e.g. a
+                ``feature-extraction`` model to serve ``sentence-similarity``
+                requests with different input fields.
             **pipeline_kwargs: Extra keyword arguments forwarded to the
                 HF pipeline (e.g. ``top_k``, ``max_new_tokens``).
 
@@ -226,20 +365,51 @@ class InferenceEngine:
         if self._model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
+        # Resolve effective task/schema/mapping as local variables so that
+        # concurrent threads (via run_in_executor) don't clobber each other.
+        effective_task = self._task
+        effective_schema = self._user_input_schema
+        effective_mapping = self._pipeline_mapping
+        if task and task != self._task:
+            spec = TASK_REGISTRY.get(task)
+            if spec:
+                effective_task = task
+                effective_schema = spec.user_inputs
+                effective_mapping = spec.mapping
+
         t0 = time.perf_counter()
 
         # Validate inputs against schema (skipped when schema is None)
-        validated = self._validate_inputs(inputs)
+        validated = self._validate_inputs(inputs, schema=effective_schema)
 
         if self._pipeline is not None:
             temp_paths: list[str] = []
-            pipe_input = self._prepare_pipeline_input(validated, pipeline_kwargs, temp_paths)
+            pipe_input = self._prepare_pipeline_input(
+                validated,
+                pipeline_kwargs,
+                temp_paths,
+                schema=effective_schema,
+                mapping=effective_mapping,
+            )
+            # Filter kwargs to only those accepted by the pipeline so that
+            # the UI can send a generic param set (e.g. top_k) without
+            # breaking pipelines that don't support it.
+            accepted = self._accepted_pipeline_kwargs()
+            filtered_kwargs = (
+                {k: v for k, v in pipeline_kwargs.items() if k in accepted}
+                if accepted is not None
+                else pipeline_kwargs
+            )
             try:
-                raw_result = self._pipeline(pipe_input, **pipeline_kwargs)
+                raw_result = self._pipeline(pipe_input, **filtered_kwargs)
             finally:
                 for p in temp_paths:
                     Path(p).unlink(missing_ok=True)
-            predictions = self._normalize_pipeline_output(raw_result)
+            predictions = self._normalize_pipeline_output(
+                raw_result,
+                inputs=validated,
+                task=effective_task,
+            )
         else:
             predictions = self._predict_raw_tensors(validated)
 
@@ -252,7 +422,7 @@ class InferenceEngine:
         ep_name = getattr(session, "_ep", self._ep)
 
         return PredictionResult(
-            task=self._task or "unknown",
+            task=effective_task or "unknown",
             model_id=self._model_id,
             device=self._device,
             ep=ep_name,
@@ -392,13 +562,19 @@ class InferenceEngine:
     # Private — input validation
     # ------------------------------------------------------------------
 
-    def _validate_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _validate_inputs(
+        self,
+        inputs: dict[str, Any],
+        *,
+        schema: list[InputField] | None | Any = _UNSET,
+    ) -> dict[str, Any]:
         """Validate inputs against schema and inject defaults.
 
         Returns a new dict with defaults applied for missing optional fields.
         When schema is None (raw tensor / unregistered task), returns inputs as-is.
         """
-        schema = self._user_input_schema
+        if schema is _UNSET:
+            schema = self._user_input_schema
         if schema is None:
             return inputs
 
@@ -466,6 +642,9 @@ class InferenceEngine:
         inputs: dict[str, Any],
         pipeline_kwargs: dict[str, Any],
         temp_paths: list[str] | None = None,
+        *,
+        schema: list[InputField] | None | Any = _UNSET,
+        mapping: PipelineMapping | None | Any = _UNSET,
     ) -> Any:
         """Convert validated inputs → pipeline positional argument.
 
@@ -476,13 +655,18 @@ class InferenceEngine:
         Args:
             temp_paths: If provided, video temp-file paths are appended so
                 callers can clean them up after inference.
+            schema: Override for self._user_input_schema (thread-safe dispatch).
+            mapping: Override for self._pipeline_mapping (thread-safe dispatch).
         """
-        mapping = self._pipeline_mapping
+        if mapping is _UNSET:
+            mapping = self._pipeline_mapping
         if mapping is None:
             # Unregistered task: pass inputs as-is
             return inputs
 
-        schema = self._user_input_schema or []
+        if schema is _UNSET:
+            schema = self._user_input_schema
+        schema = schema or []
 
         # 1. Decode binary inputs (skip if already decoded, e.g. PIL from Gradio)
         decoded = dict(inputs)
@@ -522,18 +706,52 @@ class InferenceEngine:
         return create_pipeline(self._task, self._model, self._model_id)
 
     # ------------------------------------------------------------------
+    # Private — pipeline kwarg filtering
+    # ------------------------------------------------------------------
+
+    def _accepted_pipeline_kwargs(self) -> frozenset[str] | None:
+        """Return the set of kwarg names accepted by this pipeline.
+
+        Built from the already-discovered ``pipeline_params``.  Returns
+        ``None`` when discovery hasn't run (caller should pass kwargs
+        through unfiltered in that case).
+        """
+        if self._pipeline_params is None:
+            return None
+        return frozenset(p["name"] for p in self._pipeline_params)
+
+    # ------------------------------------------------------------------
     # Private — output normalization
     # ------------------------------------------------------------------
 
-    def _normalize_pipeline_output(self, raw: Any) -> list[Prediction] | dict[str, Any]:
-        """Convert HF pipeline output to our standard format."""
-        # Classification tasks return list of {"label": ..., "score": ...}
+    def _normalize_pipeline_output(
+        self,
+        raw: Any,
+        inputs: dict[str, Any] | None = None,
+        *,
+        task: str | None | Any = _UNSET,
+    ) -> list[Prediction] | dict[str, Any]:
+        """Convert HF pipeline output to our standard format.
+
+        If the task has a registered ``postprocess`` callback in
+        TASK_REGISTRY, it is called first.  Otherwise the default
+        heuristic-based normalisation runs.
+        """
+        if task is _UNSET:
+            task = self._task
+        # Registry-driven postprocess — lets tasks opt-in to custom
+        # output transformation without any if/else branching here.
+        spec = TASK_REGISTRY.get(task or "")
+        if spec and spec.postprocess is not None:
+            return spec.postprocess(raw, pipeline=self._pipeline, inputs=inputs)
+
         if isinstance(raw, list) and raw and isinstance(raw[0], dict):
+            # Classification / detection: list of {"label": ..., "score": ...}
             if "label" in raw[0] and "score" in raw[0]:
                 return [
                     Prediction(
                         label=str(item["label"]),
-                        score=round(float(item["score"]), 6),
+                        score=round(float(item["score"]), 6) if item["score"] is not None else None,
                     )
                     for item in raw
                 ]
@@ -675,23 +893,30 @@ class InferenceEngine:
 _PARAM_TYPE_SAMPLES: dict[str, str] = {
     "integer": "5",
     "number": "0.7",
-    "boolean": "true",
 }
 
 # Well-known HF pipeline params whose defaults are hidden behind sentinels
-# (e.g. top_k="" in TextClassificationPipeline).  Provides useful sample
-# values for schema display and example commands.
-_WELL_KNOWN_PARAMS: dict[str, str] = {
-    "top_k": "5",
-    "top_p": "0.9",
-    "temperature": "0.7",
-    "max_new_tokens": "100",
-    "max_length": "512",
-    "num_beams": "4",
-    "threshold": "0.5",
-    "doc_stride": "128",
-    "max_answer_len": "15",
-    "batch_size": "1",
+# (e.g. top_k="" in TextClassificationPipeline).  Stores (type, sample_value)
+# so we can fix the discovered type when the signature default is a sentinel.
+_WELL_KNOWN_PARAMS: dict[str, tuple[str, Any]] = {
+    # Classification / detection
+    "top_k": ("integer", 5),
+    "threshold": ("number", 0.5),
+    # Token classification (NER)
+    "aggregation_strategy": ("string", "simple"),
+    "ignore_labels": ("string", '["O"]'),
+    "stride": ("integer", 0),
+    # Generation
+    "top_p": ("number", 0.9),
+    "temperature": ("number", 0.7),
+    "max_new_tokens": ("integer", 100),
+    "max_length": ("integer", 512),
+    "num_beams": ("integer", 4),
+    # QA
+    "doc_stride": ("integer", 128),
+    "max_answer_len": ("integer", 15),
+    # General
+    "batch_size": ("integer", 1),
 }
 
 
@@ -703,8 +928,31 @@ def _pick_sample_value(name: str, ptype: str, default: Any) -> str | None:
     if default is not None and str(default).strip() != "":
         return str(default)
     if name in _WELL_KNOWN_PARAMS:
-        return _WELL_KNOWN_PARAMS[name]
+        return str(_WELL_KNOWN_PARAMS[name][1])
     return _PARAM_TYPE_SAMPLES.get(ptype)
+
+
+def _build_param_entry(name: str, param: inspect.Parameter) -> dict[str, Any] | None:
+    """Build a single param dict from an inspect.Parameter, or None to skip."""
+    entry: dict[str, Any] = {"name": name}
+    default = param.default
+    if default is not inspect.Parameter.empty and default is not None:
+        entry["type"] = _PY_TYPE_TO_SCHEMA.get(type(default), "any")
+        entry["default"] = default
+    else:
+        entry["type"] = "any"
+    # When the signature uses a sentinel default (e.g. top_k=""), the
+    # discovered type may be wrong.  Override with the well-known type.
+    if name in _WELL_KNOWN_PARAMS and entry["type"] in ("any", "string"):
+        entry["type"] = _WELL_KNOWN_PARAMS[name][0]
+    sample = _pick_sample_value(name, entry["type"], entry.get("default"))
+    if sample is not None:
+        entry["sample_value"] = sample
+    # Only expose params that have a known default or sample value;
+    # params with neither (e.g. offset_mapping) are internal noise.
+    if "default" not in entry and "sample_value" not in entry:
+        return None
+    return entry
 
 
 def _discover_pipeline_params(pipeline: Any) -> list[dict]:
@@ -725,15 +973,7 @@ def _discover_pipeline_params(pipeline: Any) -> list[dict]:
             continue
         if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
             continue
-        entry: dict[str, Any] = {"name": name}
-        default = param.default
-        if default is not inspect.Parameter.empty and default is not None:
-            entry["type"] = _PY_TYPE_TO_SCHEMA.get(type(default), "any")
-            entry["default"] = default
-        else:
-            entry["type"] = "any"
-        sample = _pick_sample_value(name, entry["type"], entry.get("default"))
-        if sample is not None:
-            entry["sample_value"] = sample
-        params.append(entry)
+        entry = _build_param_entry(name, param)
+        if entry is not None:
+            params.append(entry)
     return params

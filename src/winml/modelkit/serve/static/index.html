@@ -329,6 +329,14 @@ canvas.spark{width:100%;height:60px;display:block}
         </select>
       </div>
 
+      <!-- Task selector -->
+      <div class="panel-sec" id="taskField">
+        <div class="sec-title">Task</div>
+        <select id="taskSelect" onchange="onTaskChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 9px;font-size:12px;outline:none;width:100%">
+          <option value="">Auto (from model)</option>
+        </select>
+      </div>
+
       <!-- Image input -->
       <div class="panel-sec" id="imageInputSection">
         <div class="sec-title">Input Image</div>
@@ -343,19 +351,16 @@ canvas.spark{width:100%;height:60px;display:block}
         </div>
       </div>
 
-      <!-- Text input (NLP tasks) -->
+      <!-- Text input (NLP tasks) — fields built dynamically from schema -->
       <div class="panel-sec" id="textInputSection" style="display:none">
-        <div class="sec-title">Input Text</div>
-        <textarea id="textInput" oninput="checkRunReady()"
-          style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 10px;font-size:12px;outline:none;resize:vertical;min-height:100px;line-height:1.5;font-family:inherit"
-          placeholder="Enter text to classify…"></textarea>
+        <div id="textFieldsContainer"></div>
         <div id="textExamples" style="margin-top:8px;display:flex;flex-direction:column;gap:4px"></div>
       </div>
 
-      <!-- Options -->
+      <!-- Options — pipeline params built dynamically from /v1/schema -->
       <div class="panel-sec">
         <div class="sec-title">Options</div>
-        <div class="field"><label>Top-K</label><input type="number" id="topK" value="5" min="1" max="20"></div>
+        <div id="pipelineParamsContainer"></div>
         <button class="run-btn" id="runBtn" onclick="runInference()" disabled>
           <div class="spinner"></div><span class="run-label">▶ Run Inference</span>
         </button>
@@ -943,11 +948,16 @@ async function connectServer() {
     const d = await r.json();
     setStatus('ok', `${d.mode} · ${d.model_id || 'no model'}`);
     applyServerMode(d.mode);
-    if (d.mode !== 'multi' && d.task) _setInputModeFromSchema(d.task);
+    if (d.mode !== 'multi' && d.task) {
+      // Single-model mode: auto-select task in dropdown
+      const taskSel = document.getElementById('taskSelect');
+      if ([...taskSel.options].some(o => o.value === d.task)) taskSel.value = d.task;
+      _setInputModeFromSchema(d.task);
+    }
     checkRunReady();
     startPolling();
     // Pre-fetch hub catalog in background
-    fetch(`${serverUrl}/v1/hub`).then(r => r.json()).then(hd => { _hubCatalog = hd.models || []; _populateHubTaskFilter(); }).catch(() => {});
+    fetch(`${serverUrl}/v1/hub`).then(r => r.json()).then(hd => { _hubCatalog = hd.models || []; _populateHubTaskFilter(); _populateTaskDropdown(); }).catch(() => {});
   } catch {
     setStatus('err', 'Cannot reach server');
     stopPolling();
@@ -956,12 +966,14 @@ async function connectServer() {
 
 let _serverMode = 'single';
 let _inputMode = 'image'; // 'image' | 'text'
+let _textInputFields = []; // schema-driven text input fields [{name, description, required}, ...]
 
 // Text examples per task
 const TEXT_EXAMPLES = {
   'text-classification':  ['Stocks surged to record highs amid strong earnings.', 'The company reported a significant loss this quarter.'],
   'sentiment-analysis':   ['I love this product! Highly recommended.', 'Very disappointed with the quality.'],
   'feature-extraction':   ['The quick brown fox jumps over the lazy dog.'],
+  'sentence-similarity':  ['A man is eating food.', 'A man is eating a piece of bread.'],
 };
 const _BINARY_INPUT_TYPES = new Set(['image', 'audio', 'video']);
 
@@ -980,16 +992,44 @@ function onModelChange() {
   const match = opt?.textContent?.match(/\(([^)]+)\)$/);
   const task = match ? match[1].trim() : '';
   const modelId = sel.value || null;
+  // Auto-select the model's task in the task dropdown
+  const taskSel = document.getElementById('taskSelect');
+  if (task && [...taskSel.options].some(o => o.value === task)) {
+    taskSel.value = task;
+  } else {
+    taskSel.value = '';
+  }
   // Fetch schema to determine input mode from user_inputs types
   _setInputModeFromSchema(task, modelId);
   checkRunReady();
 }
 
+function onTaskChange() {
+  const task = document.getElementById('taskSelect').value;
+  const modelId = document.getElementById('modelId').value || null;
+  if (task) {
+    _setInputModeFromSchema(task, modelId);
+  }
+  checkRunReady();
+}
+
+function _populateTaskDropdown() {
+  const sel = document.getElementById('taskSelect');
+  const tasks = new Set();
+  _hubCatalog.forEach(m => { if (m.task) tasks.add(m.task); });
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Auto (from model)</option>' +
+    [...tasks].sort().map(t => `<option value="${t}">${t.replace(/-/g, ' ')}</option>`).join('');
+  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
 async function _setInputModeFromSchema(task, modelId) {
   // Try model-specific schema first (multi-model), fall back to /v1/schema (single)
+  // Pass task as query param so the backend resolves user_inputs for the overridden task
+  const taskQ = task ? `?task=${encodeURIComponent(task)}` : '';
   const urls = modelId
-    ? [`${serverUrl}/v1/models/${encodeURIComponent(modelId)}/schema`, `${serverUrl}/v1/schema`]
-    : [`${serverUrl}/v1/schema`];
+    ? [`${serverUrl}/v1/models/${encodeURIComponent(modelId)}/schema${taskQ}`, `${serverUrl}/v1/schema${taskQ}`]
+    : [`${serverUrl}/v1/schema${taskQ}`];
   for (const url of urls) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
@@ -997,13 +1037,62 @@ async function _setInputModeFromSchema(task, modelId) {
         const schema = await r.json();
         const inputs = schema.user_inputs || [];
         const hasBinary = inputs.some(f => _BINARY_INPUT_TYPES.has(f.type));
+        _textInputFields = inputs.filter(f => !_BINARY_INPUT_TYPES.has(f.type));
+        _buildPipelineParamsUI(schema.parameters || []);
         setInputMode(task, hasBinary ? 'image' : 'text');
         return;
       }
     } catch { /* try next */ }
   }
-  // Fallback: default to image mode (file upload works for any binary type)
-  setInputMode(task, 'image');
+  // Fallback: infer mode from task name when schema is unavailable
+  const _TEXT_TASKS = new Set([
+    'text-classification','sentiment-analysis','token-classification','ner',
+    'question-answering','text-generation','text2text-generation',
+    'feature-extraction','sentence-similarity','fill-mask','summarization',
+    'translation','zero-shot-classification','table-question-answering',
+  ]);
+  _textInputFields = [];
+  _buildPipelineParamsUI([]);
+  setInputMode(task, _TEXT_TASKS.has(task) ? 'text' : 'image');
+}
+
+function _buildPipelineParamsUI(params) {
+  const container = document.getElementById('pipelineParamsContainer');
+  const key = params.map(p => p.name).join(',');
+  if (container.dataset.paramKey === key) return;   // no change
+  container.dataset.paramKey = key;
+  if (!params.length) { container.innerHTML = ''; return; }
+  const inputStyle = 'width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 10px;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box';
+  container.innerHTML = params.map(p => {
+    const label = p.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // default → pre-fill (sent unless user clears); sample_value → placeholder only (not sent unless user fills)
+    const dflt = p.default;
+    const sample = p.sample_value;
+    const typ = p.type || 'any';
+    if (typ === 'boolean') {
+      const checked = (dflt === true) ? ' checked' : '';
+      return `<div class="field"><label>${escHtml(label)}</label><input type="checkbox" class="pipe-param" data-param="${escHtml(p.name)}" data-type="boolean"${checked} style="width:auto;accent-color:var(--accent)"></div>`;
+    }
+    const inputType = (typ === 'integer' || typ === 'number') ? 'number' : 'text';
+    const value = (dflt !== undefined && dflt !== null) ? escHtml(String(dflt)) : '';
+    const placeholder = (!value && sample !== undefined) ? ` placeholder="${escHtml(String(sample))}"` : '';
+    return `<div class="field"><label>${escHtml(label)}</label><input type="${inputType}" class="pipe-param" data-param="${escHtml(p.name)}" data-type="${escHtml(typ)}" value="${value}"${placeholder} style="${inputStyle}"></div>`;
+  }).join('');
+}
+
+function _collectPipelineParams() {
+  const params = {};
+  document.querySelectorAll('.pipe-param').forEach(el => {
+    const name = el.dataset.param;
+    const typ = el.dataset.type;
+    if (typ === 'boolean') { if (el.checked) params[name] = true; return; }
+    const raw = el.value.trim();
+    if (!raw) return;
+    if (typ === 'integer') params[name] = parseInt(raw, 10);
+    else if (typ === 'number') params[name] = parseFloat(raw);
+    else params[name] = raw;
+  });
+  return params;
 }
 
 function setInputMode(task, mode) {
@@ -1013,18 +1102,53 @@ function setInputMode(task, mode) {
   document.getElementById('imageInputSection').style.display = isText ? 'none' : '';
   document.getElementById('textInputSection').style.display  = isText ? '' : 'none';
 
+  // Keep the inline badge in sync (shown next to "Model" title in multi mode)
   const badge = document.getElementById('taskBadge');
   if (task) { badge.textContent = task; badge.style.display = ''; }
   else badge.style.display = 'none';
+  // Also sync the task dropdown if it wasn't the change source
+  const taskSel = document.getElementById('taskSelect');
+  if (task && !taskSel.value && [...taskSel.options].some(o => o.value === task)) {
+    taskSel.value = task;
+  }
+
+  // Build dynamic text input fields from schema — only rebuild when fields change
+  const container = document.getElementById('textFieldsContainer');
+  const fields = _textInputFields.length > 0
+    ? _textInputFields
+    : [{ name: 'text', description: 'Text input', required: true }];
+  const newFieldKey = fields.map(f => f.name).join(',');
+  if (container.dataset.fieldKey !== newFieldKey) {
+    container.dataset.fieldKey = newFieldKey;
+    const taStyle = 'width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 10px;font-size:12px;outline:none;resize:vertical;min-height:70px;line-height:1.5;font-family:inherit';
+    container.innerHTML = fields.map(f => {
+      const label = f.name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+      return `<div style="margin-bottom:8px">` +
+        `<div class="sec-title">${escHtml(label)}${f.required === false ? ' <span style="font-size:10px;color:var(--text2)">(optional)</span>' : ''}</div>` +
+        `<textarea class="schema-text-input" data-field="${escHtml(f.name)}" oninput="checkRunReady()" style="${taStyle}" placeholder="${escHtml(f.description || f.name)}"></textarea>` +
+        `</div>`;
+    }).join('');
+  }
 
   // Populate examples
   const examples = TEXT_EXAMPLES[task] || TEXT_EXAMPLES['text-classification'] || [];
   const exDiv = document.getElementById('textExamples');
-  if (isText && examples.length) {
-    exDiv.innerHTML = '<div style="font-size:10px;color:var(--text2);margin-bottom:3px">Examples:</div>' +
-      examples.map(e => `<div onclick="document.getElementById('textInput').value=\`${e.replace(/`/g,"'")}\`;checkRunReady()"
-        style="font-size:11px;color:var(--text2);padding:5px 8px;background:var(--surface2);border-radius:4px;cursor:pointer;border:1px solid var(--border)"
-        onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${escHtml(e)}</div>`).join('');
+  const allInputs = container.querySelectorAll('.schema-text-input');
+  if (isText && examples.length && allInputs.length) {
+    // When example count matches field count (e.g. sentence-similarity: 2 examples → 2 fields),
+    // show a single "Try example" that fills all fields at once.
+    if (examples.length === allInputs.length && allInputs.length > 1) {
+      exDiv.innerHTML = '<div style="font-size:10px;color:var(--text2);margin-bottom:3px">Example:</div>' +
+        `<div onclick="document.querySelectorAll('.schema-text-input').forEach((el,i)=>{el.value=_textExamples[i]||'';});checkRunReady()"
+          style="font-size:11px;color:var(--text2);padding:5px 8px;background:var(--surface2);border-radius:4px;cursor:pointer;border:1px solid var(--border)"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${examples.map(e => escHtml(e)).join(' ⟷ ')}</div>`;
+      window._textExamples = examples;
+    } else {
+      exDiv.innerHTML = '<div style="font-size:10px;color:var(--text2);margin-bottom:3px">Examples:</div>' +
+        examples.map(e => `<div onclick="document.querySelector('.schema-text-input').value=\`${e.replace(/`/g,"'")}\`;checkRunReady()"
+          style="font-size:11px;color:var(--text2);padding:5px 8px;background:var(--surface2);border-radius:4px;cursor:pointer;border:1px solid var(--border)"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${escHtml(e)}</div>`).join('');
+    }
   } else {
     exDiv.innerHTML = '';
   }
@@ -1037,9 +1161,14 @@ function checkRunReady() {
   const modelId = document.getElementById('modelId').value.trim();
   const requiresModel = _serverMode === 'multi';
   const hasModel = !requiresModel || modelId.length > 0;
-  const hasInput = _inputMode === 'text'
-    ? document.getElementById('textInput').value.trim().length > 0
-    : !!selectedFile;
+  let hasInput;
+  if (_inputMode === 'text') {
+    // At least one required field must be filled (or any field if all optional)
+    const fields = document.querySelectorAll('.schema-text-input');
+    hasInput = [...fields].some(f => f.value.trim().length > 0);
+  } else {
+    hasInput = !!selectedFile;
+  }
   document.getElementById('runBtn').disabled = !(hasModel && hasInput);
 }
 function refreshModelDropdown(models) {
@@ -1055,7 +1184,10 @@ function refreshModelDropdown(models) {
   // Restore previous selection if still available
   if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
   else if (sel.options.length === 2) sel.selectedIndex = 1; // auto-select if only one model
-  onModelChange();
+  // Only fire onModelChange when the selection actually changed —
+  // polling refreshes the dropdown every 3s and must not clobber
+  // a user's manual task override.
+  if (sel.value !== prev) onModelChange();
 }
 function setStatus(s, label) {
   document.getElementById('statusDot').className = 'status-dot ' + (s === 'ok' ? 'ok' : 'err');
@@ -1089,8 +1221,9 @@ dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag
 async function runInference() {
   const btn = document.getElementById('runBtn');
   btn.classList.add('loading'); btn.disabled = true;
-  const topK = parseInt(document.getElementById('topK').value) || 5;
+  const pipeParams = _collectPipelineParams();
   const modelId = document.getElementById('modelId').value || '_';
+  const taskOverride = document.getElementById('taskSelect').value || null;
 
   document.getElementById('infReproRes').textContent = '…waiting…';
   openReproPanel('infReproBody','infReproArrow');
@@ -1100,10 +1233,14 @@ async function runInference() {
     let res, reqDesc, curlCmd;
 
     if (_inputMode === 'text') {
-      // ── Text inference ──
-      const text = document.getElementById('textInput').value.trim();
-      if (!text) { showToast('Please enter some text'); return; }
-      const payload = { inputs: { text }, params: { top_k: topK } };
+      // ── Text inference — collect all schema-driven fields ──
+      const inputs = {};
+      document.querySelectorAll('.schema-text-input').forEach(el => {
+        const v = el.value.trim();
+        if (v) inputs[el.dataset.field] = v;
+      });
+      if (Object.keys(inputs).length === 0) { showToast('Please enter some text'); return; }
+      const payload = { inputs, ...(Object.keys(pipeParams).length ? { params: pipeParams } : {}), ...(taskOverride ? { task: taskOverride } : {}) };
       const body = JSON.stringify(payload);
       const url = `${serverUrl}/v1/predict?model_id=${encodeURIComponent(modelId)}`;
       reqDesc = `POST /v1/predict\nContent-Type: application/json\n\n${JSON.stringify(payload, null, 2)}`;
@@ -1117,9 +1254,12 @@ async function runInference() {
       const fd = new FormData();
       fd.append('file', selectedFile);
       fd.append('model_id', modelId);
-      fd.append('params', JSON.stringify({ top_k: topK }));
-      reqDesc = `POST /v1/predict/file (multipart/form-data)\n\nfile:     ${selectedFile.name} (${(selectedFile.size/1024).toFixed(1)} KB)\nmodel_id: ${modelId}\nparams:   ${JSON.stringify({ top_k: topK })}`;
-      curlCmd = `curl -X POST ${serverUrl}/v1/predict/file \\\n  -F "file=@${selectedFile.name}" \\\n  -F "model_id=${modelId}" \\\n  -F 'params=${JSON.stringify({ top_k: topK })}'`;
+      if (taskOverride) fd.append('task', taskOverride);
+      if (Object.keys(pipeParams).length) fd.append('params', JSON.stringify(pipeParams));
+      const paramsStr = Object.keys(pipeParams).length ? `\nparams:   ${JSON.stringify(pipeParams)}` : '';
+      reqDesc = `POST /v1/predict/file (multipart/form-data)\n\nfile:     ${selectedFile.name} (${(selectedFile.size/1024).toFixed(1)} KB)\nmodel_id: ${modelId}${taskOverride ? `\ntask:     ${taskOverride}` : ''}${paramsStr}`;
+      const paramsCurl = Object.keys(pipeParams).length ? ` \\\n  -F 'params=${JSON.stringify(pipeParams)}'` : '';
+      curlCmd = `curl -X POST ${serverUrl}/v1/predict/file \\\n  -F "file=@${selectedFile.name}" \\\n  -F "model_id=${modelId}"${taskOverride ? ` \\\n  -F "task=${taskOverride}"` : ''}${paramsCurl}`;
       document.getElementById('infReproReq').textContent = reqDesc;
       document.getElementById('infReproCurl').textContent = curlCmd;
       res = await fetch(`${serverUrl}/v1/predict/file`, { method: 'POST', body: fd });
@@ -1274,16 +1414,16 @@ function renderModelCards(models, statsMap) {
       <div class="model-card-header">
         <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0;display:inline-block"></span>
         <span class="model-name" title="${escHtml(m.model_id)}">${escHtml(m.model_id)}</span>
-        <span class="tag tag-blue" style="font-size:10px">${m.task||'—'}</span>
-        <span class="tag tag-yellow" style="font-size:10px">${m.ep||m.device||'—'}</span>
-        <button class="btn btn-outline btn-sm" onclick="goInferWithModel('${escHtml(m.model_id)}')">▶ Infer</button>
-        <button class="btn btn-outline btn-sm" onclick="runBench('${escHtml(m.model_id)}',this)">⚡ Bench</button>
-        <button class="btn btn-danger btn-sm" onclick="unloadModel('${escHtml(m.model_id)}')">✕</button>
+        <span class="tag tag-blue" style="font-size:10px">${escHtml(m.task||'—')}</span>
+        <span class="tag tag-yellow" style="font-size:10px">${escHtml(m.ep||m.device||'—')}</span>
+        <button class="btn btn-outline btn-sm" onclick="goInferWithModel('${escJs(m.model_id)}')">▶ Infer</button>
+        <button class="btn btn-outline btn-sm" onclick="runBench('${escJs(m.model_id)}',this)">⚡ Bench</button>
+        <button class="btn btn-danger btn-sm" onclick="unloadModel('${escJs(m.model_id)}')">✕</button>
       </div>
       <div class="model-card-body">
         <div class="stat-cell">
           <div class="stat-label">Status</div>
-          <div class="stat-value" style="font-size:14px;color:${statusColor}">${m.status}</div>
+          <div class="stat-value" style="font-size:14px;color:${statusColor}">${escHtml(m.status)}</div>
         </div>
         <div class="stat-cell">
           <div class="stat-label">Memory</div>
@@ -1403,8 +1543,8 @@ function _renderHubCard(m) {
       <span style="font-size:10px;color:var(--text2);flex:1">${verdictLabel}</span>
       ${isRunning
         ? `<span class="hub-running-badge">● Running</span>
-           <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 8px" onclick="goInferWithModel('${escHtml(m.model_id)}')">▶ Infer</button>`
-        : `<button class="btn btn-primary btn-sm" style="font-size:10px;padding:3px 8px" onclick="hubLoad('${escHtml(m.model_id)}','${escHtml(m.task)}')">Load</button>`}
+           <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 8px" onclick="goInferWithModel('${escJs(m.model_id)}')">▶ Infer</button>`
+        : `<button class="btn btn-primary btn-sm" style="font-size:10px;padding:3px 8px" onclick="hubLoad('${escJs(m.model_id)}','${escJs(m.task)}')">Load</button>`}
     </div>
   </div>`;
 }
@@ -1501,8 +1641,9 @@ async function loadModel() {
     _log_handler_seq = lastSeq;
     if (timerEl) timerEl.remove();
 
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || r.statusText);
+    let d;
+    try { d = await r.json(); } catch { d = null; }
+    if (!r.ok) throw new Error(d?.detail || r.statusText);
 
     const totalSec = ((Date.now() - t0) / 1000).toFixed(1);
     logLine(`✓ Model loaded in ${totalSec}s`, '#3ecf8e');
@@ -1756,7 +1897,9 @@ function showToast(msg) {
 }
 // Strip ANSI escape codes before displaying in terminal
 function stripAnsi(s) { return String(s).replace(/\x1b\[[0-9;]*[mGKHF]/g, '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''); }
-function escHtml(s) { return stripAnsi(String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s) { return stripAnsi(String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Escape for use inside JS string literals in inline handlers (onclick="fn('${escJs(v)}')")
+function escJs(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\$/g,'\\$'); }
 function cssId(s) { return s.replace(/[^a-zA-Z0-9]/g, '_'); }
 function toggleReproPanel(bodyId, arrowId) {
   const body = document.getElementById(bodyId);
