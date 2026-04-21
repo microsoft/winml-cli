@@ -551,7 +551,7 @@ class WinMLSession:
     def _get_install_suggestion(self, device: str) -> str:
         """Get install suggestion for device policy."""
         suggestions = {
-            "npu": "Install appropriate NPU ONNX Runtime package",
+            "npu": "Install onnxruntime-windowsml",
             "gpu": "Install onnxruntime-windowsml",
         }
         return suggestions.get(device.lower(), "")
