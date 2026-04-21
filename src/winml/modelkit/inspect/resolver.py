@@ -56,7 +56,7 @@ _STAGE_TO_FILENAME = {
 }
 
 
-def _get_known_tasks() -> set[str]:
+def get_known_tasks() -> set[str]:
     """Collect all known task strings from internal mappings and TasksManager.
 
     Returns:
@@ -94,12 +94,10 @@ def validate_task(task: str) -> None:
     Raises:
         ValueError: If the task is not recognized.
     """
-    known = _get_known_tasks()
+    known = get_known_tasks()
     if task not in known:
         sorted_tasks = sorted(known)
-        raise ValueError(
-            f"Unknown task '{task}'. Known tasks: {', '.join(sorted_tasks)}"
-        )
+        raise ValueError(f"Unknown task '{task}'. Known tasks: {', '.join(sorted_tasks)}")
 
 
 def detect_task(config: PretrainedConfig) -> tuple[str, str]:
@@ -176,18 +174,51 @@ def resolve_loader(model_type: str, task: str) -> LoaderInfo:
     )
 
 
-def _extract_tensor_specs_from_onnx_config(
-    onnx_config_cls,
-    hf_config: PretrainedConfig,
-) -> tuple[list[TensorInfo], list[TensorInfo]]:
-    """Extract tensor specifications from an ONNX config class.
+def _shape_to_desc(shape: tuple | list | None, dynamic_axes: dict[int, str]) -> str:
+    """Convert tensor shape to human-readable string with dynamic markers.
 
-    Uses the ONNX config's generate_dummy_inputs() to get actual tensor shapes,
-    and the inputs/outputs properties for dynamic axes information.
+    Dynamic axes are shown as the concrete value from dummy inputs,
+    distinguishable from static dims by context (batch → "B").
+    For non-batch dynamic dims (sequence, height, width), shows the
+    concrete value since that's what the model actually uses for export.
+
+    Fixes D-3 from #247: uses axis names directly, no hardcoded abbreviations.
+    """
+    if shape is None:
+        parts = []
+        for _idx, axis_name in sorted(dynamic_axes.items()):
+            if axis_name.lower() in ("batch", "batch_size"):
+                parts.append("B")
+            else:
+                parts.append(axis_name)
+        return f"[{', '.join(parts)}]" if parts else "[]"
+
+    parts = []
+    for i, dim in enumerate(shape):
+        if i in dynamic_axes:
+            axis_name = dynamic_axes[i]
+            if axis_name.lower() in ("batch", "batch_size"):
+                parts.append("B")
+            else:
+                # Show concrete value — this is the export shape from
+                # preprocessor_config or shape_config, not a placeholder
+                parts.append(str(dim))
+        else:
+            parts.append(str(dim))
+    return f"[{', '.join(parts)}]"
+
+
+def build_tensor_infos_from_io_specs(
+    io_specs: dict,
+) -> tuple[list[TensorInfo], list[TensorInfo]]:
+    """Convert resolve_io_specs() output to TensorInfo lists.
+
+    Single conversion point from config's I/O spec format to inspect's
+    TensorInfo dataclass. Eliminates the duplicated extraction logic
+    that previously lived in _extract_tensor_specs_from_onnx_config.
 
     Args:
-        onnx_config_cls: ONNX config constructor (may be functools.partial)
-        hf_config: HuggingFace PretrainedConfig for shape bounds
+        io_specs: Dict returned by export/io.py resolve_io_specs()
 
     Returns:
         Tuple of (input_tensors, output_tensors)
@@ -195,88 +226,44 @@ def _extract_tensor_specs_from_onnx_config(
     input_tensors: list[TensorInfo] = []
     output_tensors: list[TensorInfo] = []
 
-    try:
-        # Instantiate ONNX config with HF config
-        onnx_config = onnx_config_cls(hf_config)
+    input_names = io_specs.get("input_names", [])
+    input_shapes = io_specs.get("input_shapes", [])
+    input_dtypes = io_specs.get("input_dtypes", [])
+    inputs_axes = io_specs.get("inputs", {})
+    value_ranges = io_specs.get("value_ranges", {})
 
-        # Generate dummy inputs to get actual shapes
-        dummy_inputs: dict = {}
-        try:
-            dummy_inputs = onnx_config.generate_dummy_inputs(framework="pt")
-        except Exception as e:
-            logger.debug("Failed to generate dummy inputs: %s", e)
+    for i, name in enumerate(input_names):
+        shape = input_shapes[i] if i < len(input_shapes) else None
+        dtype = input_dtypes[i] if i < len(input_dtypes) else None
+        axes = inputs_axes.get(name, {})
+        vr = value_ranges.get(name)
 
-        # Helper to convert shape to description with dynamic axis markers
-        def shape_to_desc(
-            shape: tuple | list | None, dynamic_axes: dict[int, str]
-        ) -> str:
-            """Convert tensor shape to human-readable string with dynamic markers."""
-            if shape is None:
-                # Fallback: use dynamic axes only
-                parts = []
-                for _idx, axis_name in sorted(dynamic_axes.items()):
-                    if "batch" in axis_name.lower():
-                        parts.append("B")
-                    else:
-                        parts.append(axis_name)
-                return f"[{', '.join(parts)}]" if parts else "[]"
+        shape_desc = _shape_to_desc(shape, axes) if shape else None
 
-            parts = []
-            for i, dim in enumerate(shape):
-                if i in dynamic_axes:
-                    axis_name = dynamic_axes[i].lower()
-                    if "batch" in axis_name:
-                        parts.append("B")
-                    elif "sequence" in axis_name:
-                        parts.append("S")
-                    elif "height" in axis_name or "width" in axis_name:
-                        parts.append(str(dim))  # Use actual size
-                    else:
-                        parts.append(str(dim))
-                else:
-                    parts.append(str(dim))
-            return f"[{', '.join(parts)}]"
+        input_tensors.append(
+            TensorInfo(
+                name=name,
+                dtype=dtype,
+                shape=shape,
+                shape_desc=shape_desc,
+                dynamic_axes=dict(axes) if axes else None,
+                value_range=vr,
+            )
+        )
 
-        # Standard input dtypes based on tensor name patterns
-        def infer_dtype(name: str) -> str:
-            name_lower = name.lower()
-            if "ids" in name_lower or "label" in name_lower:
-                return "int64"
-            if "mask" in name_lower and "pixel" not in name_lower:
-                return "int64"
-            return "float32"
+    output_names = io_specs.get("output_names", [])
+    outputs_axes = io_specs.get("outputs", {})
 
-        # Process inputs - use actual shapes from dummy inputs
-        if hasattr(onnx_config, "inputs"):
-            for name, axes in onnx_config.inputs.items():
-                shape = None
-                if name in dummy_inputs:
-                    shape = tuple(dummy_inputs[name].shape)
-                shape_desc = shape_to_desc(shape, axes)
-                dtype = infer_dtype(name)
-                input_tensors.append(
-                    TensorInfo(
-                        name=name,
-                        dtype=dtype,
-                        shape_desc=shape_desc,
-                        dynamic_axes=dict(axes),
-                    )
-                )
-
-        # Process outputs - we don't have actual shapes, use dynamic axes
-        if hasattr(onnx_config, "outputs"):
-            for name, axes in onnx_config.outputs.items():
-                shape_desc = shape_to_desc(None, axes)
-                output_tensors.append(
-                    TensorInfo(
-                        name=name,
-                        shape_desc=shape_desc,
-                        dynamic_axes=dict(axes),
-                    )
-                )
-
-    except Exception as e:
-        logger.debug("Failed to extract tensor specs from ONNX config: %s", e)
+    for name in output_names:
+        axes = outputs_axes.get(name, {})
+        shape_desc = _shape_to_desc(None, axes) if axes else None
+        output_tensors.append(
+            TensorInfo(
+                name=name,
+                shape_desc=shape_desc,
+                dynamic_axes=dict(axes) if axes else None,
+            )
+        )
 
     return input_tensors, output_tensors
 
@@ -285,15 +272,22 @@ def resolve_exporter(
     model_type: str,
     task: str,
     hf_config: PretrainedConfig | None = None,
+    *,
+    model_id: str | None = None,
 ) -> ExporterInfo:
     """Resolve exporter configuration for a model.
 
-    Uses MODEL_BUILD_CONFIGS registry from models/__init__.py.
+    Uses MODEL_BUILD_CONFIGS registry, then falls back to
+    export/io.py resolve_io_specs() for I/O extraction. This ensures
+    inspect and config share the same battle-tested I/O extraction path,
+    including correct image sizes from preprocessor_config.json.
 
     Args:
         model_type: HuggingFace model type (e.g., "clip")
         task: Canonical task name
         hf_config: Optional HuggingFace config for extracting tensor shapes
+        model_id: Optional HuggingFace model ID for preprocessor_config.json
+                  (needed for correct image sizes on models like ResNet)
 
     Returns:
         ExporterInfo with ONNX config, tensors, and support level
@@ -321,8 +315,7 @@ def resolve_exporter(
         output_tensors: list[TensorInfo] = []
         if export_config.output_tensors:
             output_tensors.extend(
-                TensorInfo(name=spec.name or "unknown")
-                for spec in export_config.output_tensors
+                TensorInfo(name=spec.name or "unknown") for spec in export_config.output_tensors
             )
 
         return ExporterInfo(
@@ -357,14 +350,23 @@ def resolve_exporter(
             else:
                 config_name = onnx_config_cls.__name__
 
-            # Extract tensor specs from ONNX config if HF config is available
+            # Extract tensor specs via resolve_io_specs (shared with config command)
             input_tensors: list[TensorInfo] = []
             output_tensors: list[TensorInfo] = []
 
             if hf_config is not None:
-                input_tensors, output_tensors = _extract_tensor_specs_from_onnx_config(
-                    onnx_config_cls, hf_config
-                )
+                try:
+                    from ..export.io import resolve_io_specs
+
+                    io_specs = resolve_io_specs(
+                        model_type=model_type,
+                        task=task,
+                        hf_config=hf_config,
+                        model_id=model_id,
+                    )
+                    input_tensors, output_tensors = build_tensor_infos_from_io_specs(io_specs)
+                except Exception as e:
+                    logger.debug("resolve_io_specs failed for %s/%s: %s", model_type, task, e)
 
             return ExporterInfo(
                 onnx_config_class=config_name,
@@ -535,9 +537,7 @@ def resolve_cache(model_id: str) -> CacheInfo:
                         filename = ms.get("filename")
                         artifact = model_dir / filename if filename else None
                         size_bytes = (
-                            artifact.stat().st_size
-                            if artifact and artifact.exists()
-                            else 0
+                            artifact.stat().st_size if artifact and artifact.exists() else 0
                         )
                         stage_info = CacheStageInfo(
                             stage=stage,
@@ -575,7 +575,7 @@ def resolve_cache(model_id: str) -> CacheInfo:
             stem = f.stem
             last_sep = stem.rfind("_")
             if last_sep > 0:
-                stage_name = stem[last_sep + 1:]
+                stage_name = stem[last_sep + 1 :]
                 cached_files[stage_name] = f
 
     for stage in pipeline_stages:
@@ -606,65 +606,200 @@ def resolve_cache(model_id: str) -> CacheInfo:
     )
 
 
-def resolve_io_config(config: PretrainedConfig) -> IOConfigInfo:
-    """Extract IO configuration from HuggingFace config.
+def _find_nested_configs(config: PretrainedConfig) -> list:
+    """Discover all nested PretrainedConfig objects dynamically.
 
-    Extracts IO-related configuration values from a PretrainedConfig object.
-    For multimodal models (like CLIP), also checks nested configs (text_config,
-    vision_config) to gather all relevant settings.
+    Walks config attributes to find nested configs without hardcoding
+    names like "text_config", "vision_config", etc. Fixes D-2 and D-5
+    from #247.
 
     Args:
         config: HuggingFace PretrainedConfig object
 
     Returns:
+        List of nested PretrainedConfig instances
+    """
+    from transformers import PretrainedConfig
+
+    nested = []
+    for attr_name in vars(config):
+        if attr_name.startswith("_"):
+            continue
+        try:
+            val = getattr(config, attr_name)
+            if isinstance(val, PretrainedConfig):
+                nested.append(val)
+        except Exception:
+            continue
+    return nested
+
+
+def _discover_io_attrs_from_onnx_config(
+    model_type: str,
+    task: str,
+    hf_config: PretrainedConfig,
+) -> set[str]:
+    """Discover IO-relevant config attributes from OnnxConfig.
+
+    Instead of hardcoding which config attributes to show, we read the
+    uppercase class attrs on NormalizedConfig subclasses. These define
+    the canonical attribute mapping for each model type, e.g.:
+
+        NormalizedTextConfig.VOCAB_SIZE = "vocab_size"
+        NormalizedVisionConfig.IMAGE_SIZE = "image_size"
+
+    We also scan DUMMY_INPUT_GENERATOR_CLASSES for additional attrs
+    referenced via normalized_config.xxx in generator __init__ code.
+
+    Returns:
+        Set of config attribute names relevant to I/O for this model.
+    """
+    import inspect
+    import re
+
+    attrs: set[str] = set()
+    try:
+        from ..export.io import _get_onnx_config
+
+        onnx_config = _get_onnx_config(model_type, task, hf_config)
+
+        # Primary: enumerate uppercase attrs on NormalizedConfig class.
+        # These ARE the canonical IO attribute mapping (e.g., VOCAB_SIZE="vocab_size").
+        nc = getattr(onnx_config, "_normalized_config", None)
+        if nc is not None:
+            for attr_name in dir(type(nc)):
+                if attr_name.isupper() and not attr_name.startswith("_"):
+                    # The value is the actual config attr name (e.g., "vocab_size")
+                    val = getattr(type(nc), attr_name)
+                    if isinstance(val, str):
+                        # Handle dotted paths like "text_config.hidden_size"
+                        leaf = val.split(".")[-1]
+                        # Skip structural pointers (nested config references)
+                        if not leaf.endswith("_config"):
+                            attrs.add(leaf)
+
+        # Secondary: scan generator __init__ for additional normalized_config refs
+        for gen_cls in getattr(onnx_config, "DUMMY_INPUT_GENERATOR_CLASSES", []):
+            try:
+                src = inspect.getsource(gen_cls.__init__)
+            except (TypeError, OSError):
+                continue
+            refs = re.findall(r"normalized_config\.(\w+)", src)
+            attrs.update(r for r in refs if r != "has_attribute")
+    except Exception as e:
+        logger.debug("Failed to discover IO attrs from OnnxConfig: %s", e)
+
+    return attrs
+
+
+def resolve_io_config(
+    config: PretrainedConfig,
+    *,
+    model_id: str | None = None,
+    model_type: str | None = None,
+    task: str | None = None,
+) -> IOConfigInfo:
+    """Extract IO configuration from HuggingFace config.
+
+    Dynamically discovers which config attributes matter for I/O by
+    inspecting OnnxConfig's NormalizedConfig and input generators.
+    Falls back to a universal set of well-known attrs if OnnxConfig
+    lookup fails. No hardcoded model-specific attribute names.
+
+    Args:
+        config: HuggingFace PretrainedConfig object
+        model_id: Optional HF model ID for preprocessor_config.json fallback
+        model_type: HF model type for OnnxConfig lookup
+        task: Task name for OnnxConfig lookup
+
+    Returns:
         IOConfigInfo with extracted configuration values
     """
-    # Helper to get attribute from config or nested configs
+    # Dynamically discover nested configs (fixes D-2: no hardcoded names)
+    nested_configs = _find_nested_configs(config)
+
     def get_config_attr(
         attr_name: str,
-        nested_configs: list[str] | None = None,
-    ) -> int | tuple[int, int] | None:
-        """Get attribute from main config or nested configs.
-
-        Args:
-            attr_name: Attribute name to look for
-            nested_configs: List of nested config names to check (e.g., ["text_config"])
-
-        Returns:
-            Attribute value or None if not found
-        """
-        # First check the main config
+    ) -> int | tuple[int, int] | list | None:
+        """Get attribute from main config or any nested config."""
         value = getattr(config, attr_name, None)
         if value is not None:
             return value
 
-        # Check nested configs if provided
-        if nested_configs:
-            for nested_name in nested_configs:
-                nested_config = getattr(config, nested_name, None)
-                if nested_config is not None:
-                    value = getattr(nested_config, attr_name, None)
-                    if value is not None:
-                        return value
+        for nested in nested_configs:
+            value = getattr(nested, attr_name, None)
+            if value is not None:
+                return value
 
         return None
 
-    # Text-related attributes - check main and text_config
-    max_position_embeddings = get_config_attr(
-        "max_position_embeddings", ["text_config"]
-    )
-    vocab_size = get_config_attr("vocab_size", ["text_config"])
+    # Step 1: Discover which attrs the OnnxConfig actually uses
+    io_attrs: set[str] = set()
+    if model_type and task:
+        io_attrs = _discover_io_attrs_from_onnx_config(
+            model_type,
+            task,
+            config,
+        )
 
-    # Vision-related attributes - check main and vision_config
-    image_size = get_config_attr("image_size", ["vision_config"])
-    patch_size = get_config_attr("patch_size", ["vision_config"])
-    num_channels = get_config_attr("num_channels", ["vision_config"])
+    # Step 2: Always include universal well-known IO attrs that Optimum's
+    # NormalizedConfig classes reference. These are framework conventions,
+    # not model-specific — they appear in NormalizedTextConfig,
+    # NormalizedVisionConfig, NormalizedSeq2SeqConfig, etc.
+    universal_io_attrs = {
+        "max_position_embeddings",
+        "vocab_size",
+        "image_size",
+        "patch_size",
+        "num_channels",
+        "input_size",
+        "sampling_rate",
+        "hidden_size",
+        "hidden_sizes",
+    }
+    io_attrs.update(universal_io_attrs)
 
-    # Audio-related attributes - check main and audio_config
-    sampling_rate = get_config_attr("sampling_rate", ["audio_config"])
+    # Step 3: Look up each discovered attr
+    max_position_embeddings = get_config_attr("max_position_embeddings")
+    vocab_size = get_config_attr("vocab_size")
+    image_size = get_config_attr("image_size")
+    patch_size = get_config_attr("patch_size")
+    num_channels = get_config_attr("num_channels")
+    sampling_rate = get_config_attr("sampling_rate")
+    hidden_size = get_config_attr("hidden_size")
+    hidden_sizes = get_config_attr("hidden_sizes")
 
-    # General attributes - check main config only
-    hidden_size = get_config_attr("hidden_size", ["text_config", "vision_config"])
+    # Step 4: Collect any extra attrs discovered from OnnxConfig
+    # that aren't in our dataclass fields
+    known_fields = {
+        "max_position_embeddings",
+        "vocab_size",
+        "image_size",
+        "patch_size",
+        "num_channels",
+        "sampling_rate",
+        "hidden_size",
+        "hidden_sizes",
+    }
+    extra: dict[str, int | str | list | None] = {}
+    for attr in io_attrs - known_fields:
+        val = get_config_attr(attr)
+        if val is not None:
+            extra[attr] = val
+
+    # Step 5: Fallback — read image_size from preprocessor_config.json
+    # for models like ResNet where HF config lacks image_size
+    if image_size is None and model_id is not None:
+        try:
+            from ..export.io import _populate_image_size_from_preprocessor
+
+            shape_kwargs: dict = {}
+            _populate_image_size_from_preprocessor(model_id, shape_kwargs)
+            if "height" in shape_kwargs:
+                h, w = shape_kwargs["height"], shape_kwargs["width"]
+                image_size = h if h == w else (h, w)
+        except Exception as e:
+            logger.debug("Failed to get image_size from preprocessor: %s", e)
 
     return IOConfigInfo(
         max_position_embeddings=max_position_embeddings,
@@ -674,22 +809,27 @@ def resolve_io_config(config: PretrainedConfig) -> IOConfigInfo:
         num_channels=num_channels,
         sampling_rate=sampling_rate,
         hidden_size=hidden_size,
+        hidden_sizes=hidden_sizes,
+        extra=extra if extra else None,
     )
 
 
-def resolve_processor(model_id: str) -> ProcessorInfo:
+def resolve_processor(
+    model_id: str,
+    model_type: str | None = None,
+) -> ProcessorInfo:
     """Resolve data processing classes for a HuggingFace model.
 
     Detects the processor/tokenizer/image_processor/feature_extractor classes
     associated with a model. Uses a multi-strategy approach:
 
-    1. First tries to fetch config files from HuggingFace Hub without downloading
-       the full model (fast, no dependencies)
-    2. Uses Auto classes to fill in any missing information that wasn't found
-       in the config files
+    0. Check HF's IMAGE_PROCESSOR_MAPPING_NAMES for model_type-specific mapping
+    1. Fetch config files from HuggingFace Hub (fast, no model download)
+    2. Use Auto classes to fill in any remaining gaps
 
     Args:
         model_id: HuggingFace model identifier (e.g., "openai/clip-vit-base-patch32")
+        model_type: HuggingFace model type (e.g., "resnet") for registry lookup
 
     Returns:
         ProcessorInfo with detected class names for each processor type
@@ -698,13 +838,47 @@ def resolve_processor(model_id: str) -> ProcessorInfo:
     tokenizer_class: str | None = None
     image_processor_class: str | None = None
     feature_extractor_class: str | None = None
+    # Source tracking
+    processor_source: str | None = None
+    tokenizer_source: str | None = None
+    image_processor_source: str | None = None
+    feature_extractor_source: str | None = None
+
+    # Strategy 0: Check HF registry for the canonical image processor class
+    # for this model_type. This is authoritative — HF maps model types to
+    # their processor classes (e.g., resnet → ConvNextImageProcessor).
+    if model_type is not None:
+        try:
+            from transformers.models.auto.image_processing_auto import (
+                IMAGE_PROCESSOR_MAPPING_NAMES,
+            )
+
+            mapping = IMAGE_PROCESSOR_MAPPING_NAMES.get(model_type)
+            if mapping:
+                # mapping is (SlowProcessor, FastProcessor) or a string
+                image_processor_class = mapping[0] if isinstance(mapping, tuple) else mapping
+                image_processor_source = "hf_registry"
+        except Exception as e:
+            logger.debug("Registry lookup failed for %s: %s", model_type, e)
 
     # Strategy 1: Try to get class names from config files via HuggingFace Hub API
     # This is fast and doesn't require downloading/instantiating processors
+    # NOTE: These JSON keys (processor_class, image_processor_type, etc.) are
+    # standard HuggingFace config conventions, not model-specific hardcoding.
     try:
-        processor_class, tokenizer_class, image_processor_class, feature_extractor_class = (
-            _resolve_processor_from_hub_configs(model_id)
-        )
+        hub_proc, hub_tok, hub_img, hub_fe = _resolve_processor_from_hub_configs(model_id)
+        if hub_proc and processor_class is None:
+            processor_class = hub_proc
+            processor_source = "hub_config"
+        if hub_tok and tokenizer_class is None:
+            tokenizer_class = hub_tok
+            tokenizer_source = "hub_config"
+        if hub_img and image_processor_class is None:
+            image_processor_class = hub_img
+            image_processor_source = "hub_config"
+        if hub_fe and feature_extractor_class is None:
+            feature_extractor_class = hub_fe
+            feature_extractor_source = "hub_config"
     except Exception as e:
         logger.debug("Failed to resolve processors from hub configs: %s", e)
 
@@ -719,14 +893,18 @@ def resolve_processor(model_id: str) -> ProcessorInfo:
         ) = _resolve_processor_from_auto_classes(model_id)
 
         # Fill in missing values from auto classes
-        if processor_class is None:
+        if processor_class is None and auto_processor:
             processor_class = auto_processor
-        if tokenizer_class is None:
+            processor_source = "auto_class"
+        if tokenizer_class is None and auto_tokenizer:
             tokenizer_class = auto_tokenizer
-        if image_processor_class is None:
+            tokenizer_source = "auto_class"
+        if image_processor_class is None and auto_image_processor:
             image_processor_class = auto_image_processor
-        if feature_extractor_class is None:
+            image_processor_source = "auto_class"
+        if feature_extractor_class is None and auto_feature_extractor:
             feature_extractor_class = auto_feature_extractor
+            feature_extractor_source = "auto_class"
     except Exception as e:
         logger.debug("Failed to resolve processors from auto classes: %s", e)
 
@@ -735,6 +913,10 @@ def resolve_processor(model_id: str) -> ProcessorInfo:
         tokenizer_class=tokenizer_class,
         image_processor_class=image_processor_class,
         feature_extractor_class=feature_extractor_class,
+        processor_source=processor_source,
+        tokenizer_source=tokenizer_source,
+        image_processor_source=image_processor_source,
+        feature_extractor_source=feature_extractor_source,
     )
 
 

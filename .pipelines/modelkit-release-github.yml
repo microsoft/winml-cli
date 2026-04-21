@@ -1,0 +1,112 @@
+#################################################################################
+#                              OneBranch Pipelines                              #
+# This pipeline was created by EasyStart from a sample located at:              #
+#   https://aka.ms/obpipelines/easystart/samples                                #
+# Documentation:  https://aka.ms/obpipelines                                    #
+# Yaml Schema:    https://aka.ms/obpipelines/yaml/schema                        #
+# Retail Tasks:   https://aka.ms/obpipelines/tasks                              #
+# Support:        https://aka.ms/onebranchsup                                   #
+#################################################################################
+
+trigger: none # https://aka.ms/obpipelines/triggers
+
+parameters: # parameters are shown up in ADO UI in a build queue time
+- name: 'debug'
+  displayName: 'Enable debug output'
+  type: boolean
+  default: false
+- name: OFFICIAL_BUILD_ID
+  displayName: 'Specify which run to use (the pipeline build ID)'
+  type: string
+
+variables:
+  CDP_DEFINITION_BUILD_COUNT: $[counter('', 0)] # needed for onebranch.pipeline.version task https://aka.ms/obpipelines/versioning
+  DEBIAN_FRONTEND: noninteractive
+  LinuxContainerImage: 'mcr.microsoft.com/onebranch/azurelinux/build:3.0' # https://eng.ms/docs/products/onebranch/infrastructureandimages/containerimages/linuximages/marinerazurelinux/azurelinux
+  WindowsContainerImage: 'onebranch.azurecr.io/windows/ltsc2022/vse2022:latest' # https://aka.ms/obpipelines/containers
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: OneBranch.Pipelines/GovernedTemplates
+      ref: refs/heads/main
+
+extends:
+  template: v2/OneBranch.Official.CrossPlat.yml@templates # https://aka.ms/obpipelines/templates
+  parameters:
+    git:
+      fetchDepth: -1
+    featureFlags:
+      EnableCDPxPAT: false
+      WindowsHostVersion: '1ESWindows2022'
+    globalSdl:
+      tsa:
+        enabled: false
+
+    stages:
+    - stage: Release
+      displayName: 'Release to GitHub'
+      condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
+      jobs:
+      - job: CreateGitHubRelease
+        displayName: 'Create GitHub Release'
+        pool:
+          type: windows
+
+        variables:
+          ob_outputDirectory: '$(Build.SourcesDirectory)\out'
+
+        steps:
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download build artifacts'
+            inputs:
+              buildType: 'specific'
+              project: '320d2220-0d58-42de-ae76-6f774e8e5eef'
+              definition: '191314'
+              buildVersionToDownload: 'specific'
+              pipelineId: ${{ parameters.OFFICIAL_BUILD_ID }}
+              targetPath: '$(Pipeline.Workspace)'
+
+          - powershell: |
+              $content = Get-Content "$(Build.SourcesDirectory)\pyproject.toml" -Raw
+              if ($content -match 'version\s*=\s*"([^"]+)"') {
+                  $version = $matches[1]
+                  $tag = "v$version"
+                  Write-Host "Version: $version"
+                  Write-Host "Tag: $tag"
+                  Write-Host "##vso[task.setvariable variable=ReleaseVersion]$version"
+                  Write-Host "##vso[task.setvariable variable=ReleaseTag]$tag"
+              } else {
+                  Write-Error "Could not parse version from pyproject.toml"
+                  exit 1
+              }
+            displayName: 'Extract version from pyproject.toml'
+
+          - powershell: |
+              $artifactDir = "$(Pipeline.Workspace)"
+              $outDir = "$(ob_outputDirectory)"
+              New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+              $wheels = Get-ChildItem "$artifactDir" -Filter "*.whl" -Recurse
+              $zips = Get-ChildItem "$artifactDir" -Filter "*.zip" -Recurse
+              Write-Host "Found $($wheels.Count) wheel(s) and $($zips.Count) zip(s)"
+              $wheels | Copy-Item -Destination $outDir
+              $zips | Copy-Item -Destination $outDir
+            displayName: 'Stage release assets'
+
+          - task: GitHubRelease@1
+            displayName: 'Create GitHub Release'
+            inputs:
+              gitHubConnection: 'ModelKit'
+              repositoryName: 'microsoft/WinML-ModelKit'
+              action: create
+              target: '$(Build.SourceVersion)'
+              tagSource: userSpecifiedTag
+              tag: '$(ReleaseTag)'
+              title: 'ModelKit $(ReleaseTag)'
+              assets: |
+                $(ob_outputDirectory)\*.whl
+                $(ob_outputDirectory)\*.zip
+              isDraft: false
+              isPreRelease: true
+              addChangeLog: false

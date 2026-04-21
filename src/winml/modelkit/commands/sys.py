@@ -465,7 +465,7 @@ def _gather_ep_info() -> list[dict[str, Any]]:
 
     # Try WinML EP Registry first
     try:
-        from ..session.ep_registry import WinMLEPRegistry
+        from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
         winml_eps = registry.get_available_eps()

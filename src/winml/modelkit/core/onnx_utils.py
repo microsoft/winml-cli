@@ -18,8 +18,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import torch
-
 
 if TYPE_CHECKING:
     import onnx
@@ -356,7 +354,7 @@ def infer_output_names(outputs: Any) -> list[str] | None:
 
         for field_name in outputs.__dataclass_fields__:
             field_value = getattr(outputs, field_name, None)
-            if field_value is not None and isinstance(field_value, torch.Tensor):
+            if field_value is not None and type(field_value).__module__.startswith("torch"):
                 output_names.append(field_name)
 
         # Only return names if we found simple tensor outputs

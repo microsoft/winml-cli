@@ -13,7 +13,6 @@ are available via ``modelkit.onnx.inspection`` for diagnostic use.
 
 from __future__ import annotations
 
-from .detection import is_compiled_onnx, is_quantized_onnx
 from .domains import ONNXDomain
 from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
 from .external_data import copy_onnx_model
@@ -46,3 +45,18 @@ __all__ = [
     "restore_metadata",
     "save_onnx",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy-load detection module to avoid circular import with compiler."""
+    if name in ("is_compiled_onnx", "is_quantized_onnx"):
+        from .detection import is_compiled_onnx, is_quantized_onnx
+
+        globals()["is_compiled_onnx"] = is_compiled_onnx
+        globals()["is_quantized_onnx"] = is_quantized_onnx
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return __all__
