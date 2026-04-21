@@ -552,7 +552,7 @@ class WinMLSession:
         """Get install suggestion for device policy."""
         suggestions = {
             "npu": "Install appropriate NPU ONNX Runtime package",
-            "gpu": "Install onnxruntime-gpu or onnxruntime-directml",
+            "gpu": "Install onnxruntime-windowsml or onnxruntime-gpu",
         }
         return suggestions.get(device.lower(), "")
 
