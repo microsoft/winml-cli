@@ -24,11 +24,19 @@ from typing import Literal
 
 
 # `USERPROFILE` is virtually always set on Windows, but can be missing in
-# minimal service accounts / containers. Fall back to `expanduser("~")`,
-# which honors `HOMEDRIVE+HOMEPATH` or `HOME` if either is set, so we
-# never silently resolve to a CWD-relative `.modelkit/config.json`.
-_USER_HOME = Path(os.environ.get("USERPROFILE") or Path("~").expanduser())
-_CONFIG_PATH: Path = _USER_HOME / ".modelkit" / "config.json"
+# minimal service accounts / containers. Fall back to the Windows-native
+# `HOMEDRIVE + HOMEPATH` pair so we never silently resolve to a
+# CWD-relative `.modelkit/config.json`.
+def _resolve_user_home() -> str:
+    profile = os.environ.get("USERPROFILE")
+    if profile:
+        return profile
+    drive = os.environ.get("HOMEDRIVE", "")
+    path = os.environ.get("HOMEPATH", "")
+    return drive + path  # empty string if neither is set
+
+
+_CONFIG_PATH: Path = Path(_resolve_user_home()) / ".modelkit" / "config.json"
 
 _CI_ENV_VARS = (
     "CI",
