@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from enum import Enum
 
 from . import _store
 
@@ -23,13 +24,25 @@ _LOGGER = logging.getLogger(__name__)
 _STORAGE_KEY = "deviceid"
 
 
-def get_or_create_device_id() -> tuple[str, str]:
-    """Return (device_id, status) where status is one of.
+class IdStatus(str, Enum):
+    """Outcome of :func:`get_or_create_device_id`.
 
-    Status values:
-    - "EXISTING": read from persistent storage
-    - "NEW":      freshly generated and persisted
-    - "FAILED":   storage unavailable; caller should proceed with empty id
+    Subclassing ``str`` keeps the enum serialization-compatible with
+    OpenTelemetry resource attributes (which require str values) and
+    with the CS 4.0 ``ext.device.authId`` slot on the wire.
+    """
+
+    EXISTING = "EXISTING"
+    NEW = "NEW"
+    FAILED = "FAILED"
+
+
+def get_or_create_device_id() -> tuple[str, IdStatus]:
+    """Return ``(device_id, status)``.
+
+    - :attr:`IdStatus.EXISTING`: read from persistent storage
+    - :attr:`IdStatus.NEW`:      freshly generated and persisted
+    - :attr:`IdStatus.FAILED`:   storage unavailable; caller should proceed with empty id
     """
     try:
         existing = _store.read_key(_STORAGE_KEY)
@@ -38,15 +51,15 @@ def get_or_create_device_id() -> tuple[str, str]:
         existing = None
 
     if existing:
-        return existing, "EXISTING"
+        return existing, IdStatus.EXISTING
 
     new_id = _hash_uuid(uuid.uuid4())
     try:
         _store.write_key(_STORAGE_KEY, new_id)
     except Exception:
         _LOGGER.debug("deviceid write failed", exc_info=True)
-        return "", "FAILED"
-    return new_id, "NEW"
+        return "", IdStatus.FAILED
+    return new_id, IdStatus.NEW
 
 
 def _hash_uuid(value: uuid.UUID) -> str:

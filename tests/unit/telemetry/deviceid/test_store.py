@@ -3,17 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-from pathlib import Path
-
 from winml.modelkit.telemetry.deviceid import _store
-
-
-def test_get_telemetry_base_dir_is_callable():
-    # Regression guard: helpers must not be @property on the module — a
-    # property descriptor is not callable and silently breaks on import.
-    assert callable(_store.get_telemetry_base_dir)
-    result = _store.get_telemetry_base_dir()
-    assert isinstance(result, Path)
 
 
 def test_write_then_read_returns_value(isolated_store):

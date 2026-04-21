@@ -5,7 +5,7 @@
 
 """Device ID: a stable SHA256-hashed UUID4 persisted per user."""
 
-from .deviceid import get_or_create_device_id
+from .deviceid import IdStatus, get_or_create_device_id
 
 
-__all__ = ["get_or_create_device_id"]
+__all__ = ["IdStatus", "get_or_create_device_id"]

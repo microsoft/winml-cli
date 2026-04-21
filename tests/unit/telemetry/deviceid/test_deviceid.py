@@ -6,7 +6,7 @@
 import hashlib
 import re
 
-from winml.modelkit.telemetry.deviceid import _store, get_or_create_device_id
+from winml.modelkit.telemetry.deviceid import IdStatus, _store, get_or_create_device_id
 
 
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -14,7 +14,7 @@ _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 
 def test_fresh_state_generates_new_device_id(isolated_store):
     device_id, status = get_or_create_device_id()
-    assert status == "NEW"
+    assert status is IdStatus.NEW
     # SHA256 hex digest: 64 lowercase hex chars
     assert _HEX64_RE.match(device_id)
 
@@ -22,8 +22,16 @@ def test_fresh_state_generates_new_device_id(isolated_store):
 def test_subsequent_call_returns_existing(isolated_store):
     first_id, _ = get_or_create_device_id()
     second_id, status = get_or_create_device_id()
-    assert status == "EXISTING"
+    assert status is IdStatus.EXISTING
     assert second_id == first_id
+
+
+def test_status_is_string_compatible_for_otel_resource(isolated_store):
+    # IdStatus subclasses str so callers can stuff it into an OTel Resource
+    # or the CS 4.0 ext.device.authId slot without .value conversion.
+    _, status = get_or_create_device_id()
+    assert isinstance(status, str)
+    assert status == "NEW"
 
 
 def test_storage_write_failure_returns_failed(isolated_store, monkeypatch):
@@ -32,7 +40,7 @@ def test_storage_write_failure_returns_failed(isolated_store, monkeypatch):
 
     monkeypatch.setattr(_store, "write_key", boom)
     device_id, status = get_or_create_device_id()
-    assert status == "FAILED"
+    assert status is IdStatus.FAILED
     assert device_id == ""
 
 
@@ -43,7 +51,7 @@ def test_storage_read_failure_falls_through_to_new(isolated_store, monkeypatch):
     monkeypatch.setattr(_store, "read_key", boom)
     # Writing still works; we should generate a NEW id rather than FAILED
     device_id, status = get_or_create_device_id()
-    assert status == "NEW"
+    assert status is IdStatus.NEW
     assert _HEX64_RE.match(device_id)
 
 

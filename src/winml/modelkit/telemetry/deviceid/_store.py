@@ -12,24 +12,8 @@ read.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 
-
-_SUBPATH = Path("DeveloperTools") / ".modelkit"
 _REGISTRY_KEY = r"SOFTWARE\Microsoft\DeveloperTools\.modelkit"
-
-
-def get_telemetry_base_dir() -> Path:
-    r"""Return the base directory for telemetry state (cache files etc.).
-
-    Rooted at ``%LOCALAPPDATA%\Microsoft\DeveloperTools\.modelkit``. Plain
-    function, **not** a ``@property`` — a descriptor is not callable and
-    would silently break on import.
-    """
-    base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / _SUBPATH
-    base.mkdir(parents=True, exist_ok=True)
-    return base
 
 
 def read_key(name: str) -> str | None:
