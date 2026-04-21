@@ -1,200 +1,42 @@
 trigger: none
 
+resources:
+  repositories:
+    - repository: ModelKitArtifacts
+      type: github
+      endpoint: github.com_yuesu_microsoft
+      name: gim-home/ModelKitArtifacts
+      ref: main
+
 parameters:
   - name: evalDate
-    displayName: 'Eval date (leave empty for today, e.g. 2026-04-01)'
+    displayName: 'Eval date (auto = today, e.g. 2026-04-01)'
     type: string
-    default: ''
+    default: 'auto'
   - name: continueRun
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
 
-variables:
-  evalOutputBase: 'c:/eval_results'
+stages:
+  - stage: NPU_QNN
+    displayName: 'E2E Eval — NPU-QNN'
+    jobs:
+      - template: templates/e2e-eval-jobs.yml
+        parameters:
+          agentName: NPU-QNN
+          agentSuffix: qnn
+          evalDate: ${{ parameters.evalDate }}
+          continueRun: ${{ parameters.continueRun }}
 
-jobs:
-  - job: Prepare
-    displayName: 'Prepare Eval Matrix'
-    pool:
-      name: modelkit-selfhost-pool
-      demands:
-        - Agent.Name -equals NPU-QNN
-
-    steps:
-      - checkout: self
-        clean: false
-        fetchDepth: 1
-
-      - powershell: |
-          $uvBin = "$env:USERPROFILE\.local\bin"
-          if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-            Invoke-RestMethod https://astral.sh/uv/0.10.12/install.ps1 | Invoke-Expression
-            $env:PATH = "$uvBin;$env:PATH"
-          }
-          uv python install 3.10
-          Remove-Item -Recurse -Force "$(Build.SourcesDirectory)\.venv" -ErrorAction SilentlyContinue
-          uv venv $(Build.SourcesDirectory)\.venv --python 3.10
-          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
-          Write-Host "##vso[task.prependpath]$uvBin"
-          Write-Host "##vso[task.prependpath]$venvDir"
-        displayName: 'Install uv 0.10.12 and Python'
-
-      - script: python --version
-        displayName: 'Check Python version'
-
-      - task: PipAuthenticate@1
-        inputs:
-          artifactFeeds: 'windows.ai.toolkit/Modelkit'
-        displayName: 'Authenticate pip with Azure Artifacts'
-
-      - script: uv pip install -e .[dev]
-        workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Install dependencies'
-
-      - powershell: |
-          $evalDate = '${{ parameters.evalDate }}'
-          if (-not $evalDate) { $evalDate = Get-Date -Format 'yyyy-MM-dd' }
-          $dir = "$(evalOutputBase)/$evalDate"
-          Write-Host "##vso[task.setvariable variable=EVAL_DIR;isOutput=true]$dir"
-          Write-Host "Eval output directory: $dir"
-        name: set_output_dir
-        displayName: 'Set eval output directory'
-
-      - powershell: |
-          $args = @(
-              "run", "python", "scripts/e2e_eval/run_eval.py",
-              "--list-json", "temp/model_list.json",
-              "--device", "npu"
-          )
-          if ('${{ parameters.continueRun }}' -eq 'True') {
-              $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)")
-          }
-          & uv @args
-        workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Generate model list'
-
-      - powershell: |
-          $models = Get-Content "$(Build.SourcesDirectory)/temp/model_list.json" | ConvertFrom-Json
-          $total = $models.Count
-          if ($total -eq 0) {
-              Write-Host "All models already evaluated — nothing to run"
-              Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]{}"
-              Write-Host "##vso[task.setvariable variable=skipEval;isOutput=true]true"
-              return
-          }
-
-          $matrix = @{}
-          for ($i = 0; $i -lt $total; $i++) {
-              $m = $models[$i]
-              $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
-              $key = $slug
-              $suffix = 2
-              while ($matrix.ContainsKey($key)) {
-                  $key = "${slug}_${suffix}"
-                  $suffix++
-              }
-              $matrix[$key] = @{
-                  hf_id = [string]$m.hf_id
-                  hf_task = [string]$m.task
-                  priority = [string]$m.priority
-                  model_type = [string]$m.model_type
-                  model_group = [string]$m.group
-              }
-          }
-
-          $json = $matrix | ConvertTo-Json -Compress -Depth 5
-          Write-Host "Prepared matrix for $total models"
-          Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]$json"
-        name: set_matrix
-        displayName: 'Create matrix variables'
-
-  - job: EvalModel
-    displayName: 'Eval'
-    dependsOn: Prepare
-    condition: and(succeeded(), ne(dependencies.Prepare.outputs['set_matrix.skipEval'], 'true'))
-    timeoutInMinutes: 90
-    cancelTimeoutInMinutes: 2
-    pool:
-      name: modelkit-selfhost-pool
-      demands:
-        - Agent.Name -equals NPU-QNN
-    variables:
-      EVAL_DIR: $[ dependencies.Prepare.outputs['set_output_dir.EVAL_DIR'] ]
-    strategy:
-      maxParallel: 1
-      matrix: $[ dependencies.Prepare.outputs['set_matrix.modelMatrix'] ]
-
-    steps:
-      - checkout: none
-
-      - powershell: |
-          $uvBin = "$env:USERPROFILE\.local\bin"
-          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
-          Write-Host "##vso[task.prependpath]$uvBin"
-          Write-Host "##vso[task.prependpath]$venvDir"
-        displayName: 'Activate Python environment'
-
-      - powershell: |
-          Write-Host "Model: $(hf_id) / $(hf_task)"
-          Write-Host "Priority: $(priority)"
-          Write-Host "Output: $(EVAL_DIR)"
-
-          $uvArgs = @(
-              "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
-              "--hf-model", "$(hf_id)",
-              "--output-dir", "$(EVAL_DIR)",
-              "--device", "npu",
-              "--continue",
-              "--verbose",
-              "--timeout", "1800",
-              "--no-report",
-              "--clean-cache"
-          )
-          if ("$(hf_task)") {
-              $uvArgs += @("--task", "$(hf_task)")
-          }
-
-          & uv @uvArgs
-          $evalExit = $LASTEXITCODE
-          if ($evalExit -ne 0) {
-              Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task) (model failure — non-blocking)"
-          }
-          exit 0
-        workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Run eval for current model'
-
-  - job: Report
-    displayName: 'Generate Eval Report'
-    dependsOn:
-      - Prepare
-      - EvalModel
-    condition: always()
-    pool:
-      name: modelkit-selfhost-pool
-      demands:
-        - Agent.Name -equals NPU-QNN
-    variables:
-      EVAL_DIR: $[ dependencies.Prepare.outputs['set_output_dir.EVAL_DIR'] ]
-
-    steps:
-      - checkout: none
-
-      - powershell: |
-          $uvBin = "$env:USERPROFILE\.local\bin"
-          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
-          Write-Host "##vso[task.prependpath]$uvBin"
-          Write-Host "##vso[task.prependpath]$venvDir"
-        displayName: 'Activate Python environment'
-
-      - script: >
-          uv run --no-sync python scripts/e2e_eval/generate_report.py
-          --input-dir $(EVAL_DIR)
-        workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Generate evaluation report'
-
-      - task: PublishPipelineArtifact@1
-        inputs:
-          targetPath: $(EVAL_DIR)
-          artifactName: EvalReport
-        displayName: 'Publish eval results as artifact'
+  - stage: NPU_OV
+    displayName: 'E2E Eval — NPU-OV'
+    dependsOn: []
+    jobs:
+      - template: templates/e2e-eval-jobs.yml
+        parameters:
+          agentName: NPU-OV
+          agentSuffix: ov
+          evalDate: ${{ parameters.evalDate }}
+          continueRun: ${{ parameters.continueRun }}
+          modelTimeout: 3600

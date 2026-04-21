@@ -23,21 +23,34 @@ from winml.modelkit.pattern.op_input_gen.op_input_gen import (
 )
 
 
+def _parse_registry_key(registry_key: str) -> tuple[ONNXDomain, str]:
+    """Parse a registry key into (domain, op_type).
+
+    "Gelu"                → (ONNXDomain.AI_ONNX, "Gelu")
+    "com.microsoft::Gelu" → (ONNXDomain.COM_MICROSOFT, "Gelu")
+    """
+    if "::" in registry_key:
+        domain_str, op_type = registry_key.split("::", 1)
+        return ONNXDomain.from_str(domain_str), op_type
+    return ONNXDomain.AI_ONNX, registry_key
+
+
 class TestInputGeneratorRegistry:
     """Test unary operator input generator registration."""
 
     def test_all_operators_registered(self) -> None:
         """Test that all operators are registered."""
         # Verify count
-        assert len(get_registered_operators()) == 117
+        assert len(get_registered_operators()) == 119
 
     def test_get_runtime_checker_op(self) -> None:
         """Test retrieving operator generators by name."""
         registered_ops = get_registered_operators()
-        for op_name in registered_ops:
-            generator_class = get_runtime_checker_op(op_name)
+        for registry_key in registered_ops:
+            _, op_type = _parse_registry_key(registry_key)
+            generator_class = get_runtime_checker_op(registry_key)
             assert generator_class is not None
-            assert generator_class.op_name == op_name
+            assert generator_class.op_name == op_type
 
     def test_get_unregistered_operator_raises_error(self) -> None:
         """Test that retrieving unregistered operator raises KeyError."""
@@ -49,18 +62,20 @@ class TestInputGeneratorValidation:
     """Test validation of unary operator input generators."""
 
     @pytest.mark.parametrize("op_name", get_registered_operators())
-    @pytest.mark.parametrize("opset_version", [17, 22, 23])
+    @pytest.mark.parametrize("opset_version", [1, 17, 22, 23])
     def test_operator_validation(self, op_name: str, opset_version: int) -> None:
-        """Test that each operator's input generator validates successfully.
+        """Test that each operator's input generator instantiates and validates successfully.
 
         Args:
-            op_name: Name of the operator to test
+            op_name: Registry key (e.g. "Relu" or "com.microsoft::Gelu")
             opset_version: The ONNX opset version to test with
         """
-        # Get OpSchema for this operator and opset version
-        domain = ONNXDomain.AI_ONNX
+        domain, op_type = _parse_registry_key(op_name)
+        # ai.onnx opset 1 schemas predate current input signatures; generators target modern opsets
+        if domain == ONNXDomain.AI_ONNX and opset_version == 1:
+            return
         try:
-            schema = domain.get_op_schema(op_name, opset_version)
+            schema = domain.get_op_schema(op_type, opset_version)
         except SchemaError:
             # Operator doesn't exist in this opset version, skip
             return
@@ -68,25 +83,14 @@ class TestInputGeneratorValidation:
         generator_class = get_runtime_checker_op(op_name)
         gen = generator_class(schema)
 
-        # Should not raise any exceptions
-        gen.validate_inputs()
-
-    @pytest.mark.parametrize("op_name", get_registered_operators())
-    def test_operator_instantiation(self, op_name: str) -> None:
-        """Test that each operator's input generator can be instantiated.
-
-        Args:
-            op_name: Name of the operator to test
-        """
-        # Opset 23 is a superset of 22 in terms of ops
-        domain = ONNXDomain.AI_ONNX
-        schema = domain.get_op_schema(op_name, 23)
-
-        generator_class = get_runtime_checker_op(op_name)
-        gen = generator_class(schema)
-
-        assert gen.op_name == op_name
+        assert gen.op_name == op_type
         assert gen.schema == schema
+
+        if domain == ONNXDomain.AI_ONNX and op_type == "LpNormalization" and opset_version >= 22:
+            # LpNormalization >= 22 is not supported by onnnxruntime 1.23
+            return
+
+        gen.validate_inputs()
 
 
 class TestFilterKwargsByOpset:

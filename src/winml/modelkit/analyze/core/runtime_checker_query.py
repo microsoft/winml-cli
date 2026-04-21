@@ -650,7 +650,7 @@ def get_query_conditions_for_node(
 
     # create runtime checker op
     try:
-        runtime_checker_op = get_runtime_checker_op(node.op_type)(schema)
+        runtime_checker_op = get_runtime_checker_op(node.op_type, domain=domain.value)(schema)
     except KeyError:
         raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
     type_vars = {}
@@ -776,9 +776,7 @@ def get_query_conditions_for_node(
         if inp_name in initializers:
             init = initializers[inp_name]
             arr = numpy_helper.to_array(init)
-            update_conditions_(
-                conditions, input_name, is_variadic, True, arr.shape, make_hashable(arr)
-            )
+            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for initializers
@@ -794,9 +792,7 @@ def get_query_conditions_for_node(
             # Handle Constant node inputs
             const_tensor = constants[inp_name]
             arr = numpy_helper.to_array(const_tensor)
-            update_conditions_(
-                conditions, input_name, is_variadic, True, arr.shape, make_hashable(arr)
-            )
+            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for constants
@@ -923,9 +919,7 @@ def get_query_conditions_for_pattern(
         conditions[f"{input_name}_is_fixed_shape"] = len(dyn_axes) == 0
         conditions[f"{input_name}_dynamic_axes"] = dyn_axes
         conditions[f"{input_name}_shape"] = info.shape
-        conditions[f"{input_name}_value"] = (
-            make_hashable(info.value) if info.value is not None else None
-        )
+        conditions[f"{input_name}_value"] = info.value
         conditions[f"{input_name}_is_none"] = False
 
     # Attributes (with attr_ prefix)
@@ -1026,6 +1020,8 @@ class RuntimeCheckerQuery:
         self._failed_nodes_logged: set[Any] = set()
         # Cache of nodes that have been run locally for quick lookup
         self._local_run_nodes: dict[Any, RuntimeTestResult] = {}
+        # Cache of node results keyed by hashable table_filter_conditions
+        self._node_result_cache: dict[Any, PatternRuntime] = {}
 
         # Register per-domain lazy rule objects — no file I/O occurs here.
         registered_patterns = set(get_registered_pattern_input_generators())
@@ -1040,7 +1036,8 @@ class RuntimeCheckerQuery:
 
         for domain, opset_version in self.opset_versions.items():
             file_prefix = domain.name
-            base = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}"
+            # Device type is uppercased to align with the convention used by check ops.
+            base = f"{self.ep_name}_{self.device_type.upper()}_{file_prefix}_opset{opset_version}"
             rule_zip_path = resolve_rule_zip_path(f"{base}.zip")
             rule_file = f"{base}_negative_rules.json"
             qdq_rule_file = f"{base}_negative_rules_qdq.json"
@@ -1602,7 +1599,7 @@ class RuntimeCheckerQuery:
         op_domain: ONNXDomain,
         opset_version: int,
         result: RuntimeTestResult,
-        table_filter_conditions: dict[str, Any],
+        cache_key: Any,
         save_node_types: set[str] | None = None,
     ) -> None:
         """Save unsupported or partial node models without re-running result computation."""
@@ -1619,7 +1616,7 @@ class RuntimeCheckerQuery:
         self._save_failed_node(
             node,
             node_model,
-            make_hashable(table_filter_conditions),
+            cache_key,
             name_suffix="unsupported" if is_unsupported else "partial",
         )
 
@@ -1836,10 +1833,23 @@ class RuntimeCheckerQuery:
             op_columns = domain_tables.get_columns(node.op_type)
         if op_columns is not None:
             table_filter_conditions = _build_table_filter_conditions(
-                conditions,
+                table_filter_conditions,
                 op_columns,
                 infinite_properties,
                 f"op {node.op_type} (domain: {op_domain})",
+            )
+
+        # Check cache using table_filter_conditions as key
+        # Values are already hashable from get_query_conditions_for_node;
+        # just convert the dict to a tuple of sorted items.
+        cache_key = tuple(sorted(table_filter_conditions.items()))
+        if cache_key in self._node_result_cache:
+            cached = self._node_result_cache[cache_key]
+            return PatternRuntime(
+                pattern_id=pattern_id,
+                result=cached.result,
+                alternatives=self.alternatives,
+                pattern_match=pattern_match,
             )
 
         # Phase 3: Check if op exists in target rules
@@ -1866,6 +1876,7 @@ class RuntimeCheckerQuery:
                     conditions=None,
                 )
                 if local_result is not None:
+                    self._node_result_cache[cache_key] = local_result
                     return local_result
 
             result = RuntimeTestResult(
@@ -1882,12 +1893,14 @@ class RuntimeCheckerQuery:
                 node_tags=node_tags,
             )
 
-            return PatternRuntime(
+            pattern_runtime = PatternRuntime(
                 pattern_id=pattern_id,
                 result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
+            self._node_result_cache[cache_key] = pattern_runtime
+            return pattern_runtime
 
         # Phase 4: Apply negative rules and table matching
         op_neg_rules = target_neg_rules[op_domain][node.op_type]
@@ -1895,10 +1908,10 @@ class RuntimeCheckerQuery:
 
         try:
             compile_result, compile_reason = self._check_negative_rules(
-                op_neg_rules, conditions, node, "compile"
+                op_neg_rules, table_filter_conditions, node, "compile"
             )
             run_result, run_reason = self._check_negative_rules(
-                op_neg_rules, conditions, node, "run"
+                op_neg_rules, table_filter_conditions, node, "run"
             )
             reason = compile_reason + run_reason
 
@@ -1915,16 +1928,6 @@ class RuntimeCheckerQuery:
                     )
                     table_file = str(getattr(domain_tables, "_file_name", ""))
                     table_df = domain_tables[node.op_type]
-                    if op_columns is None:
-                        op_columns = (
-                            domain_tables.get_columns(node.op_type) or table_df.columns.to_list()
-                        )
-                        table_filter_conditions = _build_table_filter_conditions(
-                            conditions,
-                            op_columns,
-                            infinite_properties,
-                            f"op {node.op_type} (domain: {op_domain})",
-                        )
 
                     ret = query_table_exact_match(table_df, table_filter_conditions)
                     if not ret.empty:
@@ -1975,9 +1978,10 @@ class RuntimeCheckerQuery:
                                 pattern_match,
                                 node_tags,
                                 fallback_reason,
-                                conditions=make_hashable(table_filter_conditions),
+                                conditions=cache_key,
                             )
                             if local_result is not None:
+                                self._node_result_cache[cache_key] = local_result
                                 return local_result
 
                         result = RuntimeTestResult(
@@ -1990,12 +1994,14 @@ class RuntimeCheckerQuery:
                             debug_details=debug_details,
                         )
 
-                        return PatternRuntime(
+                        pattern_runtime = PatternRuntime(
                             pattern_id=pattern_id,
                             result=result,
                             alternatives=self.alternatives,
                             pattern_match=pattern_match,
                         )
+                        self._node_result_cache[cache_key] = pattern_runtime
+                        return pattern_runtime
                 else:  # no table data
                     if run_unknown_op:
                         fallback_reason = self._get_domain_fallback_reason(
@@ -2011,6 +2017,7 @@ class RuntimeCheckerQuery:
                             conditions=None,
                         )
                         if local_result is not None:
+                            self._node_result_cache[cache_key] = local_result
                             return local_result
 
                     table_source = "qdq" if is_qdq else "non_qdq"
@@ -2061,12 +2068,14 @@ class RuntimeCheckerQuery:
                         },
                     )
 
-                    return PatternRuntime(
+                    pattern_runtime = PatternRuntime(
                         pattern_id=pattern_id,
                         result=result,
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
+                    self._node_result_cache[cache_key] = pattern_runtime
+                    return pattern_runtime
         except (OpOptionalInputSupportError, OpLackOfRequiredInformationError) as e:
             exception_type = type(e).__name__
             logger.error(
@@ -2094,12 +2103,14 @@ class RuntimeCheckerQuery:
                 },
             )
 
-            return PatternRuntime(
+            pattern_runtime = PatternRuntime(
                 pattern_id=pattern_id,
                 result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
+            self._node_result_cache[cache_key] = pattern_runtime
+            return pattern_runtime
 
         result = RuntimeTestResult(
             compile=compile_result,
@@ -2114,16 +2125,18 @@ class RuntimeCheckerQuery:
             op_domain,
             opset_version,
             result,
-            table_filter_conditions,
+            cache_key,
             save_node_types=save_node_types,
         )
 
-        return PatternRuntime(
+        pattern_runtime = PatternRuntime(
             pattern_id=pattern_id,
             result=result,
             alternatives=self.alternatives,
             pattern_match=pattern_match,
         )
+        self._node_result_cache[cache_key] = pattern_runtime
+        return pattern_runtime
 
     def run_for_subgraph(
         self,

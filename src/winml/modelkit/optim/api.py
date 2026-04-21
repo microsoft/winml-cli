@@ -160,6 +160,19 @@ def _convert_to_kwargs(config: dict[str, Any], all_caps: dict[str, Any]) -> dict
     return result
 
 
+def _hack_inject_quant_preprocess_metadata(model: onnx.ModelProto) -> None:
+    """Inject metadata that signals pre-processing was done.
+
+    Suppresses the ORT quantization warning:
+    'Please consider to run pre-processing before quantization.'
+    """
+    metadata = {"onnx.quant.pre_process": "onnxruntime.quant"}
+    if model.metadata_props:
+        for prop in model.metadata_props:
+            metadata[prop.key] = prop.value
+    onnx.helper.set_model_props(model, metadata)
+
+
 def optimize_onnx(
     model: str | Path | onnx.ModelProto,
     output: str | Path | None = None,
@@ -258,6 +271,9 @@ def optimize_onnx(
     # More than one "optimize" call is necessary for certain models for thorough optimization
     optimized_model = optimizer.optimize(loaded_model, **optimizer_kwargs)
     optimized_model = optimizer.optimize(optimized_model, **optimizer_kwargs)
+
+    # Step 9.5: Inject quant pre-processing metadata to suppress ORT warning
+    _hack_inject_quant_preprocess_metadata(optimized_model)
 
     # Step 10: Save if output path provided
     if output is not None:

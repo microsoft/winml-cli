@@ -204,7 +204,9 @@ def validate(config: dict[str, Any], capabilities: dict[str, CapabilityDef]) -> 
     errors = []
 
     for key, value in config.items():
-        cap = capabilities.get(key)
+        # Accept both snake_case and kebab-case (normalize to kebab-case)
+        normalized_key = key.replace("_", "-")
+        cap = capabilities.get(normalized_key) or capabilities.get(key)
         if cap is None:
             errors.append(f"Unknown capability '{key}'")
             continue

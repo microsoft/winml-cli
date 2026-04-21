@@ -234,6 +234,7 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
     - Floats -> DUMMY_FLOAT
     - Lists/Tuples -> Tuple of processed elements
     - Dicts -> Tuple of sorted (key, processed_value) items
+    - ndarrays -> Tuple of processed elements (converted via tolist())
     - Others -> Original value
     """
     # Fast path: type identity checks avoid isinstance MRO traversal
@@ -248,6 +249,8 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
         return tuple(
             sorted([(k, make_hashable(v, replace_float_with_dummy)) for k, v in value.items()])
         )
+    if isinstance(value, np.ndarray):
+        return make_hashable(value.tolist(), replace_float_with_dummy)
     if isinstance(value, np.floating):
         return DUMMY_FLOAT if replace_float_with_dummy else float(value)
     return value

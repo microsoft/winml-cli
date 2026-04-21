@@ -383,7 +383,7 @@ class Conv2DInplaceLinear4DPatternInputGenerator(
     """Input generator for 4D Conv2DInplaceLinear pattern."""
 
     pattern = Conv2DInplaceLinear4DPattern()
-    registration_name = "Conv2DInplaceLinear4D"
+    registration_name = "Conv2DInplaceLinear4DPattern"
 
     def _get_a_shapes(self) -> list[tuple[int, ...]]:
         """4D NHWC shapes."""
@@ -398,7 +398,7 @@ class Conv2DInplaceLinear3DPatternInputGenerator(
     """Input generator for 3D Conv2DInplaceLinear pattern."""
 
     pattern = Conv2DInplaceLinear3DPattern()
-    registration_name = "Conv2DInplaceLinear3D"
+    registration_name = "Conv2DInplaceLinear3DPattern"
 
     def _get_a_shapes(self) -> list[tuple[int, ...]]:
         """3D shapes (batch, seq, features)."""
@@ -413,7 +413,7 @@ class Conv2DInplaceLinear2DPatternInputGenerator(
     """Input generator for 2D Conv2DInplaceLinear pattern."""
 
     pattern = Conv2DInplaceLinear2DPattern()
-    registration_name = "Conv2DInplaceLinear2D"
+    registration_name = "Conv2DInplaceLinear2DPattern"
 
     def _get_a_shapes(self) -> list[tuple[int, ...]]:
         """2D shapes."""
