@@ -15,13 +15,10 @@ Usage:
         python -m winml.modelkit.analyze.pattern.check_patterns --all_patterns
 """
 
-import json
 from pathlib import Path
 from typing import Any
 
-import onnx
 import onnxruntime as ort
-from google.protobuf import json_format
 
 from ... import winml
 from ...onnx import ONNXDomain
@@ -33,97 +30,10 @@ from ...pattern.base import (
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker
+from ..utils import CheckResultWriter
 
 
 winml.register_execution_providers(ort=True)
-
-
-class CheckResultWriter:
-    """Writer for test results that supports continuation from existing files."""
-
-    def __init__(
-        self,
-        file_path: str | Path,
-        sys_info: dict[str, Any],
-        save_per_cases: int = 20,
-        continue_from_existing: bool = False,
-    ) -> None:
-        """Initialize the writer.
-
-        Args:
-            file_path: Path to the output JSON file
-            sys_info: System information dictionary (constant during run)
-            save_per_cases: Number of results to accumulate before saving to file
-            continue_from_existing: If True, read existing file and continue from there.
-                                   If False, start fresh (ignore existing file).
-        """
-        self.file_path = Path(file_path)
-        self.sys_info = sys_info
-        self.save_per_cases = save_per_cases
-        self.skip_cases = 0
-        self.results: list[dict[str, Any]] = []
-        self.pending_count = 0
-
-        # Only read existing file if continuing
-        if continue_from_existing and self.file_path.exists():
-            with self.file_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "check_results" in data:
-                    self.results = data["check_results"]
-                    self.skip_cases = len(self.results)
-                    print(
-                        f"Found existing file with "
-                        f"{self.skip_cases} test cases. "
-                        f"Will continue from there."
-                    )
-
-    def get_skip_cases(self) -> int:
-        """Get the number of cases to skip when continuing."""
-        return self.skip_cases
-
-    def append_result(self, result: dict[str, Any]) -> None:
-        """Append a test result and save to file periodically.
-
-        Args:
-            result: Test result dictionary
-        """
-        self.results.append(result)
-        self.pending_count += 1
-
-        # Save to file once per save_per_cases results
-        if self.pending_count >= self.save_per_cases:
-            self._save()
-            self.pending_count = 0
-
-    def __enter__(self) -> "CheckResultWriter":
-        """Enter context manager."""
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit context manager and flush pending results."""
-        self.flush()
-
-    def flush(self) -> None:
-        """Force save any pending results to file."""
-        if self.pending_count > 0:
-            self._save()
-            self.pending_count = 0
-
-    def _save(self) -> None:
-        """Save results to file."""
-        output_data = {
-            "check_results": self.results,
-            "sys_info": self.sys_info,
-        }
-
-        def json_default(obj: Any) -> Any:
-            if isinstance(obj, onnx.TensorProto):
-                return json.loads(json_format.MessageToJson(obj))
-            raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
-
-        with self.file_path.open("w", encoding="utf-8", newline="\n") as f:
-            json.dump(output_data, f, indent=2, default=json_default)
-        print(f"Saved {len(self.results)} results to {self.file_path}")
 
 
 def check_patterns(
@@ -132,8 +42,12 @@ def check_patterns(
     validate_inputs: bool = False,
     output_dir: str | Path = ".",
     n_cases: int | None = None,
-    continue_from_existing: bool = False,
     save_failed_model: bool = False,
+    rerun_failed: bool = False,
+    delta_only: bool = False,
+    dry_run: bool = False,
+    not_run_start_id: int = 1,
+    case_index: str | list[str] | None = None,
     opset_mapping: dict[str, int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run patterns on execution provider and return results.
@@ -145,9 +59,12 @@ def check_patterns(
         output_dir: Output directory for test results JSON files (default: current directory)
         n_cases: If not None, only run the first n_cases test cases for each pattern.
                  If n_cases is greater than total cases, run all cases.
-        continue_from_existing: If True, continue from existing result file by skipping
-                                already completed test cases.
         save_failed_model: If True, save the model for compile failed test cases.
+        rerun_failed: If True, rerun failed cases (compile or run failed).
+        delta_only: If True, only run new test cases not in existing results.
+        dry_run: If True, skip compile/run execution and emit check_result with reason "not_run".
+        not_run_start_id: Initial id used for not_run placeholder reasons (not_run_<id>).
+        case_index: Optional hashed signature(s) to filter to specific test cases.
         opset_mapping: Required dict mapping domain strings to opset versions,
                        e.g., {"ai.onnx": 17, "com.microsoft": 1}.
                        Used for ONNX model generation.
@@ -168,6 +85,9 @@ def check_patterns(
 
     # Store results for all patterns
     all_results: dict[str, dict[str, Any]] = {}
+
+    if opset_mapping is None:
+        raise ValueError("opset_mapping must be provided for pattern model generation")
 
     # Convert opset_mapping to ONNXDomain keys if provided
     domain_versions = {
@@ -214,14 +134,14 @@ def check_patterns(
         with CheckResultWriter(
             output_path,
             sys_info,
-            continue_from_existing=continue_from_existing,
+            save_per_cases=None if dry_run else 20,
+            rerun_failed=rerun_failed,
+            delta_only=delta_only,
+            not_run_start_id=not_run_start_id,
+            filter_case_index=case_index,
         ) as writer:
-            skip_cases = writer.get_skip_cases()
-
             # Run tests on execution provider
             print(f"Running {pattern_name} tests on {ep_checker.ep_name}...")
-            if skip_cases > 0:
-                print(f"Continuing from existing results, skipping {skip_cases} test cases")
             if n_cases is not None:
                 print(f"Limiting to first {n_cases} test cases")
 
@@ -229,13 +149,39 @@ def check_patterns(
                 ep_checker,
                 capture_output=True,
                 n_cases=n_cases,
-                skip_cases=skip_cases,
+                skip_cases=0,
                 save_failed_model=save_failed_model,
+                skip_signature_fn=writer.should_skip_case,
+                yield_skipped=True,
+                dry_run=dry_run,
             )
 
-            # Process results using writer
+            # Process results in generator order - reuse existing or run new
+            run_count = 0
+            reused_count = 0
+            skipped_count = 0
             for result in check_results_iter:
-                writer.append_result(result)
+                if result.get("_skipped"):
+                    skipped_count += 1
+                    if writer.reuse_existing_result(result):
+                        reused_count += 1
+                else:
+                    writer.append_result(result)
+                    run_count += 1
+
+            dropped_count = writer.get_dropped_count()
+            duplicate_skipped = writer.get_duplicate_skipped_count()
+            print(
+                f"Ran {run_count} test cases, reused "
+                f"{reused_count} existing cases, "
+                f"dropped {dropped_count} obsolete "
+                f"cases, duplicates skipped "
+                f"{duplicate_skipped}, skipped "
+                f"{skipped_count}."
+            )
+
+            # Finalize to clear unused signatures before final flush
+            writer.finalize()
 
             check_results = writer.results
 
@@ -284,7 +230,7 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
         ValueError: If the execution provider name is not supported.
     """
     device_type = constants.DEVICE_TO_DEVICE_TYPE[device]
-    ep_name_to_checker: dict[str, type[EPChecker]] = {
+    ep_name_to_checker: dict[str, Any] = {
         "QNNExecutionProvider": QNNNPUChecker,
         "OpenVINOExecutionProvider": OpenVINONPUChecker,
         # Add other EPChecker subclasses here as needed
@@ -298,8 +244,8 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
     return ep_name_to_checker[ep_name](device_type=device_type)
 
 
-def parse_and_check() -> None:
-    """Main entry point for command-line execution."""
+def build_parser():
+    """Build argument parser for check_patterns-style commands."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Test ONNX patterns on execution provider")
@@ -341,12 +287,33 @@ def parse_and_check() -> None:
         choices=["CPU", "GPU", "NPU"],
         help="Target device type (CPU, GPU, NPU).",
     )
-    parser.add_argument(
+
+    opset_group = parser.add_mutually_exclusive_group(required=True)
+    opset_group.add_argument(
         "--opset_mapping",
         type=str,
         nargs="+",
-        required=True,
-        help=("Domain:version pairs for ONNX opset versions, e.g., ai.onnx:17 com.microsoft:1"),
+        help=(
+            "Domain:version pairs for ONNX opset versions, "
+            "e.g., ai.onnx:17 com.microsoft:1"
+        ),
+    )
+    opset_group.add_argument(
+        "--opset_version",
+        type=int,
+        help=(
+            "ONNX opset version to use together with --opset_domain. "
+            "If used without --opset_mapping, com.microsoft:1 is added automatically."
+        ),
+    )
+    parser.add_argument(
+        "--opset_domain",
+        type=str,
+        default=ONNXDomain.AI_ONNX.value,
+        help=(
+            "ONNX opset domain to use with --opset_version "
+            f"(default: {ONNXDomain.AI_ONNX.value})"
+        ),
     )
     parser.add_argument(
         "--validate_inputs",
@@ -365,30 +332,103 @@ def parse_and_check() -> None:
         default=None,
         help="Limit number of test cases per pattern (default: run all cases)",
     )
-    parser.add_argument(
-        "--continue",
+
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--rerun_failed",
         action="store_true",
-        dest="continue_from_existing",
-        help="Continue from existing result file by skipping already completed test cases",
+        help=(
+            "Rerun only failed cases (compile failed or run failed). "
+            "Mutually exclusive with --delta_only and --case_index."
+        ),
+    )
+    mode_group.add_argument(
+        "--delta_only",
+        action="store_true",
+        help=(
+            "Only run new test cases that do not exist in the existing results file. "
+            "Mutually exclusive with --rerun_failed and --case_index."
+        ),
+    )
+    mode_group.add_argument(
+        "--case_index",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "Only process cases matching these case_index hashes. "
+            "Mutually exclusive with --rerun_failed and --delta_only."
+        ),
+    )
+
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        help="Skip compile/run execution and emit check_result with reason 'not_run'",
+    )
+    parser.add_argument(
+        "--not_run_start_id",
+        type=int,
+        default=1,
+        help="Initial id used for not_run placeholder reasons (not_run_<id>) (default: 1)",
     )
     parser.add_argument(
         "--save_failed_model",
         action="store_true",
         help="Save the model for compile failed test cases",
     )
-    args = parser.parse_args()
+    return parser
 
-    # Parse opset_mapping from "domain:version" pairs
-    opset_mapping = None
+
+def _parse_opset_mapping(args: Any) -> dict[str, int]:
+    """Parse opset mapping from CLI args.
+
+    Supports either:
+    - --opset_mapping domain:version [domain:version ...]
+    - --opset_version + optional --opset_domain
+    """
     if args.opset_mapping:
-        opset_mapping = {}
+        opset_mapping: dict[str, int] = {}
         for pair in args.opset_mapping:
-            domain, version = pair.split(":")
-            opset_mapping[domain] = int(version)
+            if ":" not in pair:
+                raise ValueError(
+                    "Invalid --opset_mapping value "
+                    f"'{pair}'. Expected format: domain:version"
+                )
+            domain, version_text = pair.split(":", 1)
+            if not domain:
+                raise ValueError(f"Invalid --opset_mapping value '{pair}': empty domain")
+            try:
+                opset_mapping[domain] = int(version_text)
+            except ValueError as exc:
+                raise ValueError(
+                    "Invalid --opset_mapping value "
+                    f"'{pair}'. Version must be an integer"
+                ) from exc
+        return opset_mapping
+
+    if args.opset_version is None:
+        raise ValueError("Either --opset_mapping or --opset_version must be provided")
+
+    opset_mapping = {args.opset_domain: int(args.opset_version)}
+
+    # Keep compatibility with existing pattern generators that expect this domain.
+    if args.opset_domain != ONNXDomain.COM_MICROSOFT.value:
+        opset_mapping.setdefault(ONNXDomain.COM_MICROSOFT.value, 1)
+
+    return opset_mapping
+
+
+def run_from_args(args: Any) -> None:
+    """Run check_patterns from parsed CLI args."""
+    available_patterns = get_registered_pattern_input_generators()
 
     # Determine which patterns to test
     patterns_to_check = available_patterns if args.all_patterns else args.patterns
     ep_checker = get_ep_checker(args.ep, device=args.device)
+
+    # Parse opset mapping from either mapping pairs or opset_domain/opset_version
+    opset_mapping = _parse_opset_mapping(args)
 
     # Run the tests
     check_patterns(
@@ -397,10 +437,21 @@ def parse_and_check() -> None:
         validate_inputs=args.validate_inputs,
         output_dir=args.output_dir,
         n_cases=args.n_cases,
-        continue_from_existing=args.continue_from_existing,
         save_failed_model=args.save_failed_model,
+        rerun_failed=args.rerun_failed,
+        delta_only=args.delta_only,
+        dry_run=args.dry_run,
+        not_run_start_id=args.not_run_start_id,
+        case_index=args.case_index,
         opset_mapping=opset_mapping,
     )
+
+
+def parse_and_check() -> None:
+    """Main entry point for command-line execution."""
+    parser = build_parser()
+    args = parser.parse_args()
+    run_from_args(args)
 
 
 if __name__ == "__main__":
