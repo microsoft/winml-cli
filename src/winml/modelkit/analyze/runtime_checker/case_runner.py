@@ -191,7 +191,7 @@ class RunCaseRunner:
         """Run a single case and return compile/run check results."""
         domain = ONNXDomain.from_str(op_domain)
         schema = domain.get_op_schema(op_name, opset_version)
-        generator_cls = get_runtime_checker_op(op_name)
+        generator_cls = get_runtime_checker_op(op_name, domain=op_domain)
         ep_checker = get_ep_checker(ep_name, device)
 
         generator: OpInputGenerator = generator_cls(schema)
