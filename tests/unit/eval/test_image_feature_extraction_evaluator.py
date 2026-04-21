@@ -158,6 +158,42 @@ class TestImageFeatureExtractionEvaluatorAlignLabels:
         assert result is mock_dataset
 
 
+class TestExtractImageEmbedding:
+    """Tests for `_extract_image_embedding` across supported output shapes."""
+
+    def test_tokens_3d_returns_cls(self):
+        # [1, num_tokens, hidden] — ViT/DINOv2 default (pool=False).
+        raw = np.arange(1 * 4 * 8, dtype=np.float32).reshape(1, 4, 8)
+        out = WinMLImageFeatureExtractionEvaluator._extract_image_embedding(raw)
+        assert out.shape == (8,)
+        np.testing.assert_array_equal(out, raw[0, 0])
+
+    def test_pooled_2d_returns_vector(self):
+        # [1, hidden] — pooled / projected output.
+        raw = np.arange(16, dtype=np.float32).reshape(1, 16)
+        out = WinMLImageFeatureExtractionEvaluator._extract_image_embedding(raw)
+        assert out.shape == (16,)
+        np.testing.assert_array_equal(out, raw[0])
+
+    def test_nested_list_input_supported(self):
+        # HF pipeline typically returns nested Python lists.
+        raw = [[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]  # [1, 2, 3]
+        out = WinMLImageFeatureExtractionEvaluator._extract_image_embedding(raw)
+        assert out.shape == (3,)
+        np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0]))
+
+    def test_cnn_feature_map_raises(self):
+        # [1, C, H, W] — not supported, surface error instead of silent bad output.
+        raw = np.zeros((1, 8, 3, 3), dtype=np.float32)
+        with pytest.raises(ValueError, match="Unsupported"):
+            WinMLImageFeatureExtractionEvaluator._extract_image_embedding(raw)
+
+    def test_scalar_raises(self):
+        raw = [np.float32(1.0)]
+        with pytest.raises(ValueError, match="Unsupported"):
+            WinMLImageFeatureExtractionEvaluator._extract_image_embedding(raw)
+
+
 class TestImageFeatureExtractionEvaluatorRegistry:
     def test_registered_in_evaluator_registry(self):
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
@@ -175,3 +211,85 @@ class TestImageFeatureExtractionEvaluatorRegistry:
         ds = _DEFAULT_DATASETS["image-feature-extraction"]
         assert ds.path == "timm/mini-imagenet"
         assert ds.samples == 1000
+
+
+# ---------------------------------------------------------------------------
+# WinMLImageFeatureExtractionEvaluator.compute
+# ---------------------------------------------------------------------------
+
+class TestCompute:
+    """End-to-end: pipeline output -> CLS extraction -> kNN metric."""
+
+    @staticmethod
+    def _token_sequence(cls_vec: list[float], num_tokens: int = 3) -> list:
+        """Build a [1, num_tokens, hidden] pipeline output with given CLS vec."""
+        hidden = len(cls_vec)
+        # Non-CLS tokens are arbitrary — only index 0 should be used.
+        other = [[0.5] * hidden for _ in range(num_tokens - 1)]
+        return [[cls_vec, *other]]
+
+    def test_end_to_end_flow(self):
+        """Pipeline tokens -> CLS extraction -> kNN produces valid accuracies."""
+        ev = make_evaluator()
+
+        # Two well-separated clusters, two samples each.
+        cluster_a = [1.0, 0.0, 0.0]
+        cluster_b = [0.0, 1.0, 0.0]
+        ev.data = [
+            {"image": "img1", "label": 0},
+            {"image": "img2", "label": 0},
+            {"image": "img3", "label": 1},
+            {"image": "img4", "label": 1},
+        ]
+        outputs = iter([
+            self._token_sequence(cluster_a),
+            self._token_sequence([0.99, 0.01, 0.0]),
+            self._token_sequence(cluster_b),
+            self._token_sequence([0.01, 0.99, 0.0]),
+        ])
+        ev.pipe = MagicMock(side_effect=lambda _img: next(outputs))
+
+        result = ev.compute()
+
+        assert "knn_top1_accuracy" in result
+        assert "knn_top5_accuracy" in result
+        # Perfectly separable clusters -> 100% top-1.
+        assert result["knn_top1_accuracy"] == 100.0
+
+    def test_skips_samples_with_none_image_or_label(self):
+        """Samples missing image or label are dropped before embedding."""
+        ev = make_evaluator()
+
+        ev.data = [
+            {"image": "img1", "label": 0},
+            {"image": None, "label": 0},          # skipped
+            {"image": "img2", "label": None},     # skipped
+            {"image": "img3", "label": 1},
+        ]
+        outputs = iter([
+            self._token_sequence([1.0, 0.0]),
+            self._token_sequence([0.0, 1.0]),
+        ])
+        ev.pipe = MagicMock(side_effect=lambda _img: next(outputs))
+
+        result = ev.compute()
+
+        # Pipe should only be called for valid samples.
+        assert ev.pipe.call_count == 2
+        assert "knn_top1_accuracy" in result
+
+    def test_raises_when_fewer_than_two_valid_samples(self):
+        """ValueError is raised if <2 valid samples remain after filtering."""
+        ev = make_evaluator()
+
+        ev.data = [
+            {"image": "img1", "label": 0},
+            {"image": None, "label": 0},
+        ]
+        ev.pipe = MagicMock(
+            return_value=self._token_sequence([1.0, 0.0])
+        )
+
+        with pytest.raises(ValueError, match="at least 2 valid samples"):
+            ev.compute()
+

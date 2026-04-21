@@ -92,9 +92,8 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
             if image is None or label is None:
                 continue
 
-            raw = self.pipe(image)  # [[[float, ...]]]
-            tokens = np.array(raw[0])
-            embeddings.append(tokens[0] if tokens.ndim > 1 else tokens)
+            raw = self.pipe(image)
+            embeddings.append(self._extract_image_embedding(raw))
             labels.append(int(label))
 
         if len(embeddings) < 2:
@@ -107,3 +106,25 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
 
         metric = KNNAccuracyMetric(k=10)
         return metric.compute(embeddings_array, labels_array)
+
+    @staticmethod
+    def _extract_image_embedding(raw: Any) -> np.ndarray:
+        """Reduce a pipeline output to a single 1D image-level embedding vector.
+
+        Supports the two output shapes produced by HF ``image-feature-extraction``
+        for transformer vision encoders (ViT / DINOv2 / DINO / BEiT / CLIP-ViT):
+          - ``[1, num_tokens, hidden]`` (default, ``pool=False``): take CLS
+            token at index 0 — the canonical image-level embedding.
+          - ``[1, hidden]`` (``pool=True`` or a model with a projection head):
+            use as-is.
+        """
+        tokens = np.asarray(raw[0])
+        if tokens.ndim == 1:
+            return tokens
+        if tokens.ndim == 2:
+            # CLS token (index 0) — standard image-level embedding for ViT/DINOv2.
+            return tokens[0]
+        raise ValueError(
+            f"Unsupported image-feature-extraction output shape: {np.asarray(raw).shape}. "
+            "Expected [1, hidden] (pooled) or [1, num_tokens, hidden] (token sequence)."
+        )
