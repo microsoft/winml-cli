@@ -102,6 +102,18 @@ dev = [
   "pytest-timeout>=2.4.0",
 ]
 
+# =============================================================================
+# UV - Resolver Configuration
+# =============================================================================
+# Ensure uv resolves to versions that have installable distributions on the
+# platforms we actually support. Without this, uv may pick the newest release
+# of a transitive dep that lacks Windows wheels, and CI on Windows will fail
+# at install time.
+[tool.uv]
+required-environments = [
+  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
 [tool.setuptools.packages.find]
 where = [ "src" ]
 include = [ "winml", "winml.*" ]
