@@ -23,7 +23,7 @@ import pytest
 
 from winml.modelkit.analyze import IHVType, RuleLoader
 from winml.modelkit.analyze.utils import get_runtime_rules_search_dirs, resolve_rule_zip_path
-from winml.modelkit.analyze.utils.rule_loader import _DEFAULT_RUNTIME_RULES_DIR
+from winml.modelkit.analyze.utils.rule_loader import _DEFAULT_RUNTIME_RULES_DIR, _RULE_LOADER_DIR
 
 
 class TestRuleLoaderBasicLoading:
@@ -467,6 +467,17 @@ class TestResolveRuleZipPath:
         assert dirs[0] == Path("/extra/path1").resolve()
         assert dirs[1] == Path("/extra/path2").resolve()
         assert dirs[2].name == "runtime_check_rules"
+
+    def test_env_var_relative_path_resolved_from_module_dir(self, monkeypatch):
+        """Relative MODELKIT_RULES_DIR entries are resolved from rule_loader.py dir."""
+        relative_entry = "custom/rules"
+        monkeypatch.setenv("MODELKIT_RULES_DIR", relative_entry)
+
+        dirs = get_runtime_rules_search_dirs()
+
+        assert len(dirs) == 2
+        assert dirs[0] == (_RULE_LOADER_DIR / relative_entry).resolve()
+        assert dirs[1] == _DEFAULT_RUNTIME_RULES_DIR
 
     def test_env_var_empty_ignored(self, monkeypatch):
         """Empty MODELKIT_RULES_DIR is treated as unset."""

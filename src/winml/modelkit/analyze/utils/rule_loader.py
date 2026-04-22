@@ -20,18 +20,34 @@ logger = logging.getLogger(__name__)
 #: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
 MODELKIT_RULES_DIR_ENV = "MODELKIT_RULES_DIR"
 
+# Directory containing this module file. Relative env-var entries are resolved from here.
+_RULE_LOADER_DIR: Path = Path(__file__).resolve().parent
+
 # Default runtime_check_rules directory (relative to the analyze package).
 _DEFAULT_RUNTIME_RULES_DIR: Path = (
     Path(__file__).resolve().parent.parent / "rules" / "runtime_check_rules"
 )
 
 
+def _resolve_env_rules_dir_entry(entry: str) -> Path:
+    """Resolve a MODELKIT_RULES_DIR entry into an absolute directory path.
+
+    Absolute paths are used directly. Relative paths are interpreted relative
+    to this module file's directory.
+    """
+    entry_path = Path(entry).expanduser()
+    if os.path.isabs(str(entry_path)):
+        return entry_path.resolve()
+    return (_RULE_LOADER_DIR / entry_path).resolve()
+
+
 def get_runtime_rules_search_dirs() -> list[Path]:
     """Return ordered list of directories to search for runtime check rule zips.
 
     The search order is:
-      1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
-         (separated by ``os.pathsep``).
+        1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
+            (separated by ``os.pathsep``). Absolute paths are used directly;
+            relative paths are resolved relative to this module file directory.
       2. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
 
     Returns:
@@ -43,7 +59,7 @@ def get_runtime_rules_search_dirs() -> list[Path]:
         for entry in env_val.split(os.pathsep):
             entry = entry.strip()
             if entry:
-                dirs.append(Path(entry).resolve())
+                dirs.append(_resolve_env_rules_dir_entry(entry))
     dirs.append(_DEFAULT_RUNTIME_RULES_DIR)
     return dirs
 
