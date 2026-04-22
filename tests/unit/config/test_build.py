@@ -1782,7 +1782,7 @@ class TestDevicePrecisionIntegration:
     @pytest.mark.parametrize(
         "device,precision,expect_quant,expect_weight,expect_act,expect_compile_provider",
         [
-            ("npu", "auto", True, "uint8", "uint8", "qnn"),
+            ("npu", "auto", True, "uint8", "uint16", "qnn"),
             ("npu", "fp16", False, None, None, "qnn"),
             ("npu", "int8", True, "uint8", "uint8", "qnn"),
             ("gpu", "auto", False, None, None, "dml"),
@@ -1885,9 +1885,9 @@ class TestDevicePrecisionIntegration:
         # (not None -- they come from _assemble_config defaults)
         assert result.quant is not None, "auto+auto should preserve default quant"
         assert result.compile is not None, "auto+auto should preserve default compile"
-        # Default quant weight_type is "uint8" (from WinMLQuantizationConfig)
+        # Default quant: NPU auto-precision is w8a16 (uint8 weights, uint16 activations)
         assert result.quant.weight_type == "uint8"
-        assert result.quant.activation_type == "uint8"
+        assert result.quant.activation_type == "uint16"
         # Default compile provider is "qnn" (from WinMLCompileConfig -> EPConfig)
         assert result.compile.ep_config.provider == "qnn"
 
@@ -2010,7 +2010,7 @@ class TestDevicePrecisionCli:
         return result, output_file
 
     def test_device_npu_produces_qnn(self, tmp_path) -> None:
-        """--device npu → compile.provider=qnn, quant with uint8."""
+        """--device npu → compile.provider=qnn, quant with w8a16."""
         result, output_file = self._invoke(tmp_path, ["--device", "npu"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2019,7 +2019,7 @@ class TestDevicePrecisionCli:
         assert data["compile"]["execution_provider"] == "qnn"
         assert data["quant"] is not None
         assert data["quant"]["weight_type"] == "uint8"
-        assert data["quant"]["activation_type"] == "uint8"
+        assert data["quant"]["activation_type"] == "uint16"
 
     def test_device_gpu_precision_fp16(self, tmp_path) -> None:
         """--device gpu --precision fp16 → no quant, compile.provider=dml."""
@@ -2190,7 +2190,7 @@ class TestGenerateBuildConfigOnnxPath:
     # -----------------------------------------------------------------
 
     def test_raw_onnx_full_pipeline(self, tmp_path) -> None:
-        """Raw ONNX + device=npu resolves quant=w8a8 and compile=qnn."""
+        """Raw ONNX + device=npu resolves quant=w8a16 and compile=qnn."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -2207,7 +2207,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
         assert config.quant is not None
         assert config.quant.weight_type == "uint8"
-        assert config.quant.activation_type == "uint8"
+        assert config.quant.activation_type == "uint16"
         assert config.compile is not None
         assert config.compile.ep_config.provider == "qnn"
 
@@ -2668,7 +2668,7 @@ class TestResolveQuantCompileConfig:
 
         assert isinstance(quant, WinMLQuantizationConfig)
         assert quant.weight_type == "uint8"
-        assert quant.activation_type == "uint8"
+        assert quant.activation_type == "uint16"
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
