@@ -1104,8 +1104,15 @@ class TestIterQDQCombinations:
     @pytest.mark.parametrize(
         "op_name,expected_count",
         [
-            # All binary use this and it is enough
-            ("Add", binary_input_shapes * (16 * 2 - 4)),  # 1204
+            # All binary use this and it is enough.
+            # A and B each support activation + weight + non_qdq; output always Q-wrapped.
+            # Per shape by (A, B) should_qdq combo:
+            #   (Q, Q)    = 16*2 - 4 = 28   (4 types * 4 types * 2 is_constant - 4 scalar adj)
+            #   (Q, raw)  = 20
+            #   (raw, Q)  = 20
+            #   (raw, raw)= 12
+            # Total per shape: 28 + 20 + 20 + 12 = 80.
+            ("Add", binary_input_shapes * 80),  # 3440
             (
                 "AveragePool",
                 1152,
@@ -1125,8 +1132,12 @@ class TestIterQDQCombinations:
             ("Concat", 240),  # 15 base shapes/axes * 4 variadic counts * 4 activation types
             (
                 "Conv",
-                1536 * 4,
-            ),  # shape 3 * attrs 4 * 2 * kernel shape 2 * opt B 2 * 16 * B/Y non qdq 4
+                1536 * 5,
+            ),  # 7680. 1536 = shape 3 * auto_pad 4 * group 2 * kernel_opt 2
+            # * 16 (X act 4 * W weight 4) * 2 (Y QDQ-wrapped or not).
+            # Five bias states each contribute 1536:
+            #   (no bias) + (bias INT32) + (bias INT8, P1 workaround)
+            #   + (bias non-QDQ, B constant) + (bias non-QDQ, B non-constant).
             (
                 "ConvTranspose",
                 3328,
@@ -1139,7 +1150,7 @@ class TestIterQDQCombinations:
             # All comparison use this
             ("Equal", binary_input_shapes * 16),  # 688
             ("Expand", 328),  # case 41 * QDQ 4 * is_constant shape 2
-            ("Flatten", 28 * 4),  # 112
+            ("Flatten", 28 * 4 * 2),  # 224: 28 shapes * 4 types * 2 (output Q-wrapped or not)
             (
                 "Gather",
                 1184,
@@ -1154,7 +1165,7 @@ class TestIterQDQCombinations:
                 "Gemm",
                 36 * 16 * (4 + 3 * 2),
             ),  # attributes (2 * 2 * 3 * 3) * QDQ * C (qdq + non-qdq * opt)
-            ("GlobalAveragePool", 3 * 4),  # 12
+            ("GlobalAveragePool", 3 * 4 * 2),  # 24: 3 shapes * 4 types * 2 (Y Q-wrapped or not)
             ("InstanceNormalization", 3 * 16),  # 48
             ("LayerNormalization", 5 * 2 * 2 * 16),  # 320
             ("LpNormalization", 3 * 2 * 4 * 4),  # 96: 3 shapes (>=3D) x 2 p x 4 axis x 4 act types
