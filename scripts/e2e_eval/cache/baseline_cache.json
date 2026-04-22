@@ -578,5 +578,165 @@
     },
     "elapsed": 449.7,
     "command": "python.exe run_pytorch_baseline.py --model swin-large-patch4-window7-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dinov2-small|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 86.2,
+      "num_samples": 1000
+    },
+    "elapsed": 141.5,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-small --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dinov2-base|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 89.5,
+      "num_samples": 1000
+    },
+    "elapsed": 316.5,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-base --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dino-vits16|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 79.7,
+      "num_samples": 1000
+    },
+    "elapsed": 94.2,
+    "command": "python.exe run_pytorch_baseline.py --model dino-vits16 --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dino-vitb16|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 83.2,
+      "num_samples": 1000
+    },
+    "elapsed": 248.6,
+    "command": "python.exe run_pytorch_baseline.py --model dino-vitb16 --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "google/vit-base-patch16-224-in21k|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 91.9,
+      "num_samples": 1000
+    },
+    "elapsed": 231.2,
+    "command": "python.exe run_pytorch_baseline.py --model vit-base-patch16-224-in21k --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "StanfordAIMI/dinov2-base-xray-224|image-feature-extraction|Ewakaa/pneumonia_classification_chest_xray||test|582": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 93.6426,
+      "num_samples": 582
+    },
+    "elapsed": 166.0,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-base-xray-224 --task image-feature-extraction --device cpu --num-samples 582 --dataset pneumonia_classification_chest_xray --split test"
+  },
+  "facebook/dinov2-large|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 91.1,
+      "num_samples": 1000
+    },
+    "elapsed": 890.6,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-large --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "microsoft/rad-dino|image-feature-extraction|Ewakaa/pneumonia_classification_chest_xray||test|582": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 94.6735,
+      "num_samples": 582
+    },
+    "elapsed": 894.7,
+    "command": "python.exe run_pytorch_baseline.py --model rad-dino --task image-feature-extraction --device cpu --num-samples 582 --dataset pneumonia_classification_chest_xray --split test"
+  },
+  "google-bert/bert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 4.2981,
+      "num_samples": 100
+    },
+    "elapsed": 1319.8,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "distilbert/distilbert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 6.6132,
+      "num_samples": 100
+    },
+    "elapsed": 1097.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 5.2706,
+      "num_samples": 100
+    },
+    "elapsed": 2029.2,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-base --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 4.4645,
+      "num_samples": 100
+    },
+    "elapsed": 2645.6,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-cased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 5.2262,
+      "num_samples": 100
+    },
+    "elapsed": 2758.9,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-cased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 3.6435,
+      "num_samples": 100
+    },
+    "elapsed": 4921.4,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-base --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 5.3352,
+      "num_samples": 100
+    },
+    "elapsed": 5541.0,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-large --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 2.677,
+      "num_samples": 100
+    },
+    "elapsed": 10591.2,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
   }
 }
