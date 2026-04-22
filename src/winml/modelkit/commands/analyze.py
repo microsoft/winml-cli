@@ -379,7 +379,7 @@ def _render_analysis_summary(
 
 
 @click.command(name="analyze")
-@cli_utils.model_option(required=True)
+@cli_utils.model_path_option(required=True)
 @cli_utils.ep_option(
     required=False, optional_message="If not specified, analyzes all supported EPs"
 )
