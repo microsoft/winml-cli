@@ -40,7 +40,9 @@ class WinMLEvaluationConfig:
 
     Attributes:
         model_id: HuggingFace model ID for config/preprocessor resolution.
-        model_path: Path to .onnx model file. None = build from model_id.
+        model_path: Path to .onnx model file, or a ``{role: path}`` dict for
+            composite models (e.g. ``{"image-encoder": "...", "text-encoder": "..."}``).
+            None = build from model_id.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
         dataset: Dataset configuration.
@@ -54,7 +56,7 @@ class WinMLEvaluationConfig:
     """
 
     model_id: str | None = None
-    model_path: str | None = None
+    model_path: str | dict[str, str] | None = None
     task: str | None = None
     device: str = "cpu"
     dataset: DatasetConfig = field(default_factory=DatasetConfig)

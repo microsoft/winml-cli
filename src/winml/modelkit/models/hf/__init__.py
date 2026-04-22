@@ -48,6 +48,10 @@ from .roberta import ROBERTA_FAMILY_CONFIG
 from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registration
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
 from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
+from .siglip import MODEL_CLASS_MAPPING as _SIGLIP_CLASS_MAPPING
+from .siglip import SIGLIP_CONFIG
+from .siglip import SiglipTextModelIOConfig as _SiglipTextModelIOConfig  # triggers registration
+from .siglip import SiglipVisionModelIOConfig as _SiglipVisionModelIOConfig  # triggers registration
 from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
 from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
@@ -64,6 +68,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     **_QWEN_CLASS_MAPPING,
     **_SAM2_CLASS_MAPPING,
     **_SEGFORMER_CLASS_MAPPING,
+    **_SIGLIP_CLASS_MAPPING,
     **_T5_CLASS_MAPPING,
 }
 
@@ -81,6 +86,9 @@ MODEL_BUILD_CONFIGS = {
     "roberta": ROBERTA_FAMILY_CONFIG,
     "mu2": MU2_CONFIG,
     "qwen3": QWEN_CONFIG,
+    "siglip": SIGLIP_CONFIG,
+    "siglip-text-model": SIGLIP_CONFIG,
+    "siglip-vision-model": SIGLIP_CONFIG,
     "t5": T5_CONFIG,
     "vision-encoder-decoder": VISION_ENCODER_DECODER_CONFIG,
     "xlm-roberta": ROBERTA_FAMILY_CONFIG,

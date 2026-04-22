@@ -237,6 +237,20 @@ class WinMLCompositeModel(PreTrainedModel):
         else:
             resolved_cls = cls
 
+        # Validate provided sub-model roles against the resolved class's schema.
+        expected = set(resolved_cls._SUB_MODEL_CONFIG)
+        provided = set(onnx_path)
+        if missing := expected - provided:
+            raise ValueError(
+                f"{resolved_cls.__name__} requires sub-models {sorted(expected)}; "
+                f"missing {sorted(missing)}. Provide them as `-m role=path` pairs."
+            )
+        if unknown := provided - expected:
+            raise ValueError(
+                f"{resolved_cls.__name__} does not accept sub-model roles {sorted(unknown)}. "
+                f"Expected exactly {sorted(expected)}."
+            )
+
         from ..auto import WinMLAutoModel
 
         sub_models: dict[str, Any] = {}

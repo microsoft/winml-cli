@@ -669,7 +669,7 @@ def _run_winml_eval(
     timeout: int,
     ds_config: dict,
     model_dir: Path,
-    onnx_path: str | None = None,
+    onnx_path: dict[str, str] | None = None,
 ) -> dict:
     """Invoke winml eval for one model. Returns process result + parsed metric."""
     output_path = model_dir / "winml_eval_output.json"
@@ -681,13 +681,14 @@ def _run_winml_eval(
         args = [
             *WINML_CLI,
             "eval",
-            "-m",
-            onnx_path,
             "--model-id",
             entry.hf_id,
             "--device",
             eval_device,
         ]
+        # Single model uses {"": path}; composite uses {role: path, ...}.
+        for label, path in onnx_path.items():
+            args += ["-m", f"{label}={path}" if label else path]
     else:
         args = [
             *WINML_CLI,
@@ -856,7 +857,7 @@ def _run_accuracy_phase(
     device: str,
     timeout: int,
     model_dir: Path,
-    onnx_path: str | None = None,
+    onnx_path: dict[str, str] | None = None,
 ) -> dict:
     """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
@@ -1289,10 +1290,12 @@ def main() -> None:
                 model_dir,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
-            # Composite models produce multiple ONNX paths; accuracy phase requires a
-            # single path and is not yet supported for composite models.
-            # TODO: composite model accuracy support
+            # Composite models produce multiple ONNX paths. Accuracy evaluation for
+            # composite models is supported for zero-shot-image-classification (CLIP/SigLIP);
+            # other composite tasks are not yet supported.
+            # TODO: expand composite accuracy support to other tasks (T5 summarization, etc.)
             is_composite = len(onnx_paths) > 1
+            composite_accuracy_supported = entry.task == "zero-shot-image-classification"
             first_path = (
                 next(iter(onnx_paths.values()), None) if onnx_paths and not is_composite else None
             )
@@ -1308,7 +1311,7 @@ def main() -> None:
                     perf_proc = fail_proc
                 if args.eval_type != "perf":
                     accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
-            elif is_composite and args.eval_type != "perf":
+            elif is_composite and not composite_accuracy_supported and args.eval_type != "perf":
                 # Accuracy phase skipped for composite models (TODO: composite accuracy support)
                 safe_print(
                     f"    [accuracy] Skipped for composite model {entry.hf_id} "
@@ -1323,7 +1326,7 @@ def main() -> None:
                     args.device,
                     args.timeout,
                     model_dir,
-                    first_path,
+                    onnx_paths,
                 )
             elif args.eval_type == "perf":
                 perf_proc = run_model(entry, args.device, args.timeout, onnx_paths)
@@ -1338,7 +1341,7 @@ def main() -> None:
                         args.device,
                         args.timeout,
                         model_dir,
-                        first_path,
+                        onnx_paths,
                     )
 
         except KeyboardInterrupt:
