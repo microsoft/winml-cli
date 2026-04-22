@@ -1014,5 +1014,149 @@
         "label_column": "answers"
       }
     }
+  },
+  {
+    "hf_id": "google-bert/bert-base-uncased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/xlm-roberta-base",
+    "task": "fill-mask",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/roberta-large",
+    "task": "fill-mask",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/roberta-base",
+    "task": "fill-mask",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "distilbert/distilbert-base-uncased",
+    "task": "fill-mask",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/xlm-roberta-large",
+    "task": "fill-mask",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-uncased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
   }
 ]
