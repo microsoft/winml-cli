@@ -60,14 +60,21 @@ logger = logging.getLogger(__name__)
 
 # Maps (model_type, task) → pipeline class with _SUB_MODEL_CONFIG.
 # Used by `wmk config` to generate one config file per sub-component.
-PIPELINE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
+COMPOSITE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
 
 
 def register_composite_model(model_type: str, task: str):
     """Class decorator that registers a composite model for `wmk config`."""
 
     def decorator(cls: type) -> type:
-        PIPELINE_MODEL_REGISTRY[(model_type, task)] = cls
+        key = (model_type, task)
+        if key in COMPOSITE_MODEL_REGISTRY:
+            raise ValueError(
+                f"Composite model already registered for {key!r}: "
+                f"{COMPOSITE_MODEL_REGISTRY[key].__name__}. "
+                f"Cannot register {cls.__name__}."
+            )
+        COMPOSITE_MODEL_REGISTRY[key] = cls
         return cls
 
     return decorator
@@ -115,7 +122,7 @@ class WinMLCompositeModel(PreTrainedModel):
 
         When called on ``WinMLCompositeModel`` directly (not a subclass),
         ``task`` is required to resolve the concrete class from
-        ``PIPELINE_MODEL_REGISTRY``.  When called on a registered subclass
+        ``COMPOSITE_MODEL_REGISTRY``.  When called on a registered subclass
         (e.g., ``WinMLT5Model``), ``task`` is optional.
 
         Args:
@@ -143,11 +150,11 @@ class WinMLCompositeModel(PreTrainedModel):
 
         if not cls._SUB_MODEL_CONFIG:
             # Resolve concrete class from registry when called on the base class
-            resolved_cls = PIPELINE_MODEL_REGISTRY.get((model_type, task))
+            resolved_cls = COMPOSITE_MODEL_REGISTRY.get((model_type, task))
             if resolved_cls is None:
                 raise ValueError(
                     f"No composite model registered for ({model_type!r}, {task!r}). "
-                    f"Registered: {list(PIPELINE_MODEL_REGISTRY.keys())}"
+                    f"Registered: {list(COMPOSITE_MODEL_REGISTRY.keys())}"
                 )
             return resolved_cls.from_pretrained(
                 model_id,
@@ -212,11 +219,11 @@ class WinMLCompositeModel(PreTrainedModel):
         # Resolve concrete class from registry
         model_type = getattr(hf_config, "model_type", None) if hf_config else None
         if not cls._SUB_MODEL_CONFIG:
-            resolved_cls = PIPELINE_MODEL_REGISTRY.get((model_type, task))
+            resolved_cls = COMPOSITE_MODEL_REGISTRY.get((model_type, task))
             if resolved_cls is None:
                 raise ValueError(
                     f"No composite model for ({model_type!r}, {task!r}). "
-                    f"Registered: {list(PIPELINE_MODEL_REGISTRY.keys())}"
+                    f"Registered: {list(COMPOSITE_MODEL_REGISTRY.keys())}"
                 )
         else:
             resolved_cls = cls
@@ -226,6 +233,11 @@ class WinMLCompositeModel(PreTrainedModel):
         sub_models: dict[str, Any] = {}
         for name, path in onnx_path.items():
             component_task = resolved_cls._SUB_MODEL_CONFIG.get(name)
+            if component_task is None:
+                valid = list(resolved_cls._SUB_MODEL_CONFIG.keys())
+                raise ValueError(
+                    f"Unknown component {name!r}. Valid names for {resolved_cls.__name__}: {valid}"
+                )
             merged = {**kwargs, "task": component_task, **per_component.get(name, {})}
             sub_models[name] = WinMLAutoModel.from_onnx(Path(path), **merged)
 

@@ -126,7 +126,8 @@ class QwenDecoderWrapper(nn.Module):
 
     Input KV: full static buffer ``[batch, kv_heads, max_cache_len, head_dim]``.
     Output KV: new positions only ``[batch, kv_heads, seq_len, head_dim]``.
-    Logits: last position only ``[batch, 1, vocab_size]`` (both prefill and gen).
+    Logits: all input positions ``[batch, seq_len, vocab_size]`` (both prefill and gen).
+    The caller selects the relevant position (last for gen, all for perplexity evaluation).
     """
 
     def __init__(self, model: nn.Module, num_layers: int) -> None:
@@ -151,12 +152,12 @@ class QwenDecoderWrapper(nn.Module):
         """Run decoder with static KV cache.
 
         Positional args (order matches OnnxConfig.inputs):
-            input_ids, attention_mask, position_ids, position_id,
+            input_ids, attention_mask, position_ids,
             past_0_key, past_0_value, past_1_key, past_1_value, ...
 
         Returns:
             (logits, present_0_key, present_0_value, ...) where:
-            - logits is ``[batch, 1, vocab_size]`` (last position only)
+            - logits is ``[batch, seq_len, vocab_size]`` (all positions)
             - present KV is ``[batch, kv_heads, seq_len, head_dim]``
         """
         input_ids = args[0]

@@ -528,7 +528,7 @@ def _resolve_composite_model_components(
 
     import winml.modelkit.models.hf  # noqa: F401  # trigger pipeline registrations
 
-    from ..models.winml.composite_model import PIPELINE_MODEL_REGISTRY
+    from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
     # Resolve model_type from HF config if not provided
     resolved_type = model_type
@@ -542,7 +542,7 @@ def _resolve_composite_model_components(
     if resolved_type is None:
         return None
 
-    cls = PIPELINE_MODEL_REGISTRY.get((resolved_type, task))
+    cls = COMPOSITE_MODEL_REGISTRY.get((resolved_type, task))
     return cls._SUB_MODEL_CONFIG if cls is not None else None
 
 

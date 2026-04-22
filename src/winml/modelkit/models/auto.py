@@ -36,6 +36,8 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
+    from transformers import PretrainedConfig
+
     from ..config import WinMLBuildConfig
     from .winml.base import WinMLPreTrainedModel
 
@@ -108,6 +110,7 @@ class WinMLAutoModel:
         force_rebuild: bool = False,
         skip_build: bool = False,
         session_options: Any | None = None,
+        hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:  # noqa: F821
         """Build from a pre-exported ONNX file.
@@ -125,6 +128,10 @@ class WinMLAutoModel:
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
+            hf_config: HF ``PretrainedConfig`` for composite (dict) dispatch only.
+                Required when ``onnx_path`` is a dict so the composite registry
+                lookup can resolve ``(model_type, task)``. Ignored for single-file
+                builds.
             **kwargs: Forwarded to ``build_onnx_model()``.
 
         Returns:
@@ -136,7 +143,7 @@ class WinMLAutoModel:
             return WinMLCompositeModel.from_onnx(
                 onnx_path,
                 task=task,
-                config=config,
+                hf_config=hf_config,
                 device=device,
                 precision=precision,
                 ep=ep,
@@ -309,9 +316,9 @@ class WinMLAutoModel:
 
             _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
             _model_type = getattr(_hf_cfg, "model_type", None)
-            from .winml.composite_model import PIPELINE_MODEL_REGISTRY
+            from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-            if (_model_type, task) in PIPELINE_MODEL_REGISTRY:
+            if (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
 
                 return WinMLCompositeModel.from_pretrained(

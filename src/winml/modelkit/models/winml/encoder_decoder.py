@@ -285,11 +285,14 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         input_ids: torch.Tensor | None = None,
         **model_kwargs: Any,
     ) -> Seq2SeqLMOutput:
-        """Run decoder with static KV cache.
+        """Run decoder with a ``WinMLCache`` (``WinMLStaticCache`` or
+        ``WinMLSlidingWindowCache``, selected by the subclass via
+        ``get_cache_class()``).
 
         Args:
             encoder_outputs: Pre-computed encoder hidden states.
-            past_key_values: StaticCache (or wrapper) from previous step.
+            past_key_values: ``WinMLCache`` (or ``EncoderDecoderCache``
+                wrapper) from previous step.
             input_ids: Fallback — run encoder if encoder_outputs is None.
             **model_kwargs: Remaining kwargs forwarded to the decoder ONNX
                 (e.g., decoder_input_ids, attention_mask). Each tensor is
@@ -302,7 +305,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             raise ValueError("Either encoder_outputs or input_ids required")
         enc_h = encoder_outputs["last_hidden_state"]
 
-        # Resolve or create cache (subclasses override _create_cache).
+        # Resolve or create cache (subclasses override get_cache_class).
         cache = self._resolve_cache(past_key_values)
 
         fc = cache.step

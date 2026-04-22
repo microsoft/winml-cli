@@ -149,6 +149,7 @@ class WinMLCache(StaticCache):
     def reset(self) -> None:
         """Zero out all layers and reset step (start of new generation)."""
         self.step = 0
+        self.captured.clear()
         for i in range(self.num_layers):
             self.layers[i].keys.zero_()
             self.layers[i].values.zero_()

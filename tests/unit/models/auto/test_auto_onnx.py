@@ -13,7 +13,7 @@ Verifies:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -222,3 +222,85 @@ class TestFromOnnxDictDispatch:
             call_kwargs = mock_from_onnx.call_args.kwargs
             assert call_kwargs["task"] == "translation"
             assert call_kwargs["skip_build"] is True
+
+    def test_hf_config_dispatches_composite_via_registry(self, tmp_path: Path):
+        """hf_config kwarg threads through so model_type registry lookup works.
+
+        Exercises the real WinMLCompositeModel.from_onnx body via a fake
+        subclass in a temporary registry slot. hf_config must be a dedicated
+        parameter on WinMLAutoModel.from_onnx (distinct from ``config``, which
+        is a WinMLBuildConfig and has no ``model_type`` attribute).
+        """
+        from winml.modelkit.models.winml.composite_model import (
+            COMPOSITE_MODEL_REGISTRY,
+            WinMLCompositeModel,
+        )
+
+        # Minimal HF-config stand-in: only attribute access (.model_type) is
+        # required; no isinstance check happens on hf_config in the dispatch.
+        class _FakeHFConfig:
+            model_type = "_test_dispatch_model_"
+
+        enc_path = tmp_path / "enc.onnx"
+        dec_path = tmp_path / "dec.onnx"
+        enc_path.write_bytes(b"fake")
+        dec_path.write_bytes(b"fake")
+
+        test_key = ("_test_dispatch_model_", "_test_task_")
+
+        class _FakeComposite(WinMLCompositeModel):
+            _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+                "encoder": "feature-extraction",
+                "decoder": "translation",
+            }
+
+            def forward(self, **kwargs):  # type: ignore[override]
+                pass
+
+        assert test_key not in COMPOSITE_MODEL_REGISTRY
+        COMPOSITE_MODEL_REGISTRY[test_key] = _FakeComposite
+        try:
+            # Patch WinMLAutoModel.from_onnx: outer dict call falls through to
+            # the real implementation, inner per-component Path calls mocked.
+            _real_from_onnx = WinMLAutoModel.from_onnx
+            sub_mock = MagicMock()
+            sub_calls: list = []
+
+            def _side_effect(onnx_path, **kw):  # type: ignore[no-untyped-def]
+                if isinstance(onnx_path, dict):
+                    return _real_from_onnx(onnx_path, **kw)
+                sub_calls.append((onnx_path, kw))
+                return sub_mock
+
+            with patch.object(WinMLAutoModel, "from_onnx", side_effect=_side_effect):
+                result = WinMLAutoModel.from_onnx(
+                    {"encoder": str(enc_path), "decoder": str(dec_path)},
+                    task="_test_task_",
+                    hf_config=_FakeHFConfig(),
+                    skip_build=True,
+                )
+
+            assert isinstance(result, _FakeComposite)
+            assert len(sub_calls) == 2
+            tasks_called = {kw["task"] for _, kw in sub_calls}
+            assert tasks_called == {"feature-extraction", "translation"}
+        finally:
+            COMPOSITE_MODEL_REGISTRY.pop(test_key, None)
+
+    def test_from_onnx_dict_without_hf_config_raises(self, tmp_path: Path):
+        """Dict dispatch without hf_config surfaces a clear registry-miss error.
+
+        Guards against silent fallback: unregistered ``(model_type, task)`` must
+        raise ValueError immediately, not accept a wrong-typed kwarg and mis-dispatch.
+        """
+        enc_path = tmp_path / "enc.onnx"
+        dec_path = tmp_path / "dec.onnx"
+        enc_path.write_bytes(b"fake")
+        dec_path.write_bytes(b"fake")
+
+        with pytest.raises(ValueError, match="No composite model"):
+            WinMLAutoModel.from_onnx(
+                {"encoder": str(enc_path), "decoder": str(dec_path)},
+                task="_unregistered_task_",
+                skip_build=True,
+            )

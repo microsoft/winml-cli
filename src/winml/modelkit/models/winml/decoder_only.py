@@ -7,7 +7,7 @@
 Class hierarchy::
 
     WinMLCompositeModel(PreTrainedModel)          — multi-component base
-      └─ WinMLDecoderOnlyModel(GenerationMixin)  — prefill + gen with StaticCache
+      └─ WinMLDecoderOnlyModel(GenerationMixin)  — prefill + gen with WinMLCache
            └─ WinMLQwen3Model                    — Qwen3 tasks + generation config
 
 How it works:
@@ -35,17 +35,20 @@ How it works:
    - **Generation** (``input_ids`` has 1 token): runs the gen ONNX model
      with the single token + full KV cache buffer as input.
 
-4. KV cache uses HF ``StaticCache`` — same class as T5.  ``get_seq_length()``
-   counts non-zero positions; ``cache.update()`` writes new KV via
-   ``index_copy_``.  The cache persists across generate() steps via
-   ``CausalLMOutputWithPast.past_key_values``.
+4. KV cache is cache-agnostic — ``WinMLDecoderOnlyModel`` delegates mask
+   construction, position encoding, and cache writes to the ``WinMLCache``
+   subclass.  Two implementations ship:
+   ``WinMLStaticCache`` (ScatterElements/``index_copy_``) and
+   ``WinMLSlidingWindowCache`` (Slice+Concat FIFO).  ``WinMLQwen3Model``
+   selects the sliding-window variant.  The cache persists across
+   ``generate()`` steps via ``CausalLMOutputWithPast.past_key_values``.
 
 5. ``prepare_inputs_for_generation()`` handles a subtle interaction with
    ``GenerationMixin``: on the FIRST call, GenerationMixin may pass an
    auto-created ``DynamicCache`` (empty).  We detect this (not a
-   ``StaticCache`` or empty) and pass the full prompt through for prefill
+   ``WinMLCache`` or empty) and pass the full prompt through for prefill
    rather than trimming to the last token.  On subsequent calls with a
-   populated ``StaticCache``, we trim to the last token as usual.
+   populated ``WinMLCache``, we trim to the last token as usual.
 
 Design principles (same as composite_model.py):
 
@@ -152,7 +155,7 @@ class DecoderOnlyPrefillInputGenerator(DecoderOnlyInputGenerator):
 
 
 # =========================================================================
-# WinMLDecoderOnlyModel — prefill + gen with StaticCache
+# WinMLDecoderOnlyModel — prefill + gen with WinMLCache
 # =========================================================================
 
 
@@ -273,12 +276,12 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
 
         Args:
             input_ids: Token IDs ``[batch, seq_len]``.
-            past_key_values: StaticCache from previous step (None on first call).
+            past_key_values: ``WinMLCache`` from previous step (None on first call).
             attention_mask: Not used directly — rebuilt from cache occupancy.
             **kwargs: Absorbed for GenerationMixin compatibility.
 
         Returns:
-            CausalLMOutputWithPast with logits and updated StaticCache.
+            CausalLMOutputWithPast with logits and updated ``WinMLCache``.
         """
         cache = self._resolve_cache(past_key_values)
 

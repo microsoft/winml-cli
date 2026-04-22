@@ -145,8 +145,8 @@ class Mu2DecoderWrapper(nn.Module):
 
         Returns:
             (logits, present_0_key, present_0_value, ...) where each
-            present KV is the full updated buffer [batch, n_kv_head, max_cache_len, head_dim]
-            (oldest entry evicted, new token appended at end).
+            present KV is the new-token slice only [batch, n_kv_head, seq_len, head_dim]
+            (raw key_states/value_states captured before Slice+Concat in WinMLSlidingWindowCache).
         """
         decoder_input_ids = args[0]
         encoder_hidden_states = args[1]

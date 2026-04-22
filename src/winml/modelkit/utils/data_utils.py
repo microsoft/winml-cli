@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
@@ -15,7 +15,7 @@ import torch
 def pad_inputs(
     source: dict[str, Any],
     expected: dict[str, list[int]],
-    mode: str = "right",
+    mode: Literal["left", "right"] = "right",
 ) -> dict[str, Any]:
     """Filter *source* to keys in *expected* and pad undersized tensors.
 
