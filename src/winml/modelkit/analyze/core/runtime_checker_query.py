@@ -775,8 +775,14 @@ def get_query_conditions_for_node(
 
         if inp_name in initializers:
             init = initializers[inp_name]
-            arr = numpy_helper.to_array(init)
-            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
+            # External data initializers (large weights) may not have data loaded;
+            # fall back to shape from dims and value=None so analysis can proceed.
+            if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
+                shape = tuple(init.dims) if init.dims else None
+                update_conditions_(conditions, input_name, is_variadic, True, shape, None)
+            else:
+                arr = numpy_helper.to_array(init)
+                update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for initializers
@@ -1204,7 +1210,21 @@ class RuntimeCheckerQuery:
             if not inp_name:
                 continue
             if inp_name in self.initializers:
-                graph_initializers.append(self.initializers[inp_name])
+                init = self.initializers[inp_name]
+                # Skip external data initializers without loaded data;
+                # treat them as graph inputs instead so the model stays valid.
+                if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
+                    vi = self.valueinfo.get(inp_name)
+                    if vi is not None:
+                        graph_inputs.append(vi)
+                    else:
+                        graph_inputs.append(
+                            onnx.helper.make_tensor_value_info(
+                                inp_name, init.data_type, list(init.dims) or None
+                            )
+                        )
+                else:
+                    graph_initializers.append(init)
             elif inp_name in self.constants:
                 # Convert Constant node output to initializer
                 graph_initializers.append(self.constants[inp_name])

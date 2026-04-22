@@ -581,8 +581,9 @@ class ONNXStaticAnalyzer:
 
         # Load ONNX model
         try:
-            # Load without strict validation to allow custom attributes like hierarchy_tag
-            model_proto = onnx.load(str(model_file), load_external_data=True)
+            # Load without external data — static analysis only needs graph structure,
+            # shapes, and small embedded constants; not multi-GB weight tensors.
+            model_proto = onnx.load(str(model_file), load_external_data=False)
             # Skip onnx.checker.check_model() which rejects custom attributes
         except (OSError, FileNotFoundError) as e:
             raise RuntimeError(f"Failed to load ONNX model: {e}") from e
