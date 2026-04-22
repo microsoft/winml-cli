@@ -362,6 +362,16 @@ def _run_build(
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
+    # Remove any stale suffixed sub-configs BEFORE `wmk config` runs.
+    # For composite models `wmk config` writes files matching {stem}_*.json
+    # (e.g., build_config_encoder.json); cleaning those AFTER the command would
+    # delete the freshly-written configs and silently degrade composite builds
+    # to single-model. Running cleanup first removes prior-run artifacts without
+    # touching the current run's output.
+    for _stale in config_path.parent.glob(f"{config_path.stem}_*.json"):
+        safe_print(f"    [config] Removing stale sub-config from prior run: {_stale.name}")
+        _stale.unlink(missing_ok=True)
+
     # Step 1: winml config
     config_args = [
         *WINML_CLI,
@@ -1279,8 +1289,13 @@ def main() -> None:
                 model_dir,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
-            # First ONNX path for accuracy phase (TODO: composite model support)
-            first_path = next(iter(onnx_paths.values()), None) if onnx_paths else None
+            # Composite models produce multiple ONNX paths; accuracy phase requires a
+            # single path and is not yet supported for composite models.
+            # TODO: composite model accuracy support
+            is_composite = len(onnx_paths) > 1
+            first_path = (
+                next(iter(onnx_paths.values()), None) if onnx_paths and not is_composite else None
+            )
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
@@ -1293,6 +1308,15 @@ def main() -> None:
                     perf_proc = fail_proc
                 if args.eval_type != "perf":
                     accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
+            elif is_composite and args.eval_type != "perf":
+                # Accuracy phase skipped for composite models (TODO: composite accuracy support)
+                safe_print(
+                    f"    [accuracy] Skipped for composite model {entry.hf_id} "
+                    "(multiple ONNX paths; composite accuracy evaluation not yet implemented)"
+                )
+                accuracy_result = {"skipped": True, "skip_reason": "composite_model_not_supported"}
+                if args.eval_type == "both":
+                    perf_proc = run_model(entry, args.device, args.timeout, onnx_paths)
             elif args.eval_type == "accuracy":
                 accuracy_result = _run_accuracy_phase(
                     entry,

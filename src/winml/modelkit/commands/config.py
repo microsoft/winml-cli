@@ -594,7 +594,9 @@ def _generate_pipeline_configs(
             out_path = Path(output)
             suffixed = out_path.with_stem(f"{out_path.stem}_{component_name}")
             suffixed.parent.mkdir(parents=True, exist_ok=True)
-            suffixed.write_text(config_json)
+            tmp = suffixed.with_suffix(".json.tmp")
+            tmp.write_text(config_json)
+            tmp.replace(suffixed)
             console.print(f"[green]Config saved to:[/green] {suffixed}")
         else:
             console.print(f"[bold]--- {component_name} ({component_task}) ---[/bold]")

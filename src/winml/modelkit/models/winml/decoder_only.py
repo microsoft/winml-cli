@@ -230,9 +230,23 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         raise NotImplementedError
 
     def _resolve_cache(self, past_key_values: Any) -> Any:
-        """Unwrap or create WinMLCache for this generation step."""
+        """Unwrap or create WinMLCache for this generation step.
+
+        1. Unwrap EncoderDecoderCache wrapper (GenerationMixin may add it even for
+           decoder-only models in rare paths; handled here for symmetry with
+           encoder_decoder.py).
+        2. If already a WinMLCache, return directly.
+        3. Otherwise create a fresh one and reset it.
+        """
         from .kv_cache import WinMLCache
 
+        # (1) Unwrap EncoderDecoderCache — never received by decoder-only models
+        # under the current GenerationMixin flow, but mirroring encoder_decoder.py's
+        # defensive unwrap keeps the two _resolve_cache paths symmetric.
+        if hasattr(past_key_values, "self_attention_cache"):
+            past_key_values = past_key_values.self_attention_cache
+
+        # (2) Already our cache — return as-is
         if isinstance(past_key_values, WinMLCache):
             return past_key_values
 
@@ -328,6 +342,11 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
                 "attention_mask": attn_mask,
                 "position_ids": position_ids,
             }
+            # NOTE: currently dead for Qwen3 (cache_position is not in the Qwen
+            # prefill ONNX inputs). Kept defensively for future decoder-only
+            # models whose OnnxConfig declares cache_position; see the
+            # StaticCache switching instructions at the top of hf/qwen.py for
+            # the position-alignment caveat before activating this branch.
             if "cache_position" in self._prefill_expected:
                 feeds["cache_position"] = position_ids.squeeze(0)
             for i in range(self._num_kv_layers):
@@ -363,6 +382,10 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
             "attention_mask": attn_mask,
             "position_ids": torch.tensor([[fc]], dtype=torch.int64),
         }
+        # NOTE: see the matching note in `_run_prefill` above. Currently dead
+        # for Qwen3 (cache_position is not in the gen ONNX inputs). Kept for
+        # future decoder-only models that declare cache_position in their
+        # OnnxConfig; activate with care re: the position-alignment caveat.
         if "cache_position" in self._gen_expected:
             feeds["cache_position"] = feeds["position_ids"].squeeze(0)
         for i in range(self._num_kv_layers):

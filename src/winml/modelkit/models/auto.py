@@ -310,15 +310,23 @@ class WinMLAutoModel:
         # COMPOSITE MODEL CHECK — delegate to WinMLCompositeModel.from_pretrained
         # when (model_type, task) is a registered composite (e.g., T5 translation,
         # Qwen text-generation).  AutoConfig is lightweight (~config.json only).
+        # The registry probe (AutoConfig.from_pretrained) is gated on whether
+        # `task` appears in any registered composite entry, avoiding an
+        # unconditional network/disk round-trip for every non-composite call.
         # =====================================================================
         if task is not None:
-            from transformers import AutoConfig
-
-            _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
-            _model_type = getattr(_hf_cfg, "model_type", None)
             from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
-            if (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
+            _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
+            if task in _known_composite_tasks:
+                from transformers import AutoConfig
+
+                _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+                _model_type = getattr(_hf_cfg, "model_type", None)
+            else:
+                _model_type = None
+
+            if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
 
                 return WinMLCompositeModel.from_pretrained(

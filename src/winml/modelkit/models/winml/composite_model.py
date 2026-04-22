@@ -116,6 +116,7 @@ class WinMLCompositeModel(PreTrainedModel):
         use_cache: bool = True,
         force_rebuild: bool = False,
         sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
+        trust_remote_code: bool = False,
         **kwargs: Any,
     ) -> WinMLCompositeModel:
         """Build all sub-components and return ready-to-use model.
@@ -139,12 +140,14 @@ class WinMLCompositeModel(PreTrainedModel):
                 ``"decoder_gen"``).  Values are dicts merged on top of the
                 shared ``**kwargs``.  Use this to pass different
                 ``shape_config`` per sub-model.
+            trust_remote_code: Forward to ``AutoConfig.from_pretrained``
+                and each sub-model's ``WinMLAutoModel.from_pretrained``.
+                Required for custom-code HF models (e.g., Mu2).
             **kwargs: Forwarded to ``WinMLAutoModel.from_pretrained()``
                 for every sub-component (overridden by ``sub_model_kwargs``).
         """
         from transformers import AutoConfig
 
-        trust_remote_code = kwargs.get("trust_remote_code", False)
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
         model_type = hf_config.model_type
 
@@ -163,6 +166,7 @@ class WinMLCompositeModel(PreTrainedModel):
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 sub_model_kwargs=sub_model_kwargs,
+                trust_remote_code=trust_remote_code,
                 **kwargs,
             )
         from ..auto import WinMLAutoModel
@@ -178,6 +182,7 @@ class WinMLCompositeModel(PreTrainedModel):
                 device=device,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
+                trust_remote_code=trust_remote_code,
                 **merged,
             )
 
@@ -259,7 +264,14 @@ class WinMLCompositeModel(PreTrainedModel):
         return torch.float32
 
     def to(self, *args: Any, **kwargs: Any) -> WinMLCompositeModel:
-        """No-op for HF pipeline compatibility."""
+        """No-op for HF pipeline compatibility; sub-models remain on their original device."""
+        if args or kwargs:
+            # debug (not warning) — HF pipelines routinely call `.to("cpu")` as a
+            # setup step; surfacing that as a warning would spam normal usage.
+            logger.debug(
+                "WinMLCompositeModel.to(...) is a no-op; sub-models remain on their original "
+                "device. Use WinMLSession options to control device placement."
+            )
         return self
 
     def __call__(self, **kwargs: Any) -> Any:

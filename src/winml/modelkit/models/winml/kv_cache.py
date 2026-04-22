@@ -317,6 +317,9 @@ class WinMLSlidingWindowCache(WinMLCache):
         padded_ids = torch.zeros(1, prefill_seq_len, dtype=chunk_ids.dtype)
         padded_ids[0, pad_len:] = chunk_ids[0]
 
+        # Padding positions get 0 — RoPE computes embeddings for position 0 on these,
+        # but the attention mask at build_decoder_mask masks them out before softmax,
+        # so the RoPE artifacts don't influence outputs.
         position_ids = torch.zeros(1, prefill_seq_len, dtype=torch.int64)
         position_ids[0, pad_len:] = torch.arange(start, start + chunk_len, dtype=torch.int64)
 
