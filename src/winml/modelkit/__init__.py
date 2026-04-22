@@ -34,9 +34,6 @@ from importlib.metadata import PackageNotFoundError, version
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-from . import _warnings  # Configure warning filters before importing subpackages
-
-
 try:
     __version__ = version("winml-modelkit")
 except PackageNotFoundError:
