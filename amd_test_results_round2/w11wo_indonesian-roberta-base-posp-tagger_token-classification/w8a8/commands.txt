@@ -1,0 +1,11 @@
+# Config
+winml config -m w11wo/indonesian-roberta-base-posp-tagger --task token-classification --ep vitisai --precision w8a8 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo_indonesian-roberta-base-posp-tagger_token-classification\w8a8\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo_indonesian-roberta-base-posp-tagger_token-classification\w8a8\config.json" -m w11wo/indonesian-roberta-base-posp-tagger -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo_indonesian-roberta-base-posp-tagger_token-classification\w8a8\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo_indonesian-roberta-base-posp-tagger_token-classification\w8a8\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id w11wo/indonesian-roberta-base-posp-tagger --task token-classification --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo_indonesian-roberta-base-posp-tagger_token-classification\w8a8\eval.json"

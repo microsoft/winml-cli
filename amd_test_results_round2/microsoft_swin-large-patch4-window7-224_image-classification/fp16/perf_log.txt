@@ -1,0 +1,70 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_swin-large-patch4-window7-224_image-classification\fp16\build\optimized.on
+nx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 17:08:36.921037 26232 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 17:08:36.921037 26232 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-100
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-101
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-102
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-103
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-104
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-105
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-205
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-206
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-207
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-208
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-209
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-210
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1054
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1055
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1056
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1057
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1058
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1059
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+
+Device:      npu
+Inputs:      pixel_values         [1, 3, 224, 224]       float32
+Outputs:     logits               [1, 1000]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++---------------------------------------------------------------------+
+|    Avg |    P50 |    P90 |    P95 |    P99 |    Min |    Max |  Std |
+|--------+--------+--------+--------+--------+--------+--------+------|
+| 123.51 | 125.16 | 135.80 | 136.89 | 140.13 | 104.29 | 140.13 | 9.18 |
++---------------------------------------------------------------------+
+
+Throughput: 8.10 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_swin-large-patch4-window7-224_image-classification\fp16\perf.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis1\Release\pm_reload_analysis1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable44\Release\0_0_reloadable44.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable45\Release\0_0_reloadable45.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable2\Release\0_0_reloadable2.o

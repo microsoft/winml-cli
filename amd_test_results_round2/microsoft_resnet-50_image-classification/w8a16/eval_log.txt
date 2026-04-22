@@ -1,0 +1,34 @@
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 22:25:53.500438 44996 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 22:25:53.500438 44996 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-21 22:26:00.7079833 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (logits)_replaced_input269, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\sklearn\metrics\_classification.py:98: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_true = type_of_target(y_true, input_name="y_true")
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\sklearn\metrics\_classification.py:99: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_pred = type_of_target(y_pred, input_name="y_pred")
+
++---------------------------------+
+| Evaluation: microsoft/resnet-50 |
++---------------------------------+
+
+Task:       image-classification
+Device:     npu
+Dataset:    timm/mini-imagenet
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_resnet-50_image-classification\w8a16\build\quantized.onnx
+
++---------------------------------+
+| Metric                |   Value |
+|-----------------------+---------|
+| accuracy              |  0.7600 |
+| total_time_in_seconds | 10.0573 |
+| samples_per_second    |  9.9430 |
+| latency_in_seconds    |  0.1006 |
++---------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_resnet-50_image-classification\w8a16\eval.json

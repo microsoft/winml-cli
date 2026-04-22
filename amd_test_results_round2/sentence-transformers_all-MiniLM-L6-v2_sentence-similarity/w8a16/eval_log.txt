@@ -1,0 +1,49 @@
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 02:56:01.979486 35312 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 02:56:01.979486 35312 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-22 02:56:12.5394566 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (embeddings.word_embeddings.weight_DequantizeLinear_Output)_replaced_input64_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5430600 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (embeddings.token_type_embeddings.weight_DequantizeLinear_Output)_replaced_input59_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5466615 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/token_type_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5476002 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/token_type_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input63, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5497677 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/Expand_output_0), type = expand} is partitioned to CPU as : DPU only supports expand 4D NHW1 pattern.[m
+[0;93m2026-04-22 02:56:12.5512510 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/Cast_output_0)_replaced_requantize, type = qlinear-eltwise} is partitioned to CPU as : OP xir::Op{name = (/Cast_output_0)_replaced_requantize, type = qlinear-eltwise} with type [REQUANTIZE] can not find corresponding PDI kernel with data type [AW_SIGN_IN32_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [SIGN], input width is [32], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-22 02:56:12.5533490 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/Sub_output_0_DequantizeLinear_Output)_replaced_input86, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5542682 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5554769 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/Where_1_output_0)_new, type = qlinear-where} is partitioned to CPU as : AMD_AIE2P_4x8_CMC_Overlay does not support the case where qlinear where's mode = 1.[m
+[0;93m2026-04-22 02:56:12.5563384 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/word_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5571912 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/word_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input61, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5659043 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.0/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5735862 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.1/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5819927 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.2/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.5891053 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.3/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.6009200 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.4/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.6124504 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.5/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.6196013 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (699)_replaced_input538, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.6204692 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (last_hidden_state)_replaced_input529, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 02:56:12.6520973 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (embeddings.token_type_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 02:56:12.6532728 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (embeddings.word_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 02:56:12.6545107 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (/Constant_6_output_0_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 02:56:14.4973465 [W:onnxruntime:, DeviceReassignmentPass.cpp:300 DeviceReassignmentPass.cpp] Subgraph named subgraph_(/Unsqueeze_1_output_0)_fix has been reassigned to cpu.[m
+
++----------------------------------------------------+
+| Evaluation: sentence-transformers/all-MiniLM-L6-v2 |
++----------------------------------------------------+
+
+Task:       sentence-similarity
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_all-MiniLM-L6-v2_sentence-similarity\w8a16\build\quantized.onn
+x
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | 38.2606 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_all-MiniLM-L6-v2_sentence-similarity\w8a16\eval.json

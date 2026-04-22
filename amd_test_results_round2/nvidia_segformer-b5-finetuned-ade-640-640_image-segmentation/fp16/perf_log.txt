@@ -1,0 +1,68 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\build\optimized.on
+nx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 01:15:23.183193 42720 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 01:15:23.183193 42720 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+
+Device:      npu
+Inputs:      pixel_values         [1, 3, 640, 640]       float32
+Outputs:     logits               [1, 150, 160, 160]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++----------------------------------------------------------------------+
+|    Avg |    P50 |    P90 |    P95 |    P99 |    Min |    Max |   Std |
+|--------+--------+--------+--------+--------+--------+--------+-------|
+| 886.11 | 899.20 | 944.42 | 953.67 | 972.75 | 784.86 | 972.75 | 49.81 |
++----------------------------------------------------------------------+
+
+Throughput: 1.13 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\perf.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis1\Release\pm_reload_analysis1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable99\Release\4_0_reloadable99.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable2\Release\0_0_reloadable2.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable106\Release\0_0_reloadable106.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable3\Release\0_0_reloadable3.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable105\Release\0_0_reloadable105.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable4\Release\0_0_reloadable4.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable5\Release\0_0_reloadable5.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable7\Release\0_0_reloadable7.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable104\Release\0_0_reloadable104.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable103\Release\0_0_reloadable103.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable102\Release\0_0_reloadable102.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o

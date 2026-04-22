@@ -1,0 +1,22 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f4cb CONFIG GENERATION
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:         openai/clip-vit-base-patch16
+   \U0001f9e9 Model class:   CLIPTextModelWithProjection  (auto-detected)
+   \U0001f3f7\ufe0f Task:          feature-extraction
+
+   Input:        input_ids          [1, 77]        int32
+                 attention_mask     [1, 77]        int32
+   Output:       text_embeds
+                 last_hidden_state
+
+   \u2699\ufe0f  Resolution:
+      Device:     NPU
+      EP:         VitisAIExecutionProvider
+      Quant:      none
+
+   \u2705 Config saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\opena
+i_clip-vit-base-patch16_feature-extraction\fp16\config.json
+

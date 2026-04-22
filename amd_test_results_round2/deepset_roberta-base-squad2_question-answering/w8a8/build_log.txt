@@ -1,0 +1,269 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f527 Setup — HuggingFace
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:     deepset/roberta-base-squad2  (pretrained)
+   \U0001f4c1 Config:    config.json
+   \U0001f4c2 Output:    
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\deeps
+et_roberta-base-squad2_question-answering\w8a8\build
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f3af Stages
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[04/21/26 20:16:14] WARNING  Xet Storage is enabled for this repo, but the     
+                             'hf_xet' package is not installed. Falling back to
+                             regular HTTP download. For better performance,    
+                             install the package with: `pip install            
+                             huggingface_hub[hf_xet]` or `pip install hf_xet`  
+\u2705 Export                                          18.2s
+   Model class:  AutoModelForQuestionAnswering
+   Task:         question-answering
+   Input:        input_ids          [1, 512]       int32
+                 attention_mask     [1, 512]       int32
+   Output:       start_logits
+                 end_logits
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\deeps
+et_roberta-base-squad2_question-answering\w8a8\build\export.onnx  (473.5 MB)
+[04/21/26 20:17:16] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/21/26 20:17:43] WARNING  Action target pattern 'SUBGRAPH/SingleGeluPattern'
+                             not found in alternatives for                     
+                             'SUBGRAPH/GeluPattern'                            
+                    WARNING  Action target pattern                             
+                             'SUBGRAPH/ReshapeGemmReshapePattern' not found in 
+                             alternatives for 'SUBGRAPH/GemmPattern'           
+[04/21/26 20:18:02] WARNING  No pattern matches found by PatternMatcher        
+[04/21/26 20:18:11] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/21/26 20:18:12] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+[04/21/26 20:18:35] WARNING  No pattern matches found by PatternMatcher        
+[04/21/26 20:18:44] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/21/26 20:18:46] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+\u2705 Optimize                                        133.4s
+   Analyzing 445 nodes  (iter 1/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Patterns
+     Gelu  \u2192 gelu_fusion
+     Matmul Add  \u2192 matmul_add_fusion
+   Optimizing  (applying autoconf)
+     {'gelu_fusion': True, 'matmul_add_fusion': True}
+   Analyzing 398 nodes  (iter 2/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Autoconf converged after 2 iteration(s)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\deeps
+et_roberta-base-squad2_question-answering\w8a8\build\optimized.onnx  (474.9 MB)
+[04/21/26 20:19:02] WARNING  Task 'question-answering' not in supported tasks  
+                             ['image-classification',                          
+                             'image-feature-extraction', 'object-detection',   
+                             'text-classification', 'text-feature-extraction', 
+                             'feature-extraction', 'sentence-similarity',      
+                             'next-sentence-prediction', 'fill-mask',          
+                             'image-segmentation', 'random'], falling back to  
+                             RandomDataset                                     
+\u2705 Quantize                                        14.2s
+   Dataset:      default  (question-answering)
+   Calibration:  10 samples  (minmax)
+   Precision:    uint8/uint8  (weight/activation)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\deeps
+et_roberta-base-squad2_question-answering\w8a8\build\quantized.onnx  (119.6 MB)
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 20:19:19.009858  4656 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 20:19:19.009858  4656 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-21 20:19:38.6904699 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.word_embeddings.weight_DequantizeLinear_Output)_replaced_input205_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.6912974 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.position_embeddings.weight_DequantizeLinear_Output)_replaced_input202_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.6925074 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Constant_output_0)_copy_1, type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-21 20:19:38.6933019 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Constant_1_output_0), type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-21 20:19:38.6939357 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Constant_output_0), type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-21 20:19:38.6951747 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/Expand_1_output_0), type = expand} is partitioned to CPU as : DPU only supports expand 4D NHW1 pattern.[m
+[0;93m2026-04-21 20:19:38.6956811 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/Cast_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.6961691 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/Cast_output_0_QuantizeLinear_Output)_replaced_input219, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.6973226 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/Sub_output_0_DequantizeLinear_Output)_replaced_input220, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.6979447 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.6987598 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/Where_2_output_0)_new, type = qlinear-where} is partitioned to CPU as : AMD_AIE2P_4x8_CMC_Overlay does not support the case where qlinear where's mode = 1.[m
+[0;93m2026-04-21 20:19:38.6994478 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/word_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7000134 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/word_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input203, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7007946 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Cast_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7013267 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Equal_output_0), type = equal} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7018693 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Not_output_0), type = not} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7023736 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7029607 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/CumSum_output_0), type = :CumSum} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7035188 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Mul_output_0), type = mul} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7040200 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Cast_2_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7045247 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Add_output_0), type = add} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7050216 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/position_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7056056 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/position_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input216, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7066524 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/embeddings/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7101530 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.0/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7116459 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.0/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.0/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7142049 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.0/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.0/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7197763 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.1/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7212517 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.1/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.1/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7237956 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.1/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.1/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7267003 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.2/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7281495 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.2/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.2/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7307528 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.2/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.2/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7338726 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.3/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7352710 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.3/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.3/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7378000 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.3/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.3/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7405709 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.4/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7419515 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.4/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.4/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7444620 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.4/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.4/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7473763 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.5/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7487824 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.5/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.5/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7513622 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.5/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.5/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7541293 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.6/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7555015 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.6/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.6/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7579966 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.6/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.6/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7607763 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.7/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7621752 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.7/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.7/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7647684 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.7/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.7/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7675318 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.8/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7689072 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.8/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.8/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7713996 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.8/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.8/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7741888 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.9/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7755606 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.9/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.9/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7780762 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.9/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.9/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7810032 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.10/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7824864 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.10/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.10/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7849958 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.10/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.10/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7877770 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.11/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7891682 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.11/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.11/attention/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7916542 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.11/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/roberta/encoder/layer.11/output/LayerNorm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 20:19:38.7936059 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (end_logits)_replaced_input160, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.7943927 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (start_logits)_replaced_input157, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 20:19:38.8488645 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8494975 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8501113 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.position_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8507282 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.word_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8513824 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (/roberta/Constant_10_output_0_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8528470 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.1.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8534723 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.1.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8541908 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.0.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8549581 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.0.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8556239 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.11.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8562221 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.11.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8570490 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.10.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8576481 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.11.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8583123 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.11.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8590516 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.10.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8597822 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.10.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8604586 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.10.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8611517 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.9.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8617965 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.9.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8624388 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.9.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8630760 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.9.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8637176 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.0.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8644698 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.8.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8651270 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.8.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8657538 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.8.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8663830 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.8.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8671543 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.7.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8678669 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.7.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8684876 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.7.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8691265 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.7.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8698978 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.0.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8705561 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.6.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8712390 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.6.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8718597 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.6.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8725335 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.6.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8732331 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.5.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8739221 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.5.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8746288 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.5.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8754127 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.4.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8761635 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.5.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8768279 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.4.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8774721 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.4.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8781392 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.4.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8788119 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.3.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8794340 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.3.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8801429 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.3.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8807838 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.3.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8815007 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.2.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8822048 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.2.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8828790 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.2.attention.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8835091 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.2.attention.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8842357 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.1.output.LayerNorm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:38.8849316 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.encoder.layer.1.output.LayerNorm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 20:19:43.5423304 [W:onnxruntime:, DeviceReassignmentPass.cpp:300 DeviceReassignmentPass.cpp] Subgraph named subgraph_(/roberta/Unsqueeze_1_output_0)_fix has been reassigned to cpu.[m
+\u2705 Compile                                         32.7s
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\deeps
+et_roberta-base-squad2_question-answering\w8a8\build\compiled.onnx  (0.0 MB)
+   \u274c Build failed: [Errno 2] No such file or directory: 
+'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_roun
+d2\\deepset_roberta-base-squad2_question-answering\\w8a8\\build\\compiled.onnx'
+   \U0001f4a1 Check: model path or HuggingFace model ID
+
+Error: Build failed: [Errno 2] No such file or directory: 'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\deepset_roberta-base-squad2_question-answering\\w8a8\\build\\compiled.onnx'

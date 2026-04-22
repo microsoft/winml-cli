@@ -1,0 +1,11 @@
+# Config
+winml config -m nvidia/segformer-b5-finetuned-ade-640-640 --task image-segmentation --ep vitisai --precision fp16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\config.json" -m nvidia/segformer-b5-finetuned-ade-640-640 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id nvidia/segformer-b5-finetuned-ade-640-640 --task image-segmentation --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation\fp16\eval.json"

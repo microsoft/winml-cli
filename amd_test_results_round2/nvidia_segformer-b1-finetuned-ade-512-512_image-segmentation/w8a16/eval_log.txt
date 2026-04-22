@@ -1,0 +1,8 @@
+[2026-04-21T22:58:32] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 240, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 184, in evaluate
+    raise ValueError(
+ValueError: No dataset provided and no default for task 'image-segmentation'. Use --dataset.
+Error: Evaluation failed: No dataset provided and no default for task 'image-segmentation'. Use --dataset.

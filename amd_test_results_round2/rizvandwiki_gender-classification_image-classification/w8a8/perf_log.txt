@@ -1,0 +1,27 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\rizva
+ndwiki_gender-classification_image-classification\w8a8\build\quantized.onnx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 02:21:18.361939 19744 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 02:21:18.361939 19744 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+
+Device:      npu
+Inputs:      pixel_values         [1, 3, 224, 224]       float32
+Outputs:     logits               [1, 2]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++--------------------------------------------------------------+
+|   Avg |   P50 |   P90 |   P95 |   P99 |   Min |   Max |  Std |
+|-------+-------+-------+-------+-------+-------+-------+------|
+| 54.98 | 54.61 | 58.44 | 59.16 | 60.25 | 51.18 | 60.25 | 2.38 |
++--------------------------------------------------------------+
+
+Throughput: 18.19 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\rizva
+ndwiki_gender-classification_image-classification\w8a8\perf.json

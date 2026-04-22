@@ -1,0 +1,27 @@
+{
+  "model_id": "deepset/tinyroberta-squad2",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\deepset_tinyroberta-squad2_question-answering\\w8a8\\build\\quantized.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\deepset_tinyroberta-squad2_question-answering\\w8a8\\eval.json",
+  "metrics": {
+    "exact_match": 2.0,
+    "f1": 8.316444666444667,
+    "total_time_in_seconds": 17.818132399996102,
+    "samples_per_second": 5.612260463393003,
+    "latency_in_seconds": 0.178181323999961
+  }
+}

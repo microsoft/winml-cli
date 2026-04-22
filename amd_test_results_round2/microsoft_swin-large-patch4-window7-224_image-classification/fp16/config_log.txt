@@ -1,0 +1,20 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f4cb CONFIG GENERATION
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:         microsoft/swin-large-patch4-window7-224
+   \U0001f9e9 Model class:   AutoModelForImageClassification  (auto-detected)
+   \U0001f3f7\ufe0f Task:          image-classification
+
+   Input:        pixel_values       [1, 3, 224, 224] float32
+   Output:       logits
+
+   \u2699\ufe0f  Resolution:
+      Device:     NPU
+      EP:         VitisAIExecutionProvider
+      Quant:      none
+
+   \u2705 Config saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_swin-large-patch4-window7-224_image-classification\fp16\config.json
+

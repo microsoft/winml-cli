@@ -1,0 +1,67 @@
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 03:25:56.303711 52464 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 03:25:56.303711 52464 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-22 03:26:30.2445566 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (embeddings.position_embeddings.weight_DequantizeLinear_Output)_replaced_input142_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2481199 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (embeddings.word_embeddings.weight_DequantizeLinear_Output)_replaced_input131_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2516729 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/embeddings/Constant_output_0)_copy_1, type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-22 03:26:30.2529709 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/embeddings/Constant_1_output_0), type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-22 03:26:30.2539836 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/embeddings/Constant_output_0), type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-22 03:26:30.2558546 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/Expand_1_output_0), type = expand} is partitioned to CPU as : DPU only supports expand 4D NHW1 pattern.[m
+[0;93m2026-04-22 03:26:30.2572918 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/Cast_output_0)_replaced_requantize, type = qlinear-eltwise} is partitioned to CPU as : OP xir::Op{name = (/Cast_output_0)_replaced_requantize, type = qlinear-eltwise} with type [REQUANTIZE] can not find corresponding PDI kernel with data type [AW_SIGN_IN32_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [SIGN], input width is [32], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-22 03:26:30.2593385 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/Sub_output_0_DequantizeLinear_Output)_replaced_input172, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2603067 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2614875 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/Where_2_output_0)_new, type = qlinear-where} is partitioned to CPU as : AMD_AIE2P_4x8_CMC_Overlay does not support the case where qlinear where's mode = 1.[m
+[0;93m2026-04-22 03:26:30.2624269 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/word_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2632840 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/word_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input136, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2644760 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Cast_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2652703 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Equal_output_0), type = equal} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2661468 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Not_output_0), type = not} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2669410 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2677107 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/CumSum_output_0), type = :CumSum} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2685261 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Mul_output_0), type = mul} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2699466 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Cast_2_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2711485 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/Add_output_0), type = add} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2722929 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/position_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2731824 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/embeddings/position_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input140, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2790621 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.0/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2876089 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.1/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.2953192 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.2/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3028932 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.3/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3138582 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.4/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3213771 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.5/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3285148 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.6/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3365908 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.7/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3443795 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.8/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3514634 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.9/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3585379 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.10/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3655043 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/encoder/layer.11/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3715061 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (1366)_replaced_input994, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.3724618 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (last_hidden_state)_replaced_input978, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:26:30.4718719 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (embeddings.word_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 03:26:30.4731123 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (embeddings.position_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 03:26:30.4741540 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (/Constant_11_output_0_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 03:26:38.2388332 [W:onnxruntime:, DeviceReassignmentPass.cpp:300 DeviceReassignmentPass.cpp] Subgraph named subgraph_(/Unsqueeze_1_output_0)_fix has been reassigned to cpu.[m
+
++-------------------------------------------------------------------------+
+| Evaluation: sentence-transformers/paraphrase-multilingual-mpnet-base-v2 |
++-------------------------------------------------------------------------+
+
+Task:       sentence-similarity
+Device:     npu
+Dataset:    mteb/stsbenchmark-sts
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\w8a1
+6\build\quantized.onnx
+
++---------------------------+
+| Metric          |   Value |
+|-----------------+---------|
+| cosine_spearman | 30.1213 |
++---------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\w8a1
+6\eval.json

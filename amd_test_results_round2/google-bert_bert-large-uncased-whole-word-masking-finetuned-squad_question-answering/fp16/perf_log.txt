@@ -1,0 +1,51 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering
+\fp16\build\optimized.onnx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 21:30:14.486858 48324 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 21:30:14.486858 48324 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-9
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+
+Device:      npu
+Inputs:      input_ids            [1, 512]               int32
+             attention_mask       [1, 512]               int32
+             token_type_ids       [1, 512]               int32
+Outputs:     start_logits         [1, 512]
+             end_logits           [1, 512]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++----------------------------------------------------------------------+
+|    Avg |    P50 |    P90 |    P95 |    P99 |    Min |    Max |   Std |
+|--------+--------+--------+--------+--------+--------+--------+-------|
+| 219.88 | 223.62 | 246.45 | 252.25 | 254.48 | 180.77 | 254.48 | 21.05 |
++----------------------------------------------------------------------+
+
+Throughput: 4.55 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering
+\fp16\perf.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis1\Release\pm_reload_analysis1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o

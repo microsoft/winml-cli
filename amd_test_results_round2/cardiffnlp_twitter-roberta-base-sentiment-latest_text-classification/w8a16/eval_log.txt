@@ -1,0 +1,38 @@
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+[2026-04-21T18:24:52] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 167, in align_labels
+    dataset = dataset.align_labels_with_mapping(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 6586, in align_labels_with_mapping
+    return self.map(process_label_ids, features=features, batched=True, desc="Aligning the labels")
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 574, in wrapper
+    out: Union["Dataset", "DatasetDict"] = func(self, *args, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 3632, in map
+    for rank, done, content in Dataset._map_single(**unprocessed_kwargs):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 3997, in _map_single
+    for i, batch in iter_outputs(shard_iterable):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 3950, in iter_outputs
+    yield i, apply_function(example, i, offset=offset)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 3871, in apply_function
+    processed_inputs = function(*fn_args, *additional_args, **fn_kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 6562, in process_label_ids
+    batch[label_column] = [
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\arrow_dataset.py", line 6563, in <listcomp>
+    label2id[label_name] if label_name is not None else None for label_name in dset_label_names
+KeyError: 'equivalent'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 240, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 195, in evaluate
+    task_evaluator = cls(config, model)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 50, in __init__
+    self.data = self.prepare_data()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 126, in prepare_data
+    return self.align_labels(dataset, ds)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 174, in align_labels
+    raise RuntimeError(
+RuntimeError: Label alignment failed for dataset 'nyu-mll/glue': 'equivalent'
+Error: Evaluation failed: Label alignment failed for dataset 'nyu-mll/glue': 'equivalent'

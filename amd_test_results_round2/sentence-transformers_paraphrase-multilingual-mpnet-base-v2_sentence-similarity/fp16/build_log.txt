@@ -1,0 +1,180 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f527 Setup — HuggingFace
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:     sentence-transformers/paraphrase-multilingual-mpnet-base-v2  
+(pretrained)
+   \U0001f4c1 Config:    config.json
+   \U0001f4c2 Output:    
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\fp16
+\build
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f3af Stages
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+[04/22/26 03:28:14] WARNING  Output names count mismatch: config has 1         
+                             ['last_hidden_state'], model trace inferred 2     
+                             ['last_hidden_state', 'pooler_output']. Keeping   
+                             config names (from Optimum OnnxConfig).           
+                    WARNING  Optimum model patcher failed for                  
+                             model_type='xlm-roberta',                         
+                             task='sentence-similarity'. Export may produce    
+                             incorrect results for models requiring            
+                             Transformers 4.53+ tracing patches.               
+                             Traceback (most recent call last):                
+                               File                                            
+                             "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit
+                             \src\winml\modelkit\export\htp\exporter.py", line 
+                             468, in _get_optimum_patcher                      
+                                 cfg_cls =                                     
+                             TasksManager.get_exporter_config_constructor(     
+                               File                                            
+                             "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit
+                             \.venv\lib\site-packages\optimum\exporters\tasks.p
+                             y", line 1300, in get_exporter_config_constructor 
+                                 raise ValueError(                             
+                             ValueError: xlm-roberta doesn't support task      
+                             sentence-similarity for the onnx backend.         
+                             Supported tasks are: feature-extraction,          
+                             fill-mask, multiple-choice, question-answering,   
+                             text-classification, token-classification.        
+\u2705 Export                                          29.2s
+   Model class:  AutoModel
+   Task:         sentence-similarity
+   Input:        input_ids          [1, 512]       int32
+                 attention_mask     [1, 512]       int32
+   Output:       last_hidden_state
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\fp16
+\build\export.onnx  (1.1 GB)
+[04/22/26 03:29:56] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/22/26 03:29:58] WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/22/26 03:30:40] WARNING  Action target pattern 'SUBGRAPH/SingleGeluPattern'
+                             not found in alternatives for                     
+                             'SUBGRAPH/GeluPattern'                            
+                    WARNING  Action target pattern                             
+                             'SUBGRAPH/ReshapeGemmReshapePattern' not found in 
+                             alternatives for 'SUBGRAPH/GemmPattern'           
+[04/22/26 03:31:09] WARNING  No pattern matches found by PatternMatcher        
+[04/22/26 03:31:50] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/22/26 03:31:53] WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/22/26 03:31:56] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+[04/22/26 03:32:31] WARNING  No pattern matches found by PatternMatcher        
+[04/22/26 03:33:13] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/22/26 03:33:16] WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+[04/22/26 03:33:20] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+\u2705 Optimize                                        299.6s
+   Analyzing 443 nodes  (iter 1/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Patterns
+     Gelu  \u2192 gelu_fusion
+     Matmul Add  \u2192 matmul_add_fusion
+   Optimizing  (applying autoconf)
+     {'gelu_fusion': True, 'matmul_add_fusion': True}
+   Analyzing 395 nodes  (iter 2/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Autoconf converged after 2 iteration(s)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\fp16
+\build\optimized.onnx  (1.1 GB)
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 03:33:45.824461 52940 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 03:33:45.824461 52940 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-9
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+\u2705 Compile                                         168.0s
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\fp16
+\build\compiled.onnx  (0.0 MB)
+   \u274c Build failed: [Errno 2] No such file or directory: 
+'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_roun
+d2\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-simila
+rity\\fp16\\build\\compiled.onnx'
+   \U0001f4a1 Check: model path or HuggingFace model ID
+
+Error: Build failed: [Errno 2] No such file or directory: 'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\sentence-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\\fp16\\build\\compiled.onnx'
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o

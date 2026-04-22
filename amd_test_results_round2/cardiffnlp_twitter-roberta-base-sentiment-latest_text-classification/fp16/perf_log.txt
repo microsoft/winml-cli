@@ -1,0 +1,46 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\cardi
+ffnlp_twitter-roberta-base-sentiment-latest_text-classification\fp16\build\opti
+mized.onnx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 18:30:47.831228 33884 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 18:30:47.831228 33884 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-9
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+
+Device:      npu
+Inputs:      input_ids            [1, 512]               int32
+             attention_mask       [1, 512]               int32
+Outputs:     logits               [1, 3]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++--------------------------------------------------------------+
+|   Avg |   P50 |   P90 |   P95 |   P99 |   Min |   Max |  Std |
+|-------+-------+-------+-------+-------+-------+-------+------|
+| 75.10 | 76.07 | 86.96 | 90.15 | 91.63 | 62.64 | 91.63 | 8.76 |
++--------------------------------------------------------------+
+
+Throughput: 13.32 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\cardi
+ffnlp_twitter-roberta-base-sentiment-latest_text-classification\fp16\perf.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o

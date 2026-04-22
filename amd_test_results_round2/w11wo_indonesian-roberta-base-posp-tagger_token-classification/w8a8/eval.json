@@ -1,0 +1,98 @@
+{
+  "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\w11wo_indonesian-roberta-base-posp-tagger_token-classification\\w8a8\\build\\quantized.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\w11wo_indonesian-roberta-base-posp-tagger_token-classification\\w8a8\\eval.json",
+  "metrics": {
+    "ART": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "LOC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 62
+    },
+    "MISC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 24
+    },
+    "NNO": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "NNP": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "ORG": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 36
+    },
+    "PER": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 55
+    },
+    "PPO": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "PRN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "PRR": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "SYM": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "VBT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 0
+    },
+    "overall_precision": 0.0,
+    "overall_recall": 0.0,
+    "overall_f1": 0.0,
+    "overall_accuracy": 0.0,
+    "total_time_in_seconds": 10.2977069999979,
+    "samples_per_second": 9.710899717774103,
+    "latency_in_seconds": 0.10297706999997899
+  }
+}

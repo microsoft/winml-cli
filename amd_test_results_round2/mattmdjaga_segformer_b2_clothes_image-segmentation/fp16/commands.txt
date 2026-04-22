@@ -1,0 +1,11 @@
+# Config
+winml config -m mattmdjaga/segformer_b2_clothes --task image-segmentation --ep vitisai --precision fp16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\mattmdjaga_segformer_b2_clothes_image-segmentation\fp16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\mattmdjaga_segformer_b2_clothes_image-segmentation\fp16\config.json" -m mattmdjaga/segformer_b2_clothes -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\mattmdjaga_segformer_b2_clothes_image-segmentation\fp16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\mattmdjaga_segformer_b2_clothes_image-segmentation\fp16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id mattmdjaga/segformer_b2_clothes --task image-segmentation --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\mattmdjaga_segformer_b2_clothes_image-segmentation\fp16\eval.json"

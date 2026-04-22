@@ -1,0 +1,106 @@
+[2026-04-22T03:59:19] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 03:59:24.163923 45324 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 03:59:24.163923 45324 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-22 03:59:53.6382424 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.position_embeddings.weight_DequantizeLinear_Output)_replaced_input472_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6422400 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.word_embeddings.weight_DequantizeLinear_Output)_replaced_input474_replaced_constfix, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6439731 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Constant_output_0)_copy_1, type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-22 03:59:53.6451724 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Constant_1_output_0), type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-22 03:59:53.6461801 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Constant_output_0), type = const} is partitioned to CPU as : Const only used for expand. Other type need to quantization.[m
+[0;93m2026-04-22 03:59:53.6480503 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/Expand_1_output_0), type = expand} is partitioned to CPU as : DPU only supports expand 4D NHW1 pattern.[m
+[0;93m2026-04-22 03:59:53.6510134 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/Cast_output_0)_replaced_requantize, type = qlinear-eltwise} is partitioned to CPU as : OP xir::Op{name = (/roberta/Cast_output_0)_replaced_requantize, type = qlinear-eltwise} with type [REQUANTIZE] can not find corresponding PDI kernel with data type [AW_SIGN_IN32_OUT16] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [SIGN], input width is [32], output width is [16]., round mode: PY3_ROUND[m
+[0;93m2026-04-22 03:59:53.6540473 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/Sub_output_0_DequantizeLinear_Output)_replaced_input512, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6553090 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6570616 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/roberta/Where_2_output_0)_new, type = qlinear-where} is partitioned to CPU as : AMD_AIE2P_4x8_CMC_Overlay does not support the case where qlinear where's mode = 1.[m
+[0;93m2026-04-22 03:59:53.6584230 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/word_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6592858 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/word_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input469, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6605567 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Cast_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6614455 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Equal_output_0), type = equal} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6623039 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Not_output_0), type = not} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6631068 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Cast_1_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6639527 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/CumSum_output_0), type = :CumSum} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6647990 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Mul_output_0), type = mul} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6664632 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Cast_2_output_0), type = cast} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6677577 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/Add_output_0), type = add} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6689293 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/position_embeddings/Gather_output_0), type = gather} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6703910 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/embeddings/position_embeddings/Gather_output_0_QuantizeLinear_Output)_replaced_input481, type = quantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6798515 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.0/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.6945841 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.1/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7094315 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.2/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7226505 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.3/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7347158 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.4/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7419803 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.5/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7507450 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.6/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7578894 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.7/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7651939 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.8/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7722918 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.9/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7801960 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.10/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7875962 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (/roberta/encoder/layer.11/attention/self/mha, type = qlinear-mha} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.7927163 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (logits)_replaced_input1045, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-22 03:59:53.8861841 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.word_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 03:59:53.8873430 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (roberta.embeddings.position_embeddings.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 03:59:53.8884572 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (/roberta/Constant_10_output_0_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-22 04:00:01.7613210 [W:onnxruntime:, DeviceReassignmentPass.cpp:300 DeviceReassignmentPass.cpp] Subgraph named subgraph_(/roberta/Unsqueeze_1_output_0)_fix has been reassigned to cpu.[m
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\seqeval\metrics\v1.py:57: UndefinedMetricWarning: Precision and F-score are ill-defined and being set to 0.0 in labels with no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, msg_start, len(result))
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\seqeval\metrics\v1.py:57: UndefinedMetricWarning: Recall and F-score are ill-defined and being set to 0.0 in labels with no true samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, msg_start, len(result))
+
++-------------------------------------------------------+
+| Evaluation: w11wo/indonesian-roberta-base-posp-tagger |
++-------------------------------------------------------+
+
+Task:       token-classification
+Device:     npu
+Dataset:    BramVanroy/conll2003
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo
+_indonesian-roberta-base-posp-tagger_token-classification\w8a16\build\quantized
+.onnx
+
++-----------------------------------------------------------------------------+
+| Metric                |                                               Value |
+|-----------------------+-----------------------------------------------------|
+| ADJ                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| ART                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| CCN                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| LOC                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=62 |
+| MISC                  |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=24 |
+| NNO                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| NNP                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| NUM                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| ORG                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=36 |
+| PER                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=55 |
+| PPO                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| SYM                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| VBI                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| VBP                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| VBT                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| overall_precision     |                                              0.0000 |
+| overall_recall        |                                              0.0000 |
+| overall_f1            |                                              0.0000 |
+| overall_accuracy      |                                              0.0000 |
+| total_time_in_seconds |                                             15.9375 |
+| samples_per_second    |                                              6.2745 |
+| latency_in_seconds    |                                              0.1594 |
++-----------------------------------------------------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo
+_indonesian-roberta-base-posp-tagger_token-classification\w8a16\eval.json

@@ -1,0 +1,11 @@
+# Config
+winml config -m dbmdz/bert-large-cased-finetuned-conll03-english --task token-classification --ep vitisai --precision w8a8 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification\w8a8\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification\w8a8\config.json" -m dbmdz/bert-large-cased-finetuned-conll03-english -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification\w8a8\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification\w8a8\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id dbmdz/bert-large-cased-finetuned-conll03-english --task token-classification --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification\w8a8\eval.json"

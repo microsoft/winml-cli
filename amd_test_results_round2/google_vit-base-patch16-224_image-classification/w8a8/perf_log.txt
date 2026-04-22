@@ -1,0 +1,27 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e_vit-base-patch16-224_image-classification\w8a8\build\quantized.onnx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 21:41:13.146543 38352 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 21:41:13.146543 38352 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+
+Device:      npu
+Inputs:      pixel_values         [1, 3, 224, 224]       float32
+Outputs:     logits               [1, 1000]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++--------------------------------------------------------------+
+|   Avg |   P50 |   P90 |   P95 |   P99 |   Min |   Max |  Std |
+|-------+-------+-------+-------+-------+-------+-------+------|
+| 45.48 | 44.85 | 47.85 | 50.03 | 52.27 | 42.99 | 52.27 | 1.85 |
++--------------------------------------------------------------+
+
+Throughput: 21.99 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e_vit-base-patch16-224_image-classification\w8a8\perf.json

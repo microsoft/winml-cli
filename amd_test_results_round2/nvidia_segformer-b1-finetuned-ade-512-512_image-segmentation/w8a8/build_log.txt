@@ -1,0 +1,343 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f527 Setup — HuggingFace
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:     nvidia/segformer-b1-finetuned-ade-512-512  (pretrained)
+   \U0001f4c1 Config:    config.json
+   \U0001f4c2 Output:    
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b1-finetuned-ade-512-512_image-segmentation\w8a8\build
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f3af Stages
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[04/21/26 22:52:30] WARNING  Xet Storage is enabled for this repo, but the     
+                             'hf_xet' package is not installed. Falling back to
+                             regular HTTP download. For better performance,    
+                             install the package with: `pip install            
+                             huggingface_hub[hf_xet]` or `pip install hf_xet`  
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+[04/21/26 22:52:34] WARNING  Xet Storage is enabled for this repo, but the     
+                             'hf_xet' package is not installed. Falling back to
+                             regular HTTP download. For better performance,    
+                             install the package with: `pip install            
+                             huggingface_hub[hf_xet]` or `pip install hf_xet`  
+\u2705 Export                                          4.1s
+   Model class:  AutoModelForSemanticSegmentation
+   Task:         image-segmentation
+   Input:        pixel_values       [1, 3, 512, 512] float32
+   Output:       logits
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b1-finetuned-ade-512-512_image-segmentation\w8a8\build\export.onnx 
+ (52.6 MB)
+[04/21/26 22:52:38] WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Node Resize (name: /decode_head/Resize): input    
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize): input    
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:39] WARNING  Node Resize (name: /decode_head/Resize_1): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_1): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:40] WARNING  Node Resize (name: /decode_head/Resize_2): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_2): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:43] WARNING  Node Resize (name: /decode_head/Resize_3): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_3): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:45] WARNING  Action target pattern 'SUBGRAPH/SingleGeluPattern'
+                             not found in alternatives for                     
+                             'SUBGRAPH/GeluPattern'                            
+                    WARNING  Action target pattern                             
+                             'SUBGRAPH/ReshapeGemmReshapePattern' not found in 
+                             alternatives for 'SUBGRAPH/GemmPattern'           
+[04/21/26 22:52:53] WARNING  No pattern matches found by PatternMatcher        
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Node Resize (name: /decode_head/Resize): input    
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize): input    
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:54] WARNING  Node Resize (name: /decode_head/Resize_1): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_1): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:56] WARNING  Node Resize (name: /decode_head/Resize_2): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_2): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:58] WARNING  Node Resize (name: /decode_head/Resize_3): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_3): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:52:59] WARNING  No pattern matches found by PatternMatcher        
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_ai.onnx_opset17.zi
+                             p. Run 'uv run python scripts/download_rules.py'  
+                             to download rule files, or set MODELKIT_RULES_DIR 
+                             to a directory containing the zip.                
+                    WARNING  Rule zip not found:                               
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Rule zip file not found:                          
+                             C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\
+                             src\winml\modelkit\analyze\rules\runtime_check_rul
+                             es\VitisAIExecutionProvider_NPU_com.microsoft_opse
+                             t1.zip. Run 'uv run python                        
+                             scripts/download_rules.py' to download rule files,
+                             or set MODELKIT_RULES_DIR to a directory          
+                             containing the zip.                               
+                    WARNING  Node Resize (name: /decode_head/Resize): input    
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize): input    
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:53:00] WARNING  Node Resize (name: /decode_head/Resize_1): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_1): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:53:02] WARNING  Node Resize (name: /decode_head/Resize_2): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_2): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+[04/21/26 22:53:04] WARNING  Node Resize (name: /decode_head/Resize_3): input  
+                             'roi' is optional and not provided, setting value 
+                             to None                                           
+                    WARNING  Node Resize (name: /decode_head/Resize_3): input  
+                             'scales' is optional and not provided, setting    
+                             value to None                                     
+\u2705 Optimize                                        28.9s
+   Analyzing 400 nodes  (iter 1/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Patterns
+     Gelu  \u2192 gelu_fusion
+     Matmul Add  \u2192 matmul_add_fusion
+   Optimizing  (applying autoconf)
+     {'gelu_fusion': True, 'matmul_add_fusion': True}
+   Analyzing 378 nodes  (iter 2/3)
+   - VitisAIExecutionProvider    0/0/0  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591
+   Autoconf converged after 2 iteration(s)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b1-finetuned-ade-512-512_image-segmentation\w8a8\build\optimized.on
+nx  (52.5 MB)
+\u2705 Quantize                                        13.7s
+   Dataset:      default  (image-segmentation)
+   Calibration:  10 samples  (minmax)
+   Precision:    uint8/uint8  (weight/activation)
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b1-finetuned-ade-512-512_image-segmentation\w8a8\build\quantized.on
+nx  (13.8 MB)
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 22:53:21.818549 12324 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 22:53:21.818549 12324 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-21 22:53:38.1175941 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/patch_embeddings.0/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1183968 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.0/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1203050 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.0/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.0.0/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1250527 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.0/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1264633 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.0/mlp/dwconv/dwconv/Conv_output_0_vaip_9), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.0.0/mlp/dwconv/dwconv/Conv_output_0_vaip_9), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1279747 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.0/mlp/intermediate_act_fn/Mul_1_output_0_vaip_110), type = qlinear-eltwise} is partitioned to CPU.[m
+[0;93m2026-04-21 22:53:38.1292318 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.1/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1312101 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.1/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.0.1/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1349467 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.1/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1362368 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.1/mlp/dwconv/dwconv/Conv_output_0_vaip_15), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.0.1/mlp/dwconv/dwconv/Conv_output_0_vaip_15), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1377347 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.0.1/mlp/intermediate_act_fn/Mul_1_output_0_vaip_139), type = qlinear-eltwise} is partitioned to CPU.[m
+[0;93m2026-04-21 22:53:38.1389032 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/layer_norm.0/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1408999 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/patch_embeddings.1/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1415733 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.0/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1434141 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.0/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.1.0/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1470784 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.0/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1490885 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.0/mlp/dwconv/dwconv/Conv_output_0_vaip_27), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.1.0/mlp/dwconv/dwconv/Conv_output_0_vaip_27), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1513655 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.1/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1532792 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.1/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.1.1/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1569847 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.1/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1582539 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.1.1/mlp/dwconv/dwconv/Conv_output_0_vaip_33), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.1.1/mlp/dwconv/dwconv/Conv_output_0_vaip_33), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1603569 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/layer_norm.1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : This op only supports input_w less than 4096[m
+[0;93m2026-04-21 22:53:38.1626829 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/patch_embeddings.2/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/patch_embeddings.2/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1642891 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.0/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.0/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1669498 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.0/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.0/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1708790 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.0/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.0/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1726984 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.0/mlp/dwconv/dwconv/Conv_output_0_vaip_45), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.0/mlp/dwconv/dwconv/Conv_output_0_vaip_45), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1749499 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.1/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.1/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1773282 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.1/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.1/attention/self/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1813630 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.1/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.1/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1832851 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.2.1/mlp/dwconv/dwconv/Conv_output_0_vaip_51), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.2.1/mlp/dwconv/dwconv/Conv_output_0_vaip_51), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1855837 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/layer_norm.2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/layer_norm.2/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1884008 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/patch_embeddings.3/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/patch_embeddings.3/layer_norm/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1897576 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.3.0/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.3.0/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1940697 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.3.0/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.3.0/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1963160 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.3.0/mlp/dwconv/dwconv/Conv_output_0_vaip_60), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.3.0/mlp/dwconv/dwconv/Conv_output_0_vaip_60), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.1986651 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.3.1/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.3.1/layer_norm_1/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.2029465 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.3.1/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.3.1/layer_norm_2/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.2047687 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/block.3.1/mlp/dwconv/dwconv/Conv_output_0_vaip_63), type = qlinear-depthwise-conv2d} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/block.3.1/mlp/dwconv/dwconv/Conv_output_0_vaip_63), type = qlinear-depthwise-conv2d} with nonlinear [NONE] can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.2070791 [W:onnxruntime:, PartitionPass.cpp:12410 PartitionPass.cpp] xir::Op{name = (/segformer/encoder/layer_norm.3/LayerNormalization_output_0), type = qlinear-layernorm} is partitioned to CPU as : OP xir::Op{name = (/segformer/encoder/layer_norm.3/LayerNormalization_output_0), type = qlinear-layernorm} can not find corresponding PDI kernel with data type [AW_USIGN_IN8_OUT8] in AMD_AIE2P_4x8_CMC_Overlay, Kernel detail: input type is [USIGN], input width is [8], output width is [8]., round mode: PY3_ROUND[m
+[0;93m2026-04-21 22:53:38.2180718 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (logits)_inserted_dequantize_replaced_input1003, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+[0;93m2026-04-21 22:53:38.2648069 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.3.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2654183 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.3.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2661775 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.1.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2668313 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.1.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2674835 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.0.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2682028 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.1.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2688055 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.1.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2694001 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.0.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2700202 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.0.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2707302 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.0.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2713749 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2719716 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2725542 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2732897 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2739563 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2745507 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2752197 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2758382 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2765197 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2789794 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2805640 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2811719 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2818158 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2824310 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2830472 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2836907 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2843876 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2850455 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2856393 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2863975 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2870107 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.0.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2875880 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.layer_norm.0.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2881729 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2888170 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2894798 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2900892 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.layer_norm_2.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2907330 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.layer_norm_2.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2914251 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2939228 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.layer_norm_1.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2953208 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.layer_norm_1.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2969595 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.0.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2975790 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.0.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2982542 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.attention.self.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.2988764 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.attention.self.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3000744 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3007916 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.mlp.dwconv.dwconv.weight_quantized_vaip_234)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3014786 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.attention.self.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3021499 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.attention.self.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3028866 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3035058 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.1.mlp.dwconv.dwconv.weight_quantized_vaip_232)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3042406 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.3.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3048499 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.3.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3055691 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.0.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3061702 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.0.mlp.dwconv.dwconv.weight_quantized_vaip_312)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3069059 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.1.mlp.dwconv.dwconv.weight_quantized_vaip_311)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3075432 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.3.1.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3082471 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.2.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3088493 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.2.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3096189 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.attention.self.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3102535 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.2.0.attention.self.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3108767 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3114950 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.0.mlp.dwconv.dwconv.weight_quantized_vaip_77)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3121216 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.attention.self.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3128559 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.attention.self.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3135874 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.mlp.dwconv.dwconv.weight_quantized_vaip_75)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3142071 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.0.1.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3149237 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.1.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3155450 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.patch_embeddings.1.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3162664 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.attention.self.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3168866 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.attention.self.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3176174 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.mlp.dwconv.dwconv.weight_quantized_vaip_155)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3182609 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.0.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3189417 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.attention.self.layer_norm.weight_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3195768 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.attention.self.layer_norm.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3203070 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.mlp.dwconv.dwconv.bias_quantized)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+[0;93m2026-04-21 22:53:38.3209198 [W:onnxruntime:, PartitionPass.cpp:12441 PartitionPass.cpp] xir::Op{name = (segformer.encoder.block.1.1.mlp.dwconv.dwconv.weight_quantized_vaip_153)_fix, type = const-fix} is partitioned to CPU as : The op's fanout is out of DPU subgraph.[m
+\u2705 Compile                                         30.0s
+   \U0001f4e6 Artifact:   
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\nvidi
+a_segformer-b1-finetuned-ade-512-512_image-segmentation\w8a8\build\compiled.onn
+x  (0.0 MB)
+   \u274c Build failed: [Errno 2] No such file or directory: 
+'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_roun
+d2\\nvidia_segformer-b1-finetuned-ade-512-512_image-segmentation\\w8a8\\build\\
+compiled.onnx'
+   \U0001f4a1 Check: model path or HuggingFace model ID
+
+Error: Build failed: [Errno 2] No such file or directory: 'C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\nvidia_segformer-b1-finetuned-ade-512-512_image-segmentation\\w8a8\\build\\compiled.onnx'

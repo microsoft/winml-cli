@@ -1,0 +1,58 @@
+[2026-04-21T19:21:17] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 19:21:22.137092 13904 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 19:21:22.137092 13904 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-9
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+
++--------------------------------------------------------------+
+| Evaluation: dbmdz/bert-large-cased-finetuned-conll03-english |
++--------------------------------------------------------------+
+
+Task:       token-classification
+Device:     npu
+Dataset:    BramVanroy/conll2003
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz
+_bert-large-cased-finetuned-conll03-english_token-classification\fp16\build\opt
+imized.onnx
+
++-----------------------------------------------------------------------------+
+| Metric                |                                               Value |
+|-----------------------+-----------------------------------------------------|
+| LOC                   |          precision=1.0000  recall=1.0000  f1=1.0000 |
+|                       |                                           number=62 |
+| MISC                  |          precision=0.9231  recall=1.0000  f1=0.9600 |
+|                       |                                           number=24 |
+| ORG                   |          precision=1.0000  recall=0.9722  f1=0.9859 |
+|                       |                                           number=36 |
+| PER                   |          precision=1.0000  recall=1.0000  f1=1.0000 |
+|                       |                                           number=55 |
+| overall_precision     |                                              0.9888 |
+| overall_recall        |                                              0.9944 |
+| overall_f1            |                                              0.9915 |
+| overall_accuracy      |                                              0.8837 |
+| total_time_in_seconds |                                             22.5476 |
+| samples_per_second    |                                              4.4351 |
+| latency_in_seconds    |                                              0.2255 |
++-----------------------------------------------------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\dbmdz
+_bert-large-cased-finetuned-conll03-english_token-classification\fp16\eval.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o

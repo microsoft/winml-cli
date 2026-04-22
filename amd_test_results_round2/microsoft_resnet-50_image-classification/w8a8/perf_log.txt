@@ -1,0 +1,28 @@
+Benchmarking ONNX: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_resnet-50_image-classification\w8a8\build\quantized.onnx
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 22:21:19.709769 13776 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 22:21:19.709769 13776 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+[0;93m2026-04-21 22:21:26.8448973 [W:onnxruntime:, PartitionPass.cpp:12537 PartitionPass.cpp] xir::Op{name = (logits)_replaced_input242, type = dequantize-linear} is partitioned to CPU as :  doesn't supported by target [AMD_AIE2P_4x8_CMC_Overlay].[m
+
+Device:      npu
+Inputs:      pixel_values         [1, 3, 224, 224]       float32
+Outputs:     logits               [1, 1000]
+
+
+Device:      auto (npu)
+Task:        n/a (direct ONNX)
+
+Latency (ms)
++-------------------------------------------------------+
+|  Avg |  P50 |  P90 |  P95 |  P99 |  Min |  Max |  Std |
+|------+------+------+------+------+------+------+------|
+| 2.59 | 2.63 | 3.35 | 3.55 | 3.78 | 1.39 | 3.78 | 0.60 |
++-------------------------------------------------------+
+
+Throughput: 385.61 samples/sec
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_resnet-50_image-classification\w8a8\perf.json

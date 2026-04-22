@@ -1,0 +1,76 @@
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 17:14:29.732174 45480 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 17:14:29.732174 45480 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-100
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-101
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-102
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-103
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-104
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-105
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-205
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-206
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-207
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-208
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-209
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-210
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1054
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1055
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1056
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1057
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1058
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-1059
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\sklearn\metrics\_classification.py:98: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_true = type_of_target(y_true, input_name="y_true")
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\sklearn\metrics\_classification.py:99: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_pred = type_of_target(y_pred, input_name="y_pred")
+
++-----------------------------------------------------+
+| Evaluation: microsoft/swin-large-patch4-window7-224 |
++-----------------------------------------------------+
+
+Task:       image-classification
+Device:     npu
+Dataset:    timm/mini-imagenet
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_swin-large-patch4-window7-224_image-classification\fp16\build\optimized.on
+nx
+
++----------------------------------+
+| Metric                |    Value |
+|-----------------------+----------|
+| accuracy              |   0.7800 |
+| total_time_in_seconds | 309.7126 |
+| samples_per_second    |   0.3229 |
+| latency_in_seconds    |   3.0971 |
++----------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\micro
+soft_swin-large-patch4-window7-224_image-classification\fp16\eval.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis1\Release\pm_reload_analysis1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable45\Release\0_0_reloadable45.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable44\Release\0_0_reloadable44.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable2\Release\0_0_reloadable2.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o

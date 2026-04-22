@@ -1,0 +1,20 @@
+{
+  "model_id": "microsoft/swin-large-patch4-window7-224",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\microsoft_swin-large-patch4-window7-224_image-classification\\w8a16\\build\\quantized.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\microsoft_swin-large-patch4-window7-224_image-classification\\w8a16\\eval.json",
+  "metrics": {
+    "accuracy": 0.78,
+    "total_time_in_seconds": 178.46712449999904,
+    "samples_per_second": 0.5603272887382714,
+    "latency_in_seconds": 1.7846712449999904
+  }
+}

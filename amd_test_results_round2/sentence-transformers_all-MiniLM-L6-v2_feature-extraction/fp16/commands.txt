@@ -1,0 +1,11 @@
+# Config
+winml config -m sentence-transformers/all-MiniLM-L6-v2 --task feature-extraction --ep vitisai --precision fp16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sentence-transformers_all-MiniLM-L6-v2_feature-extraction\fp16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sentence-transformers_all-MiniLM-L6-v2_feature-extraction\fp16\config.json" -m sentence-transformers/all-MiniLM-L6-v2 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sentence-transformers_all-MiniLM-L6-v2_feature-extraction\fp16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sentence-transformers_all-MiniLM-L6-v2_feature-extraction\fp16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id sentence-transformers/all-MiniLM-L6-v2 --task feature-extraction --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sentence-transformers_all-MiniLM-L6-v2_feature-extraction\fp16\eval.json"

@@ -1,0 +1,25 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f4cb CONFIG GENERATION
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:         
+google-bert/bert-large-uncased-whole-word-masking-finetuned-squad
+   \U0001f9e9 Model class:   AutoModelForQuestionAnswering  (auto-detected)
+   \U0001f3f7\ufe0f Task:          question-answering
+
+   Input:        input_ids          [1, 512]       int32
+                 attention_mask     [1, 512]       int32
+                 token_type_ids     [1, 512]       int32
+   Output:       start_logits
+                 end_logits
+
+   \u2699\ufe0f  Resolution:
+      Device:     NPU
+      EP:         VitisAIExecutionProvider
+      Quant:      none
+
+   \u2705 Config saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering
+\fp16\config.json
+

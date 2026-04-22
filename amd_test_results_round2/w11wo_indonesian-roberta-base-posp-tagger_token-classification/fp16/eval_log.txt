@@ -1,0 +1,82 @@
+[2026-04-22T04:10:47] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260422 04:10:51.977277 53424 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260422 04:10:51.977277 53424 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+<Pass-Options-Parser>: no such option flexible-l2-buffer-layout
+
+[WARN] createTGSubgraphs: no Composite subgraph visited for L-9
+Not waiting for debugger to attach because environment variable 'MY_DEBUG_BACKEND' is not set.
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\seqeval\metrics\v1.py:57: UndefinedMetricWarning: Precision and F-score are ill-defined and being set to 0.0 in labels with no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, msg_start, len(result))
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\seqeval\metrics\v1.py:57: UndefinedMetricWarning: Recall and F-score are ill-defined and being set to 0.0 in labels with no true samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, msg_start, len(result))
+
++-------------------------------------------------------+
+| Evaluation: w11wo/indonesian-roberta-base-posp-tagger |
++-------------------------------------------------------+
+
+Task:       token-classification
+Device:     npu
+Dataset:    BramVanroy/conll2003
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo
+_indonesian-roberta-base-posp-tagger_token-classification\fp16\build\optimized.
+onnx
+
++-----------------------------------------------------------------------------+
+| Metric                |                                               Value |
+|-----------------------+-----------------------------------------------------|
+| ADJ                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| CCN                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| LOC                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=62 |
+| MISC                  |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=24 |
+| NNO                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| NNP                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| NUM                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| ORG                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=36 |
+| PAR                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| PER                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                           number=55 |
+| PPO                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| SYM                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| VBL                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| VBP                   |          precision=0.0000  recall=0.0000  f1=0.0000 |
+|                       |                                            number=0 |
+| overall_precision     |                                              0.0000 |
+| overall_recall        |                                              0.0000 |
+| overall_f1            |                                              0.0000 |
+| overall_accuracy      |                                              0.0000 |
+| total_time_in_seconds |                                              7.4218 |
+| samples_per_second    |                                             13.4739 |
+| latency_in_seconds    |                                              0.0742 |
++-----------------------------------------------------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\w11wo
+_indonesian-roberta-base-posp-tagger_token-classification\fp16\eval.json
+Running convertToNNADF
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\pm_reload_analysis0\Release\pm_reload_analysis0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable0\Release\4_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable1\Release\0_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\4_0_reloadable1\Release\4_0_reloadable1.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0_reloadable0\Release\0_0_reloadable0.o
+
+[peano-lib] info: Writing obj file in VFS at C:/embedded/Users\shzhen\AppData\Local\repo\WINML-~1\Work\aie\0_0\Release\0_0.o

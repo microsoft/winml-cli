@@ -1,0 +1,11 @@
+# Config
+winml config -m google-bert/bert-large-uncased-whole-word-masking-finetuned-squad --task question-answering --ep vitisai --precision fp16 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering\fp16\config.json"
+
+# Build
+winml build -c "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering\fp16\config.json" -m google-bert/bert-large-uncased-whole-word-masking-finetuned-squad -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering\fp16\build"
+
+# Perf
+winml perf -m [best_onnx] --ep vitisai --iterations 100 -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering\fp16\perf.json"
+
+# Eval
+winml eval -m [best_onnx] --model-id google-bert/bert-large-uncased-whole-word-masking-finetuned-squad --task question-answering --device npu -o "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering\fp16\eval.json"

@@ -1,0 +1,23 @@
+[2026-04-22T02:33:42] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 172, in align_labels
+    return self._filter_unsupported_labels(dataset, label_column)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 199, in _filter_unsupported_labels
+    raise ValueError(
+ValueError: No samples remain after label filtering. Dataset and model labels have no overlap.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 240, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 195, in evaluate
+    task_evaluator = cls(config, model)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 50, in __init__
+    self.data = self.prepare_data()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 126, in prepare_data
+    return self.align_labels(dataset, ds)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 174, in align_labels
+    raise RuntimeError(
+RuntimeError: Label alignment failed for dataset 'timm/mini-imagenet': No samples remain after label filtering. Dataset and model labels have no overlap.
+Error: Evaluation failed: Label alignment failed for dataset 'timm/mini-imagenet': No samples remain after label filtering. Dataset and model labels have no overlap.

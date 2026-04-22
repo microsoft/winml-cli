@@ -1,0 +1,23 @@
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\U0001f4cb CONFIG GENERATION
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   \U0001f4e6 Model:         
+sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+   \U0001f9e9 Model class:   AutoModel  (auto-detected)
+   \U0001f3f7\ufe0f Task:          sentence-similarity
+
+   Input:        input_ids          [1, 512]       int32
+                 attention_mask     [1, 512]       int32
+   Output:       last_hidden_state
+
+   \u2699\ufe0f  Resolution:
+      Device:     NPU
+      EP:         VitisAIExecutionProvider
+      Quant:      uint8/uint16  (weight/activation)
+
+   \u2705 Config saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\sente
+nce-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity\w8a1
+6\config.json
+

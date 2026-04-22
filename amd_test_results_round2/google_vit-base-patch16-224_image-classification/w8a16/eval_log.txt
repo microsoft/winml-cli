@@ -1,0 +1,33 @@
+Fast image processor class <class 'transformers.models.vit.image_processing_vit_fast.ViTImageProcessorFast'> is available for this model. Using slow image processor class. To use the fast image processor class set `use_fast=True`.
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260421 21:46:01.963083 49052 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260421 21:46:01.963083 49052 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\sklearn\metrics\_classification.py:98: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_true = type_of_target(y_true, input_name="y_true")
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\sklearn\metrics\_classification.py:99: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_pred = type_of_target(y_pred, input_name="y_pred")
+
++-----------------------------------------+
+| Evaluation: google/vit-base-patch16-224 |
++-----------------------------------------+
+
+Task:       image-classification
+Device:     npu
+Dataset:    timm/mini-imagenet
+Samples:    100
+ONNX:       
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e_vit-base-patch16-224_image-classification\w8a16\build\quantized.onnx
+
++---------------------------------+
+| Metric                |   Value |
+|-----------------------+---------|
+| accuracy              |  0.7000 |
+| total_time_in_seconds |  4.6208 |
+| samples_per_second    | 21.6412 |
+| latency_in_seconds    |  0.0462 |
++---------------------------------+
+
+Results saved to: 
+C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\amd_test_results_round2\googl
+e_vit-base-patch16-224_image-classification\w8a16\eval.json
