@@ -755,7 +755,11 @@ if __name__ == "__main__":
                 # PatternSchemas based on since_version of
                 # included ops
                 try:
-                    since_version = get_op_since_version(op_name, current_opset_version, target_domain)
+                    since_version = get_op_since_version(
+                        op_name,
+                        current_opset_version,
+                        target_domain,
+                    )
                 except SchemaError:
                     since_version = current_opset_version
 
@@ -891,7 +895,10 @@ if __name__ == "__main__":
                 qdq_suffix = "_qdq" if is_qdq else ""
                 output_file = (
                     output_dir
-                    / f"{ep_name}_{device}_{domain_str}_opset{opset_version}_tables{qdq_suffix}.json"
+                    / (
+                        f"{ep_name}_{device}_{domain_str}_opset{opset_version}_tables"
+                        f"{qdq_suffix}.json"
+                    )
                 )
 
                 snapshot_key = (ep_name, device, op_domain, is_qdq)
@@ -986,7 +993,9 @@ if __name__ == "__main__":
                                 with open(filename, encoding="utf-8") as f:  # noqa: PTH123
                                     new_text = f.read()
                                 try:
-                                    old_payload = json.loads(existing_content[arcname].decode("utf-8"))
+                                    old_payload = json.loads(
+                                        existing_content[arcname].decode("utf-8")
+                                    )
                                     new_payload = json.loads(new_text)
                                 except Exception:
                                     rule_zf.writestr(arcname, new_text)
