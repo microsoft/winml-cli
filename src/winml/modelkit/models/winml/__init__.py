@@ -175,6 +175,13 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
 # =============================================================================
 
 from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
+from .composite_model import (
+    COMPOSITE_MODEL_REGISTRY,
+    WinMLCompositeModel,
+    register_composite_model,
+)
+from .decoder_only import WinMLDecoderOnlyModel
+from .encoder_decoder import WinMLEncoderDecoderModel
 from .feature_extraction import WinMLModelForFeatureExtraction
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
@@ -182,14 +189,24 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .kv_cache import (
+    WinMLCache,
+    WinMLSlidingWindowCache,
+    WinMLStaticCache,
+)
 from .object_detection import WinMLModelForObjectDetection
 from .sequence_classification import WinMLModelForSequenceClassification
 
 
 __all__ = [
+    "COMPOSITE_MODEL_REGISTRY",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
     "ImageSegmentationOutput",
+    "WinMLCache",
+    "WinMLCompositeModel",
+    "WinMLDecoderOnlyModel",
+    "WinMLEncoderDecoderModel",
     "WinMLModelForFeatureExtraction",
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
@@ -198,7 +215,10 @@ __all__ = [
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",
     "WinMLPreTrainedModel",
+    "WinMLSlidingWindowCache",
+    "WinMLStaticCache",
     "get_supported_tasks",
     "get_winml_class",
+    "register_composite_model",
     "register_specialization",
 ]

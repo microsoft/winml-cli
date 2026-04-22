@@ -210,7 +210,13 @@ class WinMLDecoderOnlyModel(WinMLCompositeModel, GenerationMixin):
         )
         import numpy as np
 
-        _np_dtype = gen_type_map.get("past_0_key", np.float32)
+        if "past_0_key" not in gen_type_map:
+            raise KeyError(
+                "'past_0_key' is missing from the decoder ONNX input type map; "
+                "cannot derive KV cache dtype. Verify the decoder ONNX was built with "
+                "PastKeyValueInputGenerator."
+            )
+        _np_dtype = gen_type_map["past_0_key"]
         self._kv_dtype = torch.from_numpy(np.zeros(1, dtype=_np_dtype)).dtype
 
         # Prefill chunk size

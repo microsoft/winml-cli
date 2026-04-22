@@ -41,8 +41,8 @@ for static KV cache inputs (``past_{i}_key``, ``past_{i}_value``).
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import TYPE_CHECKING, Any
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from optimum.utils.input_generators import DummyInputGenerator
 from transformers import StaticCache
@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class WinMLCache(StaticCache):
+class WinMLCache(StaticCache, ABC):
     """Abstract base for WinML KV caches (export + inference).
 
     Subclasses set ``position_input_name``, implement ``build_decoder_mask``,
@@ -71,7 +71,8 @@ class WinMLCache(StaticCache):
     """
 
     #: ONNX input name for the position tensor (subclasses override).
-    position_input_name: str
+    #: Empty string is a sentinel — concrete subclasses must set a real value.
+    position_input_name: ClassVar[str] = ""
 
     def __init__(self, config: PretrainedConfig, *args: Any, **kwargs: Any) -> None:
         super().__init__(config, *args, **kwargs)

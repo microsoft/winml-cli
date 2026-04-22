@@ -199,7 +199,13 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         )
         import numpy as np
 
-        _np_dtype = dec_type_map.get("past_0_key", np.float32)
+        if "past_0_key" not in dec_type_map:
+            raise KeyError(
+                "'past_0_key' is missing from the decoder ONNX input type map; "
+                "cannot derive KV cache dtype. Verify the decoder ONNX was built with "
+                "PastKeyValueInputGenerator."
+            )
+        _np_dtype = dec_type_map["past_0_key"]
         self._kv_dtype = torch.from_numpy(np.zeros(1, dtype=_np_dtype)).dtype
 
     # ----- Encoder -----
@@ -238,8 +244,14 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Build decoder inputs for each generate() step."""
+        from .kv_cache import WinMLCache
+
+        if isinstance(past_key_values, WinMLCache) and past_key_values.get_seq_length() > 0:
+            decoder_input_ids = input_ids[:, -1:]
+        else:
+            decoder_input_ids = input_ids
         return {
-            "decoder_input_ids": input_ids[:, -1:],
+            "decoder_input_ids": decoder_input_ids,
             "encoder_outputs": encoder_outputs,
             "attention_mask": attention_mask,
             "past_key_values": past_key_values,
@@ -285,9 +297,10 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         input_ids: torch.Tensor | None = None,
         **model_kwargs: Any,
     ) -> Seq2SeqLMOutput:
-        """Run decoder with a ``WinMLCache`` (``WinMLStaticCache`` or
-        ``WinMLSlidingWindowCache``, selected by the subclass via
-        ``get_cache_class()``).
+        """Run decoder with a WinML KV cache.
+
+        Uses ``WinMLStaticCache`` or ``WinMLSlidingWindowCache``, selected by
+        the subclass via ``get_cache_class()``.
 
         Args:
             encoder_outputs: Pre-computed encoder hidden states.

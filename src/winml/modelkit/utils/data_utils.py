@@ -47,7 +47,13 @@ def pad_inputs(
             # dim backwards. Skip batch dim (dim 0).
             pad: list[int] = []
             for dim in reversed(range(1, ndim)):
-                deficit = max(expected_shape[dim] - val.shape[dim], 0)
+                exp = expected_shape[dim]
+                # Dynamic ONNX dims may be None or a string symbol; emit a
+                # (0, 0) pair so later pairs stay aligned with their dim index.
+                if not isinstance(exp, int):
+                    pad.extend([0, 0])
+                    continue
+                deficit = max(exp - val.shape[dim], 0)
                 if mode == "right":
                     pad.extend([0, deficit])
                 else:  # left

@@ -1069,8 +1069,8 @@ def main() -> None:
                     if e.hf_id == args.hf_model:
                         matched_entry = e
                         break
-        except Exception:
-            pass  # Registry is optional for single-model mode; proceed without enrichment
+        except Exception as e:
+            safe_print(f"  [registry] Optional enrichment skipped: {e}")
         if matched_entry is not None:
             # Override task if explicitly provided on CLI
             if args.task and args.task != matched_entry.task:
@@ -1133,8 +1133,10 @@ def main() -> None:
                         if _should_skip_existing(existing, retry_types, args.eval_type):
                             skipped_count += 1
                             continue
-                    except Exception:
-                        pass  # Corrupt result file — include model for re-evaluation
+                    except (OSError, json.JSONDecodeError, KeyError) as exc:
+                        safe_print(
+                            f"  [continue] Corrupt result file {result_path}: {exc} — re-evaluating"
+                        )
                 filtered.append(e)
             if skipped_count:
                 safe_print(
