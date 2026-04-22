@@ -18,6 +18,7 @@ from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
+from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
@@ -40,6 +41,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "question-answering": WinMLQuestionAnsweringEvaluator,
     "feature-extraction": WinMLFeatureExtractionEvaluator,
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
+    "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
     "fill-mask": WinMLFillMaskEvaluator,
 }
 
@@ -109,6 +111,12 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
     ),
     "feature-extraction": _FE_DEFAULT,
     "sentence-similarity": _FE_DEFAULT,
+    "image-feature-extraction": DatasetConfig(
+        path="timm/mini-imagenet",
+        split="test",
+        samples=1000,
+        shuffle=True,
+    ),
     "fill-mask": DatasetConfig(
         path="Salesforce/wikitext",
         name="wikitext-2-raw-v1",

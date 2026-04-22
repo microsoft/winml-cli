@@ -44,6 +44,8 @@ class AccuracyVerdict(str, Enum):
 #                   False = smaller value is better (WER, loss)
 METRIC_COMPARE_STRATEGY: dict[str, tuple[str, float, float, bool]] = {
     "cosine_spearman": ("delta_absolute", 2.0, 4.0, True),
+    # WinML-vs-baseline delta is small — pick a tighter threshold than default.
+    "knn_top1_accuracy": ("delta_relative", 0.02, 0.05, True),
     "pseudo_perplexity": ("delta_relative", 0.05, 0.10, False),
     "default": ("delta_relative", 0.05, 0.10, True), # 5% and 10%
 }
