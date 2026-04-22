@@ -54,27 +54,27 @@ class ModelManager(Protocol):
         ``task`` is a routing hint used by ModelSlotManager when ``model_id``
         is the sentinel ``"_"``.
         """
-        ...
+        raise NotImplementedError
 
     async def list_models(self) -> list[dict]:
         """Return metadata for all currently registered/loaded models."""
-        ...
+        raise NotImplementedError
 
     def get_engine(self, model_id: str | None = None) -> InferenceEngine | None:
         """Get engine for a model, or the first available engine."""
-        ...
+        raise NotImplementedError
 
     def get_all_engines(self) -> list[InferenceEngine]:
         """Get all loaded engines."""
-        ...
+        raise NotImplementedError
 
     async def get_model_stats(self, model_id: str) -> tuple[InferenceEngine, str]:
         """Get (engine, status) for a model. Raises KeyError if not found."""
-        ...
+        raise NotImplementedError
 
     def shutdown(self) -> None:
         """Release all resources on server shutdown."""
-        ...
+        raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------
