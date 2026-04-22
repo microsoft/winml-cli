@@ -38,6 +38,12 @@ def _resolve_user_home() -> str:
 
 _CONFIG_PATH: Path = Path(_resolve_user_home()) / ".modelkit" / "config.json"
 
+# Bumped when the consent notice materially changes (new data category,
+# changed scope). Stored records with an older version are treated as
+# unrecorded on read so the user sees the updated notice and re-consents.
+# Records predating this field are grandfathered as the current version.
+_CONSENT_VERSION: int = 1
+
 _CI_ENV_VARS = (
     "CI",
     "TF_BUILD",
@@ -73,16 +79,30 @@ def _load_config() -> dict:
 def _read_stored_consent() -> Consent | None:
     """Return the stored consent value, or ``None`` if not recorded.
 
-    ``None`` is returned for missing / malformed / unknown values.
+    ``None`` is returned for missing / malformed / unknown values, or
+    when the stored ``consent_version`` is strictly older than the
+    current ``_CONSENT_VERSION`` (triggers a re-prompt after a notice
+    update). Records without a ``consent_version`` field are grandfathered
+    as the current version so introducing the field doesn't re-prompt
+    existing users.
     """
     data = _load_config()
     tele = data.get("telemetry")
     if not isinstance(tele, dict):
         return None
     value = tele.get("consent")
-    if value in ("enabled", "disabled"):
-        return value  # type: ignore[return-value]
-    return None
+    if value not in ("enabled", "disabled"):
+        return None
+    stored_version = tele.get("consent_version")
+    # `bool` is a subclass of `int` in Python; exclude explicitly so a
+    # stray `True` isn't silently interpreted as version 1.
+    if (
+        isinstance(stored_version, int)
+        and not isinstance(stored_version, bool)
+        and stored_version < _CONSENT_VERSION
+    ):
+        return None
+    return value  # type: ignore[return-value]
 
 
 def _write_stored_consent(value: Consent) -> None:
@@ -94,6 +114,7 @@ def _write_stored_consent(value: Consent) -> None:
     data = _load_config()
     tele = data.get("telemetry") if isinstance(data.get("telemetry"), dict) else {}
     tele["consent"] = value
+    tele["consent_version"] = _CONSENT_VERSION
     data["telemetry"] = tele
 
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

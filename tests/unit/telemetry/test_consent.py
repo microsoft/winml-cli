@@ -52,7 +52,9 @@ def test_write_stored_consent_creates_file_and_roundtrips(isolated_config):
 def test_write_persists_nested_schema(isolated_config):
     consent._write_stored_consent("enabled")
     payload = json.loads(isolated_config.read_text())
-    assert payload == {"telemetry": {"consent": "enabled"}}
+    assert payload == {
+        "telemetry": {"consent": "enabled", "consent_version": consent._CONSENT_VERSION}
+    }
 
 
 def test_read_preserves_unrelated_config_on_write(isolated_config):
@@ -88,6 +90,73 @@ def test_read_malformed_json_returns_none(isolated_config):
     isolated_config.parent.mkdir(parents=True, exist_ok=True)
     isolated_config.write_text("{ not valid json")
     assert consent._read_stored_consent() is None
+
+
+# --- consent_version ----------------------------------------------------
+
+
+def test_read_without_version_field_is_grandfathered(isolated_config):
+    # Records predating the version field must not trigger a re-prompt.
+    isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    isolated_config.write_text(json.dumps({"telemetry": {"consent": "enabled"}}))
+    assert consent._read_stored_consent() == "enabled"
+
+
+def test_read_older_version_returns_none(isolated_config, monkeypatch):
+    monkeypatch.setattr(consent, "_CONSENT_VERSION", 2)
+    isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    isolated_config.write_text(
+        json.dumps({"telemetry": {"consent": "enabled", "consent_version": 1}})
+    )
+    assert consent._read_stored_consent() is None
+
+
+def test_read_same_version_honored(isolated_config):
+    isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "telemetry": {
+                    "consent": "disabled",
+                    "consent_version": consent._CONSENT_VERSION,
+                }
+            }
+        )
+    )
+    assert consent._read_stored_consent() == "disabled"
+
+
+def test_read_newer_version_honored(isolated_config):
+    # A config written by a newer ModelKit (higher version) must be
+    # honored, not silently re-prompted.
+    isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "telemetry": {
+                    "consent": "enabled",
+                    "consent_version": consent._CONSENT_VERSION + 5,
+                }
+            }
+        )
+    )
+    assert consent._read_stored_consent() == "enabled"
+
+
+def test_read_malformed_version_is_grandfathered(isolated_config):
+    # Non-int version (string, None, bool) is ignored rather than
+    # causing a re-prompt.
+    isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    isolated_config.write_text(
+        json.dumps({"telemetry": {"consent": "enabled", "consent_version": "1"}})
+    )
+    assert consent._read_stored_consent() == "enabled"
+
+
+def test_write_stamps_current_version(isolated_config):
+    consent._write_stored_consent("enabled")
+    payload = json.loads(isolated_config.read_text())
+    assert payload["telemetry"]["consent_version"] == consent._CONSENT_VERSION
 
 
 # --- first-run prompt ----------------------------------------------------
@@ -161,3 +230,21 @@ def test_resolve_consent_first_run_empty_input_accepts_and_persists(
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     assert consent.resolve_consent() == "enabled"
     assert consent._read_stored_consent() == "enabled"
+
+
+def test_resolve_consent_reprompts_when_notice_version_bumped(
+    clean_env, isolated_config, monkeypatch
+):
+    # Simulate an older stored decision + a newer notice version. The
+    # user should see the prompt again and the decision should be re-stamped.
+    isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    isolated_config.write_text(
+        json.dumps({"telemetry": {"consent": "enabled", "consent_version": 1}})
+    )
+    monkeypatch.setattr(consent, "_CONSENT_VERSION", 2)
+    monkeypatch.setattr("sys.stdin", io.StringIO("n\n"))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    assert consent.resolve_consent() == "disabled"
+    payload = json.loads(isolated_config.read_text())
+    assert payload["telemetry"] == {"consent": "disabled", "consent_version": 2}
