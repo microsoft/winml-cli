@@ -65,6 +65,7 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
     "sentence-similarity": "cosine_spearman",
     "image-feature-extraction": "knn_top1_accuracy",
     "fill-mask": "pseudo_perplexity",
+    "image-to-text": "perplexity",
 }
 
 
@@ -76,8 +77,8 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
 def _load_pytorch_model(model_id: str, task: str, device_str: str):
     """Load a native PyTorch model with the task-appropriate AutoModel class."""
     import torch
-
     from transformers import AutoConfig
+
     from winml.modelkit.loader.task import resolve_task_and_model_class
 
     config = AutoConfig.from_pretrained(model_id)
