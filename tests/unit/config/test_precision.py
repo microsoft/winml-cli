@@ -39,7 +39,7 @@ class TestResolvePrecision:
         "device,precision,exp_device,exp_precision,exp_weight,exp_act,exp_provider",
         [
             # device   precision  exp_device  exp_prec  weight    act      provider
-            ("npu", "auto", "npu", "int8", "uint8", "uint8", "qnn"),
+            ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "qnn"),
             ("npu", "int8", "npu", "int8", "uint8", "uint8", "qnn"),
             ("npu", "int16", "npu", "int16", "int16", "uint16", "qnn"),
             ("npu", "fp16", "npu", "fp16", None, None, "qnn"),

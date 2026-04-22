@@ -194,7 +194,7 @@ class TestGenerateBuildConfigOnnxPath:
     # -----------------------------------------------------------------
 
     def test_raw_onnx_full_pipeline(self, tmp_path) -> None:
-        """Raw ONNX + device=npu resolves quant=w8a8 and compile=qnn."""
+        """Raw ONNX + device=npu resolves quant=w8a16 and compile=qnn."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -211,7 +211,7 @@ class TestGenerateBuildConfigOnnxPath:
         assert config.export is None
         assert config.quant is not None
         assert config.quant.weight_type == "uint8"
-        assert config.quant.activation_type == "uint8"
+        assert config.quant.activation_type == "uint16"
         assert config.compile is not None
         assert config.compile.ep_config.provider == "qnn"
 
@@ -672,7 +672,7 @@ class TestResolveQuantCompileConfig:
 
         assert isinstance(quant, WinMLQuantizationConfig)
         assert quant.weight_type == "uint8"
-        assert quant.activation_type == "uint8"
+        assert quant.activation_type == "uint16"
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 

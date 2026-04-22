@@ -27,7 +27,7 @@ _LLM_TASKS = frozenset(
 
 # Default auto-precision mapping: device -> precision
 _AUTO_PRECISION: dict[str, str] = {
-    "npu": "int8",
+    "npu": "w8a16",
     "gpu": "fp16",
     "cpu": "fp16",
 }
