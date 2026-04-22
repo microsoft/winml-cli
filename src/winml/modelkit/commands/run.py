@@ -693,7 +693,7 @@ def _resolve_text_field_via_schema(client: Any, base_url: str) -> str:
             if len(text_fields) == 1:
                 return text_fields[0]["name"]
     except Exception:
-        pass
+        logger.debug("Schema probe failed; falling back to field name 'text'", exc_info=True)
     return "text"
 
 

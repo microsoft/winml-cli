@@ -56,7 +56,8 @@ class TestDetectTokenizerDictParam:
     def test_named_param_tokenizer_kwargs(self) -> None:
         """FillMask-style: preprocess(self, inputs, tokenizer_kwargs=None)."""
 
-        def preprocess(self, inputs, tokenizer_kwargs=None, **kwargs): ...
+        def preprocess(self, inputs, tokenizer_kwargs=None, **kwargs):
+            pass
 
         pipe = _make_pipe_with_preprocess(preprocess)
         sig = inspect.signature(preprocess)
@@ -66,7 +67,8 @@ class TestDetectTokenizerDictParam:
     def test_no_tokenizer_param(self) -> None:
         """Simple pipeline with no tokenizer dict param."""
 
-        def preprocess(self, inputs, **kwargs): ...
+        def preprocess(self, inputs, **kwargs):
+            pass
 
         pipe = _make_pipe_with_preprocess(preprocess)
         sig = inspect.signature(preprocess)
@@ -100,7 +102,8 @@ class TestAdaptTokenizerPadding:
     def test_pattern_a_varkw_sets_top_level(self) -> None:
         """Pattern A: **kwargs forwarded → top-level padding/max_length."""
 
-        def preprocess(self, inputs, **kwargs): ...
+        def preprocess(self, inputs, **kwargs):
+            pass
 
         pipe = _make_tokenizer_pipe(preprocess)
         model = _make_model_with_shapes([[1, 128]])
@@ -114,7 +117,8 @@ class TestAdaptTokenizerPadding:
     def test_pattern_b_tokenizer_kwargs(self) -> None:
         """Pattern B: named tokenizer_kwargs param → nested dict."""
 
-        def preprocess(self, inputs, tokenizer_kwargs=None, **kwargs): ...
+        def preprocess(self, inputs, tokenizer_kwargs=None, **kwargs):
+            pass
 
         pipe = _make_tokenizer_pipe(preprocess)
         model = _make_model_with_shapes([[1, 64]])
@@ -127,7 +131,8 @@ class TestAdaptTokenizerPadding:
     def test_pattern_c_explicit_params_only(self) -> None:
         """Pattern C: no **kwargs, only explicit named params."""
 
-        def preprocess(self, inputs, max_seq_len=None, padding=None): ...
+        def preprocess(self, inputs, max_seq_len=None, padding=None):
+            pass
 
         pipe = _make_tokenizer_pipe(preprocess)
         model = _make_model_with_shapes([[1, 256]])
@@ -139,7 +144,8 @@ class TestAdaptTokenizerPadding:
     def test_multi_modal_finds_2d_shape(self) -> None:
         """Multi-modal models: should find the 2-D text shape among 4-D image shapes."""
 
-        def preprocess(self, inputs, **kwargs): ...
+        def preprocess(self, inputs, **kwargs):
+            pass
 
         pipe = _make_tokenizer_pipe(preprocess)
         # First shape is 4-D (image), second is 2-D (text)
@@ -151,7 +157,8 @@ class TestAdaptTokenizerPadding:
     def test_no_2d_shape_skips(self) -> None:
         """No 2-D shape → no tokenizer adaptation."""
 
-        def preprocess(self, inputs, **kwargs): ...
+        def preprocess(self, inputs, **kwargs):
+            pass
 
         pipe = _make_tokenizer_pipe(preprocess)
         model = _make_model_with_shapes([[1, 3, 224, 224]])
