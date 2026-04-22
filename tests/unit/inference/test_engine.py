@@ -1,0 +1,335 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+"""Unit tests for InferenceEngine internals.
+
+Covers bug fixes and new features in the staged changes:
+  - Task override via local variables (thread-safety)
+  - _validate_inputs with explicit schema parameter
+  - _prepare_pipeline_input with explicit schema/mapping
+  - _normalize_pipeline_output with postprocess callbacks
+  - _accepted_pipeline_kwargs filtering
+  - _build_param_entry / _discover_pipeline_params_from_task
+  - load_schema_only
+"""
+
+from __future__ import annotations
+
+import inspect
+from typing import Any
+from unittest.mock import MagicMock
+
+from winml.modelkit.inference import (
+    TASK_REGISTRY,
+    InferenceEngine,
+    InputField,
+    PipelineMapping,
+)
+
+# Private helpers under test — internal imports are acceptable per CLAUDE.md
+# for _-prefixed implementation details.
+from winml.modelkit.inference.engine import (
+    _build_param_entry,
+    _discover_pipeline_params_from_task,
+    _pick_sample_value,
+)
+
+
+# ---------------------------------------------------------------------------
+# _build_param_entry
+# ---------------------------------------------------------------------------
+
+
+class TestBuildParamEntry:
+    """Covers the refactored _build_param_entry helper."""
+
+    def test_well_known_param_overrides_sentinel_type(self) -> None:
+        """top_k with sentinel default '' should get type='integer' from _WELL_KNOWN_PARAMS."""
+        param = inspect.Parameter("top_k", inspect.Parameter.KEYWORD_ONLY, default="")
+        entry = _build_param_entry("top_k", param)
+        assert entry is not None
+        assert entry["type"] == "integer"
+
+    def test_param_with_real_default(self) -> None:
+        """Param with a concrete int default should keep type='integer' and store default."""
+        param = inspect.Parameter("top_k", inspect.Parameter.KEYWORD_ONLY, default=5)
+        entry = _build_param_entry("top_k", param)
+        assert entry is not None
+        assert entry["type"] == "integer"
+        assert entry["default"] == 5
+
+    def test_unknown_param_no_default_no_sample_returns_none(self) -> None:
+        """Params with no default and no well-known entry should be filtered out."""
+        param = inspect.Parameter(
+            "offset_mapping", inspect.Parameter.KEYWORD_ONLY, default=inspect.Parameter.empty
+        )
+        entry = _build_param_entry("offset_mapping", param)
+        assert entry is None
+
+    def test_boolean_param_with_default(self) -> None:
+        """Boolean params should get type='boolean'."""
+        param = inspect.Parameter("do_sample", inspect.Parameter.KEYWORD_ONLY, default=False)
+        entry = _build_param_entry("do_sample", param)
+        assert entry is not None
+        assert entry["type"] == "boolean"
+        assert entry["default"] is False
+
+    def test_var_positional_and_var_keyword_are_skipped_upstream(self) -> None:
+        """_build_param_entry itself doesn't skip *args/**kwargs — that's the caller's job.
+        Verify that a normal KEYWORD_ONLY param IS returned."""
+        param = inspect.Parameter("threshold", inspect.Parameter.KEYWORD_ONLY, default=None)
+        entry = _build_param_entry("threshold", param)
+        assert entry is not None
+        assert entry["name"] == "threshold"
+
+
+# ---------------------------------------------------------------------------
+# _pick_sample_value
+# ---------------------------------------------------------------------------
+
+
+class TestPickSampleValue:
+    def test_actual_default_wins(self) -> None:
+        assert _pick_sample_value("top_k", "integer", 10) == "10"
+
+    def test_well_known_fallback(self) -> None:
+        assert _pick_sample_value("top_k", "integer", None) == "5"
+
+    def test_type_fallback(self) -> None:
+        assert _pick_sample_value("unknown_int", "integer", None) == "5"
+
+    def test_no_sample_for_unknown(self) -> None:
+        assert _pick_sample_value("unknown_thing", "any", None) is None
+
+
+# ---------------------------------------------------------------------------
+# _discover_pipeline_params_from_task (lightweight, no model load)
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverPipelineParamsFromTask:
+    def test_returns_list_for_known_task(self) -> None:
+        params = _discover_pipeline_params_from_task("text-classification")
+        assert isinstance(params, list)
+        names = {p["name"] for p in params}
+        assert "top_k" in names
+
+    def test_returns_empty_for_unknown_task(self) -> None:
+        assert _discover_pipeline_params_from_task("not-a-real-task") == []
+
+    def test_returns_empty_for_none(self) -> None:
+        assert _discover_pipeline_params_from_task(None) == []
+
+
+# ---------------------------------------------------------------------------
+# _accepted_pipeline_kwargs filtering
+# ---------------------------------------------------------------------------
+
+
+class TestAcceptedPipelineKwargs:
+    def test_filters_unknown_kwargs(self) -> None:
+        engine = InferenceEngine()
+        engine._pipeline_params = [{"name": "top_k"}, {"name": "threshold"}]
+        accepted = engine._accepted_pipeline_kwargs()
+        assert accepted == frozenset({"top_k", "threshold"})
+
+    def test_returns_none_when_no_params(self) -> None:
+        engine = InferenceEngine()
+        engine._pipeline_params = None
+        assert engine._accepted_pipeline_kwargs() is None
+
+
+# ---------------------------------------------------------------------------
+# _validate_inputs with explicit schema
+# ---------------------------------------------------------------------------
+
+
+class TestValidateInputsWithSchema:
+    def test_explicit_schema_overrides_self(self) -> None:
+        """When schema= is passed, it should be used instead of self._user_input_schema."""
+        engine = InferenceEngine()
+        # self._user_input_schema expects "image"
+        engine._user_input_schema = [
+            InputField(name="image", type="image", required=True),
+        ]
+        # Override schema expects "text"
+        override_schema = [
+            InputField(name="text", type="text", required=True),
+        ]
+        result = engine._validate_inputs({"text": "hello"}, schema=override_schema)
+        assert result == {"text": "hello"}
+
+    def test_explicit_none_skips_validation(self) -> None:
+        """schema=None should skip validation even when self has a schema."""
+        engine = InferenceEngine()
+        engine._user_input_schema = [
+            InputField(name="image", type="image", required=True),
+        ]
+        result = engine._validate_inputs({"anything": 123}, schema=None)
+        assert result == {"anything": 123}
+
+
+# ---------------------------------------------------------------------------
+# _prepare_pipeline_input with explicit schema/mapping
+# ---------------------------------------------------------------------------
+
+
+class TestPreparePipelineInputOverride:
+    def test_explicit_mapping_overrides_self(self) -> None:
+        engine = InferenceEngine()
+        engine._user_input_schema = None
+        engine._pipeline_mapping = None
+
+        override_schema = [
+            InputField(name="text_1", type="text", required=True),
+            InputField(name="text_2", type="text", required=True),
+        ]
+        override_mapping = PipelineMapping(pipe_input=["text_1", "text_2"], pipe_input_as_list=True)
+        inputs = {"text_1": "hello", "text_2": "world"}
+        result = engine._prepare_pipeline_input(
+            inputs,
+            {},
+            None,
+            schema=override_schema,
+            mapping=override_mapping,
+        )
+        assert result == ["hello", "world"]
+
+    def test_none_mapping_returns_inputs_as_is(self) -> None:
+        engine = InferenceEngine()
+        engine._pipeline_mapping = PipelineMapping(pipe_input="x")
+        inputs = {"x": 1}
+        result = engine._prepare_pipeline_input(inputs, {}, None, mapping=None)
+        assert result == {"x": 1}
+
+
+# ---------------------------------------------------------------------------
+# _normalize_pipeline_output with task override
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizePipelineOutputTask:
+    def test_task_parameter_selects_postprocess(self) -> None:
+        """Task param should look up postprocess from TASK_REGISTRY."""
+        engine = InferenceEngine()
+        engine._task = "feature-extraction"
+        # Use a mock pipeline without a tokenizer so that
+        # _postprocess_sentence_similarity skips the masking path.
+        engine._pipeline = MagicMock(spec=[])
+
+        raw = [[1.0, 2.0], [3.0, 4.0]]
+        result = engine._normalize_pipeline_output(
+            raw,
+            inputs={"text_1": "a", "text_2": "b"},
+            task="sentence-similarity",
+        )
+        # sentence-similarity postprocess returns [Prediction(label="similarity", ...)]
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].label == "similarity"
+
+    def test_default_task_from_self(self) -> None:
+        """When task is not passed, self._task should be used."""
+        engine = InferenceEngine()
+        engine._task = None
+        # Raw classification-like output
+        raw = [{"label": "cat", "score": 0.95}]
+        result = engine._normalize_pipeline_output(raw)
+        assert isinstance(result, list)
+        assert result[0].label == "cat"
+
+
+# ---------------------------------------------------------------------------
+# predict() with task override — thread-safety via local variables
+# ---------------------------------------------------------------------------
+
+
+class TestPredictTaskOverride:
+    def _make_loaded_engine(self) -> InferenceEngine:
+        engine = InferenceEngine()
+        model = MagicMock()
+        model._session._ep = "CPUExecutionProvider"
+        engine._model = model
+        pipe = MagicMock(return_value=[{"label": "cat", "score": 0.9}])
+        # Remove auto-created tokenizer so postprocess callbacks that
+        # probe getattr(pipeline, "tokenizer", None) get None.
+        del pipe.tokenizer
+        engine._pipeline = pipe
+        engine._task = "image-classification"
+        engine._user_input_schema = TASK_REGISTRY["image-classification"].user_inputs
+        engine._pipeline_mapping = TASK_REGISTRY["image-classification"].mapping
+        engine._pipeline_params = [{"name": "top_k"}]
+        engine._device = "cpu"
+        engine._ep = None
+        engine._model_id = "test/model"
+        return engine
+
+    def test_task_override_does_not_mutate_self(self) -> None:
+        """predict(task=X) must NOT mutate self._task, self._user_input_schema, etc."""
+        engine = self._make_loaded_engine()
+        original_task = engine._task
+        original_schema = engine._user_input_schema
+        original_mapping = engine._pipeline_mapping
+
+        # Override: feature-extraction pipeline returns nested list
+        engine._pipeline.return_value = [[[0.1, 0.2]], [[0.3, 0.4]]]
+        result = engine.predict(
+            inputs={"text_1": "hello", "text_2": "world"},
+            task="sentence-similarity",
+        )
+
+        assert result.task == "sentence-similarity"
+        # Self state must be unchanged
+        assert engine._task == original_task
+        assert engine._user_input_schema is original_schema
+        assert engine._pipeline_mapping is original_mapping
+
+    def test_predict_without_override_uses_self_task(self) -> None:
+        engine = self._make_loaded_engine()
+        # Switch to a text task to avoid needing a real image file
+        engine._task = "text-classification"
+        engine._user_input_schema = TASK_REGISTRY["text-classification"].user_inputs
+        engine._pipeline_mapping = TASK_REGISTRY["text-classification"].mapping
+        engine._pipeline.return_value = [{"label": "pos", "score": 0.9}]
+        result = engine.predict(inputs={"text": "hello"})
+        assert result.task == "text-classification"
+
+
+# ---------------------------------------------------------------------------
+# load_schema_only
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSchemaOnly:
+    def test_onnx_file_sets_model_id(self, tmp_path: Any) -> None:
+        """load_schema_only for .onnx files should set _model_id."""
+        onnx_path = tmp_path / "model.onnx"
+        onnx_path.write_bytes(b"fake-onnx")
+        engine = InferenceEngine()
+        engine.load_schema_only(onnx_path, task="image-classification")
+        assert engine._model_id == str(onnx_path)
+        assert engine._task == "image-classification"
+        assert engine._user_input_schema is not None
+
+    def test_build_dir_reads_manifest(self, tmp_path: Any) -> None:
+        """load_schema_only for build dirs should read task from manifest."""
+        import json
+
+        manifest = {"model_id": "test/model", "task": "text-classification"}
+        (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
+        engine = InferenceEngine()
+        engine.load_schema_only(tmp_path)
+        assert engine._task == "text-classification"
+        assert engine._model_id == "test/model"
+        assert engine._user_input_schema is not None
+
+    def test_task_param_overrides_manifest(self, tmp_path: Any) -> None:
+        """Explicit task= should override the manifest task."""
+        import json
+
+        manifest = {"model_id": "test/model", "task": "text-classification"}
+        (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
+        engine = InferenceEngine()
+        engine.load_schema_only(tmp_path, task="image-classification")
+        assert engine._task == "image-classification"
