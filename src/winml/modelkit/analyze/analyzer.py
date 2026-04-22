@@ -395,7 +395,10 @@ class AnalysisResult:
                     continue
 
                 if action_item.optimization_options:
-                    optim_options.update(action_item.optimization_options)
+                    # Normalize kebab-case keys to snake_case (python_name)
+                    # so they match the capability system's python_name format.
+                    for key, value in action_item.optimization_options.items():
+                        optim_options[key.replace("-", "_")] = value
 
         # Create and return config from collected options
         return WinMLOptimizationConfig(**optim_options)
@@ -673,9 +676,16 @@ class ONNXStaticAnalyzer:
         else:
             eps_to_analyze = [ep_normalized]
 
-        # Use default device if not specified
-        device_to_use = device if device is not None else "NPU"
-        logger.info("Using device: %s", device_to_use)
+        # Resolve device — rule files are device-specific (CPU/GPU/NPU).
+        if device is not None and device.lower() == "auto":
+            from ..sysinfo import resolve_device
+
+            resolved, _ = resolve_device("auto")
+            device_to_use = resolved.upper()
+            logger.info("Device 'auto' resolved to: %s", device_to_use)
+        else:
+            device_to_use = device if device is not None else "NPU"
+            logger.info("Using device: %s", device_to_use)
 
         # Step 1: Create ONNXModel and extract patterns (once)
         logger.info("Loading model and extracting patterns...")

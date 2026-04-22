@@ -50,15 +50,21 @@ class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
 
         return [
             SchemaColumn(
-                "sentence1", "Value(string)", "input_column_1",
+                "sentence1",
+                "Value(string)",
+                "input_column_1",
                 description="first sentence of the pair",
             ),
             SchemaColumn(
-                "sentence2", "Value(string)", "input_column_2",
+                "sentence2",
+                "Value(string)",
+                "input_column_2",
                 description="second sentence of the pair",
             ),
             SchemaColumn(
-                "score", "Value(float64)", "score_column",
+                "score",
+                "Value(float64)",
+                "score_column",
                 description="ground-truth similarity score (e.g. [0, 5] for STS-B)",
             ),
         ]
@@ -129,6 +135,8 @@ class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
         (e.g. 512): without masking, 98%+ of the mean is over padding embeddings.
         Falls back to simple mean when no tokenizer is available.
         """
+        from ..inference.tasks import _masked_mean_pool
+
         raw = self.pipe(text)  # [[[float, ...]]]
         token_embeddings = np.array(raw[0])  # [seq_len, hidden_dim]
 
@@ -142,7 +150,6 @@ class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
                 truncation=params.get("truncation", False),
                 return_tensors="np",
             )
-            mask = enc["attention_mask"][0].astype(float)  # [seq_len]
-            return (token_embeddings * mask[:, None]).sum(0) / mask.sum()
+            return _masked_mean_pool(token_embeddings, enc["attention_mask"][0])
 
-        return token_embeddings.mean(axis=0)  # [hidden_dim]
+        return _masked_mean_pool(token_embeddings)

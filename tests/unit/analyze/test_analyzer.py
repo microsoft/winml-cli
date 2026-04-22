@@ -658,6 +658,69 @@ class TestAnalysisResult:
         # Should accept any custom option
         assert config.get("custom_fusion", False) is True
 
+    def test_get_optimization_config_normalizes_kebab_case(
+        self, mock_output: AnalysisOutput
+    ) -> None:
+        """Test get_optimization_config normalizes kebab-case keys to snake_case."""
+        rtr_action = Action(
+            pattern_from_id="SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+            pattern_to_id="SUBGRAPH/ReshapeTransposeReshapeLowDimPattern",
+            details="RTR optimization",
+            action_items=[
+                ActionItem(
+                    type="GraphOptimization",
+                    optimization_options={"highdimRTR-lowdimRTR": True},
+                )
+            ],
+        )
+        mock_output.results[0].information = [
+            Information(
+                pattern_id="SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+                explanation="RTR pattern detected",
+                actions=[rtr_action],
+            )
+        ]
+
+        result = AnalysisResult(output=mock_output)
+        config = result.get_optimization_config()
+
+        # Kebab-case key should be normalized to underscore
+        assert config.get("highdimRTR_lowdimRTR", False) is True
+        # Original kebab-case key should NOT be present
+        assert "highdimRTR-lowdimRTR" not in config
+
+    def test_get_optimization_config_mixed_kebab_and_snake(
+        self, mock_output: AnalysisOutput
+    ) -> None:
+        """Test get_optimization_config handles mix of kebab-case and snake_case keys."""
+        action = Action(
+            pattern_from_id="SUBGRAPH/TestPattern",
+            pattern_to_id="OP/Test",
+            details="Mixed key test",
+            action_items=[
+                ActionItem(
+                    type="GraphOptimization",
+                    optimization_options={
+                        "already_snake": True,
+                        "kebab-style-key": True,
+                    },
+                )
+            ],
+        )
+        mock_output.results[0].information = [
+            Information(
+                pattern_id="SUBGRAPH/TestPattern",
+                explanation="Test",
+                actions=[action],
+            )
+        ]
+
+        result = AnalysisResult(output=mock_output)
+        config = result.get_optimization_config()
+
+        assert config.get("already_snake", False) is True
+        assert config.get("kebab_style_key", False) is True
+
 
 class TestONNXStaticAnalyzer:
     """Tests for ONNXStaticAnalyzer."""

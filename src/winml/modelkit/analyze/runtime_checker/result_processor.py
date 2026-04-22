@@ -701,6 +701,10 @@ if __name__ == "__main__":
                 print(f"{Fore.YELLOW}SKIPPED: File not found. {Style.RESET_ALL}")
                 continue
 
+            if json_file.stat().st_size == 0:
+                print(f"{Fore.YELLOW}SKIPPED: Empty JSON file. {Style.RESET_ALL}")
+                continue
+
             try:
                 with open(json_file, encoding="utf-8") as f:  # noqa: PTH123
                     data = json.load(f)
@@ -719,7 +723,7 @@ if __name__ == "__main__":
                 domain = ONNXDomain.from_str(op_domain)
                 try:
                     schema = domain.get_op_schema(op_name, opset_version)
-                    input_generator = get_runtime_checker_op(op_name)(
+                    input_generator = get_runtime_checker_op(op_name, domain=op_domain)(
                         schema, qdq_generator=qdq_generator if is_qdq else None
                     )
                 except SchemaError:

@@ -262,10 +262,15 @@ class ConvOpInputGenerator(ConvInputGenerator):
     def get_qdq_config(self):
         """Return QDQ configuration for Conv operator inputs."""
         # B/Y can be non-QDQ from P1 models
+        # TODO: INT8 bias is a workaround — P1 models observed with INT8-quantized
+        # bias; revisit once EP-level INT8 bias support is confirmed/rejected.
         return {
             "X": QDQParameterConfig(support_activation=True),
             "W": QDQParameterConfig(support_weight=True),
-            "B": QDQParameterConfig(support_non_qdq=True, qdq_types=[SupportedONNXType.INT32]),
+            "B": QDQParameterConfig(
+                support_non_qdq=True,
+                qdq_types=[SupportedONNXType.INT32, SupportedONNXType.INT8],
+            ),
             "Y": QDQParameterConfig(support_non_qdq=True, support_activation=True),
         }
 
