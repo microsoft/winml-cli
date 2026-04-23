@@ -150,6 +150,21 @@ class ResizeInputGenerator(OpInputGenerator):
                 }
             )
 
+            # p1 model - segmentation with sizes (pytorch_half_pixel + linear + sizes)
+            combinations.append(
+                {
+                    "coordinate_transformation_mode": "pytorch_half_pixel",
+                    "cubic_coeff_a": -0.75,
+                    "mode": "linear",
+                    "nearest_mode": "floor",
+                    "X": InputShapeConstraint(x_shape),
+                    "roi": InputValueConstraint(np.zeros(2 * ndim, dtype=np.float32)),
+                    "sizes": InputValueConstraint(np.array(target_sizes, dtype=np.int64)),
+                    "extrapolation_value": 0.0,
+                    "axes": list(range(ndim)),
+                }
+            )
+
             # Combination using sizes (halve spatial dimensions) - empty scales
             target_sizes_half = list(x_shape)
             if ndim >= 3:

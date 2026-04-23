@@ -1138,9 +1138,9 @@ class TestIterQDQCombinations:
             ("Reshape", 36 * 4 * 2 * 2),  # allowzero 2 * is_constant 2
             (
                 "Resize",
-                3456,
+                4032,
             ),  # shape 4 * T2 3 * QDQ 4 * antialias 2
-            # * attribute 6 * (optional input 4 + 2)
+            # * attribute 7 * (optional input 4 + 2)
             (
                 "ScatterND",
                 1680,
