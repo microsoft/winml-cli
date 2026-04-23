@@ -385,12 +385,7 @@ class PastKeyValueInputGenerator(DummyInputGenerator):
         self.batch_size = batch_size
         self.num_layers: int = normalized_config.num_layers
         self.num_heads: int = normalized_config.num_attention_heads
-        # head_dim: prefer explicit config attr (T5's d_kv, Qwen's head_dim),
-        # otherwise derive from hidden_size / num_attention_heads (Marian, BART).
-        try:
-            self.head_dim: int = normalized_config.head_dim
-        except AttributeError:
-            self.head_dim = normalized_config.hidden_size // normalized_config.num_attention_heads
+        self.head_dim: int = normalized_config.head_dim
         self.max_cache_len: int = max_cache_len or normalized_config.max_cache_len
         self.SUPPORTED_INPUT_NAMES = tuple(
             name for i in range(self.num_layers) for name in (f"past_{i}_key", f"past_{i}_value")

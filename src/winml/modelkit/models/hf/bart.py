@@ -388,6 +388,24 @@ class BartEncoderIOConfig(OnnxConfig):
         }
 
 
+class _BartDecoderNormalizedConfig(NormalizedConfig):
+    """NormalizedConfig for BART decoder-side export.
+
+    Maps NormalizedConfig attributes to BartConfig's decoder-side attrs.
+    ``head_dim`` is derived — BartConfig has no such attr natively.
+    """
+
+    VOCAB_SIZE = "vocab_size"
+    HIDDEN_SIZE = "d_model"
+    NUM_LAYERS = "decoder_layers"
+    NUM_ATTENTION_HEADS = "decoder_attention_heads"
+    MAX_CACHE_LEN = "max_position_embeddings"
+
+    @property
+    def head_dim(self) -> int:
+        return self.hidden_size // self.num_attention_heads
+
+
 @register_onnx_overwrite("bart", "text2text-generation", library_name="transformers")
 class BartDecoderIOConfig(OnnxConfig):
     """ONNX config for BART decoder with sliding-window KV cache.
@@ -406,18 +424,7 @@ class BartDecoderIOConfig(OnnxConfig):
     Output present KV: new token only ``[batch, heads, 1, d_kv]``.
     """
 
-    # BartConfig: d_model, decoder_layers, decoder_attention_heads,
-    # vocab_size, max_position_embeddings.  head_dim = d_model / decoder_attention_heads
-    # is derived by PastKeyValueInputGenerator (no ``head_dim`` attr on BartConfig).
-    # max_cache_len defaults to max_position_embeddings (e.g., 1024 for bart-large).
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        hidden_size="d_model",
-        num_layers="decoder_layers",
-        num_attention_heads="decoder_attention_heads",
-        max_cache_len="max_position_embeddings",
-        vocab_size="vocab_size",
-        allow_new=True,
-    )
+    NORMALIZED_CONFIG_CLASS = _BartDecoderNormalizedConfig
     DUMMY_INPUT_GENERATOR_CLASSES = (
         EncoderDecoderInputGenerator,
         PastKeyValueInputGenerator,
