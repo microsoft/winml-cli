@@ -49,6 +49,8 @@ from .base import PreTrainedModel
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from transformers import PretrainedConfig
 
 logger = logging.getLogger(__name__)
@@ -191,7 +193,7 @@ class WinMLCompositeModel(PreTrainedModel):
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: dict[str, str],
+        onnx_path: dict[str, str | Path],
         *,
         task: str | None = None,
         hf_config: PretrainedConfig | None = None,
@@ -206,7 +208,9 @@ class WinMLCompositeModel(PreTrainedModel):
 
         Args:
             onnx_path: Maps component name (e.g., ``"encoder"``,
-                ``"decoder_prefill"``) to its ONNX file path.
+                ``"decoder_prefill"``) to its ONNX file path. Values may
+                be ``str`` or ``pathlib.Path``; coerced via ``Path(path)``
+                inside the dispatch loop.
             task: Pipeline task (e.g., ``"translation"``,
                 ``"text-generation"``).
             hf_config: HF ``PretrainedConfig`` for the model. Used to
