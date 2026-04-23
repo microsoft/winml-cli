@@ -481,6 +481,98 @@ def _normalize_type_var_annotation(type_value: str) -> str:
         return SupportedONNXType.normalize_annotation(type_value)
 
 
+# Query conditions are later normalized with make_hashable, which materializes
+# numpy arrays. Keep external initializer loading bounded until the broader
+# condition pipeline can stay lazy end-to-end.
+MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY = 1024 * 1024
+
+
+def _get_external_tensor_info(tensor: onnx.TensorProto) -> tuple[str | None, int, int | None]:
+    """Extract location, offset, and length metadata for an external tensor."""
+    info = {entry.key: entry.value for entry in tensor.external_data}
+    location = info.get("location")
+    offset = int(info.get("offset", "0"))
+    length = int(info["length"]) if "length" in info else None
+    return location, offset, length
+
+
+def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
+    """Convert a TensorProto dtype enum to a numpy dtype."""
+    try:
+        from onnx.helper import tensor_dtype_to_np_dtype as onnx_tensor_dtype_to_np_dtype
+    except ImportError:
+        from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
+
+        return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type])
+
+    return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
+
+
+def _try_load_external_initializer_array(
+    tensor: onnx.TensorProto,
+    model_path: str | Path | None,
+) -> np.ndarray | None:
+    """Load a small external initializer from disk for runtime-query conditions.
+
+    Returns None when the model path is unavailable, metadata is incomplete,
+    the sidecar file is missing, or the tensor is too large for the current
+    hash-based condition pipeline.
+    """
+    if tensor.data_location != onnx.TensorProto.EXTERNAL or model_path is None:
+        return None
+
+    location, offset, length = _get_external_tensor_info(tensor)
+    if location is None:
+        return None
+
+    model_path = Path(model_path)
+    data_path = Path(location)
+    if not data_path.is_absolute():
+        data_path = model_path.parent / data_path
+    if not data_path.exists():
+        return None
+
+    try:
+        np_dtype = _tensor_proto_dtype_to_np_dtype(tensor.data_type)
+        shape = tuple(tensor.dims)
+        numel = int(np.prod(shape)) if shape else 1
+        expected_bytes = numel * np_dtype.itemsize
+        if length is not None and length < expected_bytes:
+            logger.debug(
+                "External initializer %s length %s is smaller than expected %s",
+                tensor.name,
+                length,
+                expected_bytes,
+            )
+            return None
+        if expected_bytes > MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY:
+            logger.debug(
+                "Skipping external initializer %s for query conditions because %s bytes exceeds %s",
+                tensor.name,
+                expected_bytes,
+                MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY,
+            )
+            return None
+
+        arr = np.memmap(
+            data_path,
+            dtype=np_dtype,
+            mode="r",
+            offset=offset,
+            shape=(numel,),
+            order="C",
+        )
+        return arr.reshape(shape)
+    except Exception as e:
+        logger.debug(
+            "Failed to read external initializer %s from %s: %s",
+            tensor.name,
+            data_path,
+            e,
+        )
+        return None
+
+
 def _get_pattern_type_var_conditions(
     pattern_match: PatternMatchResult,
     gen: Any,
@@ -601,6 +693,7 @@ def get_query_conditions_for_node(
     domain: ONNXDomain,
     input_to_dq: dict[str, QDQTypeInfo],
     output_to_q: dict[str, QDQTypeInfo],
+    model_path: str | Path | None = None,
     dynamic_axis_strict_mode: bool = False,
 ) -> tuple[dict[str, Any], list[str], bool]:
     """Extract query conditions for runtime checking of an ONNX node.
@@ -614,6 +707,7 @@ def get_query_conditions_for_node(
         domain: ONNX domain of the node.
         input_to_dq: Maps DQ output name -> QDQTypeInfo (for nodes consuming DQ outputs).
         output_to_q: Maps Q input name -> QDQTypeInfo (for nodes producing Q inputs).
+        model_path: Path to the source ONNX model when external data may need to be resolved.
         dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
             for matching against first_axis test data. If True, preserves exact indices.
 
@@ -703,8 +797,8 @@ def get_query_conditions_for_node(
         input_name: str,
         is_variadic: bool,
         is_constant: bool,
-        shape: tuple | None = None,
-        value: tuple | None = None,
+        shape: tuple | list | None = None,
+        value: Any = None,
     ):
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
@@ -776,10 +870,27 @@ def get_query_conditions_for_node(
         if inp_name in initializers:
             init = initializers[inp_name]
             # External data initializers (large weights) may not have data loaded;
-            # fall back to shape from dims and value=None so analysis can proceed.
+            # keep the known shape but treat them as non-constant when the payload
+            # is unavailable so downstream rules do not assume *_value is usable.
+            # External-data tensors keep their payload out-of-line, so the typed
+            # TensorProto data fields should also be empty; raw_data is therefore
+            # the relevant signal for whether bytes were loaded into this proto.
+            external_arr = None
             if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
-                shape = tuple(init.dims) if init.dims is not None else None
-                update_conditions_(conditions, input_name, is_variadic, True, shape, None)
+                external_arr = _try_load_external_initializer_array(init, model_path)
+
+                if external_arr is not None:
+                    update_conditions_(
+                        conditions,
+                        input_name,
+                        is_variadic,
+                        True,
+                        external_arr.shape,
+                        external_arr,
+                    )
+                else:
+                    shape = tuple(init.dims) if init.dims is not None else None
+                    update_conditions_(conditions, input_name, is_variadic, False, shape, None)
             else:
                 arr = numpy_helper.to_array(init)
                 update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
@@ -956,6 +1067,7 @@ class RuntimeCheckerQuery:
         model_proto: onnx.ModelProto,
         ep_name: str,
         device_type: str,
+        model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
     ) -> None:
         """Initialize runtime checker query.
@@ -964,11 +1076,13 @@ class RuntimeCheckerQuery:
             model_proto: ONNX model proto
             ep_name: Execution provider name
             device_type: Device type (e.g., "CPU", "GPU", "NPU")
+            model_path: Path to the source ONNX model for resolving external data.
             dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
         """
         self.dynamic_axis_strict_mode = dynamic_axis_strict_mode
+        self.model_path = Path(model_path) if model_path is not None else None
         # Try shape inference: standard ONNX first, then symbolic (onnxruntime)
         try:
             # Standard ONNX shape inference — uses temp file for models
@@ -1316,12 +1430,18 @@ class RuntimeCheckerQuery:
 
             vi = self.valueinfo.get(inp_name)
             if vi is None:
-                raise ValueError(
-                    f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
-                    f"not found in valueinfo"
-                )
+                init = self.initializers.get(inp_name)
+                if init is not None and init.data_location == onnx.TensorProto.EXTERNAL:
+                    shape = tuple(init.dims)
+                    dtype_str = dtype_from_tensorproto_enum(init.data_type)
+                else:
+                    raise ValueError(
+                        f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
+                        f"not found in valueinfo"
+                    )
+            else:
+                shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
 
-            shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
             if dtype_str is None:
                 raise ValueError(
                     f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
@@ -1809,6 +1929,7 @@ class RuntimeCheckerQuery:
                 op_domain,
                 self.input_to_dq_type,
                 self.output_to_q_type,
+                model_path=self.model_path,
                 dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
             )
         except (
