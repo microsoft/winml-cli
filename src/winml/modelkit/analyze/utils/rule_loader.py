@@ -80,7 +80,7 @@ def _ensure_rules_dir_expanded_once(rules_dir: Path) -> None:
             return
 
         logger.info(
-            "!!! [RULES INIT] Runtime rules in directory %s need initialization; initializing now.",
+            "!!! [RULES INIT] One-time runtime rules initialization is required for %s; initializing now (may take up to 30 minutes).",
             resolved_dir,
         )
         expand_rules_zip_dir(resolved_dir)
@@ -129,7 +129,8 @@ def resolve_rule_zip_path(zip_filename: str) -> Path:
         Resolved ``Path`` to the zip file.
     """
     for search_dir in get_runtime_rules_search_dirs():
-        _ensure_rules_dir_expanded_once(search_dir)
+        # Disabled by default: one-time rules initialization can be expensive.
+        # _ensure_rules_dir_expanded_once(search_dir)
         candidate = search_dir / zip_filename
         if candidate.exists():
             return candidate
