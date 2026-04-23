@@ -26,3 +26,14 @@ CLAMP_CONSTANT_VALUES = BoolCapability(
     category=CapabilityCategory.SURGERY,
     default=False,
 )
+
+# Remove Softmax -> IsNaN -> Where NaN guard patterns in attention.
+# These guards are dead code when clamp_constant_values replaces -inf
+# with a finite value (Softmax never produces NaN).
+REMOVE_ISNAN_IN_ATTENTION_MASK = BoolCapability(
+    name="remove-isnan-in-attention-mask",
+    ort_name=None,  # Custom implementation, not ORT optimizer
+    description="Remove Softmax->IsNaN->Where NaN guard patterns in attention",
+    category=CapabilityCategory.SURGERY,
+    default=False,
+)
