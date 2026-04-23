@@ -1218,9 +1218,11 @@ class RuntimeCheckerQuery:
                     if vi is not None:
                         graph_inputs.append(vi)
                     else:
+                        # init.dims is a protobuf repeated field (always a sequence, never None).
+                        # For external-data initializers the dims metadata is always present.
                         graph_inputs.append(
                             onnx.helper.make_tensor_value_info(
-                                inp_name, init.data_type, list(init.dims) if init.dims is not None else None
+                                inp_name, init.data_type, list(init.dims)
                             )
                         )
                 else:
@@ -1301,8 +1303,15 @@ class RuntimeCheckerQuery:
         for inp_name in node.input:
             if not inp_name:
                 continue
-            # Skip initializers and constants - they are embedded in the model
-            if inp_name in self.initializers or inp_name in self.constants:
+            # Skip initializers and constants - they are embedded in the model.
+            # Exception: external-data initializers without loaded raw_data are
+            # converted to graph inputs by _build_single_node_model, so we must
+            # generate dummy data for them.
+            if inp_name in self.initializers:
+                init = self.initializers[inp_name]
+                if not (init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data):
+                    continue
+            elif inp_name in self.constants:
                 continue
 
             vi = self.valueinfo.get(inp_name)
