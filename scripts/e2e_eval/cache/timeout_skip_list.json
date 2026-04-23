@@ -30,21 +30,6 @@
     "reason": "Build hangs >14000s, m2m_100 enc-dec export issue"
   },
   {
-    "hf_id": "google-t5/t5-3b",
-    "task": "translation",
-    "reason": "Build hangs >14000s, t5 enc-dec + network download issue"
-  },
-  {
-    "hf_id": "google-t5/t5-base",
-    "task": "summarization",
-    "reason": "Build hangs >2000s, t5 enc-dec export issue"
-  },
-  {
-    "hf_id": "google-t5/t5-small",
-    "task": "translation",
-    "reason": "Build hangs >8000s, t5 enc-dec export issue"
-  },
-  {
     "hf_id": "knkarthick/MEETING_SUMMARY",
     "task": "summarization",
     "reason": "Build hangs >3000s, bart enc-dec export issue"
@@ -58,5 +43,25 @@
     "hf_id": "philschmid/bart-large-cnn-samsum",
     "task": "summarization",
     "reason": "Build hangs >10000s, bart enc-dec export issue"
+  },
+  {
+    "hf_id": "apple/DepthPro-hf",
+    "task": "depth-estimation",
+    "reason": "OOM in quantization (model too large for in-process quantize)"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-0.6B",
+    "task": "text-generation",
+    "reason": "OOM in quantization (segfault during quantize, 2.9GB model)"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-1.7B",
+    "task": "text-generation",
+    "reason": "OOM in quantization (model too large for in-process quantize)"
+  },
+  {
+    "hf_id": "Qwen/Qwen3-8B",
+    "task": "text-generation",
+    "reason": "OOM in quantization (model too large for in-process quantize)"
   }
 ]
