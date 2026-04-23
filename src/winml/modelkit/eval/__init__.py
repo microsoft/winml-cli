@@ -13,6 +13,7 @@ from .config import WinMLEvaluationConfig
 from .evaluate import EvalResult, evaluate
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
+from .metrics.classification import ClassificationMetric
 from .metrics.mean_average_precision import MAPMetric
 from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
 from .metrics.spearman_correlation import SpearmanCorrelationMetric
@@ -20,10 +21,12 @@ from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
 
 
 __all__ = [
     "IGNORE_INDEX",
+    "ClassificationMetric",
     "EvalResult",
     "MAPMetric",
     "MeanIoUMetric",
@@ -36,5 +39,6 @@ __all__ = [
     "WinMLQuestionAnsweringEvaluator",
     "WinMLTextClassificationEvaluator",
     "WinMLTokenClassificationEvaluator",
+    "WinMLZeroShotClassificationEvaluator",
     "evaluate",
 ]

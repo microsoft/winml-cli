@@ -1014,5 +1014,21 @@
         "label_column": "answers"
       }
     }
+  },
+  {
+    "hf_id": "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "text",
+        "label_column": "label"
+      }
+    }
   }
 ]
