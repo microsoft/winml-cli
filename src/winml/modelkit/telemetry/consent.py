@@ -38,11 +38,30 @@ def _resolve_user_home() -> str:
 
 _CONFIG_PATH: Path = Path(_resolve_user_home()) / ".modelkit" / "config.json"
 
-# Bumped when the consent notice materially changes (new data category,
-# changed scope). Stored records with an older version are treated as
-# unrecorded on read so the user sees the updated notice and re-consents.
-# Records predating this field are grandfathered as the current version.
+# Consent notice version + text are a pair: bump the version whenever
+# _PROMPT_TEXT's scope materially changes (new data category, widened
+# scope). The prompt always describes the full current scope - it is
+# NOT a delta vs. prior versions - so whatever vN's text lists is
+# exactly what the user consents to when they answer. On a bump,
+# stored records with an older version are treated as unrecorded on
+# read so the user sees the updated notice and re-consents. Records
+# predating the version field are grandfathered as the current version.
 _CONSENT_VERSION: int = 1
+
+_PROMPT_TEXT = """\
+ModelKit can collect anonymous usage data to help improve the product.
+
+What is collected:
+  - Command name, duration, success/failure
+  - Target device/EP (when the command specifies them)
+  - OS, architecture, ModelKit version
+  - Unhandled exception types, code locations, and scrubbed error
+    messages (paths trimmed, length capped, PII patterns scrubbed)
+
+What is never collected:
+  - File paths, model contents, command arguments, credentials
+
+Enable telemetry? [Y/n]: """
 
 _CI_ENV_VARS = (
     "CI",
@@ -133,22 +152,6 @@ def _write_stored_consent(value: Consent) -> None:
             # read-only volume. The real failure is re-raised below.
             pass
         raise
-
-
-_PROMPT_TEXT = """\
-ModelKit can collect anonymous usage data to help improve the product.
-
-What is collected:
-  - Command name, duration, success/failure
-  - Target device/EP (when the command specifies them)
-  - OS, architecture, ModelKit version
-  - Unhandled exception types, code locations, and scrubbed error
-    messages (paths trimmed, length capped, PII patterns scrubbed)
-
-What is never collected:
-  - File paths, model contents, command arguments, credentials
-
-Enable telemetry? [Y/n]: """
 
 
 def _prompt_for_consent() -> Consent:
