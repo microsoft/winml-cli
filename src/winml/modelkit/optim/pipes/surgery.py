@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 SURGERY_CAPABILITIES: dict[str, Any] = caps_dict(
     surgery.CLAMP_CONSTANT_VALUES,
+    surgery.REMOVE_ISNAN_IN_ATTENTION_MASK,
 )
 
 
@@ -53,12 +54,16 @@ class SurgeryPipeConfig(PipeConfig):
         clamp_constant_values: Whether to clamp extreme float constants
         clamp_min: Minimum value for constant clamping (default: -1e3)
         clamp_max: Maximum value for constant clamping (default: 1e3)
+        fix_nan_attention_mask: Replace -inf attention mask with finite value
+            and remove Softmax->IsNaN->Where NaN guard patterns
+        mask_value: Replacement value for -inf (default: -1e3)
         verbose: Enable verbose logging
     """
 
     clamp_constant_values: bool = False
     clamp_min: float = -1e3
     clamp_max: float = 1e3
+    remove_isnan_in_attention_mask: bool = False
     verbose: bool = False
 
 
@@ -90,6 +95,7 @@ class SurgeryPipe(BasePipe):
                 - clamp_constant_values: Enable/disable constant clamping
                 - clamp_min: Minimum value for clamping (default: -1e3)
                 - clamp_max: Maximum value for clamping (default: 1e3)
+                - remove_isnan_in_attention_mask: Remove IsNaN guard patterns
                 - verbose: Enable verbose logging
 
         Returns:
@@ -99,6 +105,7 @@ class SurgeryPipe(BasePipe):
             clamp_constant_values=kwargs.get("clamp_constant_values", False),
             clamp_min=kwargs.get("clamp_min", -1e3),
             clamp_max=kwargs.get("clamp_max", 1e3),
+            remove_isnan_in_attention_mask=kwargs.get("remove_isnan_in_attention_mask", False),
             verbose=kwargs.get("verbose", False),
         )
 
@@ -112,7 +119,7 @@ class SurgeryPipe(BasePipe):
         Returns:
             True if any surgery operation is enabled
         """
-        return config.clamp_constant_values
+        return config.clamp_constant_values or config.remove_isnan_in_attention_mask
 
     def process(self, model: onnx.ModelProto, config: SurgeryPipeConfig) -> onnx.ModelProto:
         """Apply surgery operations to the model.
@@ -138,6 +145,9 @@ class SurgeryPipe(BasePipe):
             model_copy = self._clamp_constant_values(
                 model_copy, config.clamp_min, config.clamp_max, config.verbose
             )
+
+        if config.remove_isnan_in_attention_mask:
+            model_copy = self._remove_isnan_in_attention_mask(model_copy, config.verbose)
 
         return model_copy
 
@@ -217,5 +227,95 @@ class SurgeryPipe(BasePipe):
             )
             if verbose:
                 logger.debug("Clamped tensors: %s", clamped_tensors)
+
+        return model
+
+    # -----------------------------------------------------------------
+    # remove-isnan-in-attention-mask
+    # -----------------------------------------------------------------
+
+    def _remove_isnan_in_attention_mask(
+        self,
+        model: onnx.ModelProto,
+        verbose: bool = False,
+    ) -> onnx.ModelProto:
+        """Remove Softmax → IsNaN → Where NaN guard patterns in attention.
+
+        Pattern: Softmax → IsNaN → Where(isnan, 0, softmax_out)
+        Remove IsNaN + guard Where, use Softmax output directly.
+
+        These guards are dead code when clamp_constant_values has already
+        replaced -inf with a finite value (Softmax never produces NaN).
+
+        Args:
+            model: ONNX model (modified in place).
+            verbose: Log details about each removal.
+
+        Returns:
+            Model with IsNaN guard patterns removed.
+        """
+        guard_count = 0
+
+        # Build output→node map
+        output_to_node: dict[str, onnx.NodeProto] = {}
+        for node in model.graph.node:
+            for out in node.output:
+                output_to_node[out] = node
+
+        nodes_to_remove: list[onnx.NodeProto] = []
+        rewire_map: dict[str, str] = {}
+
+        for node in list(model.graph.node):
+            if node.op_type != "IsNaN":
+                continue
+            producer = output_to_node.get(node.input[0])
+            if producer is None or producer.op_type != "Softmax":
+                continue
+            softmax_out = producer.output[0]
+            isnan_out = node.output[0]
+
+            # Find guard Where consuming IsNaN output
+            guard_wheres = [
+                n for n in model.graph.node if n.op_type == "Where" and isnan_out in n.input
+            ]
+            if len(guard_wheres) != 1:
+                continue
+            guard_where = guard_wheres[0]
+            if softmax_out not in guard_where.input:
+                continue
+
+            guard_out = guard_where.output[0]
+            nodes_to_remove.extend([node, guard_where])
+            rewire_map[guard_out] = softmax_out
+            guard_count += 1
+            if verbose:
+                logger.info(
+                    "  remove-isnan: remove %s + %s, rewire %s -> %s",
+                    node.name,
+                    guard_where.name,
+                    guard_out,
+                    softmax_out,
+                )
+
+        # Apply rewiring
+        for node in model.graph.node:
+            for i, inp in enumerate(node.input):
+                if inp in rewire_map:
+                    node.input[i] = rewire_map[inp]
+        for out in model.graph.output:
+            if out.name in rewire_map:
+                out.name = rewire_map[out.name]
+
+        # Remove dead nodes
+        remove_ids = {id(n) for n in nodes_to_remove}
+        remaining = [n for n in model.graph.node if id(n) not in remove_ids]
+        del model.graph.node[:]
+        model.graph.node.extend(remaining)
+
+        if guard_count:
+            logger.info(
+                "SurgeryPipe: remove-isnan-in-attention-mask: %d IsNaN+Where guards removed",
+                guard_count,
+            )
 
         return model
