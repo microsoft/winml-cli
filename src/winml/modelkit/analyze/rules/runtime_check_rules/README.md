@@ -33,6 +33,33 @@ Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` 
 
 Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
 
+### Option 4: Expand rule zips via CLI command
+
+You can materialize delta snapshots to full payloads in-place with:
+
+```bash
+winml expand_rules
+```
+
+This command reads all entries from `MODELKIT_RULES_DIR`, resolves each via
+`_resolve_env_rules_dir_entry`, and performs in-place rewrite for each existing
+directory that contains matching zip files.
+
+After a folder is successfully expanded (and has at least one matching zip),
+an empty marker file named `expanded` is created in that folder.
+
+You can also override the path entry:
+
+```bash
+winml expand_rules --rules-dir-entry C:\path\to\rules_zip
+```
+
+Multiple explicit entries are supported:
+
+```bash
+winml expand_rules --rules-dir-entry C:\path\a --rules-dir-entry C:\path\b
+```
+
 ## Rule zip lookup order
 
 The analyzer searches zip files in this order:

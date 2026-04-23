@@ -28,6 +28,9 @@ _DEFAULT_RUNTIME_RULES_DIR: Path = (
     Path(__file__).resolve().parent.parent / "rules" / "runtime_check_rules"
 )
 
+# Track directories already auto-checked in this process to avoid repeated scans/expands.
+_EXPAND_CHECKED_DIRS: set[str] = set()
+
 
 def _resolve_env_rules_dir_entry(entry: str) -> Path:
     """Resolve a MODELKIT_RULES_DIR entry into an absolute directory path.
@@ -39,6 +42,54 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
     if os.path.isabs(str(entry_path)):
         return entry_path.resolve()
     return (_RULE_LOADER_DIR / entry_path).resolve()
+
+
+def _has_non_temp_zip_files(rules_dir: Path, glob_pattern: str = "*.zip") -> bool:
+    """Return whether the directory contains at least one non-temp zip."""
+    return any(
+        path.is_file() and ".materialized." not in path.name for path in rules_dir.glob(glob_pattern)
+    )
+
+
+def _ensure_rules_dir_expanded_once(rules_dir: Path) -> None:
+    """Auto-expand rule zips once if marker is missing.
+
+    Behavior:
+      1. Skip when directory does not exist.
+      2. Skip when marker file already exists.
+      3. If directory has zip files and marker is missing, run in-place expand.
+    """
+    resolved_dir = rules_dir.resolve()
+    dir_key = str(resolved_dir).casefold()
+    if dir_key in _EXPAND_CHECKED_DIRS:
+        return
+
+    _EXPAND_CHECKED_DIRS.add(dir_key)
+
+    if not resolved_dir.exists() or not resolved_dir.is_dir():
+        return
+
+    try:
+        from .rule_expander import EXPANDED_MARKER_FILE, expand_rules_zip_dir
+
+        marker_path = resolved_dir / EXPANDED_MARKER_FILE
+        if marker_path.exists():
+            return
+
+        if not _has_non_temp_zip_files(resolved_dir):
+            return
+
+        logger.info(
+            "!!! [RULES INIT] Runtime rules in directory %s need initialization; initializing now.",
+            resolved_dir,
+        )
+        expand_rules_zip_dir(resolved_dir)
+    except Exception:  # noqa: BLE001
+        logger.error(
+            "Failed to auto-expand runtime rule zips in %s; please check the zip files and expand manually if needed.",
+            resolved_dir,
+            exc_info=True,
+        )
 
 
 def get_runtime_rules_search_dirs() -> list[Path]:
@@ -78,6 +129,7 @@ def resolve_rule_zip_path(zip_filename: str) -> Path:
         Resolved ``Path`` to the zip file.
     """
     for search_dir in get_runtime_rules_search_dirs():
+        _ensure_rules_dir_expanded_once(search_dir)
         candidate = search_dir / zip_filename
         if candidate.exists():
             return candidate

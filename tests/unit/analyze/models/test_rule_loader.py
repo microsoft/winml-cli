@@ -23,6 +23,8 @@ import pytest
 
 from winml.modelkit.analyze import IHVType, RuleLoader
 from winml.modelkit.analyze.utils import get_runtime_rules_search_dirs, resolve_rule_zip_path
+from winml.modelkit.analyze.utils import rule_expander as rule_expander_module
+from winml.modelkit.analyze.utils import rule_loader as rule_loader_module
 from winml.modelkit.analyze.utils.rule_loader import _DEFAULT_RUNTIME_RULES_DIR, _RULE_LOADER_DIR
 
 
@@ -512,3 +514,71 @@ class TestResolveRuleZipPath:
 
             result = resolve_rule_zip_path(zip_name)
             assert result == Path(tmpdir).resolve() / zip_name
+
+    def test_resolve_auto_expands_when_marker_missing(self, monkeypatch):
+        """Auto-expand is triggered when zip exists and expanded marker is missing."""
+        zip_name = "QNN_NPU_ai_onnx_opset13.zip"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rules_dir = Path(tmpdir)
+            (rules_dir / zip_name).write_bytes(b"PK")
+            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
+            monkeypatch.setattr(rule_loader_module, "_EXPAND_CHECKED_DIRS", set())
+
+            calls: list[Path] = []
+
+            def _fake_expand_rules_zip_dir(
+                rules_dir: Path,
+                *,
+                output_dir: Path | None = None,
+                glob_pattern: str = "*.zip",
+                marker_filename: str = "expanded",
+            ):
+                del output_dir, glob_pattern, marker_filename
+                calls.append(rules_dir.resolve())
+
+            monkeypatch.setattr(
+                rule_expander_module,
+                "expand_rules_zip_dir",
+                _fake_expand_rules_zip_dir,
+            )
+
+            result = resolve_rule_zip_path(zip_name)
+
+            assert result == rules_dir.resolve() / zip_name
+            assert calls == [rules_dir.resolve()]
+
+    def test_resolve_skips_auto_expand_when_marker_exists(self, monkeypatch):
+        """Auto-expand is skipped when expanded marker already exists."""
+        zip_name = "QNN_NPU_ai_onnx_opset13.zip"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rules_dir = Path(tmpdir)
+            (rules_dir / zip_name).write_bytes(b"PK")
+            (rules_dir / rule_expander_module.EXPANDED_MARKER_FILE).touch()
+            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
+            monkeypatch.setattr(rule_loader_module, "_EXPAND_CHECKED_DIRS", set())
+
+            called = False
+
+            def _fake_expand_rules_zip_dir(
+                rules_dir: Path,
+                *,
+                output_dir: Path | None = None,
+                glob_pattern: str = "*.zip",
+                marker_filename: str = "expanded",
+            ):
+                del rules_dir, output_dir, glob_pattern, marker_filename
+                nonlocal called
+                called = True
+
+            monkeypatch.setattr(
+                rule_expander_module,
+                "expand_rules_zip_dir",
+                _fake_expand_rules_zip_dir,
+            )
+
+            result = resolve_rule_zip_path(zip_name)
+
+            assert result == rules_dir.resolve() / zip_name
+            assert called is False
