@@ -8,7 +8,7 @@
 ``WinMLModelForZeroShotImageClassification`` is registered directly for both
 ``("clip", "zero-shot-image-classification")`` and
 ``("siglip", "zero-shot-image-classification")`` entries in
-``PIPELINE_MODEL_REGISTRY`` — no per-family subclass.
+``COMPOSITE_MODEL_REGISTRY`` — no per-family subclass.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import pytest
 import torch
 
 from winml.modelkit.models.winml.composite_model import (
-    PIPELINE_MODEL_REGISTRY,
+    COMPOSITE_MODEL_REGISTRY,
     WinMLCompositeModel,
 )
 from winml.modelkit.models.winml.zero_shot_image_classification import (
@@ -58,11 +58,11 @@ def _make_sub_model(
 
 class TestRegistry:
     def test_clip_registered(self):
-        assert PIPELINE_MODEL_REGISTRY[("clip", "zero-shot-image-classification")] is \
+        assert COMPOSITE_MODEL_REGISTRY[("clip", "zero-shot-image-classification")] is \
             WinMLModelForZeroShotImageClassification
 
     def test_siglip_registered(self):
-        assert PIPELINE_MODEL_REGISTRY[("siglip", "zero-shot-image-classification")] is \
+        assert COMPOSITE_MODEL_REGISTRY[("siglip", "zero-shot-image-classification")] is \
             WinMLModelForZeroShotImageClassification
 
     def test_sub_model_config(self):
