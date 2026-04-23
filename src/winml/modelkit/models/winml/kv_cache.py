@@ -77,7 +77,13 @@ class WinMLCache(StaticCache, ABC):
     def __init__(self, config: PretrainedConfig, *args: Any, **kwargs: Any) -> None:
         super().__init__(config, *args, **kwargs)
         self.step: int = 0
-        self.num_layers: int = config.num_hidden_layers
+        # StaticCache.__init__ already built ``self.layers`` using
+        # ``config.get_text_config(decoder=True).num_hidden_layers``, which is
+        # the decoder's layer count (e.g., 6 for distilbart-cnn-12-6).
+        # Reading the outer ``config.num_hidden_layers`` would instead give the
+        # encoder's count (12 for distilbart), so we take len(self.layers) --
+        # correct for both symmetric and asymmetric encoder-decoder models.
+        self.num_layers: int = len(self.layers)
         #: New-token KV captured during ``update()``, keyed by layer index.
         #: Export wrappers read ``captured[i]`` to build ONNX present outputs.
         self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
