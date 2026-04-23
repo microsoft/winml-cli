@@ -143,6 +143,38 @@ class WinMLEvaluator:
             device="cpu",
         )
 
+    def _fixed_seq_length(self) -> int | None:
+        """Return the model's fixed sequence length, or ``None`` if dynamic.
+
+        Reads ``io_config["input_shapes"]`` and treats an integer second
+        dimension as a static sequence length. Subclasses use this to decide
+        whether tokenized inputs need to be padded/truncated to a fixed size.
+        """
+        io_config = getattr(self.model, "io_config", None) or {}
+        shapes = io_config.get("input_shapes") or [[]]
+        if len(shapes[0]) > 1 and isinstance(shapes[0][1], int):
+            return shapes[0][1]
+        return None
+
+    def _pad_or_truncate(self, encoding: Any, tokenizer: Any) -> Any:
+        """Resize tokenized inputs to the model's fixed sequence length.
+
+        No-op for dynamic-shape models. Otherwise truncates over-length
+        tensors and delegates padding to the tokenizer.
+        """
+        seq_len = self._fixed_seq_length()
+        if seq_len is None:
+            return encoding
+        for key, tensor in list(encoding.items()):
+            if hasattr(tensor, "shape") and tensor.dim() >= 2 and tensor.shape[1] > seq_len:
+                encoding[key] = tensor[:, :seq_len]
+        return tokenizer.pad(
+            encoding,
+            padding="max_length",
+            max_length=seq_len,
+            return_tensors="pt",
+        )
+
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """Align dataset labels and filter unsupported IDs.
 

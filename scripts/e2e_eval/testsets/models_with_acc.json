@@ -1270,5 +1270,124 @@
         "input_column": "text"
       }
     }
+  },
+  {
+    "hf_id": "cross-encoder/nli-deberta-v3-small",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "joeddav/xlm-roberta-large-xnli",
+    "task": "zero-shot-classification",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+    "task": "zero-shot-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/deberta-v3-large-zeroshot-v2.0",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
   }
 ]

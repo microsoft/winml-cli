@@ -24,6 +24,7 @@ from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
 
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
     "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
     "fill-mask": WinMLFillMaskEvaluator,
+    "zero-shot-classification": WinMLZeroShotClassificationEvaluator,
 }
 
 _FE_DEFAULT = DatasetConfig(
@@ -125,6 +127,16 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
         shuffle=True,
         streaming=True,
         columns_mapping={"input_column": "text"},
+    ),
+    "zero-shot-classification": DatasetConfig(
+        path="fancyzhx/ag_news",
+        split="test",
+        samples=100,
+        shuffle=True,
+        columns_mapping={
+            "input_column": "text",
+            "label_column": "label",
+        },
     ),
 }
 
