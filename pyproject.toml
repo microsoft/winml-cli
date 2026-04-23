@@ -47,6 +47,7 @@ dependencies = [
   "rich>=14",
   "scikit-learn>=1.7",
   "scipy>=1.15,<1.16",
+  "sentencepiece>=0.2",
   "seqeval>=1.2.2",
   "snakemd>=2",
   "timm>=1.0.22",

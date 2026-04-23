@@ -94,6 +94,20 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
             self._processor = AutoProcessor.from_pretrained(self.config.model_id)
         return self._processor
 
+    def _decoder_seq_len(self) -> int | None:
+        """Return fixed decoder_input_ids sequence length from model's io_config, if any.
+
+        ONNX models compiled with static shapes have a fixed decoder length.
+        Dynamic PyTorch models return None (any length accepted).
+        """
+        io_config = getattr(self.model, "io_config", None) or {}
+        shapes = io_config.get("input_shapes") or []
+        # decoder_input_ids is typically the second input, shape [batch, seq_len]
+        for shape in shapes:
+            if len(shape) == 2 and isinstance(shape[1], int):
+                return shape[1]
+        return None
+
     def _logits(self, outputs: Any) -> torch.Tensor:
         """Extract logits tensor from model output (dict or object)."""
         if isinstance(outputs, dict):
@@ -107,6 +121,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
         image: Any,
         caption: str,
         processor: Any,
+        fixed_seq_len: int | None,
     ) -> torch.Tensor | None:
         """Compute per-token log P(caption | image) for one sample.
 
@@ -114,6 +129,8 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
             image: PIL Image or any format accepted by the model's image processor.
             caption: Reference caption string.
             processor: AutoProcessor instance with image_processor and tokenizer.
+            fixed_seq_len: If not None, pad/truncate decoder_input_ids to this
+                exact length (required by ONNX models compiled with static shapes).
 
         Returns:
             1-D tensor of per-token log-probabilities, or None if the sample
@@ -131,18 +148,31 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
             logger.debug("Processor did not return 'pixel_values', skipping sample.")
             return None
 
-        # Tokenize caption
+        # Tokenize caption — cap at fixed_seq_len+1 if model has static shapes
+        max_tok_len = (fixed_seq_len + 1) if fixed_seq_len is not None else 128
         tokenizer = getattr(processor, "tokenizer", processor)
-        tok_out = tokenizer(caption, return_tensors="pt", truncation=True, max_length=128)
+        tok_out = tokenizer(caption, return_tensors="pt", truncation=True, max_length=max_tok_len)
         input_ids = tok_out["input_ids"]  # [1, seq_len]
 
         if input_ids.shape[1] < 2:
             logger.debug("Caption too short after tokenization, skipping sample.")
             return None
 
-        # Teacher forcing: shift right so decoder_input[i] predicts target[i]
-        decoder_input_ids = input_ids[:, :-1]  # [1, seq_len-1]
-        target_ids = input_ids[:, 1:]  # [1, seq_len-1]
+        # Teacher forcing: decoder_input[i] predicts target[i]
+        raw_pad = getattr(tokenizer, "pad_token_id", None)
+        pad_id: int = raw_pad if isinstance(raw_pad, int) else 0
+
+        if fixed_seq_len is not None:
+            # Pad to fixed_seq_len+1 if shorter, then slice to [fixed_seq_len+1]
+            cur_len = input_ids.shape[1]
+            need_len = fixed_seq_len + 1
+            if cur_len < need_len:
+                pad = torch.full((1, need_len - cur_len), pad_id, dtype=input_ids.dtype)
+                input_ids = torch.cat([input_ids, pad], dim=1)
+            input_ids = input_ids[:, :need_len]
+
+        decoder_input_ids = input_ids[:, :-1]  # [1, fixed_seq_len] or [1, seq_len-1]
+        target_ids = input_ids[:, 1:]  # same length
 
         with torch.no_grad():
             try:
@@ -154,12 +184,21 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
                 logger.debug("Model forward pass failed, skipping sample: %s", exc)
                 return None
 
-        logits = self._logits(outputs)  # [1, seq_len-1, vocab_size]
+        logits = self._logits(outputs)  # [1, L, vocab_size]
 
         # Per-token log P(target | context, image)
-        log_probs = F.log_softmax(logits[0], dim=-1)  # [seq_len-1, vocab_size]
-        target_flat = target_ids[0].long()  # [seq_len-1]
-        return log_probs[torch.arange(target_flat.shape[0]), target_flat]  # [seq_len-1]
+        log_probs = F.log_softmax(logits[0], dim=-1)  # [L, vocab_size]
+        target_flat = target_ids[0].long()  # [L]
+
+        # Exclude pad-token positions from the metric (only meaningful with fixed shapes)
+        if fixed_seq_len is not None:
+            valid_mask = target_flat != pad_id
+            if not valid_mask.any():
+                return None
+            log_probs = log_probs[valid_mask]
+            target_flat = target_flat[valid_mask]
+
+        return log_probs[torch.arange(target_flat.shape[0]), target_flat]  # [num_valid]
 
     def compute(self) -> dict[str, Any]:
         """Run image-conditional perplexity evaluation over the dataset.
@@ -173,6 +212,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
             ValueError: If no valid token log-probabilities were accumulated.
         """
         processor = self._get_processor()
+        fixed_seq_len = self._decoder_seq_len()
 
         total_neg_log_p = 0.0
         total_tokens = 0
@@ -193,7 +233,7 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
             if not isinstance(caption, str) or not caption.strip():
                 continue
 
-            token_log_probs = self._score_sample(image, caption, processor)
+            token_log_probs = self._score_sample(image, caption, processor, fixed_seq_len)
             if token_log_probs is None or token_log_probs.numel() == 0:
                 continue
 

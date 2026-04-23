@@ -129,14 +129,14 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
         columns_mapping={"input_column": "text"},
     ),
     "image-to-text": DatasetConfig(
-        path="nlphuji/flickr30k",
+        path="clip-benchmark/wds_mscoco_captions",
         split="test",
         samples=100,
         shuffle=True,
         streaming=True,
         columns_mapping={
-            "input_column": "image",
-            "caption_column": "caption",
+            "input_column": "jpg",
+            "caption_column": "txt",
         },
     ),
 }

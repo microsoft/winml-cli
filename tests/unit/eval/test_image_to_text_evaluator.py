@@ -157,6 +157,34 @@ class TestLogits:
 
 
 # ---------------------------------------------------------------------------
+# _decoder_seq_len
+# ---------------------------------------------------------------------------
+
+
+class TestDecoderSeqLen:
+    def test_reads_second_input_shape(self) -> None:
+        model = MagicMock()
+        model.config.label2id = None
+        model.io_config = {"input_shapes": [[1, 3, 64, 64], [1, 16]]}
+        ev = _make_evaluator(model=model)
+        assert ev._decoder_seq_len() == 16
+
+    def test_returns_none_when_no_io_config(self) -> None:
+        model = MagicMock()
+        model.config.label2id = None
+        model.io_config = {}
+        ev = _make_evaluator(model=model)
+        assert ev._decoder_seq_len() is None
+
+    def test_returns_none_when_dynamic_dims(self) -> None:
+        model = MagicMock()
+        model.config.label2id = None
+        model.io_config = {"input_shapes": [[1, 3, 64, 64], ["batch", "seq"]]}
+        ev = _make_evaluator(model=model)
+        assert ev._decoder_seq_len() is None
+
+
+# ---------------------------------------------------------------------------
 # _score_sample
 # ---------------------------------------------------------------------------
 
@@ -171,7 +199,7 @@ class TestScoreSample:
         # Model returns uniform logits → each token gets log(1/vocab)
         ev.model = MagicMock(return_value={"logits": torch.zeros(1, 3, vocab)})
 
-        log_probs = ev._score_sample("fake_image", "hello world", proc)
+        log_probs = ev._score_sample("fake_image", "hello world", proc, fixed_seq_len=None)
 
         assert log_probs is not None
         assert log_probs.shape == (3,)
@@ -190,7 +218,7 @@ class TestScoreSample:
         )
         proc.tokenizer.__call__ = proc.tokenizer.side_effect
 
-        result = ev._score_sample("img", "x", proc)
+        result = ev._score_sample("img", "x", proc, fixed_seq_len=None)
         assert result is None
 
     def test_image_processor_failure_returns_none(self) -> None:
@@ -199,7 +227,7 @@ class TestScoreSample:
         proc.side_effect = RuntimeError("bad image")
         proc.__call__ = proc.side_effect
 
-        result = ev._score_sample("bad_img", "hello", proc)
+        result = ev._score_sample("bad_img", "hello", proc, fixed_seq_len=None)
         assert result is None
 
     def test_model_forward_failure_returns_none(self) -> None:
@@ -207,7 +235,7 @@ class TestScoreSample:
         proc = _make_processor()
         ev.model = MagicMock(side_effect=RuntimeError("ORT error"))
 
-        result = ev._score_sample("img", "hello", proc)
+        result = ev._score_sample("img", "hello", proc, fixed_seq_len=None)
         assert result is None
 
     def test_missing_pixel_values_returns_none(self) -> None:
@@ -216,8 +244,51 @@ class TestScoreSample:
         proc.side_effect = lambda images, **kw: {}  # No "pixel_values" key
         proc.__call__ = proc.side_effect
 
-        result = ev._score_sample("img", "hello", proc)
+        result = ev._score_sample("img", "hello", proc, fixed_seq_len=None)
         assert result is None
+
+    def test_fixed_seq_len_pads_short_caption(self) -> None:
+        """decoder_input_ids is padded to fixed_seq_len when caption is shorter."""
+        vocab, fixed = 50, 8
+        seen_shapes: list[tuple] = []
+
+        def _forward(**kwargs):
+            seen_shapes.append(tuple(kwargs["decoder_input_ids"].shape))
+            return {"logits": torch.zeros(1, fixed, vocab)}
+
+        ev = _make_evaluator()
+        ev.model = MagicMock(side_effect=_forward)
+        proc = _make_processor(vocab_size=vocab)
+        # Tokenizer returns only 3 tokens ([bos, t1, t2]) — shorter than fixed+1
+        proc.tokenizer.side_effect = lambda text, **kw: {"input_ids": torch.tensor([[0, 1, 2]])}
+
+        result = ev._score_sample("img", "short", proc, fixed_seq_len=fixed)
+
+        assert result is not None
+        # decoder_input_ids must be [1, fixed]
+        assert seen_shapes == [(1, fixed)]
+
+    def test_fixed_seq_len_truncates_long_caption(self) -> None:
+        """decoder_input_ids is truncated to fixed_seq_len when caption is longer."""
+        vocab, fixed = 50, 4
+        seen_shapes: list[tuple] = []
+
+        def _forward(**kwargs):
+            seen_shapes.append(tuple(kwargs["decoder_input_ids"].shape))
+            return {"logits": torch.zeros(1, fixed, vocab)}
+
+        ev = _make_evaluator()
+        ev.model = MagicMock(side_effect=_forward)
+        proc = _make_processor(vocab_size=vocab)
+        # Tokenizer returns 10 tokens — longer than fixed+1
+        proc.tokenizer.side_effect = lambda text, **kw: {
+            "input_ids": torch.tensor([[0, 1, 2, 3, 4, 1, 2, 3, 4, 1]])
+        }
+
+        result = ev._score_sample("img", "long caption text here", proc, fixed_seq_len=fixed)
+
+        assert result is not None
+        assert seen_shapes == [(1, fixed)]
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +416,7 @@ class TestRegistry:
 
         assert "image-to-text" in _DEFAULT_DATASETS
         ds = _DEFAULT_DATASETS["image-to-text"]
-        assert ds.path == "nlphuji/flickr30k"
+        assert ds.path == "clip-benchmark/wds_mscoco_captions"
         assert ds.samples == 100
-        assert ds.columns_mapping.get("input_column") == "image"
-        assert ds.columns_mapping.get("caption_column") == "caption"
+        assert ds.columns_mapping.get("input_column") == "jpg"
+        assert ds.columns_mapping.get("caption_column") == "txt"
