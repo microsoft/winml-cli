@@ -1,0 +1,63 @@
+ version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+
+XRT build version: 2.19.0
+Build hash: 77c7088d804602a53c3eb489b9cb37b709bcd751
+Build date: 2025-10-10 17:23:25
+Git branch: HEAD
+PID: 6680
+UID: 0
+[Thu Apr 23 03:28:52 2026 GMT]
+HOST: exception occurred: XRT:Failed to submit command to hw queue (0xc00002b6): The device has been removed.
+

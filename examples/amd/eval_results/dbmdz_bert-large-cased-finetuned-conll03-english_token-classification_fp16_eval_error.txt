@@ -1,0 +1,20 @@
+aise HFValidationError(
+huggingface_hub.errors.HFValidationError: Repo id must use alphanumeric chars, '-', '_' or '.'. The name cannot start or end with '-' or '.' and the maximum length is 96: ''.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 306, in eval
+    result = evaluate(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 198, in evaluate
+    model = _load_model(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 157, in _load_model
+    hf_config = AutoConfig.from_pretrained(config.model_id)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\models\auto\configuration_auto.py", line 1332, in from_pretrained
+    config_dict, unused_kwargs = PretrainedConfig.get_config_dict(pretrained_model_name_or_path, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\configuration_utils.py", line 662, in get_config_dict
+    config_dict, kwargs = cls._get_config_dict(pretrained_model_name_or_path, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\configuration_utils.py", line 744, in _get_config_dict
+    raise OSError(
+OSError: Can't load the configuration of ''. If you were trying to load it from 'https://huggingface.co/models', make sure you don't have a local directory with the same name. Otherwise, make sure '' is the correct path to a directory containing a config.json file
+Error: Evaluation failed: Can't load the configuration of ''. If you were trying to load it from 'https://huggingface.co/models', make sure you don't have a local directory with the same name. Otherwise, make sure '' is the correct path to a directory containing a config.json file

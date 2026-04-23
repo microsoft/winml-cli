@@ -1,0 +1,152 @@
+{
+  "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\w11wo_indonesian-roberta-base-posp-tagger_token-classification\\w8a8\\build\\quantized.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "C:\\Users\\shzhen\\.cache\\winml\\eval_datasets\\build_indonlu_posp",
+    "columns_mapping": {
+      "label_column": "pos_tags"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\w11wo_indonesian-roberta-base-posp-tagger_token-classification_w8a8_eval.json",
+  "metrics": {
+    "ADJ": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "ADK": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 7
+    },
+    "ADV": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "ART": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 6
+    },
+    "CCN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 8
+    },
+    "CSN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "KUA": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "NEG": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "NNO": {
+      "precision": 0.3333333333333333,
+      "recall": 0.20967741935483872,
+      "f1": 0.25742574257425743,
+      "number": 62
+    },
+    "NNP": {
+      "precision": 0.2025862068965517,
+      "recall": 0.8103448275862069,
+      "f1": 0.3241379310344828,
+      "number": 58
+    },
+    "NUM": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 14
+    },
+    "PAR": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 3
+    },
+    "PPO": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 25
+    },
+    "PRI": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "PRN": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 4
+    },
+    "PRR": {
+      "precision": 0.46153846153846156,
+      "recall": 1.0,
+      "f1": 0.631578947368421,
+      "number": 6
+    },
+    "SYM": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 50
+    },
+    "VBE": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 1
+    },
+    "VBI": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 14
+    },
+    "VBP": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 5
+    },
+    "VBT": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 16
+    },
+    "overall_precision": 0.2222222222222222,
+    "overall_recall": 0.2222222222222222,
+    "overall_f1": 0.2222222222222222,
+    "overall_accuracy": 0.2222222222222222,
+    "total_time_in_seconds": 0.9743704999855254,
+    "samples_per_second": 10.263036493970777,
+    "latency_in_seconds": 0.09743704999855254
+  }
+}

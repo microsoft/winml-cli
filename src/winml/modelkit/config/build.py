@@ -126,6 +126,7 @@ class WinMLBuildConfig:
     optim: WinMLOptimizationConfig = field(default_factory=WinMLOptimizationConfig)
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
+    eval_dataset: dict | None = None
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> WinMLBuildConfig:
@@ -134,6 +135,7 @@ class WinMLBuildConfig:
         export_data = config_dict.get("export", {})
         quant_data = config_dict.get("quant")
         compile_data = config_dict.get("compile")
+        eval_dataset_data = config_dict.get("eval_dataset")
         return cls(
             loader=WinMLLoaderConfig.from_dict(loader_data),
             export=(WinMLExportConfig.from_dict(export_data) if export_data is not None else None),
@@ -144,6 +146,7 @@ class WinMLBuildConfig:
             compile=(
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
+            eval_dataset=eval_dataset_data,
         )
 
     def to_dict(self) -> dict:
@@ -158,6 +161,8 @@ class WinMLBuildConfig:
         loader_dict = self.loader.to_dict()
         if loader_dict:
             result["loader"] = loader_dict
+        if self.eval_dataset is not None:
+            result["eval_dataset"] = self.eval_dataset
         return result
 
     def validate(self) -> None:

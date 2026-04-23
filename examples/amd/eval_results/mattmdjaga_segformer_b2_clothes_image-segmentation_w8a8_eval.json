@@ -1,0 +1,41 @@
+{
+  "model_id": "mattmdjaga/segformer_b2_clothes",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\mattmdjaga_segformer_b2_clothes_image-segmentation\\w8a8\\build\\quantized.onnx",
+  "task": "image-segmentation",
+  "device": "npu",
+  "dataset": {
+    "split": "train",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mattmdjaga/human_parsing_dataset",
+    "columns_mapping": {
+      "annotation_column": "mask"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\mattmdjaga_segformer_b2_clothes_image-segmentation_w8a8_eval.json",
+  "metrics": {
+    "mean_iou": 0.045807939022779465,
+    "overall_accuracy": 0.7787349820137024,
+    "per_category_iou": [
+      0.7787349820137024,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1467, in __call__
+    return self.run_single(inputs, preprocess_params, forward_params, postprocess_params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1474, in run_single
+    model_outputs = self.forward(model_inputs, **forward_params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\base.py", line 1374, in forward
+    model_outputs = self._forward(model_inputs, **forward_params)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\feature_extraction.py", line 69, in _forward
+    model_outputs = self.model(**model_inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\base.py", line 173, in __call__
+    return self.forward(**kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\feature_extraction.py", line 50, in forward
+    outputs = self._run_inference(formatted)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\base.py", line 164, in _run_inference
+    outputs = self._session.run(inputs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\session\session.py", line 385, in run
+    raise InferenceError(
+winml.modelkit.session.session.InferenceError: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running vitis_ai_ep_14 node. Name:'VitisAIExecutionProvider_vitis_ai_ep_14_13' Status Message: No such query request (73)

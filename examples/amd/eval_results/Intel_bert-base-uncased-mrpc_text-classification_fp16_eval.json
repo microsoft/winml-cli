@@ -1,0 +1,25 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results\\Intel_bert-base-uncased-mrpc_text-classification\\fp16\\build\\optimized.onnx",
+  "task": "text-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "mrpc",
+    "columns_mapping": {
+      "input_column": "sentence1",
+      "second_input_column": "sentence2"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\Intel_bert-base-uncased-mrpc_text-classification_fp16_eval.json",
+  "metrics": {
+    "accuracy": 0.8,
+    "total_time_in_seconds": 174.8580430999864,
+    "samples_per_second": 0.5718924804781129,
+    "latency_in_seconds": 1.748580430999864
+  }
+}

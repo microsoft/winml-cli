@@ -1,0 +1,737 @@
+[
+  {
+    "config": "BAAI_bge-base-en-v1.5_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-base-en-v1.5",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "BAAI_bge-base-en-v1.5_feature-extraction_w8a16_config.json",
+    "status": "FAIL",
+    "model": "BAAI/bge-base-en-v1.5",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "BAAI_bge-base-en-v1.5_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-base-en-v1.5",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "BAAI_bge-base-en-v1.5_sentence-similarity_fp16_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "fp16"
+  },
+  {
+    "config": "BAAI_bge-base-en-v1.5_sentence-similarity_w8a16_config.json",
+    "status": "FAIL",
+    "model": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "w8a16"
+  },
+  {
+    "config": "BAAI_bge-base-en-v1.5_sentence-similarity_w8a8_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "w8a8"
+  },
+  {
+    "config": "BAAI_bge-large-en-v1.5_sentence-similarity_fp16_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "fp16"
+  },
+  {
+    "config": "BAAI_bge-large-en-v1.5_sentence-similarity_w8a16_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "w8a16"
+  },
+  {
+    "config": "BAAI_bge-large-en-v1.5_sentence-similarity_w8a8_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "w8a8"
+  },
+  {
+    "config": "BAAI_bge-small-en-v1.5_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "BAAI_bge-small-en-v1.5_feature-extraction_w8a16_config.json",
+    "status": "FAIL",
+    "model": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "BAAI_bge-small-en-v1.5_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "BAAI_bge-small-en-v1.5_sentence-similarity_fp16_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-small-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "fp16"
+  },
+  {
+    "config": "BAAI_bge-small-en-v1.5_sentence-similarity_w8a16_config.json",
+    "status": "FAIL",
+    "model": "BAAI/bge-small-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "w8a16"
+  },
+  {
+    "config": "BAAI_bge-small-en-v1.5_sentence-similarity_w8a8_config.json",
+    "status": "PASS",
+    "model": "BAAI/bge-small-en-v1.5",
+    "task": "sentence-similarity",
+    "precision": "w8a8"
+  },
+  {
+    "config": "Babelscape_wikineural-multilingual-ner_token-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "Babelscape/wikineural-multilingual-ner",
+    "task": "token-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "Babelscape_wikineural-multilingual-ner_token-classification_w8a16_config.json",
+    "status": "FAIL",
+    "model": "Babelscape/wikineural-multilingual-ner",
+    "task": "token-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "Babelscape_wikineural-multilingual-ner_token-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "Babelscape/wikineural-multilingual-ner",
+    "task": "token-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "cardiffnlp_twitter-roberta-base-sentiment-latest_text-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "task": "text-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "cardiffnlp_twitter-roberta-base-sentiment-latest_text-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "task": "text-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "cardiffnlp_twitter-roberta-base-sentiment-latest_text-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "task": "text-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "dbmdz_bert-large-cased-finetuned-conll03-english_token-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "dbmdz/bert-large-cased-finetuned-conll03-english",
+    "task": "token-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "dbmdz_bert-large-cased-finetuned-conll03-english_token-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "dbmdz/bert-large-cased-finetuned-conll03-english",
+    "task": "token-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "dbmdz_bert-large-cased-finetuned-conll03-english_token-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "dbmdz/bert-large-cased-finetuned-conll03-english",
+    "task": "token-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "deepset_bert-large-uncased-whole-word-masking-squad2_question-answering_fp16_config.json",
+    "status": "PASS",
+    "model": "deepset/bert-large-uncased-whole-word-masking-squad2",
+    "task": "question-answering",
+    "precision": "fp16"
+  },
+  {
+    "config": "deepset_bert-large-uncased-whole-word-masking-squad2_question-answering_w8a16_config.json",
+    "status": "PASS",
+    "model": "deepset/bert-large-uncased-whole-word-masking-squad2",
+    "task": "question-answering",
+    "precision": "w8a16"
+  },
+  {
+    "config": "deepset_bert-large-uncased-whole-word-masking-squad2_question-answering_w8a8_config.json",
+    "status": "PASS",
+    "model": "deepset/bert-large-uncased-whole-word-masking-squad2",
+    "task": "question-answering",
+    "precision": "w8a8"
+  },
+  {
+    "config": "deepset_roberta-base-squad2_question-answering_fp16_config.json",
+    "status": "PASS",
+    "model": "deepset/roberta-base-squad2",
+    "task": "question-answering",
+    "precision": "fp16"
+  },
+  {
+    "config": "deepset_roberta-base-squad2_question-answering_w8a16_config.json",
+    "status": "PASS",
+    "model": "deepset/roberta-base-squad2",
+    "task": "question-answering",
+    "precision": "w8a16"
+  },
+  {
+    "config": "deepset_roberta-base-squad2_question-answering_w8a8_config.json",
+    "status": "PASS",
+    "model": "deepset/roberta-base-squad2",
+    "task": "question-answering",
+    "precision": "w8a8"
+  },
+  {
+    "config": "deepset_tinyroberta-squad2_question-answering_fp16_config.json",
+    "status": "PASS",
+    "model": "deepset/tinyroberta-squad2",
+    "task": "question-answering",
+    "precision": "fp16"
+  },
+  {
+    "config": "deepset_tinyroberta-squad2_question-answering_w8a16_config.json",
+    "status": "PASS",
+    "model": "deepset/tinyroberta-squad2",
+    "task": "question-answering",
+    "precision": "w8a16"
+  },
+  {
+    "config": "deepset_tinyroberta-squad2_question-answering_w8a8_config.json",
+    "status": "PASS",
+    "model": "deepset/tinyroberta-squad2",
+    "task": "question-answering",
+    "precision": "w8a8"
+  },
+  {
+    "config": "dslim_bert-base-NER_token-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "dslim/bert-base-NER",
+    "task": "token-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "dslim_bert-base-NER_token-classification_w8a16_config.json",
+    "status": "FAIL",
+    "model": "dslim/bert-base-NER",
+    "task": "token-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "dslim_bert-base-NER_token-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "dslim/bert-base-NER",
+    "task": "token-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "facebook_convnext-tiny-224_image-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "facebook/convnext-tiny-224",
+    "task": "image-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "facebook_convnext-tiny-224_image-classification_w8a16_config.json",
+    "status": "FAIL",
+    "model": "facebook/convnext-tiny-224",
+    "task": "image-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "facebook_convnext-tiny-224_image-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "facebook/convnext-tiny-224",
+    "task": "image-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "google-bert_bert-base-multilingual-cased_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "google-bert/bert-base-multilingual-cased",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "google-bert_bert-base-multilingual-cased_feature-extraction_w8a16_config.json",
+    "status": "FAIL",
+    "model": "google-bert/bert-base-multilingual-cased",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "google-bert_bert-base-multilingual-cased_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "google-bert/bert-base-multilingual-cased",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering_fp16_config.json",
+    "status": "PASS",
+    "model": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+    "task": "question-answering",
+    "precision": "fp16"
+  },
+  {
+    "config": "google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering_w8a16_config.json",
+    "status": "PASS",
+    "model": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+    "task": "question-answering",
+    "precision": "w8a16"
+  },
+  {
+    "config": "google-bert_bert-large-uncased-whole-word-masking-finetuned-squad_question-answering_w8a8_config.json",
+    "status": "PASS",
+    "model": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+    "task": "question-answering",
+    "precision": "w8a8"
+  },
+  {
+    "config": "google_vit-base-patch16-224_image-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "google/vit-base-patch16-224",
+    "task": "image-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "google_vit-base-patch16-224_image-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "google/vit-base-patch16-224",
+    "task": "image-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "google_vit-base-patch16-224_image-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "google/vit-base-patch16-224",
+    "task": "image-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "Intel_bert-base-uncased-mrpc_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "Intel/bert-base-uncased-mrpc",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "Intel_bert-base-uncased-mrpc_feature-extraction_w8a16_config.json",
+    "status": "FAIL",
+    "model": "Intel/bert-base-uncased-mrpc",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "Intel_bert-base-uncased-mrpc_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "Intel/bert-base-uncased-mrpc",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "Intel_bert-base-uncased-mrpc_text-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "Intel/bert-base-uncased-mrpc",
+    "task": "text-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "Intel_bert-base-uncased-mrpc_text-classification_w8a16_config.json",
+    "status": "FAIL",
+    "model": "Intel/bert-base-uncased-mrpc",
+    "task": "text-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "Intel_bert-base-uncased-mrpc_text-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "Intel/bert-base-uncased-mrpc",
+    "task": "text-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "mattmdjaga_segformer_b2_clothes_image-segmentation_fp16_config.json",
+    "status": "PASS",
+    "model": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "precision": "fp16"
+  },
+  {
+    "config": "mattmdjaga_segformer_b2_clothes_image-segmentation_w8a16_config.json",
+    "status": "PASS",
+    "model": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "precision": "w8a16"
+  },
+  {
+    "config": "mattmdjaga_segformer_b2_clothes_image-segmentation_w8a8_config.json",
+    "status": "PASS",
+    "model": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "precision": "w8a8"
+  },
+  {
+    "config": "microsoft_resnet-50_image-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "microsoft/resnet-50",
+    "task": "image-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "microsoft_resnet-50_image-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "microsoft/resnet-50",
+    "task": "image-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "microsoft_resnet-50_image-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "microsoft/resnet-50",
+    "task": "image-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "microsoft_swin-large-patch4-window7-224_image-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "microsoft/swin-large-patch4-window7-224",
+    "task": "image-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "microsoft_swin-large-patch4-window7-224_image-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "microsoft/swin-large-patch4-window7-224",
+    "task": "image-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "microsoft_swin-large-patch4-window7-224_image-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "microsoft/swin-large-patch4-window7-224",
+    "task": "image-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "microsoft_table-transformer-detection_object-detection_fp16_config.json",
+    "status": "PASS",
+    "model": "microsoft/table-transformer-detection",
+    "task": "object-detection",
+    "precision": "fp16"
+  },
+  {
+    "config": "microsoft_table-transformer-detection_object-detection_w8a16_config.json",
+    "status": "FAIL",
+    "model": "microsoft/table-transformer-detection",
+    "task": "object-detection",
+    "precision": "w8a16"
+  },
+  {
+    "config": "microsoft_table-transformer-detection_object-detection_w8a8_config.json",
+    "status": "PASS",
+    "model": "microsoft/table-transformer-detection",
+    "task": "object-detection",
+    "precision": "w8a8"
+  },
+  {
+    "config": "nvidia_segformer-b1-finetuned-ade-512-512_image-segmentation_fp16_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b1-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "precision": "fp16"
+  },
+  {
+    "config": "nvidia_segformer-b1-finetuned-ade-512-512_image-segmentation_w8a16_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b1-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "precision": "w8a16"
+  },
+  {
+    "config": "nvidia_segformer-b1-finetuned-ade-512-512_image-segmentation_w8a8_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b1-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "precision": "w8a8"
+  },
+  {
+    "config": "nvidia_segformer-b2-finetuned-ade-512-512_image-segmentation_fp16_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "precision": "fp16"
+  },
+  {
+    "config": "nvidia_segformer-b2-finetuned-ade-512-512_image-segmentation_w8a16_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "precision": "w8a16"
+  },
+  {
+    "config": "nvidia_segformer-b2-finetuned-ade-512-512_image-segmentation_w8a8_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "precision": "w8a8"
+  },
+  {
+    "config": "nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation_fp16_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b5-finetuned-ade-640-640",
+    "task": "image-segmentation",
+    "precision": "fp16"
+  },
+  {
+    "config": "nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation_w8a16_config.json",
+    "status": "PASS",
+    "model": "nvidia/segformer-b5-finetuned-ade-640-640",
+    "task": "image-segmentation",
+    "precision": "w8a16"
+  },
+  {
+    "config": "nvidia_segformer-b5-finetuned-ade-640-640_image-segmentation_w8a8_config.json",
+    "status": "TIMEOUT",
+    "model": "nvidia/segformer-b5-finetuned-ade-640-640",
+    "task": "image-segmentation",
+    "precision": "w8a8"
+  },
+  {
+    "config": "openai_clip-vit-base-patch16_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "openai/clip-vit-base-patch16",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "openai_clip-vit-base-patch16_feature-extraction_w8a16_config.json",
+    "status": "PASS",
+    "model": "openai/clip-vit-base-patch16",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "openai_clip-vit-base-patch16_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "openai/clip-vit-base-patch16",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "openai_clip-vit-base-patch32_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "openai_clip-vit-base-patch32_feature-extraction_w8a16_config.json",
+    "status": "PASS",
+    "model": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "openai_clip-vit-base-patch32_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "ProsusAI_finbert_text-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "ProsusAI/finbert",
+    "task": "text-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "ProsusAI_finbert_text-classification_w8a16_config.json",
+    "status": "FAIL",
+    "model": "ProsusAI/finbert",
+    "task": "text-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "ProsusAI_finbert_text-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "ProsusAI/finbert",
+    "task": "text-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "rizvandwiki_gender-classification_image-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "rizvandwiki/gender-classification",
+    "task": "image-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "rizvandwiki_gender-classification_image-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "rizvandwiki/gender-classification",
+    "task": "image-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "rizvandwiki_gender-classification_image-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "rizvandwiki/gender-classification",
+    "task": "image-classification",
+    "precision": "w8a8"
+  },
+  {
+    "config": "sentence-transformers_all-MiniLM-L6-v2_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "sentence-transformers_all-MiniLM-L6-v2_feature-extraction_w8a16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "sentence-transformers_all-MiniLM-L6-v2_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "sentence-transformers_all-MiniLM-L6-v2_sentence-similarity_fp16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "precision": "fp16"
+  },
+  {
+    "config": "sentence-transformers_all-MiniLM-L6-v2_sentence-similarity_w8a16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "precision": "w8a16"
+  },
+  {
+    "config": "sentence-transformers_all-MiniLM-L6-v2_sentence-similarity_w8a8_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "precision": "w8a8"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction_fp16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "precision": "fp16"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction_w8a16_config.json",
+    "status": "FAIL",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "precision": "w8a16"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_feature-extraction_w8a8_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "precision": "w8a8"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_sentence-similarity_fp16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "sentence-similarity",
+    "precision": "fp16"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_sentence-similarity_w8a16_config.json",
+    "status": "FAIL",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "sentence-similarity",
+    "precision": "w8a16"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2_sentence-similarity_w8a8_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "sentence-similarity",
+    "precision": "w8a8"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity_fp16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "precision": "fp16"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity_w8a16_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "precision": "w8a16"
+  },
+  {
+    "config": "sentence-transformers_paraphrase-multilingual-mpnet-base-v2_sentence-similarity_w8a8_config.json",
+    "status": "PASS",
+    "model": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "precision": "w8a8"
+  },
+  {
+    "config": "w11wo_indonesian-roberta-base-posp-tagger_token-classification_fp16_config.json",
+    "status": "PASS",
+    "model": "w11wo/indonesian-roberta-base-posp-tagger",
+    "task": "token-classification",
+    "precision": "fp16"
+  },
+  {
+    "config": "w11wo_indonesian-roberta-base-posp-tagger_token-classification_w8a16_config.json",
+    "status": "PASS",
+    "model": "w11wo/indonesian-roberta-base-posp-tagger",
+    "task": "token-classification",
+    "precision": "w8a16"
+  },
+  {
+    "config": "w11wo_indonesian-roberta-base-posp-tagger_token-classification_w8a8_config.json",
+    "status": "PASS",
+    "model": "w11wo/indonesian-roberta-base-posp-tagger",
+    "task": "token-classification",
+    "precision": "w8a8"
+  }
+]

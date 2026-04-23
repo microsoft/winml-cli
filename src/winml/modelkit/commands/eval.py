@@ -171,6 +171,57 @@ def eval(
                 samples = build_cfg.quant.samples
             if not cli_utils.is_cli_provided(ctx, "dataset_name"):
                 dataset_name = build_cfg.quant.dataset_name
+        # Apply eval_dataset from config (CLI options take precedence)
+        if build_cfg.eval_dataset:
+            ed = build_cfg.eval_dataset
+            # Run build_script if needed to generate local dataset
+            build_script = ed.get("build_script")
+            if build_script:
+                import subprocess
+                import sys
+
+                script_path = Path(build_script)
+                # Use the path from config as cache dir (expand ~),
+                # fallback to ~/.cache/winml/eval_datasets/<script_stem>/
+                raw_path = ed.get("path", "")
+                if raw_path:
+                    cache_dir = Path(raw_path).expanduser()
+                else:
+                    cache_dir = (
+                        Path.home() / ".cache" / "winml" / "eval_datasets" / script_path.stem
+                    )
+                if not (cache_dir / "dataset_info.json").exists():
+                    if script_path.exists():
+                        logger.info("Building dataset via %s ...", script_path.name)
+                        result = subprocess.run(  # noqa: S603
+                            [sys.executable, str(script_path), "--output", str(cache_dir)],
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                        )
+                        if result.returncode != 0:
+                            logger.warning(
+                                "Dataset build failed: %s", result.stderr.strip()[-200:]
+                            )
+                    else:
+                        logger.warning("Build script not found: %s", script_path)
+                # Use the built local dataset path
+                if not cli_utils.is_cli_provided(ctx, "dataset_path"):
+                    dataset_path = str(cache_dir)
+            elif not cli_utils.is_cli_provided(ctx, "dataset_path") and ed.get("path"):
+                dataset_path = ed["path"]
+            if not cli_utils.is_cli_provided(ctx, "dataset_name") and ed.get("name"):
+                dataset_name = ed["name"]
+            if not cli_utils.is_cli_provided(ctx, "split") and ed.get("split"):
+                split = ed["split"]
+            if not cli_utils.is_cli_provided(ctx, "samples") and ed.get("samples"):
+                samples = ed["samples"]
+            if not column and ed.get("columns_mapping"):
+                column = tuple(f"{k}={v}" for k, v in ed["columns_mapping"].items())
+            if label_mapping is None and ed.get("label_mapping_file"):
+                lm_path = Path(ed["label_mapping_file"])
+                if lm_path.exists():
+                    label_mapping = lm_path
 
     if show_schema:
         from ..eval import WinMLEvaluator

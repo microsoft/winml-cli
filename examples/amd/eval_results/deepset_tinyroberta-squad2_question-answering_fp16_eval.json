@@ -1,0 +1,38 @@
+{
+  "model_id": "deepset/tinyroberta-squad2",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\deepset_tinyroberta-squad2_question-answering\\fp16\\build\\optimized.onnx",
+  "task": "question-answering",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\deepset_tinyroberta-squad2_question-answering_fp16_eval.json",
+  "metrics": {
+    "exact": 80.0,
+    "f1": 82.25,
+    "total": 100,
+    "HasAns_exact": 77.08333333333333,
+    "HasAns_f1": 81.77083333333333,
+    "HasAns_total": 48,
+    "NoAns_exact": 82.6923076923077,
+    "NoAns_f1": 82.6923076923077,
+    "NoAns_total": 52,
+    "best_exact": 80.0,
+    "best_exact_thresh": 0.9948359727859497,
+    "best_f1": 82.25,
+    "best_f1_thresh": 0.9948359727859497,
+    "total_time_in_seconds": 151.8409440999967,
+    "samples_per_second": 0.6585838924588336,
+    "latency_in_seconds": 1.518409440999967
+  }
+}

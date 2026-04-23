@@ -1,0 +1,22 @@
+{
+  "model_id": "openai/clip-vit-base-patch16",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\openai_clip-vit-base-patch16_feature-extraction\\w8a8\\build\\quantized.onnx",
+  "task": "feature-extraction",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\openai_clip-vit-base-patch16_feature-extraction_w8a8_eval.json",
+  "metrics": {
+    "cosine_spearman": 0.0
+  }
+}

@@ -1,0 +1,4 @@
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I20260423 10:46:59.499006 67908 register_dynamicdispatch.cpp:49] Running DynamicDispatchOpRegister::register_ops
+I20260423 10:46:59.499006 67908 register_castavx.cpp:48] Running CastAvxOpRegister::register_ops
+check failure: graph.GetNodeArg(name) == nullptrnode arg pooler.dense.weight_quantizedtrans already exists. 

@@ -1,0 +1,23 @@
+{
+  "model_id": "rizvandwiki/gender-classification",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\rizvandwiki_gender-classification_image-classification\\w8a16\\build\\quantized.onnx",
+  "task": "image-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "C:\\Users\\shzhen\\.cache\\winml\\eval_datasets\\build_fairface",
+    "columns_mapping": {
+      "label_column": "gender"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\rizvandwiki_gender-classification_image-classification_w8a16_eval.json",
+  "metrics": {
+    "accuracy": 0.6,
+    "total_time_in_seconds": 3.27226320002228,
+    "samples_per_second": 3.055988894760028,
+    "latency_in_seconds": 0.327226320002228
+  }
+}

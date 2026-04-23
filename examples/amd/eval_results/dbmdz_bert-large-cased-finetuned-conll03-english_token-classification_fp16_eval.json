@@ -1,0 +1,50 @@
+{
+  "model_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+  "model_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\amd_test_results_round2\\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification\\fp16\\build\\optimized.onnx",
+  "task": "token-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\eval_results\\dbmdz_bert-large-cased-finetuned-conll03-english_token-classification_fp16_eval.json",
+  "metrics": {
+    "LOC": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 62
+    },
+    "MISC": {
+      "precision": 0.9230769230769231,
+      "recall": 1.0,
+      "f1": 0.9600000000000001,
+      "number": 24
+    },
+    "ORG": {
+      "precision": 1.0,
+      "recall": 0.9722222222222222,
+      "f1": 0.9859154929577464,
+      "number": 36
+    },
+    "PER": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 55
+    },
+    "overall_precision": 0.9887640449438202,
+    "overall_recall": 0.9943502824858758,
+    "overall_f1": 0.9915492957746479,
+    "overall_accuracy": 0.883736120182887,
+    "total_time_in_seconds": 18.43335879998631,
+    "samples_per_second": 5.424947297183532,
+    "latency_in_seconds": 0.18433358799986307
+  }
+}
