@@ -57,7 +57,7 @@ def _unique_pairs() -> list[dict[str, str]]:
 HUB_PAIRS: list[dict[str, str]] = _unique_pairs()
 
 
-def pytest_id(pair: dict[str, str]) -> str:
+def hub_test_id(pair: dict[str, str]) -> str:
     """Readable pytest ID, e.g. ``finbert-text_classification``."""
     short = pair["model_id"].rsplit("/", 1)[-1]
     task = pair["task"].replace("-", "_")

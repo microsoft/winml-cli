@@ -62,7 +62,7 @@ from winml.modelkit.serve import create_app
 from .conftest import HUB_PAIRS as _PAIRS
 from .conftest import SAMPLE_TEXT as _SAMPLE_TEXT
 from .conftest import TEXT_BY_FIELD as _TEXT_BY_FIELD
-from .conftest import pytest_id as _pytest_id
+from .conftest import hub_test_id as _pytest_id
 from .conftest import resolve_model_arg as _resolve_model_arg
 
 
