@@ -201,9 +201,32 @@ class WinMLStaticCache(WinMLCache):
         layer_idx: int,
         cache_kwargs: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Capture new-token KV, then delegate to parent ``index_copy_``."""
+        """Capture new-token KV, then write via multi-dim ``index_put_`` (ScatterND).
+
+        Using full (b, h, pos) coord tuples forces the ONNX exporter to emit
+        ScatterND rather than ScatterElements (which ``index_copy_`` along a
+        single axis would produce).
+        """
+        import torch
+
         self.captured[layer_idx] = (key_states, value_states)
-        return super().update(key_states, value_states, layer_idx, cache_kwargs)
+        cache_position = cache_kwargs["cache_position"]
+
+        k_out = self.layers[layer_idx].keys
+        v_out = self.layers[layer_idx].values
+
+        bsz, n_heads, n_new, _ = key_states.shape
+        bi = torch.arange(bsz, device=k_out.device).view(bsz, 1, 1).expand(bsz, n_heads, n_new)
+        hi = (
+            torch.arange(n_heads, device=k_out.device)
+            .view(1, n_heads, 1)
+            .expand(bsz, n_heads, n_new)
+        )
+        pi = cache_position.view(1, 1, n_new).expand(bsz, n_heads, n_new)
+        k_out.index_put_((bi, hi, pi), key_states)
+        v_out.index_put_((bi, hi, pi), value_states)
+
+        return k_out, v_out
 
     def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
         """Left-aligned: first ``step + num_new_tokens`` positions are 1."""
@@ -356,7 +379,12 @@ class PastKeyValueInputGenerator(DummyInputGenerator):
         self.batch_size = batch_size
         self.num_layers: int = normalized_config.num_layers
         self.num_heads: int = normalized_config.num_attention_heads
-        self.head_dim: int = normalized_config.head_dim
+        # head_dim: prefer explicit config attr (T5's d_kv, Qwen's head_dim),
+        # otherwise derive from hidden_size / num_attention_heads (Marian, BART).
+        try:
+            self.head_dim: int = normalized_config.head_dim
+        except AttributeError:
+            self.head_dim = normalized_config.hidden_size // normalized_config.num_attention_heads
         self.max_cache_len: int = max_cache_len or normalized_config.max_cache_len
         self.SUPPORTED_INPUT_NAMES = tuple(
             name for i in range(self.num_layers) for name in (f"past_{i}_key", f"past_{i}_value")
