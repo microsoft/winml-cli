@@ -778,7 +778,7 @@ def get_query_conditions_for_node(
             # External data initializers (large weights) may not have data loaded;
             # fall back to shape from dims and value=None so analysis can proceed.
             if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
-                shape = tuple(init.dims) if init.dims else None
+                shape = tuple(init.dims) if init.dims is not None else None
                 update_conditions_(conditions, input_name, is_variadic, True, shape, None)
             else:
                 arr = numpy_helper.to_array(init)
