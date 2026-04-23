@@ -100,6 +100,72 @@ _DECODERS: dict[str, Any] = {
 }
 
 
+def _sanitize_numpy(obj: Any) -> Any:
+    """Recursively convert numpy scalars to Python types for JSON serialization.
+
+    HF pipelines (e.g. NER/TokenClassification) return dicts containing
+    ``numpy.float32`` scores and ``numpy.int64`` offsets that pydantic
+    cannot serialize.  This function converts them to native Python types.
+    """
+    import numpy as np
+
+    if isinstance(obj, dict):
+        return {k: _sanitize_numpy(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_numpy(v) for v in obj]
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
+# ---------------------------------------------------------------------------
+# Build-directory artifact discovery
+# ---------------------------------------------------------------------------
+
+
+def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[Path, dict | None]:
+    """Locate model.onnx and build_manifest.json inside a build/cache directory.
+
+    Supports both plain layout (``model.onnx``) and cache-key-prefixed layout
+    (``{cache_key}_model.onnx``) so that ``InferenceEngine.load()`` can load
+    directly from ``~/.cache/winml/artifacts/{slug}/`` without a full rebuild.
+
+    When *task* is provided, only returns artifacts whose manifest ``task``
+    matches.  A cache directory may contain multiple task variants (e.g.
+    ``feat_*`` for feature-extraction and ``txtcls_*`` for text-classification);
+    using the wrong ONNX (different output head) would produce garbage results.
+
+    Returns:
+        ``(onnx_path, manifest_dict)`` — manifest is ``None`` when no
+        manifest file is found.
+
+    Raises:
+        FileNotFoundError: if no matching ``*model.onnx`` is found.
+    """
+    # Try plain layout first (bare build output)
+    plain_onnx = build_dir / "model.onnx"
+    plain_manifest = build_dir / "build_manifest.json"
+    if plain_onnx.exists():
+        manifest = json.loads(plain_manifest.read_text()) if plain_manifest.exists() else None
+        if task is None or manifest is None or manifest.get("task") == task:
+            return plain_onnx, manifest
+
+    # Cache-key-prefixed layout: {cache_key}_model.onnx
+    # Scan all candidates and match by task when specified.
+    for onnx_path in sorted(build_dir.glob("*_model.onnx")):
+        prefix = onnx_path.name.rsplit("_model.onnx", 1)[0]
+        manifest_path = build_dir / f"{prefix}_build_manifest.json"
+        manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
+        if task is None or manifest is None or manifest.get("task") == task:
+            return onnx_path, manifest
+
+    raise FileNotFoundError(f"No model.onnx matching task={task!r} found in {build_dir}")
+
+
 # ---------------------------------------------------------------------------
 # Lightweight schema helpers (no model load required)
 # ---------------------------------------------------------------------------
@@ -233,7 +299,24 @@ class InferenceEngine:
         path = Path(model_path)
 
         if path.is_dir():
-            self._load_from_build_dir(path, task=task, device=device, ep=ep)
+            try:
+                self._load_from_build_dir(path, task=task, device=device, ep=ep)
+            except FileNotFoundError:
+                # No cached ONNX for this task — check if the manifest has a
+                # model_id we can rebuild from (e.g. cache was built for a
+                # different task like feature-extraction but caller wants
+                # text-classification).
+                model_id = self._resolve_model_id_from_dir(path)
+                if model_id:
+                    logger.info(
+                        "No cached ONNX for task=%s in %s — rebuilding from %s",
+                        task,
+                        path,
+                        model_id,
+                    )
+                    self._load_from_hf(model_id, task=task, device=device, ep=ep)
+                else:
+                    raise
         elif path.suffix == ".onnx" and path.exists():
             self._load_from_onnx(path, task=task, device=device, ep=ep)
         else:
@@ -279,9 +362,11 @@ class InferenceEngine:
 
         if path.is_dir():
             # Build dir: read manifest for task + model_id (no ORT session)
-            manifest_path = path / "build_manifest.json"
-            if manifest_path.exists():
-                manifest = json.loads(manifest_path.read_text())
+            try:
+                _, manifest = _find_build_artifacts(path, task=task)
+            except FileNotFoundError:
+                manifest = None
+            if manifest is not None:
                 self._model_id = manifest.get("model_id")
                 self._task = task or manifest.get("task")
             else:
@@ -755,11 +840,14 @@ class InferenceEngine:
                     )
                     for item in raw
                 ]
-            # Non-classification list of dicts (e.g. text-generation, NER)
-            return raw[0] if len(raw) == 1 else {"results": raw}
+            # Non-classification list of dicts (e.g. text-generation, NER).
+            # Sanitize numpy scalars so pydantic/JSON serialization works
+            # (NER pipelines return np.float32 scores).
+            result = raw[0] if len(raw) == 1 else {"results": raw}
+            return _sanitize_numpy(result)
         # Other tasks: return as-is dict
         if isinstance(raw, dict):
-            return raw
+            return _sanitize_numpy(raw)
         # Fallback
         return {"raw": str(raw)}
 
@@ -807,15 +895,10 @@ class InferenceEngine:
         device: str,
         ep: str | None,
     ) -> None:
-        manifest_path = build_dir / "build_manifest.json"
-        onnx_path = build_dir / "model.onnx"
-
-        if not onnx_path.exists():
-            raise FileNotFoundError(f"model.onnx not found in {build_dir}")
+        onnx_path, manifest = _find_build_artifacts(build_dir, task=task)
 
         model_id: str | None = None
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text())
+        if manifest is not None:
             model_id = manifest.get("model_id")
             task = task or manifest.get("task")
 
@@ -831,6 +914,16 @@ class InferenceEngine:
             self._attach_hf_config(model_id)
 
         logger.info("Loaded from build dir: task=%s model_id=%s", task, model_id)
+
+    @staticmethod
+    def _resolve_model_id_from_dir(build_dir: Path) -> str | None:
+        """Extract model_id from any manifest in the directory (task-agnostic)."""
+        for manifest_path in build_dir.glob("*build_manifest.json"):
+            manifest = json.loads(manifest_path.read_text())
+            model_id = manifest.get("model_id")
+            if model_id:
+                return model_id
+        return None
 
     def _load_from_onnx(
         self,

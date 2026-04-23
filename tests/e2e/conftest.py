@@ -20,10 +20,41 @@ import numpy as np
 import onnx
 import pytest
 from onnx import TensorProto, helper
+from PIL import Image
 
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from click.testing import CliRunner
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures for winml run E2E tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def test_image(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Generate a 224x224 random RGB JPEG (reused across the module)."""
+    d = tmp_path_factory.mktemp("run_e2e_assets")
+    img_path = d / "test_image.jpg"
+    rng = np.random.RandomState(42)
+    arr = rng.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+    Image.fromarray(arr).save(str(img_path), format="JPEG")
+    return str(img_path)
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    from click.testing import CliRunner
+
+    return CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# Auto-skip E2E
+# ---------------------------------------------------------------------------
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
