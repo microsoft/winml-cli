@@ -63,6 +63,8 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
     "image-segmentation": "mean_iou",
     "feature-extraction": "cosine_spearman",
     "sentence-similarity": "cosine_spearman",
+    "image-feature-extraction": "knn_top1_accuracy",
+    "fill-mask": "pseudo_perplexity",
 }
 
 

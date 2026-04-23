@@ -104,4 +104,5 @@ class FlattenInputGenerator(OpInputGenerator):
         """Return QDQ configuration for Flatten operator inputs."""
         return {
             "input": QDQParameterConfig(support_activation=True),
+            "output": QDQParameterConfig(support_activation=True, support_non_qdq=True),
         }
