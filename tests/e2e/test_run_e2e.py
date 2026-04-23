@@ -47,15 +47,22 @@ Markers:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from winml.modelkit.commands.run import run
 
+from .conftest import HUB_PAIRS as _PAIRS
+from .conftest import SAMPLE_TEXT as _SAMPLE_TEXT
+from .conftest import TEXT_BY_FIELD as _TEXT_BY_FIELD
+from .conftest import pytest_id as _pytest_id
+from .conftest import resolve_model_arg as _resolve_model_arg
+
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from click.testing import CliRunner
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mark.timeout(3600)]
@@ -70,73 +77,6 @@ _TEXT_HF_ID = "prajjwal1/bert-tiny"
 
 
 # ---------------------------------------------------------------------------
-# Hub model parametrization
-# ---------------------------------------------------------------------------
-
-_HUB_JSON = (
-    Path(__file__).resolve().parents[2] / "src" / "winml" / "modelkit" / "data" / "hub_models.json"
-)
-_HUB_DATA = json.loads(_HUB_JSON.read_text(encoding="utf-8"))
-
-
-def _unique_pairs() -> list[dict[str, str]]:
-    """Deduplicate ``(model_id, task)`` — keep first occurrence."""
-    seen: set[tuple[str, str]] = set()
-    pairs: list[dict[str, str]] = []
-    for entry in _HUB_DATA["models"]:
-        key = (entry["model_id"], entry["task"])
-        if key not in seen:
-            seen.add(key)
-            pairs.append({"model_id": entry["model_id"], "task": entry["task"]})
-    return pairs
-
-
-_PAIRS = _unique_pairs()
-
-
-def _pytest_id(pair: dict[str, str]) -> str:
-    """Readable pytest ID, e.g. ``finbert-text_classification``."""
-    short = pair["model_id"].rsplit("/", 1)[-1]
-    task = pair["task"].replace("-", "_")
-    return f"{short}-{task}"
-
-
-# ---------------------------------------------------------------------------
-# Cache-aware model resolution
-# ---------------------------------------------------------------------------
-
-
-def _find_cache_dir(model_id: str, task: str | None = None) -> Path | None:
-    """Find the winml build-cache directory for a model+task, or None.
-
-    Looks for ``~/.cache/winml/artifacts/{slug}/`` containing a
-    ``*_model.onnx`` file whose manifest task matches *task*.
-    """
-    from winml.modelkit.cache import get_cache_dir, model_id_to_slug
-
-    slug = model_id_to_slug(model_id)
-    cache_dir = get_cache_dir() / "artifacts" / slug
-    if not cache_dir.is_dir():
-        return None
-    # Use _find_build_artifacts with task filter to verify a matching ONNX exists
-    from winml.modelkit.inference.engine import _find_build_artifacts
-
-    try:
-        _find_build_artifacts(cache_dir, task=task)
-        return cache_dir
-    except FileNotFoundError:
-        return None
-
-
-def _resolve_model_arg(model_id: str, task: str | None = None) -> str:
-    """Return the cache directory (fast) or HF model ID (slow rebuild)."""
-    cache_dir = _find_cache_dir(model_id, task=task)
-    if cache_dir is not None:
-        return str(cache_dir)
-    return model_id
-
-
-# ---------------------------------------------------------------------------
 # JSON extraction helper
 # ---------------------------------------------------------------------------
 
@@ -144,9 +84,12 @@ def _resolve_model_arg(model_id: str, task: str | None = None) -> str:
 def _extract_json(output: str) -> dict:
     """Extract the JSON object from CLI output that may have build-pipeline noise.
 
-    During first-time model builds, HF/Optimum libraries print warnings to
-    stdout that contaminate the ``--format json`` output.  This function
-    scans for the first valid top-level ``{...}`` JSON object.
+    ``run.py`` redirects ``sys.stdout`` → ``sys.stderr`` during ``engine.load()``
+    to prevent build-pipeline prints from contaminating JSON output.  However,
+    some C-extension code (e.g. onnxruntime, tqdm) writes directly to file
+    descriptor 1, bypassing Python's ``sys.stdout`` — ``redirect_stdout`` cannot
+    intercept those writes.  This function provides a robust fallback by
+    scanning for the first valid top-level ``{...}`` JSON object.
     """
     decoder = json.JSONDecoder()
     # Scan forward for the first '{' that starts a valid JSON object
@@ -164,16 +107,6 @@ def _extract_json(output: str) -> dict:
 # ---------------------------------------------------------------------------
 # Sample inputs for inference
 # ---------------------------------------------------------------------------
-
-_SAMPLE_TEXT = "The quick brown fox jumps over the lazy dog."
-
-_TEXT_BY_FIELD: dict[str, str] = {
-    "question": "What is the capital of France?",
-    "context": (
-        "Paris is the capital of France. "
-        "It is known for the Eiffel Tower and its rich cultural heritage."
-    ),
-}
 
 _FALLBACK_INPUT_ARGS: dict[str, list[str]] = {
     "sentence-similarity": ["--text", _SAMPLE_TEXT],
@@ -518,7 +451,10 @@ class TestInferenceAllModels:
         # Step 2: Build inference args
         input_args = _build_inference_args(schema["inputs"], task, test_image)
         if input_args is None:
-            pytest.skip(f"Cannot determine inputs for task '{task}' (empty schema, no fallback)")
+            pytest.xfail(
+                f"Cannot determine inputs for task '{task}' (empty schema, no fallback) — "
+                "extend _FALLBACK_INPUT_ARGS or _build_inference_args to cover this task"
+            )
 
         # Step 3: Run inference
         result = runner.invoke(

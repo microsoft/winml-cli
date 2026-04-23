@@ -624,8 +624,8 @@ def run(
 
     try:
         # Redirect stdout → stderr during model load so that build-pipeline
-        # prints (from optimum, onnxruntime, etc.) don't contaminate the
-        # structured output when --format json is used.
+        # prints (from optimum, onnxruntime, etc.) don't contaminate
+        # structured output (--format json) or text output parsing.
         with contextlib.redirect_stdout(sys.stderr):
             engine.load(model, task=task, device=device, ep=ep)
     except (OSError, ValueError, RuntimeError) as exc:

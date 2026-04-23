@@ -156,12 +156,27 @@ def _find_build_artifacts(build_dir: Path, *, task: str | None = None) -> tuple[
 
     # Cache-key-prefixed layout: {cache_key}_model.onnx
     # Scan all candidates and match by task when specified.
+    candidates: list[tuple[Path, dict | None]] = []
     for onnx_path in sorted(build_dir.glob("*_model.onnx")):
         prefix = onnx_path.name.rsplit("_model.onnx", 1)[0]
         manifest_path = build_dir / f"{prefix}_build_manifest.json"
         manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
-        if task is None or manifest is None or manifest.get("task") == task:
-            return onnx_path, manifest
+        if task is not None:
+            if manifest is None or manifest.get("task") == task:
+                return onnx_path, manifest
+        else:
+            candidates.append((onnx_path, manifest))
+
+    if candidates:
+        # task=None: if all variants share the same task, pick the first.
+        # If multiple different tasks exist, raise to force the caller to specify.
+        tasks = {m.get("task") for _, m in candidates if m is not None}
+        if len(tasks) > 1:
+            raise FileNotFoundError(
+                f"Multiple task variants found in {build_dir}: {tasks}. "
+                "Pass task= to select the correct ONNX model."
+            )
+        return candidates[0]
 
     raise FileNotFoundError(f"No model.onnx matching task={task!r} found in {build_dir}")
 
@@ -301,11 +316,11 @@ class InferenceEngine:
         if path.is_dir():
             try:
                 self._load_from_build_dir(path, task=task, device=device, ep=ep)
-            except FileNotFoundError:
-                # No cached ONNX for this task — check if the manifest has a
-                # model_id we can rebuild from (e.g. cache was built for a
-                # different task like feature-extraction but caller wants
-                # text-classification).
+            except (FileNotFoundError, json.JSONDecodeError, KeyError):
+                # No cached ONNX for this task (or corrupt manifest) — check
+                # if the manifest has a model_id we can rebuild from (e.g.
+                # cache was built for a different task like feature-extraction
+                # but caller wants text-classification).
                 model_id = self._resolve_model_id_from_dir(path)
                 if model_id:
                     logger.info(

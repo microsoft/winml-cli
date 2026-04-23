@@ -2,10 +2,14 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Shared fixtures for E2E tests.
+"""Shared fixtures and helpers for E2E tests.
 
-These fixtures generate real ONNX files on-the-fly and provide
-model-task combination parameters for parametrized tests.
+Provides:
+  - Hub model parametrization helpers (``HUB_PAIRS``, ``pytest_id``)
+  - Cache-aware model resolution (``find_cache_dir``, ``resolve_model_arg``)
+  - Common sample text inputs (``SAMPLE_TEXT``, ``TEXT_BY_FIELD``)
+  - Shared fixtures (``test_image``, ``runner``)
+  - Auto-skip for ``-m e2e``
 
 E2E tests are auto-skipped unless explicitly selected with:
     uv run pytest -m e2e
@@ -14,6 +18,7 @@ E2E tests are auto-skipped unless explicitly selected with:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -24,13 +29,93 @@ from PIL import Image
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from click.testing import CliRunner
 
 
 # ---------------------------------------------------------------------------
-# Shared fixtures for winml run E2E tests
+# Hub model parametrization (single source of truth)
+# ---------------------------------------------------------------------------
+
+_HUB_JSON = (
+    Path(__file__).resolve().parents[2] / "src" / "winml" / "modelkit" / "data" / "hub_models.json"
+)
+HUB_DATA: dict = json.loads(_HUB_JSON.read_text(encoding="utf-8"))
+
+
+def _unique_pairs() -> list[dict[str, str]]:
+    """Deduplicate ``(model_id, task)`` — keep first occurrence."""
+    seen: set[tuple[str, str]] = set()
+    pairs: list[dict[str, str]] = []
+    for entry in HUB_DATA["models"]:
+        key = (entry["model_id"], entry["task"])
+        if key not in seen:
+            seen.add(key)
+            pairs.append({"model_id": entry["model_id"], "task": entry["task"]})
+    return pairs
+
+
+HUB_PAIRS: list[dict[str, str]] = _unique_pairs()
+
+
+def pytest_id(pair: dict[str, str]) -> str:
+    """Readable pytest ID, e.g. ``finbert-text_classification``."""
+    short = pair["model_id"].rsplit("/", 1)[-1]
+    task = pair["task"].replace("-", "_")
+    return f"{short}-{task}"
+
+
+# ---------------------------------------------------------------------------
+# Cache-aware model resolution
+# ---------------------------------------------------------------------------
+
+
+def find_cache_dir(model_id: str, task: str | None = None) -> Path | None:
+    """Find the winml build-cache directory for a model+task, or None.
+
+    Looks for ``~/.cache/winml/artifacts/{slug}/`` containing a
+    ``*_model.onnx`` file whose manifest task matches *task*.
+    """
+    from winml.modelkit.cache import get_cache_dir, model_id_to_slug
+    from winml.modelkit.inference.engine import _find_build_artifacts
+
+    slug = model_id_to_slug(model_id)
+    cache_dir = get_cache_dir() / "artifacts" / slug
+    if not cache_dir.is_dir():
+        return None
+    try:
+        _find_build_artifacts(cache_dir, task=task)
+        return cache_dir
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def resolve_model_arg(model_id: str, task: str | None = None) -> str:
+    """Return the cache directory (fast) or HF model ID (slow rebuild)."""
+    cache_dir = find_cache_dir(model_id, task=task)
+    if cache_dir is not None:
+        return str(cache_dir)
+    return model_id
+
+
+# ---------------------------------------------------------------------------
+# Common sample inputs
+# ---------------------------------------------------------------------------
+
+SAMPLE_TEXT = "The quick brown fox jumps over the lazy dog."
+
+TEXT_BY_FIELD: dict[str, str] = {
+    "question": "What is the capital of France?",
+    "context": (
+        "Paris is the capital of France. "
+        "It is known for the Eiffel Tower and its rich cultural heritage."
+    ),
+    "text_1": "A man is eating food.",
+    "text_2": "A man is eating a piece of bread.",
+}
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
 # ---------------------------------------------------------------------------
 
 

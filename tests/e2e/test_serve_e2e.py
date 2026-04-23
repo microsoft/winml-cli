@@ -51,7 +51,6 @@ Markers:
 from __future__ import annotations
 
 import base64
-import json
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +58,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from winml.modelkit.serve import create_app
+
+from .conftest import HUB_PAIRS as _PAIRS
+from .conftest import SAMPLE_TEXT as _SAMPLE_TEXT
+from .conftest import TEXT_BY_FIELD as _TEXT_BY_FIELD
+from .conftest import pytest_id as _pytest_id
+from .conftest import resolve_model_arg as _resolve_model_arg
 
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mark.timeout(3600)]
@@ -70,83 +75,6 @@ pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.network, pytest.mar
 
 _IMAGE_HF_ID = "microsoft/resnet-18"
 _TEXT_HF_ID = "prajjwal1/bert-tiny"
-
-_SAMPLE_TEXT = "The quick brown fox jumps over the lazy dog."
-
-
-# ---------------------------------------------------------------------------
-# Hub model parametrization (shared with test_run_e2e.py)
-# ---------------------------------------------------------------------------
-
-_HUB_JSON = (
-    Path(__file__).resolve().parents[2] / "src" / "winml" / "modelkit" / "data" / "hub_models.json"
-)
-_HUB_DATA = json.loads(_HUB_JSON.read_text(encoding="utf-8"))
-
-
-def _unique_pairs() -> list[dict[str, str]]:
-    """Deduplicate ``(model_id, task)`` — keep first occurrence."""
-    seen: set[tuple[str, str]] = set()
-    pairs: list[dict[str, str]] = []
-    for entry in _HUB_DATA["models"]:
-        key = (entry["model_id"], entry["task"])
-        if key not in seen:
-            seen.add(key)
-            pairs.append({"model_id": entry["model_id"], "task": entry["task"]})
-    return pairs
-
-
-_PAIRS = _unique_pairs()
-
-
-def _pytest_id(pair: dict[str, str]) -> str:
-    """Readable pytest ID, e.g. ``finbert-text_classification``."""
-    short = pair["model_id"].rsplit("/", 1)[-1]
-    task = pair["task"].replace("-", "_")
-    return f"{short}-{task}"
-
-
-# ---------------------------------------------------------------------------
-# Cache-aware model resolution (same logic as test_run_e2e.py)
-# ---------------------------------------------------------------------------
-
-
-def _find_cache_dir(model_id: str, task: str | None = None) -> Path | None:
-    from winml.modelkit.cache import get_cache_dir, model_id_to_slug
-    from winml.modelkit.inference.engine import _find_build_artifacts
-
-    slug = model_id_to_slug(model_id)
-    cache_dir = get_cache_dir() / "artifacts" / slug
-    if not cache_dir.is_dir():
-        return None
-    try:
-        _find_build_artifacts(cache_dir, task=task)
-        return cache_dir
-    except FileNotFoundError:
-        return None
-
-
-def _resolve_model_arg(model_id: str, task: str | None = None) -> str:
-    """Return the cache directory (fast) or HF model ID (slow rebuild)."""
-    cache_dir = _find_cache_dir(model_id, task=task)
-    if cache_dir is not None:
-        return str(cache_dir)
-    return model_id
-
-
-# ---------------------------------------------------------------------------
-# Sample inputs per task — used to build POST /v1/predict JSON bodies
-# ---------------------------------------------------------------------------
-
-_TEXT_BY_FIELD: dict[str, str] = {
-    "question": "What is the capital of France?",
-    "context": (
-        "Paris is the capital of France. "
-        "It is known for the Eiffel Tower and its rich cultural heritage."
-    ),
-    "text_1": "A man is eating food.",
-    "text_2": "A man is eating a piece of bread.",
-}
 
 
 def _build_predict_body(
@@ -191,18 +119,7 @@ def _build_predict_body(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def test_image(tmp_path_factory: pytest.TempPathFactory) -> str:
-    """Generate a 224x224 random RGB JPEG (reused across the module)."""
-    import numpy as np
-    from PIL import Image
-
-    d = tmp_path_factory.mktemp("serve_e2e_assets")
-    img_path = d / "test_image.jpg"
-    rng = np.random.RandomState(42)
-    arr = rng.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-    Image.fromarray(arr).save(str(img_path), format="JPEG")
-    return str(img_path)
+# test_image fixture is inherited from conftest.py
 
 
 @pytest.fixture(scope="module")
@@ -220,7 +137,7 @@ def test_image_b64(test_image_bytes: bytes) -> str:
 @pytest.fixture(scope="module")
 def image_model() -> str:
     """Resolve resnet-18 to cache dir (fast) or HF ID (slow)."""
-    return _resolve_model_arg(_IMAGE_HF_ID)
+    return _resolve_model_arg(_IMAGE_HF_ID, task="image-classification")
 
 
 @pytest.fixture(scope="module")
@@ -592,8 +509,9 @@ class TestInferenceAllModels:
             # Step 2: Build predict body
             body = _build_predict_body(schema["user_inputs"], task, test_image_b64)
             if body is None:
-                pytest.skip(
-                    f"Cannot determine inputs for task '{task}' (empty schema, no fallback)"
+                pytest.xfail(
+                    f"Cannot determine inputs for task '{task}' (empty schema, no fallback) — "
+                    "extend _build_predict_body to cover this task"
                 )
 
             # Step 3: Run inference
