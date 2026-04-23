@@ -209,15 +209,6 @@ class ResilientRunner:
             # during teardown, and cleanup must remain best-effort/non-fatal.
             pass
 
-    @staticmethod
-    def _close_process(proc: Any) -> None:
-        """Best-effort process close that never raises."""
-        try:
-            proc.close()
-        except Exception:
-            # Intentionally suppress cleanup errors to preserve best-effort shutdown semantics.
-            pass
-
     def _shutdown_executor_two_phase(
         self,
         *,
@@ -255,8 +246,16 @@ class ResilientRunner:
         for proc in survivors:
             self._join_process(proc, timeout=self._FORCED_KILL_JOIN_TIMEOUT_SEC)
 
-        for proc in lingering:
-            self._close_process(proc)
+        # Do not close multiprocessing.Process handles manually here. The
+        # ProcessPoolExecutor management thread may still call proc.join(), and
+        # prematurely closing handles can trigger WinError 6 on Windows.
+        try:
+            executor.shutdown(wait=True, cancel_futures=cancel_futures)
+        except Exception as exc:
+            print(
+                f"[ResilientRunner] executor.shutdown(wait=True) failed: {exc}",
+                file=sys.stderr,
+            )
 
     def run(self, fn: Callable[[Any, Any], Any] | None = None, *args: Any) -> dict[str, Any]:
         """Execute the function on a single input with automatic retry on failure.
