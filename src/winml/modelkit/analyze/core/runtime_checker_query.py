@@ -1220,7 +1220,7 @@ class RuntimeCheckerQuery:
                     else:
                         graph_inputs.append(
                             onnx.helper.make_tensor_value_info(
-                                inp_name, init.data_type, list(init.dims) or None
+                                inp_name, init.data_type, list(init.dims) if init.dims is not None else None
                             )
                         )
                 else:
