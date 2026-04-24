@@ -16,7 +16,7 @@ from winml.modelkit.optracing.qnn.profiler import (
     _ort_type_to_numpy,
     _resolve_shape,
 )
-from winml.modelkit.optracing.qnn.viewer import (
+from winml.modelkit.session.monitor.qnn.viewer import (
     _DEFAULT_CONFIG,
     find_qnn_sdk,
     run_basic_viewer,
@@ -227,7 +227,7 @@ def test_find_qnn_sdk_not_found(monkeypatch):
     monkeypatch.delenv("QNN_SDK_ROOT", raising=False)
     # Patch common paths to nonexistent directories.
     with patch(
-        "winml.modelkit.optracing.qnn.viewer._COMMON_SDK_PATHS",
+        "winml.modelkit.session.monitor.qnn.viewer._COMMON_SDK_PATHS",
         ["/nonexistent/path1", "/nonexistent/path2"],
     ):
         result = find_qnn_sdk()
@@ -243,7 +243,7 @@ def test_find_qnn_sdk_from_common_path(monkeypatch, tmp_path):
     (sdk_version_dir / "bin").mkdir(parents=True)
 
     with patch(
-        "winml.modelkit.optracing.qnn.viewer._COMMON_SDK_PATHS",
+        "winml.modelkit.session.monitor.qnn.viewer._COMMON_SDK_PATHS",
         [str(tmp_path)],
     ):
         result = find_qnn_sdk()
@@ -257,7 +257,7 @@ def test_find_qnn_sdk_from_common_path(monkeypatch, tmp_path):
 
 def test_run_basic_viewer_no_sdk(tmp_path):
     """Basic viewer returns None when SDK is not found."""
-    with patch("winml.modelkit.optracing.qnn.viewer._find_viewer_exe", return_value=None):
+    with patch("winml.modelkit.session.monitor.qnn.viewer._find_viewer_exe", return_value=None):
         result = run_basic_viewer(tmp_path / "log.qnn", tmp_path / "output.csv")
         assert result is None
 
@@ -271,11 +271,11 @@ def test_run_basic_viewer_success(tmp_path):
 
     with (
         patch(
-            "winml.modelkit.optracing.qnn.viewer._find_viewer_exe",
+            "winml.modelkit.session.monitor.qnn.viewer._find_viewer_exe",
             return_value=Path("/fake/viewer.exe"),
         ),
         patch(
-            "winml.modelkit.optracing.qnn.viewer.subprocess.run",
+            "winml.modelkit.session.monitor.qnn.viewer.subprocess.run",
             side_effect=fake_run,
         ),
     ):
@@ -291,7 +291,7 @@ def test_run_basic_viewer_success(tmp_path):
 def test_run_qhas_viewer_no_schematic(tmp_path):
     """QHAS viewer returns None when schematic file does not exist."""
     with patch(
-        "winml.modelkit.optracing.qnn.viewer._find_viewer_exe",
+        "winml.modelkit.session.monitor.qnn.viewer._find_viewer_exe",
         return_value=Path("/fake/viewer.exe"),
     ):
         result = run_qhas_viewer(
@@ -313,11 +313,11 @@ def test_run_qhas_viewer_writes_config(tmp_path):
 
     with (
         patch(
-            "winml.modelkit.optracing.qnn.viewer._find_viewer_exe",
+            "winml.modelkit.session.monitor.qnn.viewer._find_viewer_exe",
             return_value=Path("/fake/viewer.exe"),
         ),
         patch(
-            "winml.modelkit.optracing.qnn.viewer.subprocess.run",
+            "winml.modelkit.session.monitor.qnn.viewer.subprocess.run",
             side_effect=fake_run,
         ),
     ):

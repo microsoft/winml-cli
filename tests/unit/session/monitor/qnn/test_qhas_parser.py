@@ -7,7 +7,7 @@
 import json
 from pathlib import Path
 
-from winml.modelkit.optracing.qnn.qhas_parser import parse_qhas
+from winml.modelkit.session.monitor.qnn.qhas_parser import parse_qhas
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"

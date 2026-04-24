@@ -14,7 +14,7 @@ from winml.modelkit.optracing.qnn.csv_parser import (
 from winml.modelkit.optracing.qnn.qhas_parser import parse_qhas  # Testing internal implementation
 
 
-FIXTURE_DIR = Path(__file__).parent / "fixtures"
+FIXTURE_DIR = Path(__file__).parent.parent / "session" / "monitor" / "qnn" / "fixtures"
 
 
 def test_basic_pipeline_csv_to_json(tmp_path):

@@ -6,7 +6,7 @@
 
 from pathlib import Path
 
-from winml.modelkit.optracing.qnn.csv_parser import parse_qnn_profiling_csv
+from winml.modelkit.session.monitor.qnn.csv_parser import parse_qnn_profiling_csv
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
