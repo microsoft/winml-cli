@@ -1131,16 +1131,16 @@ class TestIterQDQCombinations:
             # All Reduce* use this and it is enough
             (
                 "ReduceSum",
-                1440,
-            ),  # (3+3+6*4) * 4 QDQ * 4 attr combos
+                1632,
+            ),  # (3+3+7*4) * 4 QDQ * 4 attr combos
             # * 3 (axes none, const, not const)
             ("Relu", unary_input_shapes * 4 * 2),
             ("Reshape", 36 * 4 * 2 * 2),  # allowzero 2 * is_constant 2
             (
                 "Resize",
-                3456,
+                4032,
             ),  # shape 4 * T2 3 * QDQ 4 * antialias 2
-            # * attribute 6 * (optional input 4 + 2)
+            # * attribute 7 * (optional input 4 + 2)
             (
                 "ScatterND",
                 1680,

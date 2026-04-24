@@ -1257,7 +1257,7 @@
     "hf_id": "google-bert/bert-base-multilingual-cased",
     "task": "fill-mask",
     "model_type": "bert",
-    "group": "AITK",
+    "group": "Foundry Toolkit",
     "priority": "P0",
     "dataset_config": {
       "path": "Salesforce/wikitext",
