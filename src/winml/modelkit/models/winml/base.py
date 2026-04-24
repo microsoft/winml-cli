@@ -187,17 +187,17 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         """Context manager for scoped performance tracking.
 
         Delegates to the underlying WinMLSession.perf(). Every inference
-        call within the context records timing in PerfStats.
+        call within the context records timing in ``ctx.stats``.
 
         Args:
             warmup: Number of initial samples to exclude from statistics.
 
         Example::
 
-            with model.perf(warmup=5) as stats:
+            with model.perf(warmup=5) as ctx:
                 for img in images:
                     model(pixel_values=img)
-            print(f"P99: {stats.p99_ms:.2f} ms")
+            print(f"P99: {ctx.stats.p99_ms:.2f} ms")
         """
         return self._session.perf(warmup=warmup)
 

@@ -375,10 +375,10 @@ class PerfBenchmark:
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
 
-        with session.perf(warmup=self.config.warmup) as stats:
+        with session.perf(warmup=self.config.warmup) as ctx:
             _run_simple_loop(session, self._inputs, total_iterations)
 
-        return stats
+        return ctx.stats
 
     def _run_benchmark_monitored(self) -> PerfStats:
         """Execute benchmark with live hardware monitoring.
@@ -415,14 +415,14 @@ class PerfBenchmark:
             ep_monitor = NullEPMonitor()
 
         with (
-            session.perf(warmup=self.config.warmup) as stats,
+            session.perf(warmup=self.config.warmup) as ctx,
             hw_monitor as hw,
             ep_monitor as ep_mon,
         ):
             _run_monitored_loop(
                 session,
                 self._inputs,
-                stats,
+                ctx.stats,
                 hw,
                 total_iterations=total_iterations,
                 warmup=self.config.warmup,
@@ -436,7 +436,7 @@ class PerfBenchmark:
             if ep_dict:  # NullEPMonitor returns {}, real monitors return data
                 self._hw_metrics["ep_proof"] = ep_dict
 
-        return stats
+        return ctx.stats
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
@@ -609,16 +609,16 @@ def _perf_modules(
                         hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
 
                 if hw_ctx:
-                    with session.perf(warmup=warmup) as stats, hw_ctx as hw:
+                    with session.perf(warmup=warmup) as ctx, hw_ctx as hw:
                         for _ in range(total_iters):
                             session.run(inputs)
                         hw_metrics = hw.to_dict()
+                    mod_stats = ctx.stats
                 else:
-                    with session.perf(warmup=warmup) as stats:
+                    with session.perf(warmup=warmup) as ctx:
                         for _ in range(total_iters):
                             session.run(inputs)
-
-                mod_stats = stats
+                    mod_stats = ctx.stats
                 result_entry: dict[str, Any] = {
                     "module_path": module_path,
                     "mean_ms": round(mod_stats.mean_ms, 3),
@@ -949,11 +949,11 @@ def _run_onnx_benchmark(
             )
 
     if hw_ctx:
-        with session.perf(warmup=warmup) as stats, hw_ctx as hw:
+        with session.perf(warmup=warmup) as ctx, hw_ctx as hw:
             _run_monitored_loop(
                 session,
                 inputs,
-                stats,
+                ctx.stats,
                 hw,
                 total_iterations=total_iterations,
                 warmup=warmup,
@@ -961,9 +961,11 @@ def _run_onnx_benchmark(
                 device=device,
             )
             hw_metrics = hw.to_dict()
+        stats = ctx.stats
     else:
-        with session.perf(warmup=warmup) as stats:
+        with session.perf(warmup=warmup) as ctx:
             _run_simple_loop(session, inputs, total_iterations)
+        stats = ctx.stats
 
     # Collect results
     mean_latency_sec = stats.mean_ms / 1000.0

@@ -548,7 +548,8 @@ class TestWinMLSessionPerfTracking:
             device="cpu",
         )
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
+            stats = ctx.stats
             assert stats is not None
             assert isinstance(stats, PerfStats)
             assert stats.count == 0
@@ -564,10 +565,11 @@ class TestWinMLSessionPerfTracking:
             device="cpu",
         )
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
             for _ in range(5):
                 session.run(sample_input)
 
+            stats = ctx.stats
             assert stats.count == 5
             assert len(stats.samples_ms) == 5
             assert all(t > 0 for t in stats.samples_ms)
@@ -583,10 +585,11 @@ class TestWinMLSessionPerfTracking:
             device="cpu",
         )
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
             for _ in range(10):
                 session.run(sample_input)
 
+        stats = ctx.stats
         assert stats.count == 10
         assert stats.total_ms > 0
         assert stats.mean_ms > 0
@@ -607,10 +610,11 @@ class TestWinMLSessionPerfTracking:
             device="cpu",
         )
 
-        with session.perf(warmup=3) as stats:
+        with session.perf(warmup=3) as ctx:
             for _ in range(10):
                 session.run(sample_input)
 
+        stats = ctx.stats
         # 10 total, 3 warmup = 7 effective
         assert stats.total_count == 10
         assert stats.count == 7
@@ -628,8 +632,9 @@ class TestWinMLSessionPerfTracking:
             device="cpu",
         )
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
             session.run(sample_input)
+            stats = ctx.stats
             assert stats.count == 1
 
         # After context, perf_stats should be None
@@ -672,10 +677,11 @@ class TestWinMLSessionPerfTracking:
             device="cpu",
         )
 
-        with session.perf(warmup=2) as stats:
+        with session.perf(warmup=2) as ctx:
             for _ in range(5):
                 session.run(sample_input)
 
+        stats = ctx.stats
         # Stats still accessible after context
         assert stats.count == 3  # 5 - 2 warmup
         assert stats.mean_ms > 0

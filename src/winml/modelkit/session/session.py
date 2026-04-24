@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -20,7 +22,7 @@ import onnxruntime as ort
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
 from .ep_registry import WinMLEPRegistry
-from .monitor.ep_monitor import EPMonitor
+from .monitor.ep_monitor import EPMonitor, NullEPMonitor
 from .stats import PerfStats
 
 
@@ -604,26 +606,79 @@ class WinMLSession:
         return self._perf_stats
 
     @contextmanager
-    def perf(self, warmup: int = 0) -> Generator[PerfStats, None, None]:
-        """Context manager for scoped performance tracking.
+    def perf(
+        self,
+        warmup: int = 0,
+        monitor: EPMonitor | None = None,
+    ) -> Generator[PerfContext, None, None]:
+        """Run a scoped performance window yielding a :class:`PerfContext`.
 
         Args:
             warmup: Number of initial samples to exclude from statistics.
+            monitor: Optional :class:`EPMonitor`. Contributes session/provider
+                options at compile time (auto-resets the session if already
+                compiled with different options — logs WARNING). Parses
+                artifacts on exit.
 
         Yields:
-            PerfStats instance that collects timing data within the context.
+            :class:`PerfContext` with ``stats: PerfStats`` and
+            ``monitor: EPMonitor`` (:class:`NullEPMonitor` when caller passed
+            ``monitor=None``).
+
+        Raises:
+            RuntimeError: If another ``perf()`` context is already active on
+                this session (nested ``perf()`` is forbidden).
 
         Example:
-            >>> with session.perf(warmup=10) as stats:
+            >>> with session.perf(warmup=10) as ctx:
             ...     for _ in range(110):
             ...         session.run(inputs)
-            >>> print(f"P99: {stats.p99_ms:.2f} ms")  # Based on last 100 samples
+            >>> print(f"P99: {ctx.stats.p99_ms:.2f} ms")
         """
-        self._perf_stats = PerfStats(warmup=warmup)
+        if self._perf_stats is not None:
+            raise RuntimeError("session.perf() already active (nested perf is forbidden)")
+
+        mon: EPMonitor = monitor if monitor is not None else NullEPMonitor()
+
+        # Collect hook contributions — must be idempotent per EPMonitor contract
+        extra_sess = mon.get_session_options()
+        extra_prov = mon.get_provider_options()
+
+        # Auto-reset if options to apply AND session is already compiled
+        if (extra_sess or extra_prov) and self._session is not None:
+            logger.warning(
+                "session.perf(): auto-resetting compiled session to apply monitor "
+                "session/provider options (monitor=%s)",
+                type(mon).__name__,
+            )
+            self.reset()
+
+        # Save + merge
+        saved_sess_entries = dict(self._active_session_option_entries)
+        saved_prov = dict(self._provider_options)
+        self._active_session_option_entries = {**saved_sess_entries, **extra_sess}
+        self._provider_options = {**saved_prov, **extra_prov}
+
+        stats = PerfStats(warmup=warmup)
+        self._perf_stats = stats
+        mon.__enter__()
+
         try:
-            yield self._perf_stats
+            yield PerfContext(stats=stats, monitor=mon)
         finally:
             self._perf_stats = None
+            exc_info = sys.exc_info()
+            try:
+                if mon.requires_session_teardown:
+                    self.reset()
+                    # Windows: release file handles before monitor parses artifacts
+                    gc.collect()
+            finally:
+                try:
+                    mon.__exit__(*exc_info)
+                finally:
+                    self._active_session_option_entries = saved_sess_entries
+                    self._provider_options = saved_prov
 
     @property
     def io_config(self) -> dict:
