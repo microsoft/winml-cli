@@ -165,7 +165,7 @@ class TestComposite:
 
     def test_whitespace_stripped(self, onnx_vision):
         """Role and path are trimmed of surrounding whitespace."""
-        path, mid = _resolve_model_path(
+        path, _mid = _resolve_model_path(
             model=(f"  image-encoder  =  {onnx_vision}  ",),
             model_id="some/id",
         )

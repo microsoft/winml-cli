@@ -10,6 +10,7 @@ Split-encoder composite wrapper for dual-encoder families (CLIP, SigLIP, …).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -20,10 +21,12 @@ from transformers.utils import ModelOutput
 from .composite_model import WinMLCompositeModel, register_composite_model
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass
 class ZeroShotImageClassifierOutput(ModelOutput):
-    """Output container for dual-encoder zero-shot image classification.
-    """
+    """Output container for dual-encoder zero-shot image classification."""
 
     logits_per_image: torch.Tensor | None = None
     logits_per_text: torch.Tensor | None = None
@@ -101,9 +104,8 @@ class WinMLModelForZeroShotImageClassification(WinMLCompositeModel):
         return self.sub_models["image-encoder"]._format_inputs(pixel_values=pixel_values)
 
     def _run_vision(self, inputs: dict[str, np.ndarray]) -> torch.Tensor:
-        """Run vision encoder once (batch=1 ONNX)."""
-        outputs = self.sub_models["image-encoder"]._session.run(inputs)
-        return torch.from_numpy(self._pick_embeds(outputs))
+        """Run vision encoder over ``M`` images, batching per the ONNX's fixed batch dim."""
+        return self._run_batched(self.sub_models["image-encoder"], inputs, "pixel_values")
 
     def _preprocess_text(
         self,
@@ -120,21 +122,62 @@ class WinMLModelForZeroShotImageClassification(WinMLCompositeModel):
         return {k: self._pad_or_truncate(v, expected).astype(np.int64) for k, v in inputs.items()}
 
     def _run_text(self, inputs: dict[str, np.ndarray]) -> torch.Tensor:
-        """Run text encoder N times (batch=1 ONNX constraint) and concatenate."""
-        text = self.sub_models["text-encoder"]
-        n = inputs["input_ids"].shape[0]
+        """Run text encoder over ``N`` texts, batching per the ONNX's fixed batch dim."""
+        return self._run_batched(self.sub_models["text-encoder"], inputs, "input_ids")
+
+    def _run_batched(
+        self,
+        sub_model: Any,
+        inputs: dict[str, np.ndarray],
+        leading_key: str,
+    ) -> torch.Tensor:
+        """Run ``sub_model``'s ONNX session over ``inputs`` in chunks of its fixed batch size.
+
+        The ONNX model typically has a fixed batch size ``B``. We iterate in
+        chunks of ``B``; when the leading dim ``N`` isn't a multiple of ``B``,
+        the final chunk is zero-padded to ``B`` and the padding rows are
+        stripped from the output. Dynamic batch dims (``B`` non-positive /
+        non-int) fall back to a single call with the full input.
+
+        ``leading_key`` names the input whose leading dim defines ``N``.
+        """
+        batch_size = sub_model.io_config["input_shapes"][0][0]
+        n = inputs[leading_key].shape[0]
+
+        if not isinstance(batch_size, int) or batch_size <= 0:
+            return torch.from_numpy(self._pick_embeds(sub_model._session.run(inputs)))
+
         all_embeds = []
-        for i in range(n):
-            slice_inputs = {k: v[i:i + 1] for k, v in inputs.items()}
-            all_embeds.append(self._pick_embeds(text._session.run(slice_inputs)))
+        for start in range(0, n, batch_size):
+            end = min(start + batch_size, n)
+            chunk = {k: v[start:end] for k, v in inputs.items()}
+            pad = batch_size - (end - start)
+            if pad:
+                chunk = {
+                    k: np.pad(v, ((0, pad), *([(0, 0)] * (v.ndim - 1))), constant_values=0)
+                    for k, v in chunk.items()
+                }
+            embeds = self._pick_embeds(sub_model._session.run(chunk))
+            if pad:
+                embeds = embeds[: batch_size - pad]
+            all_embeds.append(embeds)
         return torch.from_numpy(np.concatenate(all_embeds, axis=0))
 
     @staticmethod
-    def _pad_or_truncate(arr: np.ndarray, target_len: int) -> np.ndarray:
+    def _pad_or_truncate(arr: np.ndarray, target_len: int | None) -> np.ndarray:
+        # No padding/truncation when the ONNX model has a dynamic sequence-length dim.
+        if not isinstance(target_len, int) or target_len <= 0:
+            return arr
         if arr.shape[1] < target_len:
             pad_width = target_len - arr.shape[1]
             return np.pad(arr, ((0, 0), (0, pad_width)), constant_values=0)
         if arr.shape[1] > target_len:
+            logger.warning(
+                "Truncating text input from %d to %d tokens to match the ONNX model's "
+                "fixed sequence length; trailing prompt tokens will not be seen by the model.",
+                arr.shape[1],
+                target_len,
+            )
             return arr[:, :target_len]
         return arr
 

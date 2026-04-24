@@ -669,7 +669,7 @@ def _run_winml_eval(
     timeout: int,
     ds_config: dict,
     model_dir: Path,
-    onnx_path: dict[str, str] | None = None,
+    onnx_paths: dict[str, str] | None = None,
 ) -> dict:
     """Invoke winml eval for one model. Returns process result + parsed metric."""
     output_path = model_dir / "winml_eval_output.json"
@@ -677,7 +677,7 @@ def _run_winml_eval(
 
     # winml eval requires explicit device ('cpu'/'gpu'/'npu'); 'auto' is not accepted
     eval_device = "npu" if device == "auto" else device
-    if onnx_path:
+    if onnx_paths:
         args = [
             *WINML_CLI,
             "eval",
@@ -687,7 +687,7 @@ def _run_winml_eval(
             eval_device,
         ]
         # Single model uses {"": path}; composite uses {role: path, ...}.
-        for label, path in onnx_path.items():
+        for label, path in onnx_paths.items():
             args += ["-m", f"{label}={path}" if label else path]
     else:
         args = [
@@ -857,7 +857,7 @@ def _run_accuracy_phase(
     device: str,
     timeout: int,
     model_dir: Path,
-    onnx_path: dict[str, str] | None = None,
+    onnx_paths: dict[str, str] | None = None,
 ) -> dict:
     """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
@@ -865,7 +865,7 @@ def _run_accuracy_phase(
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
+    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_paths)
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -1296,9 +1296,6 @@ def main() -> None:
             # TODO: expand composite accuracy support to other tasks (T5 summarization, etc.)
             is_composite = len(onnx_paths) > 1
             composite_accuracy_supported = entry.task == "zero-shot-image-classification"
-            first_path = (
-                next(iter(onnx_paths.values()), None) if onnx_paths and not is_composite else None
-            )
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases

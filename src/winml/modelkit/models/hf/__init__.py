@@ -48,11 +48,11 @@ from .roberta import ROBERTA_FAMILY_CONFIG
 from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registration
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
 from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
+from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
 from .siglip import MODEL_CLASS_MAPPING as _SIGLIP_CLASS_MAPPING
 from .siglip import SIGLIP_CONFIG
 from .siglip import SiglipTextModelIOConfig as _SiglipTextModelIOConfig  # triggers registration
 from .siglip import SiglipVisionModelIOConfig as _SiglipVisionModelIOConfig  # triggers registration
-from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
 from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
