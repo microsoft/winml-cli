@@ -130,7 +130,7 @@ Every design doc **MUST** begin with a metadata header immediately after the H1 
 **Status**: Active
 **Module**: session
 **Supersedes**: docs/design/session/archive/2_coreloop_v2.md
-**Depends-On**: docs/design/compiler/1_prd.md, docs/design/optracing/2_coreloop.md
+**Depends-On**: docs/design/compiler/1_prd.md, docs/design/session/monitor/2_coreloop.md
 ```
 
 ---
@@ -351,7 +351,7 @@ The following documents are the canonical style references. If a future doc of t
 
 ### 7.4 First compliant exemplar on `feat/mvp`
 
-`docs/design/optracing/1_prd.md` + `docs/design/optracing/2_coreloop.md` — the first doc pair authored against v1.0 of this spec. Use the 232 exemplars above for depth and pattern; use the optracing pair to see how the spec's rules apply in practice on this branch.
+`docs/design/session/monitor/1_prd.md` + `docs/design/session/monitor/2_coreloop.md` — the first doc pair authored against v1.0 of this spec. Use the 232 exemplars above for depth and pattern; use the optracing pair to see how the spec's rules apply in practice on this branch.
 
 ---
 

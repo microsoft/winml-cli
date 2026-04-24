@@ -1,16 +1,11 @@
 # Op-Tracing Refactor — Core Loop Design
 
-**Version**: 2.1
+**Version**: 2.2
 **Date**: 2026-04-19
 **Status**: Draft
 **Module**: session/monitor
 **Supersedes**: `docs/design/optracing/2_coreloop.md` v1.0 (consolidated per `docs/standards/design-doc-spec.md`)
-**Depends-On**: `docs/design/optracing/1_prd.md`, `docs/standards/design-doc-spec.md`
-
-**Transitional Location** (per `docs/standards/design-doc-spec.md` §1.5.1):
-- Current doc directory: `docs/design/optracing/` (legacy feature name)
-- Target `Module`: `session/monitor` (post-refactor)
-- Relocation commitment: when the implementation PR that deletes `src/winml/modelkit/optracing/` lands, these docs MUST be moved under `docs/design/session/monitor/` in that same PR.
+**Depends-On**: `docs/design/session/monitor/1_prd.md`, `docs/standards/design-doc-spec.md`
 
 ---
 
@@ -875,3 +870,4 @@ No registry changes. No cross-file wiring.
 | 1.0 | 2026-04-17 | Initial `2_coreloop.md`. Captured architecture from iterations 01-11. |
 | 2.0 | 2026-04-19 | Restructured per `docs/standards/design-doc-spec.md` v1.0. Added metadata header, §0 Related Documents, §0.5 I/O Dependencies. Applied user directives: dual `get_session_options` + `get_provider_options` hooks; preserve `OpTraceResult.to_dict()` (not plain dict); `os.chdir` removed (use absolute paths + glob fallback); `generate_dummy_inputs` removed entirely; singular `monitor=`; factory dispatch replaces registry. Applied critic/architect findings: no duplicate dict keys (explicit pop-then-set); add `ep_registry.ensure_initialized` to remove reverse coupling; auto-reset at WARNING (not INFO); `gc.collect` + retry for Windows file-handle lag; exception transparency via `sys.exc_info()` capture; load-bearing teardown ordering made explicit with integration test. |
 | 2.1 | 2026-04-19 | Post-audit fixes: added Table of Contents; corrected §4.6 to acknowledge `OpTraceResult.to_dict()` already exists at `optracing/result.py:79-95` and the refactor preserves its nested schema (adds `status`/`error` as additive top-level keys, keeps `metadata`/`summary`/`operators`/`statistics`/`artifacts`); clarified in §0.5.1 and §4.3 that `ensure_initialized()` is a NEW function added to the existing `ep_registry.py`; added `fixtures/` migration to §8.1; documented `commands/perf.py` import-path redirects in §9.2. |
+| 2.2 | 2026-04-24 | Relocated from docs/design/optracing/ to docs/design/session/monitor/ per spec §1.5.1 transitional commitment (implementation complete). Removed Transitional Location note. |

@@ -1,16 +1,11 @@
 # Op-Tracing Refactor — Product Requirements Document
 
-**Version**: 2.1
+**Version**: 2.2
 **Date**: 2026-04-19
 **Status**: Draft
 **Module**: session/monitor
 **Supersedes**: `docs/design/optracing/1_req.md` v1.0 (consolidated into this PRD per `docs/standards/design-doc-spec.md`)
 **Depends-On**: `docs/standards/design-doc-spec.md`
-
-**Transitional Location** (per `docs/standards/design-doc-spec.md` §1.5.1):
-- Current doc directory: `docs/design/optracing/` (legacy feature name)
-- Target `Module`: `session/monitor` (post-refactor)
-- Relocation commitment: when the implementation PR that deletes `src/winml/modelkit/optracing/` lands, these docs MUST be moved under `docs/design/session/monitor/` in that same PR.
 
 ---
 
@@ -246,8 +241,8 @@ Detail lives in `2_coreloop.md`. Headline decisions:
 ### 10.2 References
 
 - `docs/standards/design-doc-spec.md` — the spec this PRD conforms to.
-- `docs/design/optracing/2_coreloop.md` — companion core-loop design.
-- `docs/design/optracing/iterations/01.md` through `11.md` — brainstorming trail.
+- `docs/design/session/monitor/2_coreloop.md` — companion core-loop design.
+- `docs/design/session/monitor/iterations/01.md` through `11.md` — brainstorming trail.
 - `D:\BYOM\ModelKit_PRs\232\docs\design\perf\qnn_ep_profiling_investigation.md` — original QNN EP profiling investigation (three ORT APIs, five tests, `add_provider_for_devices` solution).
 - `D:\BYOM\ModelKit_PRs\232\temp\prove_qnn_ep_profiling.py` — proof script validating the fix.
 
@@ -258,6 +253,7 @@ Detail lives in `2_coreloop.md`. Headline decisions:
 | 1.0 | 2026-04-17 | Initial `1_req.md` (deleted). Captured requirements from iterations 01-11. |
 | 2.0 | 2026-04-19 | Consolidated into `1_prd.md` per `docs/standards/design-doc-spec.md` v1.0. The prior `1_req.md` was deleted from disk (not deprecated-in-place) because its content is fully subsumed here; the `Supersedes` field preserves the historical link. Incorporated user directives (dual `get_session_options` + `get_provider_options` hooks; extend existing `OpTraceResult.to_dict()` — not replace; no `generate_dummy_inputs`; no `os.chdir`; no multi-monitor; factory dispatch; reorganized test migration). Incorporated critic and architect review findings. |
 | 2.1 | 2026-04-19 | Post-audit fixes: added Table of Contents; renumbered Appendix to match spec §4.1 (Document History at §10.3); clarified that `OpTraceResult.to_dict()` already exists and the refactor preserves its nested schema, only adding `status`/`error` keys; clarified that `ep_registry.py` already exists and only gains a new `ensure_initialized()` function; added `fixtures/` to test migration; documented `commands/perf.py` import-path redirects. |
+| 2.2 | 2026-04-24 | Relocated from docs/design/optracing/ to docs/design/session/monitor/ per spec §1.5.1 transitional commitment (implementation complete). Removed Transitional Location note. |
 
 ### 10.4 Migration Footprint
 

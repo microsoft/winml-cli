@@ -4,13 +4,13 @@
 
 **Goal:** Unify the `EPMonitor` (`session/monitor/`) and `OpTracer` (`optracing/`) hierarchies into one; fix QNN op-tracing to work with both `onnxruntime-qnn` AND `onnxruntime-windowsml`; delete the `optracing/` package.
 
-**Architecture:** Hook-based Plugin + Template Method + Observer. `WinMLSession.perf(warmup, monitor=...)` yields a `PerfContext(stats, monitor)`. Monitors contribute `get_session_options()` + `get_provider_options()` at compile time. `QNNMonitor` replaces `QNNProfiler` and owns all QNN-specific knowledge. See `docs/design/optracing/2_coreloop.md` v2.1.
+**Architecture:** Hook-based Plugin + Template Method + Observer. `WinMLSession.perf(warmup, monitor=...)` yields a `PerfContext(stats, monitor)`. Monitors contribute `get_session_options()` + `get_provider_options()` at compile time. `QNNMonitor` replaces `QNNProfiler` and owns all QNN-specific knowledge. See `docs/design/session/monitor/2_coreloop.md` v2.2.
 
 **Tech Stack:** Python 3.11+, ONNX Runtime (three variants: `onnxruntime`, `onnxruntime-qnn`, `onnxruntime-windowsml`), pytest, ruff. Testing via `uv run pytest`.
 
 **Related docs:**
-- `docs/design/optracing/1_prd.md` v2.1 (requirements)
-- `docs/design/optracing/2_coreloop.md` v2.1 (core design)
+- `docs/design/session/monitor/1_prd.md` v2.2 (requirements)
+- `docs/design/session/monitor/2_coreloop.md` v2.2 (core design)
 - `docs/standards/design-doc-spec.md` v1.1 (doc standard)
 
 **Sequencing strategy:** Relocate helpers FIRST as backward-compatible shims (old imports still work); build new monitor on top; flip callers; delete the old package last. Each task leaves `uv run pytest tests/` green and `uv run ruff check src/ tests/` clean.
