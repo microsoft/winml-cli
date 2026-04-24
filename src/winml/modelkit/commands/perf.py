@@ -58,6 +58,49 @@ DYNAMIC_DIM_DEFAULTS = {
 
 
 # =============================================================================
+# EP Monitor Dispatch
+# =============================================================================
+
+
+def _resolve_ep_monitor(
+    ep: str | None,
+    op_tracing: str | None,
+    output_dir: Path,
+) -> Any:
+    """Pick the EPMonitor for the requested EP and optional op-tracing level.
+
+    Explicit dispatch — no registry, no plugin loading. Raises RuntimeError
+    when op-tracing is requested against an EP that has no op-tracing monitor.
+
+    Args:
+        ep: Short EP name from CLI (e.g. "qnn", "vitisai", "cpu", None/empty).
+        op_tracing: "basic" | "detail" | None (from --op-tracing flag).
+        output_dir: Directory for monitor artifacts (CSV, schematic, etc.).
+
+    Returns:
+        An EPMonitor subclass instance. NullEPMonitor when no monitor applies.
+
+    Raises:
+        RuntimeError: If op_tracing is truthy but the EP has no op-tracing
+            monitor available on this system.
+    """
+    from ..session.monitor.ep_monitor import NullEPMonitor
+
+    if op_tracing:
+        from ..session.monitor.qnn_monitor import QNNMonitor
+
+        if ep == "qnn" and QNNMonitor.is_available():
+            return QNNMonitor(level=op_tracing, output_dir=output_dir)
+        raise RuntimeError(f"Op-tracing not available for EP '{ep}'. Supported: 'qnn'.")
+    # Proof-of-execution monitors (no op-tracing)
+    from ..session.monitor.vitisai_monitor import VitisAIMonitor
+
+    if ep == "vitisai" and VitisAIMonitor.is_available():
+        return VitisAIMonitor()
+    return NullEPMonitor()
+
+
+# =============================================================================
 # Data Classes
 # =============================================================================
 
@@ -80,6 +123,7 @@ class BenchmarkConfig:
     monitor: bool = False
     ep: str | None = None
     shape_config: dict | None = None
+    op_tracing: str | None = None
 
 
 @dataclass
@@ -384,13 +428,12 @@ class PerfBenchmark:
         """Execute benchmark with live hardware monitoring.
 
         Always runs HWMonitor for system-wide metrics (CPU, RAM, NPU/GPU).
-        Optionally runs an EP-specific monitor (e.g., VitisAIMonitor)
-        alongside for vendor proof-of-execution. Uses NullEPMonitor when
-        no vendor monitor is available, eliminating null checks.
+        Dispatches an EP-specific monitor (e.g., QNNMonitor, VitisAIMonitor)
+        via _resolve_ep_monitor; uses NullEPMonitor when no vendor monitor
+        applies. The EP monitor is integrated into session.perf() so that
+        op-tracing observes the user's actual benchmark iterations.
         """
-        from ..session.monitor.ep_monitor import NullEPMonitor
         from ..session.monitor.hw_monitor import HWMonitor
-        from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
@@ -404,20 +447,20 @@ class PerfBenchmark:
 
         hw_monitor = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
 
-        # EP-specific proof-of-execution monitor.
-        # When QNN/OpenVINO monitors become real, add entries here.
-        _ep_monitors = {"vitisai": VitisAIMonitor}
-        ep = self.config.ep
-        monitor_cls = _ep_monitors.get(ep)
-        if monitor_cls and monitor_cls.is_available():
-            ep_monitor = monitor_cls()
-        else:
-            ep_monitor = NullEPMonitor()
+        output_dir = self.config.output_path.parent if self.config.output_path else Path.cwd()
+        try:
+            ep_monitor = _resolve_ep_monitor(
+                ep=self.config.ep,
+                op_tracing=self.config.op_tracing,
+                output_dir=output_dir,
+            )
+        except RuntimeError as e:
+            Console(stderr=True).print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1) from None
 
         with (
-            session.perf(warmup=self.config.warmup) as ctx,
+            session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx,
             hw_monitor as hw,
-            ep_monitor as ep_mon,
         ):
             _run_monitored_loop(
                 session,
@@ -432,9 +475,14 @@ class PerfBenchmark:
 
             # Store hardware metrics
             self._hw_metrics = hw.to_dict()
-            ep_dict = ep_mon.to_dict()
-            if ep_dict:  # NullEPMonitor returns {}, real monitors return data
-                self._hw_metrics["ep_proof"] = ep_dict
+
+        # EP proof data is now accessible via ctx.monitor.to_dict()
+        ep_dict = ctx.monitor.to_dict()
+        if ep_dict:  # NullEPMonitor returns {}, real monitors return data
+            self._hw_metrics["ep_proof"] = ep_dict
+
+        # Store the op-trace context for post-benchmark reporting
+        self._perf_ctx = ctx
 
         return ctx.stats
 
@@ -1284,6 +1332,7 @@ def perf(
         monitor=monitor,
         ep=ep.lower() if ep else None,
         shape_config=shape_config,
+        op_tracing=op_tracing,
     )
 
     try:
@@ -1331,61 +1380,31 @@ def perf(
         console.print(f"[green]Results saved to:[/green] {output}")
 
         # =================================================================
-        # Op-tracing (additive to existing benchmark)
+        # Op-tracing post-benchmark report
+        # Op-tracing is now integrated into session.perf(monitor=...) via
+        # _resolve_ep_monitor; the monitor observes the actual benchmark
+        # iterations rather than a separate synthetic profiling pass.
         # =================================================================
         if op_tracing:
-            from ..optracing import is_qnn_profiling_available
+            from ..session.monitor.report import display_op_trace_report, write_op_trace_json
 
-            if not is_qnn_profiling_available():
-                console.print("[red]Error:[/red] Op-tracing requires onnxruntime-qnn")
-                console.print("Install with: [bold]pip install onnxruntime-qnn[/bold]")
-                raise SystemExit(1)
+            # For HF models, ctx is accessible via benchmark._perf_ctx.
+            # For ONNX direct path, op_tracing is not yet integrated into
+            # _run_onnx_benchmark (out of scope for this task).
+            perf_ctx = getattr(benchmark if not is_onnx else None, "_perf_ctx", None)
+            trace_result = perf_ctx.monitor.result if perf_ctx is not None else None
 
-            from ..optracing import (
-                display_op_trace_report,
-                get_tracer,
-                write_op_trace_json,
-            )
-
-            # Determine the ONNX model path from the benchmark flow.
-            # For HF models the ONNX is built internally by PerfBenchmark.
-            try:
-                onnx_for_trace = model_path if is_onnx else benchmark._model._onnx_path
-            except AttributeError:
-                console.print(
-                    "[red]Error:[/red] Could not determine ONNX model path for op-tracing"
-                )
-                raise SystemExit(1) from None
-
-            output_dir = output.parent if output else Path()
-
-            # Look up tracer via registry (EP-agnostic).
-            tracer_cls = get_tracer("QNNExecutionProvider", op_tracing)
-            if tracer_cls is None:
-                console.print(
-                    f"[red]Error:[/red] No tracer registered for QNN EP at level '{op_tracing}'"
-                )
-                raise SystemExit(1)
-
-            profiler = tracer_cls(
-                onnx_for_trace,
-                output_dir=output_dir,
-                level=op_tracing,
-            )
-            trace_result = profiler.run(
-                iterations=min(iterations, 10),
-                warmup=min(warmup, 3),
-            )
-
-            # Display and save
-            display_op_trace_report(trace_result, console)
-
-            model_slug = hf_model.replace("/", "_").replace("\\", "_")
-            if is_onnx:
-                model_slug = model_path.stem
-            trace_output = output_dir / f"{model_slug}_op_trace.json"
-            write_op_trace_json(trace_result, trace_output)
-            console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
+            output_dir = output.parent if output else Path.cwd()
+            if trace_result is None or trace_result.status == "no_data":
+                console.print("[yellow]Warning:[/yellow] No profiling data produced.")
+            else:
+                display_op_trace_report(trace_result, console)
+                model_slug = hf_model.replace("/", "_").replace("\\", "_")
+                if is_onnx:
+                    model_slug = model_path.stem
+                trace_output = output_dir / f"{model_slug}_op_trace.json"
+                write_op_trace_json(trace_result, trace_output)
+                console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] Model not found: {e}")
