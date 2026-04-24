@@ -41,7 +41,7 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 |---|---|---|
 | `--top-n` | 10 | Models per task |
 | `--output` | `testsets/models_all.json` | Output path |
-| `--p0-source` | `testsets/models_P0.json` | P0 model list |
+| `--curated-source` / `-s` | `testsets/models_curated.json` | Curated model list (promoted to P0) |
 | `--no-optimum-filter` | off | Disable Optimum-first soft filter |
 | `--stats` | off | Print stats and exit |
 | `--dry-run` | off | Preview without writing |
@@ -165,7 +165,7 @@ scripts/e2e_eval/
 ├── testsets/
 │   ├── models_all.json        # Full model registry (generated)
 │   ├── models_with_acc.json   # Models with accuracy dataset configs
-│   └── models_P0.json         # P0 models for perf testing
+│   └── models_curated.json    # Hand-curated models to be registered
 ├── cache/
 │   ├── baseline_cache.json    # Cached PyTorch baseline accuracy results
 │   └── timeout_skip_list.json # Models to skip due to known timeouts
