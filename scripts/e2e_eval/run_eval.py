@@ -350,7 +350,6 @@ def _run_build(
     precision: str,
     timeout: int,
     model_dir: Path,
-    ep: str | None = None,
 ) -> dict:
     """Run winml config + winml build for one model. Returns build result dict.
 
@@ -388,8 +387,6 @@ def _run_build(
     ]
     if entry.task:
         config_args += ["--task", entry.task]
-    if ep:
-        config_args += ["--ep", ep]
 
     config_proc = _run_subprocess(config_args, timeout)
     if config_proc["exit_code"] != 0:
@@ -519,7 +516,6 @@ def run_model(
     device: str,
     timeout: int,
     onnx_paths: dict[str, str] | None = None,
-    ep: str | None = None,
 ) -> dict:
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
@@ -541,8 +537,6 @@ def run_model(
         ]
         if entry.task:
             args += ["--task", entry.task]
-        if ep:
-            args += ["--ep", ep]
         args += ["--iterations", "10", "--warmup", "2"]
         args += entry.perf_args
 
@@ -571,8 +565,6 @@ def run_model(
             safe_print(f"    perf: {label}")
 
         args = [*WINML_CLI, "perf", "-m", path, "--device", device]
-        if ep:
-            args += ["--ep", ep]
         args += ["--iterations", "10", "--warmup", "2"]
         args += entry.perf_args
 
@@ -678,7 +670,6 @@ def _run_winml_eval(
     ds_config: dict,
     model_dir: Path,
     onnx_path: str | None = None,
-    ep: str | None = None,
 ) -> dict:
     """Invoke winml eval for one model. Returns process result + parsed metric."""
     output_path = model_dir / "winml_eval_output.json"
@@ -708,8 +699,6 @@ def _run_winml_eval(
         ]
     if entry.task:
         args += ["--task", entry.task]
-    if ep:
-        args += ["--ep", ep]
     # When ds_config is provided, pass explicit dataset args;
     # otherwise winml eval uses its built-in task defaults.
     if ds_config.get("dataset"):
@@ -868,7 +857,6 @@ def _run_accuracy_phase(
     timeout: int,
     model_dir: Path,
     onnx_path: str | None = None,
-    ep: str | None = None,
 ) -> dict:
     """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
@@ -876,7 +864,7 @@ def _run_accuracy_phase(
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path, ep=ep)
+    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -1024,7 +1012,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-type", help="Filter by model_type")
     parser.add_argument("--group", help="Filter by group")
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
-    parser.add_argument("--ep", default=None, help="Execution provider (e.g. qnn, dml, ov)")
     parser.add_argument(
         "--timeout", type=int, default=600, help="Per-subprocess timeout in seconds (default: 600)"
     )
@@ -1207,10 +1194,7 @@ def main() -> None:
         retry_types = {t.upper() for t in args.retry_failed} if args.retry_failed else set()
 
     safe_print(f"E2E Evaluation: {len(entries)} models -> {output_dir}")
-    ep_label = args.ep or "auto"
-    safe_print(
-        f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
-    )
+    safe_print(f"Device: {args.device} | Timeout: {args.timeout}s | Eval: {args.eval_type}")
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
     if args.clean_cache:
         safe_print("Cache cleanup: ON (caches + temp files cleaned after each model)")
@@ -1303,7 +1287,6 @@ def main() -> None:
                 _DEFAULT_PRECISION,
                 args.timeout,
                 model_dir,
-                ep=args.ep,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
             # Composite models produce multiple ONNX paths; accuracy phase requires a
@@ -1333,7 +1316,7 @@ def main() -> None:
                 )
                 accuracy_result = {"skipped": True, "skip_reason": "composite_model_not_supported"}
                 if args.eval_type == "both":
-                    perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                    perf_proc = run_model(entry, args.device, args.timeout, onnx_paths)
             elif args.eval_type == "accuracy":
                 accuracy_result = _run_accuracy_phase(
                     entry,
@@ -1341,13 +1324,12 @@ def main() -> None:
                     args.timeout,
                     model_dir,
                     first_path,
-                    ep=args.ep,
                 )
             elif args.eval_type == "perf":
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths)
             else:
                 # "both": perf → eval
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths)
                 if perf_proc["exit_code"] != 0:
                     accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
                 else:
@@ -1357,7 +1339,6 @@ def main() -> None:
                         args.timeout,
                         model_dir,
                         first_path,
-                        ep=args.ep,
                     )
 
         except KeyboardInterrupt:

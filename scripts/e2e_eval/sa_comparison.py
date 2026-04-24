@@ -30,8 +30,6 @@ if TYPE_CHECKING:
 def run_sa_with_info(
     onnx_path: Path,
     output_path: Path,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
 ) -> tuple[dict[str, str], dict, list[dict]]:
     """Run SA using Python API with information enabled.
 
@@ -52,7 +50,7 @@ def run_sa_with_info(
 
     config = AnalyzerConfig(enable_information=True)
     analyzer = ONNXStaticAnalyzer(config=config)
-    result = analyzer.analyze(str(onnx_path), ep=ep, device=device)
+    result = analyzer.analyze(str(onnx_path), ep="QNNExecutionProvider", device="NPU")
 
     # Save full SA JSON
     output_path.write_text(result.to_json(), encoding="utf-8")
@@ -61,10 +59,10 @@ def run_sa_with_info(
     classifications: dict[str, str] = {}
     info_items: list[dict] = []
 
-    for ep_result in result.output.results:
-        if ep_result.ep_type != ep:
+    for ep in result.output.results:
+        if ep.ep_type != "QNNExecutionProvider":
             continue
-        for level_enum, pid_list in ep_result.classification.items():
+        for level_enum, pid_list in ep.classification.items():
             level = level_enum.value.upper()
             for pid in pid_list:
                 classifications[pid] = level
@@ -74,12 +72,12 @@ def run_sa_with_info(
                 "explanation": info.explanation or "",
                 "has_actions": bool(info.actions),
             }
-            for info in ep_result.information
+            for info in ep.information
         )
         break
 
     # Get optimization config from SA recommendations
-    optim_config = dict(result.get_optimization_config(ep))
+    optim_config = dict(result.get_optimization_config("QNNExecutionProvider"))
 
     return classifications, optim_config, info_items
 
@@ -89,14 +87,14 @@ def run_sa_with_info(
 # ---------------------------------------------------------------------------
 
 
-def parse_sa_json(json_path: Path, ep: str = "QNNExecutionProvider") -> dict[str, str]:
+def parse_sa_json(json_path: Path) -> dict[str, str]:
     """Parse wmk analyze JSON output into {pattern_id: level}.
 
     Works for both subprocess-written JSON (lowercase keys in classification
     dict) and Python API-written JSON (SupportLevel enum serialized as
     lowercase strings).
 
-    Returns empty dict if file is missing or the requested EP result not found.
+    Returns empty dict if file is missing or QNN result not found.
     """
     if not json_path.exists():
         return {}
@@ -108,7 +106,7 @@ def parse_sa_json(json_path: Path, ep: str = "QNNExecutionProvider") -> dict[str
 
     result: dict[str, str] = {}
     for ep_result in sa_data.get("results", []):
-        if ep_result.get("ep_type") != ep:
+        if ep_result.get("ep_type") != "QNNExecutionProvider":
             continue
         cls = ep_result.get("classification", {})
         for level, pid_list in cls.items():

@@ -162,8 +162,6 @@ def stage2_sa_pre(
     model_dir: Path,
     graph_opt_path: Path,
     use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
 ) -> tuple[dict[str, str], dict, list[dict]] | None:
     """Run SA with information on graph_optimized.onnx.
 
@@ -174,7 +172,7 @@ def stage2_sa_pre(
 
     if use_cache and is_cached(sa_pre_path) and is_cached(optim_record_path):
         safe_print("  [Stage 2] SA pre-check (cached)")
-        classifications = parse_sa_json(sa_pre_path, ep=ep)
+        classifications = parse_sa_json(sa_pre_path)
         optim_record = json.loads(optim_record_path.read_text(encoding="utf-8"))
         optim_config = optim_record.get("optim_config", {})
         info_items = optim_record.get("info_items", [])
@@ -182,7 +180,7 @@ def stage2_sa_pre(
         safe_print("  [Stage 2] Running SA pre-check (with recommendations)...")
         try:
             classifications, optim_config, info_items = run_sa_with_info(
-                graph_opt_path, sa_pre_path, ep=ep, device=device
+                graph_opt_path, sa_pre_path
             )
         except Exception as e:
             safe_print(f"  [ERROR] SA pre-check failed: {e}")
@@ -244,8 +242,6 @@ def stage4_sa_post(
     model_dir: Path,
     sa_opt_path: Path,
     use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
 ) -> tuple[dict[str, str], list[dict]] | None:
     """Run SA on sa_optimized.onnx.
 
@@ -255,14 +251,12 @@ def stage4_sa_post(
 
     if use_cache and is_cached(sa_post_path):
         safe_print("  [Stage 4] SA post-check (cached)")
-        classifications = parse_sa_json(sa_post_path, ep=ep)
+        classifications = parse_sa_json(sa_post_path)
         info_items = []
     else:
         safe_print("  [Stage 4] Running SA post-check...")
         try:
-            classifications, _, info_items = run_sa_with_info(
-                sa_opt_path, sa_post_path, ep=ep, device=device
-            )
+            classifications, _, info_items = run_sa_with_info(sa_opt_path, sa_post_path)
         except Exception as e:
             safe_print(f"  [ERROR] SA post-check failed: {e}")
             return None
@@ -280,30 +274,22 @@ def stage4_sa_post(
     return classifications, info_items
 
 
-def _run_compile(
-    onnx_path: Path,
-    output_dir: Path,
-    device: str = "npu",
-    ep: str | None = None,
-) -> tuple[int, str]:
-    """Run wmk compile --device <device> --no-quantize. Returns (rc, stderr_tail)."""
-    cmd = [
-        sys.executable,
-        "-m",
-        "winml.modelkit.cli",
-        "compile",
-        "--model",
-        str(onnx_path),
-        "--device",
-        device,
-        "--no-quantize",
-        "--output-dir",
-        str(output_dir),
-    ]
-    if ep:
-        cmd += ["--ep", ep]
+def _run_compile(onnx_path: Path, output_dir: Path) -> tuple[int, str]:
+    """Run wmk compile --device npu --no-quantize. Returns (rc, stderr_tail)."""
     result = subprocess.run(  # noqa: S603
-        cmd,
+        [
+            sys.executable,
+            "-m",
+            "winml.modelkit.cli",
+            "compile",
+            "--model",
+            str(onnx_path),
+            "--device",
+            "npu",
+            "--no-quantize",
+            "--output-dir",
+            str(output_dir),
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -320,10 +306,8 @@ def _compile_and_diff(
     sa_predictions: dict[str, str],
     model_dir: Path,
     use_cache: bool,
-    device: str = "npu",
-    ep: str | None = None,
 ) -> dict | None:
-    """Compile an ONNX and compare against SA predictions.
+    """Compile an ONNX with QNN NPU and compare against SA predictions.
 
     Args:
         label: Log prefix, e.g. "5a (pre)" or "5b (post)".
@@ -340,8 +324,8 @@ def _compile_and_diff(
     if use_cache and is_cached(compiled_path):
         safe_print(f"  [Stage {label}] Compile (cached): {compiled_path.name}")
     else:
-        safe_print(f"  [Stage {label}] Compiling {onnx_path.name} → EPContext...")
-        rc, _ = _run_compile(onnx_path, model_dir, device=device, ep=ep)
+        safe_print(f"  [Stage {label}] Compiling {onnx_path.name} → QNN EPContext...")
+        rc, _ = _run_compile(onnx_path, model_dir)
         if rc != 0 or not is_cached(compiled_path):
             safe_print(f"  [Stage {label}] Compile failed (rc={rc}) — skipping diff")
             return None
@@ -368,8 +352,6 @@ def stage5_compile_and_diff(
     sa_pre: dict[str, str],
     sa_post: dict[str, str],
     use_cache: bool,
-    device: str = "npu",
-    ep: str | None = None,
 ) -> tuple[dict | None, dict | None]:
     """Stage 5: compile both graph_optimized and sa_optimized, diff each vs its SA.
 
@@ -385,8 +367,6 @@ def stage5_compile_and_diff(
         sa_pre,
         model_dir,
         use_cache,
-        device=device,
-        ep=ep,
     )
     diff_post = _compile_and_diff(
         "5b (post)",
@@ -395,8 +375,6 @@ def stage5_compile_and_diff(
         sa_post,
         model_dir,
         use_cache,
-        device=device,
-        ep=ep,
     )
     return diff_pre, diff_post
 
@@ -410,8 +388,6 @@ def evaluate_model(
     model_entry: dict,
     output_dir: Path,
     use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
 ) -> dict | None:
     """Run the 4+1 stage SA eval pipeline for a single model."""
     hf_id = model_entry["hf_id"]
@@ -434,7 +410,7 @@ def evaluate_model(
         return _skip_result(hf_id, task, model_type, skip_reason or "SKIP_EXPORT", model_dir)
 
     # Stage 2
-    pre_result = stage2_sa_pre(model_dir, graph_opt_path, use_cache, ep=ep, device=device)
+    pre_result = stage2_sa_pre(model_dir, graph_opt_path, use_cache)
     if pre_result is None:
         return _skip_result(hf_id, task, model_type, "SKIP_SA_PRE", model_dir)
     sa_pre, optim_config, pre_info_items = pre_result
@@ -445,21 +421,14 @@ def evaluate_model(
         return _skip_result(hf_id, task, model_type, "SKIP_OPTIM", model_dir)
 
     # Stage 4
-    post_result = stage4_sa_post(model_dir, sa_opt_path, use_cache, ep=ep, device=device)
+    post_result = stage4_sa_post(model_dir, sa_opt_path, use_cache)
     if post_result is None:
         return _skip_result(hf_id, task, model_type, "SKIP_SA_POST", model_dir)
     sa_post, post_info_items = post_result
 
     # Stage 5: compile both ONNXes → EPContext diff pre and post
     epcontext_diff_pre, epcontext_diff_post = stage5_compile_and_diff(
-        model_dir,
-        graph_opt_path,
-        sa_opt_path,
-        sa_pre,
-        sa_post,
-        use_cache,
-        device=device.lower(),
-        ep=ep,
+        model_dir, graph_opt_path, sa_opt_path, sa_pre, sa_post, use_cache
     )
 
     elapsed = time.monotonic() - t0
@@ -685,12 +654,6 @@ def main() -> None:
         action="store_true",
         help="Skip stages whose output artifacts already exist",
     )
-    parser.add_argument(
-        "--ep",
-        default="QNNExecutionProvider",
-        help="Execution provider (default: QNNExecutionProvider)",
-    )
-    parser.add_argument("--device", default="NPU", help="Target device (default: NPU)")
     args = parser.parse_args()
 
     output_dir = args.output_dir or Path(f"sa_eval_results/{date.today().isoformat()}")
@@ -717,9 +680,7 @@ def main() -> None:
 
     for i, entry in enumerate(models_to_run, 1):
         safe_print(f"\n[{i}/{len(models_to_run)}]")
-        result = evaluate_model(
-            entry, output_dir, use_cache=args.use_cache, ep=args.ep, device=args.device
-        )
+        result = evaluate_model(entry, output_dir, use_cache=args.use_cache)
         if result:
             all_results.append(result)
 
