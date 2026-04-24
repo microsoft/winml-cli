@@ -196,3 +196,20 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
             logger.debug("WinML discovery skipped: %s", e)
 
     return ort.get_available_providers()
+
+
+def ensure_initialized() -> None:
+    """Idempotent module-level entry point for WinML EP registration.
+
+    Wraps ``WinMLEPRegistry.get_instance().register_to_ort()`` so callers
+    (e.g. ``QNNMonitor.is_available``) can trigger EP registration without
+    importing ``WinMLSession`` — breaks a latent import cycle.
+
+    Safe to call multiple times. No-op if WinML is unavailable on this system.
+    """
+    try:
+        registry = WinMLEPRegistry.get_instance()
+        if registry.winml_available:
+            registry.register_to_ort()
+    except Exception as exc:
+        logger.debug("ensure_initialized: WinML EP registration skipped: %s", exc)
