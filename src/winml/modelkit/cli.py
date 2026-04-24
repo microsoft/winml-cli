@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 
 _COMMANDS_DIR = Path(__file__).parent / "commands"
 
+# Commands that are temporarily disabled from the CLI surface.
+# The modules remain on disk so tests and internal imports still work;
+# they simply do not appear in ``winml --help`` or accept user invocations.
+_DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
+
 
 def _parse_click_help(path: Path) -> str:
     """Extract short help from a command module without importing it.
@@ -68,10 +73,20 @@ class LazyGroup(click.Group):
         """Return command names from filesystem — no module imports."""
         if not _COMMANDS_DIR.exists():
             return []
-        return sorted(p.stem for p in _COMMANDS_DIR.glob("*.py") if not p.name.startswith("_"))
+        return sorted(
+            p.stem
+            for p in _COMMANDS_DIR.glob("*.py")
+            if not p.name.startswith("_") and p.stem not in _DISABLED_COMMANDS
+        )
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         """Import command module only when the command is actually invoked."""
+        if cmd_name in _DISABLED_COMMANDS:
+            ctx.fail(
+                f"'winml {cmd_name}' is currently disabled. "
+                f"Use 'winml eval' for model evaluation instead."
+            )
+
         try:
             module = import_module(
                 f".commands.{cmd_name}",

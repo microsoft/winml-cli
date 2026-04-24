@@ -32,7 +32,9 @@ from winml.modelkit.inference import (
 from winml.modelkit.inference.engine import (
     _build_param_entry,
     _discover_pipeline_params_from_task,
+    _find_build_artifacts,
     _pick_sample_value,
+    _sanitize_numpy,
 )
 
 
@@ -318,6 +320,7 @@ class TestLoadSchemaOnly:
 
         manifest = {"model_id": "test/model", "task": "text-classification"}
         (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
+        (tmp_path / "model.onnx").write_bytes(b"fake")
         engine = InferenceEngine()
         engine.load_schema_only(tmp_path)
         assert engine._task == "text-classification"
@@ -330,6 +333,178 @@ class TestLoadSchemaOnly:
 
         manifest = {"model_id": "test/model", "task": "text-classification"}
         (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
+        (tmp_path / "model.onnx").write_bytes(b"fake")
         engine = InferenceEngine()
         engine.load_schema_only(tmp_path, task="image-classification")
         assert engine._task == "image-classification"
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_numpy
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeNumpy:
+    """Ensure numpy scalars are converted to Python types for JSON serialization."""
+
+    def test_float32_to_float(self) -> None:
+        import numpy as np
+
+        result = _sanitize_numpy({"score": np.float32(0.95)})
+        assert isinstance(result["score"], float)
+        assert abs(result["score"] - 0.95) < 0.001
+
+    def test_int64_to_int(self) -> None:
+        import numpy as np
+
+        result = _sanitize_numpy({"start": np.int64(10)})
+        assert isinstance(result["start"], int)
+        assert result["start"] == 10
+
+    def test_nested_dict(self) -> None:
+        import numpy as np
+
+        ner_output = {
+            "entity_group": "PER",
+            "score": np.float32(0.998),
+            "word": "John",
+            "start": np.int64(0),
+            "end": np.int64(4),
+        }
+        result = _sanitize_numpy(ner_output)
+        assert isinstance(result["score"], float)
+        assert isinstance(result["start"], int)
+        assert isinstance(result["end"], int)
+        assert result["entity_group"] == "PER"
+
+    def test_list_of_dicts(self) -> None:
+        import numpy as np
+
+        raw = [
+            {"entity_group": "PER", "score": np.float32(0.99)},
+            {"entity_group": "LOC", "score": np.float32(0.85)},
+        ]
+        result = _sanitize_numpy(raw)
+        assert all(isinstance(d["score"], float) for d in result)
+
+    def test_plain_types_unchanged(self) -> None:
+        result = _sanitize_numpy({"label": "cat", "score": 0.95, "count": 5})
+        assert result == {"label": "cat", "score": 0.95, "count": 5}
+
+    def test_ndarray_to_list(self) -> None:
+        import numpy as np
+
+        result = _sanitize_numpy({"embedding": np.array([1.0, 2.0, 3.0])})
+        assert result["embedding"] == [1.0, 2.0, 3.0]
+
+
+# ---------------------------------------------------------------------------
+# _find_build_artifacts
+# ---------------------------------------------------------------------------
+
+
+class TestFindBuildArtifacts:
+    def test_plain_layout(self, tmp_path: Any) -> None:
+        import json
+
+        (tmp_path / "model.onnx").write_bytes(b"fake")
+        manifest = {"model_id": "test/model", "task": "text-classification"}
+        (tmp_path / "build_manifest.json").write_text(json.dumps(manifest))
+        onnx_path, m = _find_build_artifacts(tmp_path)
+        assert onnx_path.name == "model.onnx"
+        assert m["task"] == "text-classification"
+
+    def test_prefixed_layout(self, tmp_path: Any) -> None:
+        import json
+
+        (tmp_path / "txtcls_abc123_model.onnx").write_bytes(b"fake")
+        manifest = {"model_id": "test/model", "task": "text-classification"}
+        (tmp_path / "txtcls_abc123_build_manifest.json").write_text(json.dumps(manifest))
+        onnx_path, m = _find_build_artifacts(tmp_path)
+        assert onnx_path.name == "txtcls_abc123_model.onnx"
+        assert m["task"] == "text-classification"
+
+    def test_no_onnx_raises(self, tmp_path: Any) -> None:
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            _find_build_artifacts(tmp_path)
+
+    def test_onnx_without_manifest(self, tmp_path: Any) -> None:
+        (tmp_path / "model.onnx").write_bytes(b"fake")
+        onnx_path, m = _find_build_artifacts(tmp_path)
+        assert onnx_path.name == "model.onnx"
+        assert m is None
+
+    def test_task_filter_selects_matching(self, tmp_path: Any) -> None:
+        """When task= is specified, only return artifacts whose manifest matches."""
+        import json
+
+        # Two variants in same directory
+        (tmp_path / "feat_aaa_model.onnx").write_bytes(b"fake-feat")
+        (tmp_path / "feat_aaa_build_manifest.json").write_text(
+            json.dumps({"model_id": "m", "task": "feature-extraction"})
+        )
+        (tmp_path / "txtcls_bbb_model.onnx").write_bytes(b"fake-txtcls")
+        (tmp_path / "txtcls_bbb_build_manifest.json").write_text(
+            json.dumps({"model_id": "m", "task": "text-classification"})
+        )
+
+        onnx_path, m = _find_build_artifacts(tmp_path, task="text-classification")
+        assert "txtcls" in onnx_path.name
+        assert m["task"] == "text-classification"
+
+    def test_task_filter_no_match_raises(self, tmp_path: Any) -> None:
+        """When task= doesn't match any manifest, raise FileNotFoundError."""
+        import json
+
+        import pytest
+
+        (tmp_path / "feat_aaa_model.onnx").write_bytes(b"fake")
+        (tmp_path / "feat_aaa_build_manifest.json").write_text(
+            json.dumps({"model_id": "m", "task": "feature-extraction"})
+        )
+
+        with pytest.raises(FileNotFoundError):
+            _find_build_artifacts(tmp_path, task="text-classification")
+
+    def test_task_none_returns_first(self, tmp_path: Any) -> None:
+        """Without task filter, return the first candidate."""
+        import json
+
+        (tmp_path / "feat_aaa_model.onnx").write_bytes(b"fake")
+        (tmp_path / "feat_aaa_build_manifest.json").write_text(
+            json.dumps({"model_id": "m", "task": "feature-extraction"})
+        )
+
+        onnx_path, _manifest = _find_build_artifacts(tmp_path, task=None)
+        assert onnx_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# _normalize_pipeline_output sanitizes NER numpy types
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeNEROutput:
+    def test_ner_output_numpy_sanitized(self) -> None:
+        """NER pipeline output with numpy.float32 scores should be serializable."""
+        import numpy as np
+
+        engine = InferenceEngine()
+        engine._task = "token-classification"
+        # NER-like output: list of dicts with numpy scalars
+        raw = [
+            {
+                "entity_group": "PER",
+                "score": np.float32(0.998),
+                "word": "John",
+                "start": np.int64(0),
+                "end": np.int64(4),
+            },
+        ]
+        result = engine._normalize_pipeline_output(raw)
+        # Should be serializable — all numpy types converted
+        import json
+
+        json.dumps(result)  # Must not raise
