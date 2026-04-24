@@ -88,11 +88,24 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install build twine
+              - script: pip install --upgrade build twine packaging
                 displayName: 'Install build tools'
+
+              - script: |
+                  where python
+                  where twine
+                  python --version
+                  python -c "import sys; print('executable=', sys.executable)"
+                  python -c "import twine, packaging; print('twine=', twine.__version__, 'packaging=', packaging.__version__)"
+                  pip show twine packaging setuptools build readme_renderer
+                displayName: 'Diagnose tool versions'
 
               - script: python -m build --outdir "$(ob_outputDirectory)"
                 displayName: 'Build sdist and wheel'
+
+              - script: |
+                  python -c "import zipfile, sys, glob; w = glob.glob(r'$(ob_outputDirectory)\*.whl')[0]; print('wheel=', w); z = zipfile.ZipFile(w); m = [n for n in z.namelist() if n.endswith('METADATA')][0]; print('---METADATA (first 30 lines)---'); [print(l) for l in z.read(m).decode().splitlines()[:30]]"
+                displayName: 'Dump wheel METADATA headers'
 
               - script: twine check "$(ob_outputDirectory)\*"
                 continueOnError: true
