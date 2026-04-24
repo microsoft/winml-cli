@@ -12,7 +12,7 @@ Each subclass provides data collection for a specific execution provider
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 
 if TYPE_CHECKING:
@@ -27,14 +27,38 @@ class EPMonitor(ABC):
 
     Example::
 
-        with session.perf(warmup=10) as stats:
-            with SomeEPMonitor() as hw:
-                for _ in range(110):
-                    session.run(inputs)
+        with session.perf(warmup=10, monitor=SomeEPMonitor()) as ctx:
+            for _ in range(110):
+                session.run(inputs)
 
-        print(stats.mean_ms)  # inference timing
-        print(hw.to_dict())  # proof-of-execution data
+        print(ctx.stats.mean_ms)
+        print(ctx.monitor.to_dict())
     """
+
+    # ---- Optional hooks: defaults provided; subclasses override as needed ----
+
+    #: ORT-specific hint: does this monitor's data flush require
+    #: ``ort.InferenceSession`` destruction? Example: QNN flushes CSV only
+    #: on session destroy. Default: False (no teardown needed).
+    requires_session_teardown: ClassVar[bool] = False
+
+    def get_session_options(self) -> dict[str, str]:
+        """Entries to pass to ``SessionOptions.add_session_config_entry()``.
+
+        Default: empty dict. Override in subclasses that need e.g.
+        ``"session.disable_cpu_ep_fallback": "1"``.
+        """
+        return {}
+
+    def get_provider_options(self) -> dict[str, str]:
+        """Options to merge into ``add_provider_for_devices([ep], opts)``.
+
+        Default: empty dict. Override in subclasses that need e.g.
+        ``"profiling_level": "detailed"``.
+        """
+        return {}
+
+    # ---- Mandatory contract ----
 
     @abstractmethod
     def __enter__(self) -> Self:

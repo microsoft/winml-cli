@@ -1,0 +1,41 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+"""Tests for EPMonitor ABC default hook behavior."""
+
+from __future__ import annotations
+
+import pytest
+
+from winml.modelkit.session.monitor.ep_monitor import EPMonitor, NullEPMonitor
+
+
+def test_null_monitor_default_get_session_options():
+    """NullEPMonitor inherits empty session-options default."""
+    assert NullEPMonitor().get_session_options() == {}
+
+
+def test_null_monitor_default_get_provider_options():
+    """NullEPMonitor inherits empty provider-options default."""
+    assert NullEPMonitor().get_provider_options() == {}
+
+
+def test_null_monitor_default_requires_teardown():
+    """NullEPMonitor.requires_session_teardown is False by default."""
+    assert NullEPMonitor.requires_session_teardown is False
+
+
+def test_ep_monitor_is_abstract():
+    """EPMonitor cannot be instantiated directly (still abstract)."""
+    with pytest.raises(TypeError):
+        EPMonitor()  # type: ignore[abstract]
+
+
+def test_hooks_return_fresh_dicts():
+    """get_*_options returns a fresh dict each call (not a shared mutable)."""
+    m = NullEPMonitor()
+    d1 = m.get_session_options()
+    d1["injected"] = "1"
+    d2 = m.get_session_options()
+    assert "injected" not in d2
