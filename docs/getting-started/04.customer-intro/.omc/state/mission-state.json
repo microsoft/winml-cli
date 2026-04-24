@@ -1,0 +1,79 @@
+{
+  "updatedAt": "2026-04-13T06:58:57.168Z",
+  "missions": [
+    {
+      "id": "session:866056b6-6304-4966-8249-722504474ade:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-04-13T06:23:25.031Z",
+      "updatedAt": "2026-04-13T06:58:57.168Z",
+      "status": "done",
+      "workerCount": 2,
+      "taskCounts": {
+        "total": 2,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 0,
+        "completed": 2,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "code-reviewer:a381754",
+          "role": "code-reviewer",
+          "ownership": "a38175408c606e3a2",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-04-13T06:24:28.217Z"
+        },
+        {
+          "name": "code-reviewer:a1ea2ba",
+          "role": "code-reviewer",
+          "ownership": "a1ea2bae2c2cb6edf",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-04-13T06:58:57.168Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-start:a38175408c606e3a2:2026-04-13T06:23:25.031Z",
+          "at": "2026-04-13T06:23:25.031Z",
+          "kind": "update",
+          "agent": "code-reviewer:a381754",
+          "detail": "started code-reviewer:a381754",
+          "sourceKey": "session-start:a38175408c606e3a2"
+        },
+        {
+          "id": "session-stop:a38175408c606e3a2:2026-04-13T06:24:28.217Z",
+          "at": "2026-04-13T06:24:28.217Z",
+          "kind": "completion",
+          "agent": "code-reviewer:a381754",
+          "detail": "completed",
+          "sourceKey": "session-stop:a38175408c606e3a2"
+        },
+        {
+          "id": "session-start:a1ea2bae2c2cb6edf:2026-04-13T06:58:00.127Z",
+          "at": "2026-04-13T06:58:00.127Z",
+          "kind": "update",
+          "agent": "code-reviewer:a1ea2ba",
+          "detail": "started code-reviewer:a1ea2ba",
+          "sourceKey": "session-start:a1ea2bae2c2cb6edf"
+        },
+        {
+          "id": "session-stop:a1ea2bae2c2cb6edf:2026-04-13T06:58:57.168Z",
+          "at": "2026-04-13T06:58:57.168Z",
+          "kind": "completion",
+          "agent": "code-reviewer:a1ea2ba",
+          "detail": "completed",
+          "sourceKey": "session-stop:a1ea2bae2c2cb6edf"
+        }
+      ]
+    }
+  ]
+}
