@@ -558,36 +558,9 @@ class TestHWMonitor:
 
 
 # ============================================================================
-# QNNMonitor tests (placeholder)
+# QNNMonitor tests — moved to tests/unit/session/monitor/test_qnn_monitor.py
+# (QNNMonitor is no longer a placeholder; it is a full implementation).
 # ============================================================================
-
-
-class TestQNNMonitor:
-    """Test QNNMonitor placeholder."""
-
-    def test_is_available_returns_false(self):
-        from winml.modelkit.session import QNNMonitor
-
-        assert QNNMonitor.is_available() is False
-
-    def test_context_manager_noop(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        assert hw.to_dict()["ep"] == "QNN"
-
-    def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        d = hw.to_dict()
-        assert d["ep"] == "QNN"
-        assert d["device"] == "NPU"
-        assert d["status"] == "not_implemented"
 
 
 # ============================================================================
