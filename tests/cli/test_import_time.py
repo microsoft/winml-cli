@@ -347,20 +347,25 @@ class TestLazyImportsDict:
 
     @pytest.mark.parametrize("module", _LAZY_MODULES)
     def test_lazy_imports_all_resolvable(self, module: str) -> None:
-        """Every _LAZY_IMPORTS entry must resolve to a real attribute."""
+        """Every _LAZY_IMPORTS entry must resolve to a real attribute.
+
+        Convention: ``_LAZY_IMPORTS`` maps a lazy attribute name to a
+        ``(submodule_path, real_attr_name)`` tuple, where ``submodule_path``
+        is relative (e.g. ``".config"``) resolved against the host package.
+        """
         script = textwrap.dedent(f"""\
             import importlib
             import {module} as mod
             errors = []
-            for attr_name, submodule_path in mod._LAZY_IMPORTS.items():
+            for lazy_name, (submodule_path, real_attr) in mod._LAZY_IMPORTS.items():
                 try:
-                    sub = importlib.import_module(submodule_path)
-                    if not hasattr(sub, attr_name):
+                    sub = importlib.import_module(submodule_path, package={module!r})
+                    if not hasattr(sub, real_attr):
                         errors.append(
-                            f'{{attr_name}}: {{submodule_path}} has no attribute {{attr_name}}'
+                            f'{{lazy_name}}: {{submodule_path}}.{{real_attr}} not found'
                         )
                 except ImportError as exc:
-                    errors.append(f'{{attr_name}}: cannot import {{submodule_path}} ({{exc}})')
+                    errors.append(f'{{lazy_name}}: cannot import {{submodule_path}} ({{exc}})')
             if errors:
                 raise AssertionError(
                     f'Unresolvable _LAZY_IMPORTS in {module}:\\n' + '\\n'.join(errors)
