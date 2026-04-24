@@ -41,7 +41,7 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 |---|---|---|
 | `--top-n` | 10 | Models per task |
 | `--output` | `testsets/models_all.json` | Output path |
-| `--curated-source` / `-s` | `testsets/models_curated.json` | Curated model list (promoted to P0) |
+| `--curated-source` / `-s` | `testsets/models_curated.json` | Curated model list — `group`/`priority` fields applied verbatim |
 | `--no-optimum-filter` | off | Disable Optimum-first soft filter |
 | `--stats` | off | Print stats and exit |
 | `--dry-run` | off | Preview without writing |
