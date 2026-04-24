@@ -46,7 +46,7 @@ def cpu_session(tmp_path: Path) -> WinMLSession:
     onnx.save(model, str(model_path))
 
     # Mock EP registry to avoid slow WMI/PowerShell queries on CI
-    with patch.object(WinMLSession, "_init_winml_eps_once"):
+    with patch("winml.modelkit.session.ep_registry.ensure_initialized"):
         return WinMLSession(onnx_path=model_path, device="cpu")
 
 

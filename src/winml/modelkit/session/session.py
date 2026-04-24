@@ -21,7 +21,7 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
-from .ep_registry import WinMLEPRegistry
+from .ep_registry import ensure_initialized
 from .monitor.ep_monitor import EPMonitor, NullEPMonitor
 from .stats import PerfStats
 
@@ -148,9 +148,6 @@ class WinMLSession:
         outputs = session.run({"input": tensor})
     """
 
-    # Class-level flag for one-time EP initialization
-    _eps_initialized: bool = False
-
     # EP short name -> ORT full provider name (for add_provider_for_devices matching)
     _EP_NAME_MAP: ClassVar[dict[str, str]] = {
         "qnn": "QNNExecutionProvider",
@@ -162,22 +159,6 @@ class WinMLSession:
         "cuda": "CUDAExecutionProvider",
         "cpu": "CPUExecutionProvider",
     }
-
-    @classmethod
-    def _init_winml_eps_once(cls) -> None:
-        """Initialize WinML EP registry once at class level."""
-        if cls._eps_initialized:
-            return
-
-        try:
-            registry = WinMLEPRegistry.get_instance()
-            if registry.winml_available:
-                registered = registry.register_to_ort()
-                logger.info("WinML EPs registered: %s", registered)
-        except Exception as e:
-            logger.debug("WinML EP init skipped: %s", e)
-        finally:
-            cls._eps_initialized = True
 
     def __init__(
         self,
@@ -205,7 +186,7 @@ class WinMLSession:
             session_options: ORT SessionOptions. If None, creates default with
                 policy based on device parameter.
         """
-        WinMLSession._init_winml_eps_once()
+        ensure_initialized()
 
         self._onnx_path = Path(onnx_path)
         if not self._onnx_path.exists():

@@ -22,7 +22,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def mock_ep_registration():
     """Prevent WinML EP registration from loading native DLLs."""
-    with patch("winml.modelkit.session.session.WinMLSession._init_winml_eps_once"):
+    with patch("winml.modelkit.session.ep_registry.ensure_initialized"):
         yield
 
 
