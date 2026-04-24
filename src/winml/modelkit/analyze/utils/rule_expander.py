@@ -56,18 +56,18 @@ def _apply_delta(base_payload: dict[str, Any], delta_payload: dict[str, Any]) ->
     """Apply changed/deleted entries from delta payload onto base payload."""
     changed = delta_payload.get(SNAPSHOT_CHANGED_KEY, {})
     if not isinstance(changed, dict):
-        raise ValueError(f"Delta snapshot field '{SNAPSHOT_CHANGED_KEY}' must be a dict.")
+        raise TypeError(f"Delta snapshot field '{SNAPSHOT_CHANGED_KEY}' must be a dict.")
 
     deleted = delta_payload.get(SNAPSHOT_DELETED_KEY, [])
     if not isinstance(deleted, list):
-        raise ValueError(f"Delta snapshot field '{SNAPSHOT_DELETED_KEY}' must be a list.")
+        raise TypeError(f"Delta snapshot field '{SNAPSHOT_DELETED_KEY}' must be a list.")
 
     merged = dict(base_payload)
     merged.update(changed)
 
     for key in deleted:
         if not isinstance(key, str):
-            raise ValueError(
+            raise TypeError(
                 f"Delta snapshot field '{SNAPSHOT_DELETED_KEY}' contains non-string key: {key!r}"
             )
         merged.pop(key, None)
@@ -97,11 +97,11 @@ class SnapshotExpander:
 
         try:
             payload = json.loads(raw.decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ValueError(f"Failed to parse JSON entry '{entry_name}' in '{zip_name}'") from exc
 
         if not isinstance(payload, dict):
-            raise ValueError(
+            raise TypeError(
                 f"JSON entry '{entry_name}' in '{zip_name}' must be a dict, got {type(payload)}"
             )
         return payload
@@ -177,7 +177,7 @@ def _expand_single_zip(
                 json_entries += 1
                 try:
                     payload = json.loads(raw.decode("utf-8"))
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     raise ValueError(
                         f"Failed to parse JSON entry '{entry.filename}' in '{zip_path.name}'"
                     ) from exc

@@ -39,7 +39,7 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
     to this module file's directory.
     """
     entry_path = Path(entry).expanduser()
-    if os.path.isabs(str(entry_path)):
+    if entry_path.is_absolute():
         return entry_path.resolve()
     return (_RULE_LOADER_DIR / entry_path).resolve()
 
@@ -47,7 +47,8 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
 def _has_non_temp_zip_files(rules_dir: Path, glob_pattern: str = "*.zip") -> bool:
     """Return whether the directory contains at least one non-temp zip."""
     return any(
-        path.is_file() and ".materialized." not in path.name for path in rules_dir.glob(glob_pattern)
+        path.is_file() and ".materialized." not in path.name
+        for path in rules_dir.glob(glob_pattern)
     )
 
 
@@ -80,15 +81,16 @@ def _ensure_rules_dir_expanded_once(rules_dir: Path) -> None:
             return
 
         logger.info(
-            "!!! [RULES INIT] One-time runtime rules initialization is required for %s; initializing now (may take up to 30 minutes).",
+            "!!! [RULES INIT] One-time runtime rules initialization is required for %s; "
+            "initializing now (may take up to 30 minutes).",
             resolved_dir,
         )
         expand_rules_zip_dir(resolved_dir)
-    except Exception:  # noqa: BLE001
-        logger.error(
-            "Failed to auto-expand runtime rule zips in %s; please check the zip files and expand manually if needed.",
+    except Exception:
+        logger.exception(
+            "Failed to auto-expand runtime rule zips in %s; "
+            "please check the zip files and expand manually if needed.",
             resolved_dir,
-            exc_info=True,
         )
 
 

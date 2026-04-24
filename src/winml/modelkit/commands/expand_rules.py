@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Expand runtime rule zips in-place for faster loading.
+r"""Expand runtime rule zips in-place for faster loading.
 
 Resolves rules directories via ``_resolve_env_rules_dir_entry`` and, when
 each directory exists and contains zip files, rewrites them in-place to full
@@ -16,12 +16,16 @@ Usage:
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
-from ..analyze.utils.rule_loader import MODELKIT_RULES_DIR_ENV, _resolve_env_rules_dir_entry
 from ..analyze.utils.rule_expander import expand_rules_zip_dir
+from ..analyze.utils.rule_loader import MODELKIT_RULES_DIR_ENV, _resolve_env_rules_dir_entry
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _entries_from_env() -> list[str]:
@@ -74,7 +78,8 @@ def expand_rules(rules_dir_entries: tuple[str, ...], glob_pattern: str) -> None:
 
     if not entries:
         click.echo(
-            f"{MODELKIT_RULES_DIR_ENV} is not set (or empty) and no --rules-dir-entry provided, skip."
+            f"{MODELKIT_RULES_DIR_ENV} is not set (or empty) "
+            "and no --rules-dir-entry provided, skip."
         )
         return
 

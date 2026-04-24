@@ -515,8 +515,8 @@ class TestResolveRuleZipPath:
             result = resolve_rule_zip_path(zip_name)
             assert result == Path(tmpdir).resolve() / zip_name
 
-    def test_resolve_auto_expands_when_marker_missing(self, monkeypatch):
-        """Auto-expand is triggered when zip exists and expanded marker is missing."""
+    def test_resolve_auto_expand_disabled_by_default(self, monkeypatch):
+        """Auto-expand is not triggered by resolve when the call is disabled."""
         zip_name = "QNN_NPU_ai_onnx_opset13.zip"
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -546,7 +546,7 @@ class TestResolveRuleZipPath:
             result = resolve_rule_zip_path(zip_name)
 
             assert result == rules_dir.resolve() / zip_name
-            assert calls == [rules_dir.resolve()]
+            assert calls == []
 
     def test_resolve_skips_auto_expand_when_marker_exists(self, monkeypatch):
         """Auto-expand is skipped when expanded marker already exists."""
