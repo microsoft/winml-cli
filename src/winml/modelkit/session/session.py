@@ -215,6 +215,8 @@ class WinMLSession:
         self._persist_jit = ep_config.enable_ep_context if ep_config else False
         self._embed_context = ep_config.embed_context if ep_config else False
         self._provider_options = ep_config.provider_options if ep_config else {}
+        # Monitor-contributed session config entries (populated by session.perf(monitor=...))
+        self._active_session_option_entries: dict[str, str] = {}
 
         # Create session_options with device policy
         if session_options is None:
@@ -450,6 +452,9 @@ class WinMLSession:
                         self._ep,
                         target_name,
                     )
+                    # Apply monitor-contributed session config entries
+                    for key, value in self._active_session_option_entries.items():
+                        opts.add_session_config_entry(key, value)
                     return opts
                 logger.warning(
                     "EP '%s' (%s) not found in available devices; falling back to policy",
@@ -463,6 +468,9 @@ class WinMLSession:
             device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
         )
         opts.set_provider_selection_policy(policy)
+        # Apply monitor-contributed session config entries
+        for key, value in self._active_session_option_entries.items():
+            opts.add_session_config_entry(key, value)
 
         return opts
 
