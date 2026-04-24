@@ -39,10 +39,10 @@ jobs:
           Write-Host "Agent.BuildDirectory : $(Agent.BuildDirectory)"
           Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
           $repoDir = "$(Agent.BuildDirectory)/artifacts"
-          if (-not (Test-Path "$repoDir/op_check_results/rules")) {
+          if (-not (Test-Path "$repoDir/rules_zip")) {
             $repoDir = "$(Agent.BuildDirectory)/ModelKitArtifacts"
           }
-          $src = "$repoDir/op_check_results/rules"
+          $src = "$repoDir/rules_zip"
           $dst = "$(Build.SourcesDirectory)/src/winml/modelkit/analyze/rules/runtime_check_rules"
           if (Test-Path $src) {
             New-Item -ItemType Directory -Path $dst -Force | Out-Null
