@@ -29,6 +29,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@pytest.fixture(autouse=True)
+def _mock_rule_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bypass rule-data validation so CLI tests don't depend on rule zips."""
+    monkeypatch.setattr(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        lambda *_args, **_kwargs: True,
+    )
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
@@ -629,8 +638,15 @@ class TestAnalyzeCommandIntegration:
 class TestAnalyzeEPDeviceValidation:
     """Test EP + device validation in analyze command."""
 
-    def test_dml_cpu_rejected_with_only_supports(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_dml_cpu_rejected_with_only_supports(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """DML only supports GPU — passing CPU should exit 2 with helpful message."""
+        # Override the autouse mock to restore real validation
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -642,8 +658,14 @@ class TestAnalyzeEPDeviceValidation:
         assert "only supports" in result.output.lower()
         assert "gpu" in result.output.lower()
 
-    def test_cpu_ep_npu_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_cpu_ep_npu_rejected(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """CPUExecutionProvider only supports CPU — passing NPU should exit 2."""
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -683,8 +705,14 @@ class TestAnalyzeEPDeviceValidation:
         assert result.exit_code == 0
         mock_instance.analyze.assert_called_once()
 
-    def test_ep_alias_cpu_resolves(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_ep_alias_cpu_resolves(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """'cpu' alias should resolve to CPUExecutionProvider."""
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -696,8 +724,14 @@ class TestAnalyzeEPDeviceValidation:
         assert result.exit_code == 2
         assert "cpuexecutionprovider" in result.output.lower()
 
-    def test_ep_alias_dml_resolves(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_ep_alias_dml_resolves(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """'dml' alias should resolve to DmlExecutionProvider."""
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 

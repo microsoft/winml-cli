@@ -784,6 +784,7 @@ class TestONNXStaticAnalyzer:
         with pytest.raises(RuntimeError, match="Failed to load ONNX model"):
             analyzer.analyze("invalid.onnx", ep="QNNExecutionProvider", device="NPU")
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -792,6 +793,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto with single EP."""
         # Setup mocks
@@ -843,6 +845,7 @@ class TestONNXStaticAnalyzer:
         # Verify RuntimeChecker was called once
         assert mock_runtime_checker_cls.call_count == 1
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -851,6 +854,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto with multiple EPs (ep=None)."""
         # Setup mocks
@@ -907,6 +911,7 @@ class TestONNXStaticAnalyzer:
         # Verify RuntimeChecker was called 3 times (once per EP)
         assert mock_runtime_checker_cls.call_count == 3
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -915,6 +920,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto uses NPU as default driver."""
         # Setup mocks
@@ -962,6 +968,7 @@ class TestONNXStaticAnalyzer:
         call_args = mock_runtime_checker_cls.call_args
         assert call_args.kwargs["device"] == "NPU"
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -972,6 +979,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto with information enabled."""
         # Setup mocks
