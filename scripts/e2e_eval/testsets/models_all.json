@@ -1721,7 +1721,7 @@
   },
   {
     "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
-    "task": "image-to-text",
+    "task": "document-question-answering",
     "model_type": "vision-encoder-decoder",
     "group": "Top200",
     "priority": "P1",

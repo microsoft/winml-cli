@@ -10,6 +10,7 @@ Provides accuracy evaluation using HuggingFace pipeline + evaluate library.
 
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
+from .document_question_answering_evaluator import WinMLDocumentQuestionAnsweringEvaluator
 from .evaluate import EvalResult, evaluate
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
@@ -34,6 +35,7 @@ __all__ = [
     "MeanIoUMetric",
     "PseudoPerplexityMetric",
     "SpearmanCorrelationMetric",
+    "WinMLDocumentQuestionAnsweringEvaluator",
     "WinMLEvaluationConfig",
     "WinMLEvaluator",
     "WinMLFeatureExtractionEvaluator",

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from ..datasets.config import DatasetConfig
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
+from .document_question_answering_evaluator import WinMLDocumentQuestionAnsweringEvaluator
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
 from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
@@ -39,6 +40,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "object-detection": WinMLObjectDetectionEvaluator,
     "image-segmentation": WinMLImageSegmentationEvaluator,
     "question-answering": WinMLQuestionAnsweringEvaluator,
+    "document-question-answering": WinMLDocumentQuestionAnsweringEvaluator,
     "feature-extraction": WinMLFeatureExtractionEvaluator,
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
     "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
@@ -125,6 +127,18 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
         shuffle=True,
         streaming=True,
         columns_mapping={"input_column": "text"},
+    ),
+    "document-question-answering": DatasetConfig(
+        path="nielsr/docvqa_1200_examples_donut",
+        split="test",
+        samples=100,
+        shuffle=True,
+        streaming=True,
+        columns_mapping={
+            "image_column": "image",
+            "question_column": "query",
+            "label_column": "answers",
+        },
     ),
 }
 
