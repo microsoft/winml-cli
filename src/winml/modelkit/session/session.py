@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -19,6 +20,7 @@ import onnxruntime as ort
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
 from .ep_registry import WinMLEPRegistry
+from .monitor.ep_monitor import EPMonitor
 from .stats import PerfStats
 
 
@@ -62,6 +64,19 @@ class SessionState(Enum):
     COMPILED = "COMPILED"
     INFERRING = "INFERRING"
     ERROR = "ERROR"
+
+
+@dataclass(frozen=True)
+class PerfContext:
+    """Yielded by ``WinMLSession.perf()``.
+
+    Aggregates perf statistics and the optional attached EP monitor.
+    Frozen: mutation is not a supported pattern — update the underlying
+    objects instead.
+    """
+
+    stats: PerfStats
+    monitor: EPMonitor  # NullEPMonitor when no monitor was passed
 
 
 # Device to ORT policy mapping (no EP names - let ORT select provider)
