@@ -653,29 +653,34 @@ class WinMLSession:
             )
             self.reset()
 
-        # Save + merge
+        # Snapshot BEFORE mutation so finally can always restore
         saved_sess_entries = dict(self._active_session_option_entries)
         saved_prov = dict(self._provider_options)
-        self._active_session_option_entries = {**saved_sess_entries, **extra_sess}
-        self._provider_options = {**saved_prov, **extra_prov}
-
         stats = PerfStats(warmup=warmup)
-        self._perf_stats = stats
-        mon.__enter__()
 
+        mon_entered = False
         try:
+            # Mutations happen inside the try so any raise leaves state clean
+            self._active_session_option_entries = {**saved_sess_entries, **extra_sess}
+            self._provider_options = {**saved_prov, **extra_prov}
+            self._perf_stats = stats
+            mon.__enter__()
+            mon_entered = True
             yield PerfContext(stats=stats, monitor=mon)
         finally:
             self._perf_stats = None
             exc_info = sys.exc_info()
             try:
-                if mon.requires_session_teardown:
+                if mon.requires_session_teardown and mon_entered:
+                    # Only tear down session if monitor actually entered (data to flush)
                     self.reset()
                     # Windows: release file handles before monitor parses artifacts
                     gc.collect()
             finally:
                 try:
-                    mon.__exit__(*exc_info)
+                    if mon_entered:
+                        # return value intentionally ignored — exceptions always propagate
+                        mon.__exit__(*exc_info)
                 finally:
                     self._active_session_option_entries = saved_sess_entries
                     self._provider_options = saved_prov

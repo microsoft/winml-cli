@@ -140,3 +140,46 @@ def test_exception_transparency():
         raise ValueError("boom")
 
     assert captured.get("exc_type") is ValueError
+
+
+def test_monitor_enter_raises_leaves_session_clean():
+    """If mon.__enter__() raises, session state is not polluted.
+
+    Regression guard: an earlier version mutated _perf_stats and _provider_options
+    before mon.__enter__(), so an __enter__ exception left the session stuck
+    (nested-perf error on every subsequent perf() call).
+    """
+    from winml.modelkit.session.monitor.ep_monitor import EPMonitor
+    from winml.modelkit.session.session import WinMLSession
+
+    class _RaisingEnterMonitor(EPMonitor):
+        @classmethod
+        def is_available(cls):
+            return True
+
+        def __enter__(self):
+            raise RuntimeError("simulated __enter__ failure")
+
+        def __exit__(self, *a):
+            pass
+
+        def to_dict(self):
+            return {"ep": "test"}
+
+        def get_provider_options(self):
+            return {"some_key": "1"}
+
+    session = WinMLSession(get_minimal_onnx_model_path(), device="cpu")
+
+    mon = _RaisingEnterMonitor()
+    with pytest.raises(RuntimeError, match="simulated"), session.perf(monitor=mon):
+        pass  # never reached
+
+    # Session state must be fully restored
+    assert session._perf_stats is None
+    assert session._active_session_option_entries == {}
+    assert session._provider_options == {}
+
+    # Subsequent perf() MUST work (no stuck state)
+    with session.perf() as ctx:
+        assert ctx is not None
