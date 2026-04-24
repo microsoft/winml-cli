@@ -1034,3 +1034,59 @@ class TestONNXStaticAnalyzer:
 
         # Verify InformationEngine was instantiated
         assert mock_info_engine_cls.called
+
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=False)
+    @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
+    @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
+    @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
+    def test_analyze_from_proto_skips_ep_without_rule_data(
+        self,
+        mock_pattern_extractor_cls: Mock,
+        mock_onnx_loader_cls: Mock,
+        mock_runtime_checker_cls: Mock,
+        mock_has_rule_data: Mock,
+    ) -> None:
+        """analyze_from_proto must skip runtime check for EPs lacking rule data.
+
+        When has_rule_data_for_ep returns False (e.g. DML), the analyzer should
+        still succeed — pattern extraction runs, but RuntimeChecker / InformationEngine
+        are never invoked, and the output contains no EP results.
+        """
+        mock_model = MagicMock()
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = mock_model
+        mock_onnx_loader_cls.return_value = mock_loader
+
+        mock_extractor = MagicMock()
+        mock_extractor.summary.return_value = {
+            "summary": ModelStats(
+                model_path="test.onnx",
+                opset_version=13,
+                total_operators=10,
+                operator_counts={"Conv": 10},
+                unique_operator_types=1,
+                detected_pattern_count={},
+            ),
+            "subgraph_patterns": [],
+        }
+        mock_pattern_extractor_cls.return_value = mock_extractor
+
+        analyzer = ONNXStaticAnalyzer()
+        model_proto = MagicMock(spec=onnx.ModelProto)
+
+        result = analyzer.analyze_from_proto(
+            model_proto=model_proto,
+            ep="DmlExecutionProvider",
+            device="GPU",
+            enable_information=False,
+        )
+
+        assert isinstance(result, AnalysisResult)
+        # No EP results because DML has no rule data
+        assert result.output.results == []
+        # Pattern extraction metadata is still present
+        assert result.output.metadata.total_operators == 10
+        # has_rule_data_for_ep was consulted with the correct arguments
+        mock_has_rule_data.assert_called_once_with("DmlExecutionProvider", "GPU")
+        # RuntimeChecker must never be instantiated when rule data is absent
+        mock_runtime_checker_cls.assert_not_called()

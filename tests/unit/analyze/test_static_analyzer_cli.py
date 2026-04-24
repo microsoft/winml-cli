@@ -130,8 +130,8 @@ class TestAnalyzeCommandArguments:
         # Should not complain about missing --device argument
         assert "device" not in result.output.lower() or "missing" not in result.output.lower()
 
-    def test_validates_ep_choice(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test that --ep only accepts valid execution providers."""
+    def test_unknown_ep_with_device_exits_two(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test that unknown EP + explicit device exits with code 2."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -146,8 +146,7 @@ class TestAnalyzeCommandArguments:
                 "NPU",
             ],
         )
-        assert result.exit_code != 0
-        assert "invalid" in result.output.lower() or "choice" in result.output.lower()
+        assert result.exit_code == 2
 
     def test_validates_device_choice(self, runner: CliRunner, tmp_path: Path) -> None:
         """Test that --device only accepts valid device types."""
@@ -553,14 +552,19 @@ class TestAnalyzeCommandIntegration:
             assert result.exit_code == 0, f"Failed for EP: {ep}"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    @patch(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        return_value=True,
+    )
     def test_all_supported_devices(
         self,
+        _mock_has_rule: Mock,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test all supported device types."""
+        """Test all supported device types (with rule data validation bypassed)."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -620,3 +624,111 @@ class TestAnalyzeCommandIntegration:
         assert call_kwargs["ep"] == "OpenVINOExecutionProvider"
         assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
+
+
+class TestAnalyzeEPDeviceValidation:
+    """Test EP + device validation in analyze command."""
+
+    def test_dml_cpu_rejected_with_only_supports(self, runner: CliRunner, tmp_path: Path) -> None:
+        """DML only supports GPU — passing CPU should exit 2 with helpful message."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "dml", "--device", "CPU"],
+        )
+        assert result.exit_code == 2
+        assert "only supports" in result.output.lower()
+        assert "gpu" in result.output.lower()
+
+    def test_cpu_ep_npu_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
+        """CPUExecutionProvider only supports CPU — passing NPU should exit 2."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "cpu", "--device", "NPU"],
+        )
+        assert result.exit_code == 2
+        assert "only supports" in result.output.lower()
+        assert "cpu" in result.output.lower()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    @patch(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        return_value=True,
+    )
+    def test_valid_combo_passes_validation(
+        self,
+        _mock_has_rule: Mock,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Valid EP+device combo should proceed to analysis."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "qnn", "--device", "NPU"],
+        )
+        assert result.exit_code == 0
+        mock_instance.analyze.assert_called_once()
+
+    def test_ep_alias_cpu_resolves(self, runner: CliRunner, tmp_path: Path) -> None:
+        """'cpu' alias should resolve to CPUExecutionProvider."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        # CPU EP + GPU → should fail validation with "only supports CPU"
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "cpu", "--device", "GPU"],
+        )
+        assert result.exit_code == 2
+        assert "cpuexecutionprovider" in result.output.lower()
+
+    def test_ep_alias_dml_resolves(self, runner: CliRunner, tmp_path: Path) -> None:
+        """'dml' alias should resolve to DmlExecutionProvider."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        # DML EP + NPU → should fail validation with "only supports GPU"
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "dml", "--device", "NPU"],
+        )
+        assert result.exit_code == 2
+        assert "dmlexecutionprovider" in result.output.lower()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_ep_without_device_skips_validation(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """When --device is omitted, EP+device validation should be skipped."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        # dml without --device should not exit 2 on validation
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "dml"],
+        )
+        # Should proceed to analysis (not fail on validation)
+        assert result.exit_code != 2 or mock_instance.analyze.called
