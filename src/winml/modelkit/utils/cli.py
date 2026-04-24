@@ -63,9 +63,6 @@ def model_option(required=True):
 def ep_option(required=True, optional_message=None):
     """Add --ep (execution provider) option to a Click command.
 
-    Accepts any execution provider name.  Known aliases (qnn, ov, vitis, …)
-    are resolved to full names by :func:`normalize_ep_name` downstream.
-
     Args:
         required: Whether the EP option is required (default: True)
         optional_message: Message to append to help text when
@@ -87,6 +84,7 @@ def ep_option(required=True, optional_message=None):
         "--ep",
         required=required,
         default=None,
+        type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
         help=help_text,
     )
 
