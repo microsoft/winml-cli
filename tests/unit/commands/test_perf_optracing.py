@@ -166,6 +166,48 @@ class TestResolveEpMonitor:
             )
         assert isinstance(monitor, QNNMonitor)
 
+    @pytest.mark.parametrize("device_input", ["auto", "AUTO", "", None])
+    def test_auto_infers_qnn_from_default_device_when_op_tracing(
+        self, tmp_path: Path, device_input
+    ):
+        """--device auto (default) and empty/None must also auto-infer QNN.
+
+        --op-tracing is itself a strong intent signal; users invoking the
+        common pattern ``wmk perf -m <model> --op-tracing basic`` should not
+        need to also pass --device npu.
+        """
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with patch.object(QNNMonitor, "is_available", return_value=True):
+            monitor = _resolve_ep_monitor(
+                ep=None,
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device=device_input,
+            )
+        assert isinstance(monitor, QNNMonitor)
+
+    @pytest.mark.parametrize("device_input", ["cpu", "gpu"])
+    def test_explicit_non_npu_device_still_hard_fails(self, tmp_path: Path, device_input):
+        """--device cpu/gpu --op-tracing basic must still hard-fail.
+
+        Auto-infer only fires when device is unset (auto/empty) or npu;
+        explicit user choice of cpu/gpu must be honored as "no, I do not
+        want NPU" and produce a clear error rather than silently switching.
+        """
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with (
+            patch.object(QNNMonitor, "is_available", return_value=True),
+            pytest.raises(RuntimeError, match="Op-tracing not available"),
+        ):
+            _resolve_ep_monitor(
+                ep=None,
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device=device_input,
+            )
+
     @pytest.mark.parametrize("ep_input", ["qnn", "QNN", "Qnn", "qNN"])
     def test_ep_matching_case_insensitive(self, tmp_path: Path, ep_input: str):
         """--ep QNN, --ep Qnn, --ep qnn all behave identically."""

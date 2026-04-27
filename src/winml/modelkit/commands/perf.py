@@ -102,9 +102,14 @@ def _resolve_ep_monitor(
     if op_tracing:
         from ..session.monitor.qnn_monitor import QNNMonitor
 
-        # Auto-infer EP from device when not explicitly set.
-        # --device npu without --ep qnn must still engage QNNMonitor (SC-1).
-        if not ep_norm and device_norm == "npu" and QNNMonitor.is_available():
+        # Auto-infer EP when not explicitly set. --op-tracing is itself a
+        # strong intent signal for QNN-only profiling, so:
+        #   --device npu  -> QNN (SC-1 invocation)
+        #   --device auto -> QNN when available (default CLI invocation)
+        #   --device ""   -> QNN when available (programmatic callers)
+        # Explicit --device cpu / --device gpu still falls through to the
+        # hard-fail branch below — those EPs have no op-tracing monitor.
+        if not ep_norm and device_norm in ("npu", "auto", "") and QNNMonitor.is_available():
             ep_norm = "qnn"
 
         if ep_norm == "qnn":
@@ -112,13 +117,14 @@ def _resolve_ep_monitor(
                 raise RuntimeError(
                     "Op-tracing requires QNN EP, but QNN is not available on this system. "
                     "Install onnxruntime-qnn or onnxruntime-windowsml with QNN runtime, "
-                    "or run `wmk perf --device npu` without --op-tracing."
+                    "or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(level=op_tracing, output_dir=output_dir)
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported: --device npu (QNN). To use a different EP, drop --op-tracing."
+            "Op-tracing currently requires QNN. Ensure QNN is available "
+            "(install onnxruntime-qnn or onnxruntime-windowsml with QNN runtime)."
         )
 
     # Proof-of-execution monitors (no op-tracing)
