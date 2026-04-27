@@ -19,9 +19,6 @@ import numpy as np
 import onnx
 import pytest
 
-TensorProto = onnx.TensorProto
-helper = onnx.helper
-
 from winml.modelkit.analyze import ONNXModel, RuntimeChecker, RuntimeTestResult
 from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import RuntimeCheckerQuery
@@ -36,6 +33,10 @@ from winml.modelkit.pattern import (
     PatternType,
     SkeletonMatchResult,
 )
+
+
+TensorProto = onnx.TensorProto
+helper = onnx.helper
 
 
 @pytest.fixture
