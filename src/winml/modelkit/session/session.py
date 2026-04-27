@@ -625,8 +625,14 @@ class WinMLSession:
         extra_sess = mon.get_session_options()
         extra_prov = mon.get_provider_options()
 
+        # Pin the EP when the monitor declares one and the session doesn't
+        # already have an explicit EP. Without this, _build_session_options
+        # takes the policy-based path which silently drops provider options
+        # (e.g. profiling_level for QNN op-tracing).
+        needs_ep_pin = mon.ep_name is not None and self._ep is None
+
         # Auto-reset if options to apply AND session is already compiled
-        if (extra_sess or extra_prov) and self._session is not None:
+        if (extra_sess or extra_prov or needs_ep_pin) and self._session is not None:
             logger.warning(
                 "auto-resetting compiled session to apply monitor session/provider options "
                 "(monitor=%s)",
@@ -637,6 +643,7 @@ class WinMLSession:
         # Snapshot BEFORE mutation so finally can always restore
         saved_sess_entries = dict(self._active_session_option_entries)
         saved_prov = dict(self._provider_options)
+        saved_ep = self._ep
         stats = PerfStats(warmup=warmup)
 
         mon_entered = False
@@ -644,6 +651,8 @@ class WinMLSession:
             # Mutations happen inside the try so any raise leaves state clean
             self._active_session_option_entries = {**saved_sess_entries, **extra_sess}
             self._provider_options = {**saved_prov, **extra_prov}
+            if needs_ep_pin:
+                self._ep = mon.ep_name
             self._perf_stats = stats
             mon.__enter__()
             mon_entered = True
@@ -665,6 +674,7 @@ class WinMLSession:
                 finally:
                     self._active_session_option_entries = saved_sess_entries
                     self._provider_options = saved_prov
+                    self._ep = saved_ep
 
     @property
     def io_config(self) -> dict:

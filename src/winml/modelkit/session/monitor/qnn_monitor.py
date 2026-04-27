@@ -71,6 +71,12 @@ class QNNMonitor(EPMonitor):
     #: before calling ``monitor.__exit__``.
     requires_session_teardown: ClassVar[bool] = True
 
+    #: Pins ``WinMLSession`` to the QNN EP path so provider options
+    #: (``profiling_level``, ``profiling_file_path``) flow through
+    #: ``add_provider_for_devices``. Without this, the session would use
+    #: ORT's policy-based selection which silently drops provider options.
+    ep_name: ClassVar[str | None] = "qnn"
+
     def __init__(
         self,
         level: Literal["basic", "detail"] = "basic",

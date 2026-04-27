@@ -42,6 +42,16 @@ class EPMonitor(ABC):
     #: on session destroy. Default: False (no teardown needed).
     requires_session_teardown: ClassVar[bool] = False
 
+    #: Target EP short name (e.g. ``"qnn"``). When set, ``WinMLSession.perf()``
+    #: pins the session to this EP so provider options contributed via
+    #: :meth:`get_provider_options` actually flow through
+    #: ``add_provider_for_devices``. Without this, sessions without an explicit
+    #: ``ep`` fall back to ORT's policy-based selection which silently drops
+    #: provider options. ``None`` (default) means the monitor doesn't require
+    #: a specific EP — e.g. :class:`NullEPMonitor`, ``VitisAIMonitor`` whose
+    #: hooks return empty dicts.
+    ep_name: ClassVar[str | None] = None
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Reject subclasses that try to shadow load-bearing class vars.
 
