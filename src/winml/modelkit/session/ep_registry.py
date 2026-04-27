@@ -49,6 +49,7 @@ class WinMLEPRegistry:
 
         self._ep_paths: dict[str, str] = {}
         self._registered_eps: list[str] = []
+        self._registration_failures: dict[str, str] = {}
         self._winml_available = False
         self._win_app_sdk_handle = None
 
@@ -66,7 +67,9 @@ class WinMLEPRegistry:
             logger.warning("WinML not available (missing packages): %s", e)
             self._winml_available = False
         except Exception as e:
-            logger.warning("WinML EP discovery failed: %s", e)
+            # Include exception class so users can distinguish "no providers
+            # in catalog" (expected) from "init crashed" (broken env).
+            logger.warning("WinML EP discovery failed (%s: %s)", type(e).__name__, e)
             self._winml_available = False
 
     def _fix_winrt_runtime(self) -> None:
@@ -80,7 +83,9 @@ class WinMLEPRegistry:
                 dll_path.unlink()
                 logger.debug("Removed conflicting msvcp140.dll from winrt-runtime")
         except Exception as e:
-            logger.debug("Could not fix winrt-runtime: %s", e)
+            # NFR-2: this function only runs in the known-needed init path —
+            # a failure here matters. Surface at WARNING with exception class.
+            logger.warning("Could not fix winrt-runtime (%s: %s)", type(e).__name__, e)
 
     def _init_windows_app_sdk(self) -> None:
         """Initialize Windows App SDK."""
@@ -126,9 +131,15 @@ class WinMLEPRegistry:
                 # Use ORT's native EP registration API
                 ort.register_execution_provider_library(name, dll_path)
                 self._registered_eps.append(name)
+                # Clear any prior failure record on successful re-register.
+                self._registration_failures.pop(name, None)
                 logger.debug("Registered EP: %s -> %s", name, dll_path)
             except Exception as e:
-                logger.warning("Failed to register EP %s: %s", name, e)
+                # NFR-2: surface EP name + exception class so users can
+                # diagnose which provider failed to register and why.
+                msg = f"{type(e).__name__}: {e}"
+                self._registration_failures[name] = msg
+                logger.warning("Failed to register EP %s (%s)", name, msg)
 
         return self._registered_eps.copy()
 
@@ -152,6 +163,16 @@ class WinMLEPRegistry:
     def winml_available(self) -> bool:
         """Whether WinML is available."""
         return self._winml_available
+
+    @property
+    def registration_failures(self) -> dict[str, str]:
+        """Per-EP registration failures from the most recent ``register_to_ort()``.
+
+        Maps EP name → ``"<ExcClass>: <message>"`` for any provider that
+        failed to register. Empty when all registrations succeeded.
+        Successful re-registration clears the corresponding entry.
+        """
+        return self._registration_failures.copy()
 
     def __del__(self) -> None:
         """Cleanup Windows App SDK handle."""
@@ -193,7 +214,8 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
             registry = WinMLEPRegistry.get_instance()
             registry.register_to_ort()
         except Exception as e:
-            logger.debug("WinML discovery skipped: %s", e)
+            # NFR-2: surface real failures at WARNING so users can diagnose.
+            logger.warning("WinML discovery skipped (%s: %s)", type(e).__name__, e)
 
     return ort.get_available_providers()
 
@@ -206,10 +228,21 @@ def ensure_initialized() -> None:
     importing ``WinMLSession`` — breaks a latent import cycle.
 
     Safe to call multiple times. No-op if WinML is unavailable on this system.
+
+    Failures during registration are logged at WARNING (NFR-2: must not be
+    silent) and swallowed so callers can probe availability without raising.
+    Subsequent calls retry — there is no module-level latch on failure.
     """
     try:
         registry = WinMLEPRegistry.get_instance()
         if registry.winml_available:
             registry.register_to_ort()
     except Exception as exc:
-        logger.debug("ensure_initialized: WinML EP registration skipped: %s", exc)
+        # NFR-2: surface real environmental failures at WARNING with the
+        # exception class so users can distinguish "not on Windows" from
+        # "registration crashed".
+        logger.warning(
+            "ensure_initialized: WinML EP registration failed (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
