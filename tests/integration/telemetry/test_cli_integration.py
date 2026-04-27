@@ -5,10 +5,12 @@
 
 """Integration tests for telemetry wiring in the top-level CLI."""
 
+import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
 from winml.modelkit.telemetry import ActionGroup
+from winml.modelkit.telemetry import telemetry as telemetry_mod
 
 
 def test_top_level_help_works():
@@ -31,3 +33,30 @@ def test_no_telemetry_subcommand():
     runner = CliRunner()
     result = runner.invoke(main, ["telemetry", "--help"])
     assert result.exit_code != 0
+
+
+@pytest.fixture
+def _no_singleton():
+    if telemetry_mod._INSTANCE is not None:
+        try:
+            telemetry_mod._INSTANCE.shutdown()
+        except Exception:
+            # Best-effort cleanup of any leaked singleton from prior tests.
+            pass
+    telemetry_mod._INSTANCE = None
+    yield
+    telemetry_mod._INSTANCE = None
+
+
+def test_help_path_does_not_materialize_telemetry_on_shutdown(_no_singleton):
+    """Regression: ``ctx.call_on_close(_shutdown_telemetry)`` must not
+    materialize the Telemetry singleton when no subcommand actually ran.
+
+    Without the guard in ``_shutdown_telemetry``, a Click usage error
+    after the group callback registers the close-callback would build a
+    fresh Telemetry on the way out — risking a first-run consent prompt
+    during process shutdown in production builds with a real iKey.
+    """
+    runner = CliRunner()
+    runner.invoke(main, ["--help"])
+    assert telemetry_mod._INSTANCE is None

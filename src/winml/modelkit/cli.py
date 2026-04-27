@@ -27,7 +27,8 @@ from pathlib import Path
 import click
 
 from . import __version__
-from .telemetry import ActionGroup, Telemetry
+from . import telemetry as _telemetry_pkg
+from .telemetry import ActionGroup
 from .utils.logging import configure_logging
 
 
@@ -175,8 +176,15 @@ def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
 
 
 def _shutdown_telemetry() -> None:
+    # Only flush if a subcommand actually materialized the singleton.
+    # Calling `get_or_init()` here unconditionally would build a fresh
+    # Telemetry on the way out — which can trigger first-run consent
+    # resolution during process shutdown if the iKey is non-empty.
+    instance = _telemetry_pkg.telemetry._INSTANCE
+    if instance is None:
+        return
     try:
-        Telemetry.get_or_init().shutdown()
+        instance.shutdown()
     except Exception:
         # Telemetry shutdown must never affect the CLI exit code; swallow
         # any error from a half-initialized singleton or transport flush.
