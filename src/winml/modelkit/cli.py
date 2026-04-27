@@ -175,13 +175,11 @@ def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
 
 
 def _shutdown_telemetry() -> None:
-    # Telemetry shutdown must never affect the CLI exit code; swallow
-    # everything. Always safe even if the singleton was never materialized
-    # (get_or_init returns a cached or fresh disabled instance; shutdown
-    # is a no-op on a disabled instance).
     try:
         Telemetry.get_or_init().shutdown()
     except Exception:
+        # Telemetry shutdown must never affect the CLI exit code; swallow
+        # any error from a half-initialized singleton or transport flush.
         pass
 
 

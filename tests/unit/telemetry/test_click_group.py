@@ -30,6 +30,8 @@ def _reset_singleton():
         try:
             telemetry_mod._INSTANCE.shutdown()
         except Exception:
+            # Best-effort cleanup: a half-initialized singleton from a
+            # prior test must not block resetting state for this test.
             pass
     telemetry_mod._INSTANCE = None
     yield
@@ -37,6 +39,8 @@ def _reset_singleton():
         try:
             telemetry_mod._INSTANCE.shutdown()
         except Exception:
+            # Same rationale as above; teardown must always reach the
+            # _INSTANCE = None reset below.
             pass
     telemetry_mod._INSTANCE = None
 
