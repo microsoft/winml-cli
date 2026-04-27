@@ -221,3 +221,75 @@ def test_no_os_chdir():
     m.__enter__()
     m.__exit__(None, None, None)
     assert Path.cwd() == cwd_before
+
+
+def test_find_schematic_rejects_stale_cwd_candidate(tmp_path, monkeypatch):
+    """A *_schematic.bin in CWD older than the profiling CSV must NOT be returned.
+
+    Setup:
+      - output_dir = tmp_path/out  (no schematic in it → exercise CWD fallback)
+      - cwd        = tmp_path/cwd  (contains a STALE schematic)
+      - csv        = tmp_path/out/profiling_output.csv (FRESH, written 'now')
+    Expected: the stale CWD schematic is older than the CSV by >5s, so the
+    mtime gate rejects it and _find_schematic() returns None.
+    """
+    import os
+    import time
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    # Fresh CSV (now)
+    monitor._csv_path.write_text("dummy")
+    # Stale schematic in CWD (1 hour old)
+    stale = cwd_dir / "stale_schematic.bin"
+    stale.write_bytes(b"")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+
+    monkeypatch.chdir(cwd_dir)
+    # CWD glob would surface 'stale', but mtime guard rejects.
+    assert monitor._find_schematic() is None
+
+
+def test_find_schematic_accepts_fresh_cwd_candidate(tmp_path, monkeypatch):
+    """A *_schematic.bin in CWD newer than the profiling CSV is accepted (mtime gate)."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    # CSV first, then a fresh schematic — the schematic mtime >= CSV mtime.
+    monitor._csv_path.write_text("dummy")
+    fresh = cwd_dir / "fresh_schematic.bin"
+    fresh.write_bytes(b"")
+
+    monkeypatch.chdir(cwd_dir)
+    assert monitor._find_schematic() == fresh
+
+
+def test_find_schematic_prefers_output_dir_over_cwd(tmp_path, monkeypatch):
+    """When output_dir contains a schematic, CWD is never consulted."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    out_dir = tmp_path / "out"
+    cwd_dir = tmp_path / "cwd"
+    out_dir.mkdir()
+    cwd_dir.mkdir()
+
+    monitor = QNNMonitor(level="detail", output_dir=out_dir)
+    in_out = out_dir / "graph_schematic.bin"
+    in_out.write_bytes(b"")
+    in_cwd = cwd_dir / "graph_schematic.bin"
+    in_cwd.write_bytes(b"")
+
+    monkeypatch.chdir(cwd_dir)
+    assert monitor._find_schematic() == in_out

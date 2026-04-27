@@ -344,19 +344,30 @@ class QNNMonitor(EPMonitor):
         2. Process CWD (glob-only; no :func:`os.chdir`) — the QNN SDK
            occasionally drops the schematic next to the process's current
            directory rather than next to the profiling CSV.
+
+        The CWD fallback is **mtime-gated** against the profiling CSV: a
+        schematic from a prior CI run sitting in CWD would otherwise be
+        silently consumed and produce QHAS metrics for the wrong graph
+        with ``status="ok"`` — silent data corruption. The schematic must
+        be at least as new as the CSV (with a 5s tolerance for filesystem
+        clock skew) to be accepted.
         """
         candidates = list(self._output_dir.glob("*_schematic.bin"))
         if candidates:
             return candidates[0]
         # Fallback: read-only glob of process CWD. No chdir.
-        cwd_candidates = list(Path.cwd().glob("*_schematic.bin"))
-        if cwd_candidates:
+        # Reject stale schematics older than the profiling CSV.
+        csv_mtime = self._csv_path.stat().st_mtime if self._csv_path.is_file() else 0.0
+        fresh = [
+            p for p in Path.cwd().glob("*_schematic.bin") if p.stat().st_mtime >= csv_mtime - 5.0
+        ]
+        if fresh:
             logger.warning(
                 "QNNMonitor: located *_schematic.bin in CWD (%s) rather than output dir (%s)",
-                cwd_candidates[0].parent,
+                fresh[0].parent,
                 self._output_dir,
             )
-            return cwd_candidates[0]
+            return fresh[0]
         return None
 
     def _make_failure_result(self, status: TraceStatus, error: str | None) -> OpTraceResult:
