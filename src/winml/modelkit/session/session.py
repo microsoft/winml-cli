@@ -293,10 +293,15 @@ class WinMLSession:
                     logger.warning("ModelCompiler failed, using original: %s", e)
 
         try:
-            # Create InferenceSession
-            sess_options = self._build_session_options(target_device)
+            # Create InferenceSession with explicit providers to avoid
+            # broken policy-based selection (empty provider type in ORT).
+            providers = self._resolve_providers(target_device)
             with _suppress_native_output(compile_log):
-                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+                session = ort.InferenceSession(
+                    str(model_path),
+                    sess_options=self._session_options,
+                    providers=providers,
+                )
 
             # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()
@@ -468,6 +473,19 @@ class WinMLSession:
         for ep_dev in ort.get_ep_devices():
             if ep_dev.ep_name == ep_name:
                 return ep_dev
+        return None
+
+    def _resolve_providers(self, device: str) -> list[str] | None:
+        """Resolve explicit provider list for InferenceSession.
+
+        Uses self._ep if set, otherwise infers from device via _DEVICE_TO_EP.
+        Returns None for CPU (let ORT use default CPU provider).
+        """
+        ep = self._ep or _DEVICE_TO_EP.get(device.lower())
+        if ep and ep != "cpu":
+            target_name = self._EP_NAME_MAP.get(ep)
+            if target_name:
+                return [target_name, "CPUExecutionProvider"]
         return None
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
