@@ -206,11 +206,16 @@ def build_dataset(output_dir: Path) -> None:
     print("Done.")
 
 
+_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "winml" / "eval_datasets" / "build_pubtables1m_structure"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build PubTables-1M structure recognition dataset")
-    parser.add_argument("--output", type=Path, required=True, help="Output directory")
+    parser.add_argument("--output", type=Path, default=None, help="Output directory (default: ~/.cache/winml/eval_datasets/build_pubtables1m_structure)")
     args = parser.parse_args()
-    build_dataset(args.output)
+    output_dir = args.output or _DEFAULT_CACHE_DIR
+    build_dataset(output_dir)
+    print(output_dir)
 
 
 if __name__ == "__main__":

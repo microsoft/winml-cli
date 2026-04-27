@@ -226,9 +226,10 @@ def eval(
             raise click.ClickException(
                 f"Dataset script failed: {result.stderr.strip()[-200:]}"
             )
-        # Use script output (stdout) as dataset path if not already set
-        script_output = result.stdout.strip()
-        if script_output and not cli_utils.is_cli_provided(ctx, "dataset_path"):
+        # Use the last line of stdout as dataset path (earlier lines are log messages)
+        stdout = result.stdout.strip()
+        script_output = stdout.splitlines()[-1].strip() if stdout else ""
+        if script_output:
             dataset_path = script_output
 
     if show_schema:
