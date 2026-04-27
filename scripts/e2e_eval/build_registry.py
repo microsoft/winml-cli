@@ -277,7 +277,7 @@ def build_registry(
                     (model_id, task)
                 ) or curated_model_priority.get(model_id, "P0")
                 group = curated_group_lookup.get((model_id, task)) or curated_model_group.get(
-                    model_id, "AITK"
+                    model_id, "Foundry Toolkit"
                 )
             elif existing_pt and "priority" in existing_pt and "group" in existing_pt:
                 priority = existing_pt["priority"]

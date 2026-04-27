@@ -223,7 +223,7 @@ def make_test_case(
 # - EliminateSlice, ExpandElimination: Level 1 optimizers (not controllable via disable list)
 # - FastGeluFusion: GPU-only (CUDA/ROCm)
 # - BiasSoftmaxFusion, BiasDropoutFusion: CUDA EP only
-# - MatMulActivationFusion: DirectML EP only
+# - MatMulActivationFusion: Dml EP only
 # - NhwcTransformer, NchwcTransformer: AVX2/AVX512 CPU only
 
 GRAPH_PROCESS_TEST_CASES: list[GraphProcessTestCase | pytest.param] = [
@@ -275,7 +275,7 @@ GRAPH_PROCESS_TEST_CASES: list[GraphProcessTestCase | pytest.param] = [
     make_test_case("MatMulAddFusion", min_node_reduction=1),
     pytest.param(
         make_test_case("MatMulActivationFusion", min_node_reduction=1),
-        marks=pytest.mark.skip(reason="MatMulActivationFusion requires DirectML EP"),
+        marks=pytest.mark.skip(reason="MatMulActivationFusion requires Dml EP"),
         id="MatMulActivationFusion",
     ),
     make_test_case("MatmulTransposeFusion", min_node_reduction=1),
