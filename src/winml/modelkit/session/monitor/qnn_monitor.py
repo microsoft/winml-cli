@@ -177,9 +177,22 @@ class QNNMonitor(EPMonitor):
     # ------------------------------------------------------------------
 
     def get_session_options(self) -> dict[str, str]:
-        """Session config entries required for QNN op-tracing."""
+        """Session config entries required for QNN op-tracing.
+
+        Only EPContext caching is opted into here — embed_mode=0 keeps the
+        compiled binary external so the cached ONNX stays small.
+
+        ``session.disable_cpu_ep_fallback`` is intentionally NOT set: under
+        ``onnxruntime-windowsml`` the WinML-registered QNN partitions a
+        QDQ-wrapped EPContext model into Q/DQ-on-CPU + EPContext-on-QNN,
+        which is correct behaviour (the boundary Q/DQ ops genuinely run on
+        CPU). Disabling CPU fallback would reject that valid partition and
+        cause NotImplemented errors even when QNN successfully claimed the
+        EPContext node. The "no silent CPU fallback" guarantee is provided
+        by ``add_provider_for_devices`` upstream — if the QNN device is
+        absent, session creation fails loudly there.
+        """
         return {
-            "session.disable_cpu_ep_fallback": "1",
             "ep.context_enable": "1",
             "ep.context_embed_mode": "0",
         }
@@ -187,22 +200,28 @@ class QNNMonitor(EPMonitor):
     def get_provider_options(self) -> dict[str, str]:
         """Provider options for QNN EP with owner-enforced profiling keys.
 
+        Only the two profiling keys (``profiling_level``, ``profiling_file_path``)
+        are owner-set; everything else is pass-through from ``extra_provider_options``.
+        This is deliberate: ORT's ``add_provider_for_devices`` merges these
+        options on top of whatever the device source pre-configured. Under
+        ``onnxruntime-windowsml`` the WinML-registered QNN device already has
+        an absolute ``backend_path`` and tuned HTP defaults; supplying our own
+        defaults here would *overwrite* WinML's and break DLL loading.
+
+        Callers who need to tune HTP behaviour (e.g. ``backend_path`` for
+        the bundled ``onnxruntime-qnn`` path, or ``htp_performance_mode``)
+        pass them via ``extra_provider_options`` at construction time.
+
         Build order (last writer wins):
 
-        1. Defaults (``backend_path``, HTP performance / optimisation).
-        2. ``self._extra`` — caller-supplied overrides.
-        3. ``profiling_level`` and ``profiling_file_path`` — applied LAST;
-           owner-enforced per C-3 (PRD).  Assigned explicitly after
+        1. ``self._extra`` — caller-supplied options (may include backend
+           settings the bundled-ORT path needs).
+        2. ``profiling_level`` and ``profiling_file_path`` — applied LAST;
+           owner-enforced per C-3 (PRD). Assigned explicitly after
            :py:meth:`dict.update` to avoid Ruff ``F601`` on duplicate keys
            and to guarantee they cannot be shadowed by ``extra``.
         """
-        opts: dict[str, str] = {
-            "backend_path": "QnnHtp.dll",
-            "htp_performance_mode": "high_performance",
-            "htp_graph_finalization_optimization_mode": "3",
-            "enable_htp_fp16_precision": "1",
-        }
-        opts.update(self._extra)
+        opts: dict[str, str] = dict(self._extra)
         # C-3: these two keys are NEVER user-overridable.
         opts["profiling_level"] = _LEVEL_TO_PROFILING[self._level]
         opts["profiling_file_path"] = str(self._csv_path)

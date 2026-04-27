@@ -35,29 +35,64 @@ def test_ctor_rejects_invalid_level():
         QNNMonitor(level="bogus")  # type: ignore[arg-type]
 
 
-def test_get_session_options_has_disable_cpu_fallback():
+def test_get_session_options_enables_epcontext_caching():
+    """get_session_options enables EPContext caching only.
+
+    `session.disable_cpu_ep_fallback` is intentionally NOT set: under
+    onnxruntime-windowsml the WinML-registered QNN partitions a QDQ-wrapped
+    EPContext model into Q/DQ-on-CPU + EPContext-on-QNN, which is correct.
+    The "no silent CPU fallback" guarantee is provided upstream by
+    add_provider_for_devices, not here.
+    """
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     opts = QNNMonitor().get_session_options()
-    assert opts["session.disable_cpu_ep_fallback"] == "1"
-    assert opts["ep.context_enable"] == "1"
-    assert opts["ep.context_embed_mode"] == "0"
+    assert opts == {
+        "ep.context_enable": "1",
+        "ep.context_embed_mode": "0",
+    }
+    assert "session.disable_cpu_ep_fallback" not in opts
 
 
-def test_get_provider_options_basic():
+def test_get_provider_options_owner_keys_only():
+    """get_provider_options sets ONLY the two profiling keys + user extras.
+
+    backend_path / htp_* are NOT defaulted: they would overwrite WinML's
+    registered absolute backend_path and break DLL loading. Callers who
+    need them pass via extra_provider_options.
+    """
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     opts = QNNMonitor(level="basic").get_provider_options()
-    assert opts["profiling_level"] == "detailed"
-    assert opts["backend_path"] == "QnnHtp.dll"
-    assert opts["htp_performance_mode"] == "high_performance"
-    assert "profiling_file_path" in opts
+    assert opts == {
+        "profiling_level": "detailed",
+        "profiling_file_path": opts["profiling_file_path"],
+    }
+    # Verify no defaults that would conflict with WinML registration
+    assert "backend_path" not in opts
+    assert "htp_performance_mode" not in opts
 
 
 def test_get_provider_options_detail():
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     assert QNNMonitor(level="detail").get_provider_options()["profiling_level"] == "optrace"
+
+
+def test_extra_provider_options_pass_through():
+    """User-supplied extras are honored (e.g. backend_path for bundled ORT QNN)."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    m = QNNMonitor(
+        level="basic",
+        extra_provider_options={
+            "backend_path": r"C:\path\to\QnnHtp.dll",
+            "htp_performance_mode": "balanced",
+        },
+    )
+    opts = m.get_provider_options()
+    assert opts["backend_path"] == r"C:\path\to\QnnHtp.dll"
+    assert opts["htp_performance_mode"] == "balanced"
 
 
 def test_profiling_keys_not_user_overridable():
