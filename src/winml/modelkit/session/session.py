@@ -287,13 +287,22 @@ class WinMLSession:
                     logger.warning("ModelCompiler failed, using original: %s", e)
 
         try:
-            # Create InferenceSession with explicit providers to avoid
-            # broken policy-based selection (empty provider type in ORT).
-            providers = self._resolve_providers(target_device)
+            # Create InferenceSession.
+            # Prefer _build_session_options (uses add_provider_for_devices which
+            # works with WinML EP registry for non-built-in EPs like QNN).
+            # Only fall back to providers= strings when _build_session_options
+            # returned policy-based options (identity check).
+            sess_options = self._build_session_options(target_device)
+            if sess_options is self._session_options:
+                # Policy fallback — use providers= for built-in EPs (e.g., DML)
+                providers = self._resolve_providers(target_device)
+            else:
+                # EP configured via add_provider_for_devices — don't override
+                providers = None
             with _suppress_native_output(compile_log):
                 session = ort.InferenceSession(
                     str(model_path),
-                    sess_options=self._session_options,
+                    sess_options=sess_options,
                     providers=providers,
                 )
 
@@ -430,10 +439,12 @@ class WinMLSession:
         avoid "already registered" errors from repeated calls.
         """
         # Explicit EP targeting: create fresh opts to avoid double-registration
+        # Don't filter by device type — trust the user's --ep choice
+        # (e.g., QNN reports as NPU in get_ep_devices but can target GPU)
         if self._ep and self._ep != "cpu":
             target_name = self._EP_NAME_MAP.get(self._ep)
             if target_name:
-                matched = self._find_ep_device(target_name, device)
+                matched = self._find_ep_device(target_name)
                 if matched:
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
