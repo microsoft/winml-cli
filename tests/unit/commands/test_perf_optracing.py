@@ -122,7 +122,7 @@ class TestResolveEpMonitor:
 
         with (
             patch.object(QNNMonitor, "is_available", return_value=False),
-            pytest.raises(RuntimeError, match="Op-tracing not available"),
+            pytest.raises(RuntimeError, match="QNN is not available"),
         ):
             _resolve_ep_monitor(ep="qnn", op_tracing="basic", output_dir=tmp_path)
 
@@ -139,3 +139,76 @@ class TestResolveEpMonitor:
             monitor = _resolve_ep_monitor(ep="qnn", op_tracing="detail", output_dir=tmp_path)
         assert isinstance(monitor, QNNMonitor)
         assert monitor._level == "detail"
+
+    def test_auto_infers_qnn_from_npu_device(self, tmp_path: Path):
+        """--device npu --op-tracing basic must engage QNNMonitor without --ep qnn (SC-1)."""
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with patch.object(QNNMonitor, "is_available", return_value=True):
+            monitor = _resolve_ep_monitor(
+                ep=None,
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="npu",
+            )
+        assert isinstance(monitor, QNNMonitor)
+
+    def test_auto_infers_qnn_from_npu_device_case_insensitive(self, tmp_path: Path):
+        """--device NPU (uppercase) also auto-infers QNN."""
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with patch.object(QNNMonitor, "is_available", return_value=True):
+            monitor = _resolve_ep_monitor(
+                ep=None,
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="NPU",
+            )
+        assert isinstance(monitor, QNNMonitor)
+
+    @pytest.mark.parametrize("ep_input", ["qnn", "QNN", "Qnn", "qNN"])
+    def test_ep_matching_case_insensitive(self, tmp_path: Path, ep_input: str):
+        """--ep QNN, --ep Qnn, --ep qnn all behave identically."""
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with patch.object(QNNMonitor, "is_available", return_value=True):
+            monitor = _resolve_ep_monitor(
+                ep=ep_input,
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="npu",
+            )
+        assert isinstance(monitor, QNNMonitor)
+
+    def test_npu_device_qnn_unavailable_raises_descriptive(self, tmp_path: Path):
+        """--device npu --op-tracing when QNN unavailable raises with diagnostic message."""
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with (
+            patch.object(QNNMonitor, "is_available", return_value=False),
+            pytest.raises(RuntimeError, match="not available for EP"),
+        ):
+            _resolve_ep_monitor(
+                ep=None,
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="npu",
+            )
+
+    def test_explicit_qnn_ep_unavailable_message_mentions_install(self, tmp_path: Path):
+        """When --ep qnn is explicit and unavailable, message hints at install paths."""
+        from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+        with (
+            patch.object(QNNMonitor, "is_available", return_value=False),
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            _resolve_ep_monitor(
+                ep="qnn",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="npu",
+            )
+        msg = str(excinfo.value)
+        assert "QNN is not available" in msg
+        assert "onnxruntime" in msg

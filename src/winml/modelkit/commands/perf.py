@@ -66,16 +66,26 @@ def _resolve_ep_monitor(
     ep: str | None,
     op_tracing: str | None,
     output_dir: Path,
+    device: str | None = None,
 ) -> Any:
     """Pick the EPMonitor for the requested EP and optional op-tracing level.
 
     Explicit dispatch — no registry, no plugin loading. Raises RuntimeError
     when op-tracing is requested against an EP that has no op-tracing monitor.
 
+    EP names are matched case-insensitively (``QNN``, ``Qnn``, ``qnn`` all
+    behave identically). When ``op_tracing`` is set and ``ep`` is empty,
+    ``device`` is consulted to auto-infer the EP (e.g. ``device="npu"``
+    selects QNN when QNNMonitor reports availability). This keeps the
+    headline ``wmk perf --device npu --op-tracing basic`` invocation working
+    without requiring an explicit ``--ep qnn``.
+
     Args:
         ep: Short EP name from CLI (e.g. "qnn", "vitisai", "cpu", None/empty).
         op_tracing: "basic" | "detail" | None (from --op-tracing flag).
         output_dir: Directory for monitor artifacts (CSV, schematic, etc.).
+        device: Device hint from CLI (``"npu"``, ``"cpu"``, etc.). Used only
+            to auto-infer EP when ``op_tracing`` is set and ``ep`` is empty.
 
     Returns:
         An EPMonitor subclass instance. NullEPMonitor when no monitor applies.
@@ -86,16 +96,35 @@ def _resolve_ep_monitor(
     """
     from ..session.monitor.ep_monitor import NullEPMonitor
 
+    ep_norm = (ep or "").lower()
+    device_norm = (device or "").lower()
+
     if op_tracing:
         from ..session.monitor.qnn_monitor import QNNMonitor
 
-        if ep == "qnn" and QNNMonitor.is_available():
+        # Auto-infer EP from device when not explicitly set.
+        # --device npu without --ep qnn must still engage QNNMonitor (SC-1).
+        if not ep_norm and device_norm == "npu" and QNNMonitor.is_available():
+            ep_norm = "qnn"
+
+        if ep_norm == "qnn":
+            if not QNNMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing requires QNN EP, but QNN is not available on this system. "
+                    "Install onnxruntime-qnn or onnxruntime-windowsml with QNN runtime, "
+                    "or run `wmk perf --device npu` without --op-tracing."
+                )
             return QNNMonitor(level=op_tracing, output_dir=output_dir)
-        raise RuntimeError(f"Op-tracing not available for EP '{ep}'. Supported: 'qnn'.")
+
+        raise RuntimeError(
+            f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+            "Supported: --device npu (QNN). To use a different EP, drop --op-tracing."
+        )
+
     # Proof-of-execution monitors (no op-tracing)
     from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
-    if ep == "vitisai" and VitisAIMonitor.is_available():
+    if ep_norm == "vitisai" and VitisAIMonitor.is_available():
         return VitisAIMonitor()
     return NullEPMonitor()
 
