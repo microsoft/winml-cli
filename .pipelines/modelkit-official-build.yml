@@ -91,6 +91,11 @@ extends:
               - script: pip install build twine
                 displayName: 'Install build tools'
 
+              - script: python .pipelines/inject_ikey.py
+                env:
+                  INSTRUMENTATION_KEY: $(INSTRUMENTATION_KEY)
+                displayName: 'Inject InstrumentationKey into constants.py'
+
               - script: python -m build --outdir "$(ob_outputDirectory)"
                 displayName: 'Build sdist and wheel'
 
