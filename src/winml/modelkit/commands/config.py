@@ -124,7 +124,7 @@ def _is_onnx_file(model_input: str) -> bool:
     type=str,
     default=None,
     help="Force specific execution provider "
-    "(qnn, dml, migraphx, tensorrt, vitisai, openvino, cpu). "
+    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
     "Overrides device-to-provider mapping. "
     "When used without --device, device is inferred from EP.",
 )
