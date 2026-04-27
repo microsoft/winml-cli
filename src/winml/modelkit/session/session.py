@@ -438,7 +438,7 @@ class WinMLSession:
         if ep and ep != "cpu":
             target_name = self._EP_NAME_MAP.get(ep)
             if target_name:
-                matched = self._find_ep_device(target_name)
+                matched = self._find_ep_device(target_name, device)
                 if matched:
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
@@ -464,15 +464,27 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(ep_name: str) -> Any:
-        """Find an OrtEpDevice matching the given EP name.
+    def _find_ep_device(ep_name: str, device: str | None = None) -> Any:
+        """Find an OrtEpDevice matching EP name and hardware device type.
+
+        Args:
+            ep_name: Full EP name (e.g., "DmlExecutionProvider").
+            device: Target device string ("gpu", "npu", "cpu"). When provided,
+                also matches on OrtHardwareDeviceType so the correct physical
+                device is selected (e.g., discrete GPU vs integrated).
 
         Returns:
-            The first matching OrtEpDevice, or None if not found.
+            The matching OrtEpDevice, or None if not found.
         """
+        from ..utils.constants import DEVICE_TO_DEVICE_TYPE
+
+        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper()) if device else None
         for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == ep_name:
-                return ep_dev
+            if ep_dev.ep_name != ep_name:
+                continue
+            if device_type is not None and ep_dev.device.type != device_type:
+                continue
+            return ep_dev
         return None
 
     def _resolve_providers(self, device: str) -> list[str] | None:
