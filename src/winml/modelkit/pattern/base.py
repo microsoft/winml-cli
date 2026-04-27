@@ -1273,7 +1273,7 @@ class PatternMatcher:
                 )
                 if len(nodes_with_empty_names) > 10:
                     node_details += f", ... and {len(nodes_with_empty_names) - 10} more"
-                logger.warning(
+                logger.info(
                     "Model has %d nodes with empty names (%s). "
                     "These nodes are assigned auto-generated names (node_<idx>) "
                     "and participate in pattern matching normally via tensor connectivity.",
