@@ -82,7 +82,7 @@ uv run python scripts/e2e_eval/run_eval.py --retry-failed
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
 | `--task` | — | Filter by HF task |
-| `--priority` | — | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`) |
+| `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
 | `--model-type` | — | Filter by model_type (e.g. `bert`) |
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |

@@ -22,8 +22,8 @@
   {"hf_id": "Salesforce/blip-image-captioning-base", "task": "image-to-text", "model_type": "blip", "group": "Benchmark", "priority": "P0"},
   {"hf_id": "ai-forever/Real-ESRGAN", "task": "", "model_type": "unknown", "group": "Benchmark", "priority": "P0"},
 
-  {"hf_id": "microsoft/trocr-large-printed", "group": "ISV", "priority": "P2"},
-  {"hf_id": "microsoft/trocr-base-printed", "group": "ISV", "priority": "P2"},
-  {"hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2", "group": "ISV", "priority": "P2"},
-  {"hf_id": "google/flan-t5-base", "group": "ISV", "priority": "P2"}
+  {"hf_id": "microsoft/trocr-large-printed", "group": "ISV", "priority": "P1"},
+  {"hf_id": "microsoft/trocr-base-printed", "group": "ISV", "priority": "P1"},
+  {"hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2", "group": "ISV", "priority": "P1"},
+  {"hf_id": "google/flan-t5-base", "group": "ISV", "priority": "P1"}
 ]

@@ -1024,8 +1024,12 @@ def parse_args() -> argparse.Namespace:
         "--priority",
         nargs="+",
         choices=["P0", "P1", "P2", "P3"],
+        default=["P0", "P1", "P2"],
         metavar="{P0,P1,P2,P3}",
-        help="Filter by priority. Pass one or more, e.g. --priority P0 P1.",
+        help=(
+            "Filter by priority. Pass one or more, e.g. --priority P0 P1. "
+            "Default: P0 P1 P2 (P3 excluded from default runs)."
+        ),
     )
     parser.add_argument("--model-type", help="Filter by model_type")
     parser.add_argument("--group", help="Filter by group")
