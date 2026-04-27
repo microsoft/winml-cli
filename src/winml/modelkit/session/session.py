@@ -72,12 +72,6 @@ DEVICE_POLICY_MAP = {
     "auto": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,  # Default to NPU
 }
 
-# Device to EP short name fallback (used when ep is not explicitly provided)
-_DEVICE_TO_EP: dict[str, str] = {
-    "npu": "qnn",
-    "gpu": "dml",
-}
-
 
 class WinMLSessionError(Exception):
     """Base exception for WinMLSession."""
@@ -427,34 +421,40 @@ class WinMLSession:
         """Build ORT SessionOptions from instance session_options and device.
 
         When ``self._ep`` is set, uses ``add_provider_for_devices`` to
-        explicitly bind a specific EP (e.g., MIGraphX, NvTensorRTRTX). Otherwise
-        falls back to policy-based selection via DEVICE_POLICY_MAP.
+        explicitly bind a specific EP (e.g., MIGraphX, NvTensorRTRTX).
+        When not set, queries ``get_ep_devices()`` to discover available
+        EPs for the target device type. Falls back to policy-based
+        selection only as a last resort.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
         """
         # Explicit EP targeting: create fresh opts to avoid double-registration
-        ep = self._ep or _DEVICE_TO_EP.get(device.lower())
-        if ep and ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(ep)
+        if self._ep and self._ep != "cpu":
+            target_name = self._EP_NAME_MAP.get(self._ep)
             if target_name:
                 matched = self._find_ep_device(target_name, device)
                 if matched:
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
-                    logger.info(
-                        "Explicit EP: %s (%s)",
-                        ep,
-                        target_name,
-                    )
+                    logger.info("Explicit EP: %s (%s)", self._ep, target_name)
                     return opts
                 logger.warning(
-                    "EP '%s' (%s) not found in available devices; falling back to policy",
-                    ep,
+                    "EP '%s' (%s) not found in available devices",
+                    self._ep,
                     target_name,
                 )
 
-        # Policy-based selection (default path)
+        # No explicit EP — discover available EP for this device type
+        if not self._ep and device.lower() != "cpu":
+            matched = self._find_ep_for_device(device)
+            if matched:
+                opts = ort.SessionOptions()
+                opts.add_provider_for_devices([matched], self._provider_options)
+                logger.info("Discovered EP for %s: %s", device, matched.ep_name)
+                return opts
+
+        # Policy-based selection (last resort)
         opts = self._session_options
         policy = DEVICE_POLICY_MAP.get(
             device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
@@ -487,17 +487,42 @@ class WinMLSession:
             return ep_dev
         return None
 
+    @staticmethod
+    def _find_ep_for_device(device: str) -> Any:
+        """Find the first available OrtEpDevice for the given device type.
+
+        Queries ``ort.get_ep_devices()`` and returns the first EP whose
+        hardware device type matches (e.g., device="gpu" matches GPU EPs).
+
+        Returns:
+            The matching OrtEpDevice, or None if not found.
+        """
+        from ..utils.constants import DEVICE_TO_DEVICE_TYPE
+
+        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
+        if device_type is None:
+            return None
+        for ep_dev in ort.get_ep_devices():
+            if ep_dev.device.type == device_type:
+                return ep_dev
+        return None
+
     def _resolve_providers(self, device: str) -> list[str] | None:
         """Resolve explicit provider list for InferenceSession.
 
-        Uses self._ep if set, otherwise infers from device via _DEVICE_TO_EP.
-        Returns None for CPU (let ORT use default CPU provider).
+        Uses self._ep if set, otherwise queries ``get_ep_devices()`` for the
+        target device type. Returns None for CPU (let ORT use default).
         """
-        ep = self._ep or _DEVICE_TO_EP.get(device.lower())
-        if ep and ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(ep)
+        if self._ep and self._ep != "cpu":
+            target_name = self._EP_NAME_MAP.get(self._ep)
             if target_name:
                 return [target_name, "CPUExecutionProvider"]
+
+        if device.lower() != "cpu":
+            matched = self._find_ep_for_device(device)
+            if matched:
+                return [matched.ep_name, "CPUExecutionProvider"]
+
         return None
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
