@@ -1509,11 +1509,6 @@ class OpInputGenerator(ABC):
                     for k, v in kwargs.items()
                 }
                 print("Running", kwargs_summary)
-                try:
-                    _ = dry_run or self._run_op_on_cpu(kwargs, tags)
-                except Exception as e:
-                    print("Skipping invalid input causing with exception:", e)
-                    continue
 
                 for onnx_model, final_tags in self.iter_const_and_dynamic_models(kwargs, tags):
                     # Check if we should skip this case based on signature (delta/rerun mode)
