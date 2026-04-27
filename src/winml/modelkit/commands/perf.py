@@ -1135,7 +1135,12 @@ def _run_onnx_benchmark(
     type=int,
     default=100,
     show_default=True,
-    help="Number of benchmark iterations",
+    help=(
+        "Number of benchmark iterations. "
+        "When --op-tracing is set without an explicit --iterations, "
+        "defaults to 1 (a single inference produces a usable per-op trace; "
+        "more iterations just inflate the CSV)."
+    ),
 )
 @click.option(
     "--warmup",
@@ -1312,6 +1317,14 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     hf_model = model_id
+
+    # Smart default: --op-tracing produces a usable per-op trace from a single
+    # inference; the default 100 iterations just inflates the profiling CSV
+    # without adding profiling value (operators are averaged across iterations).
+    # When the user did not explicitly pass --iterations alongside --op-tracing,
+    # collapse to 1.
+    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
+        iterations = 1
 
     # Setup logging
     if verbose or (ctx.obj and ctx.obj.get("debug")):

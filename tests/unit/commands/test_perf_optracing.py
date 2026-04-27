@@ -256,6 +256,65 @@ class TestResolveEpMonitor:
         assert "onnxruntime" in msg
 
 
+class TestOpTracingIterationsSmartDefault:
+    """--op-tracing collapses default iterations to 1 unless user overrides."""
+
+    @staticmethod
+    def _capture_config(args: list[str]) -> dict:
+        """Run perf CLI with BenchmarkConfig captured before benchmark runs."""
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            # Fail fast in benchmark to avoid model loading
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            runner.invoke(perf, args, obj={})
+        return captured
+
+    def test_op_tracing_without_iterations_collapses_to_1(self):
+        """--op-tracing basic without --iterations -> iterations=1."""
+        captured = self._capture_config(["--op-tracing", "basic", "-m", "fake/model"])
+        assert captured.get("iterations") == 1
+
+    def test_op_tracing_with_explicit_iterations_honored(self):
+        """--op-tracing basic --iterations 50 -> iterations=50 (user override wins)."""
+        captured = self._capture_config(
+            ["--op-tracing", "basic", "--iterations", "50", "-m", "fake/model"]
+        )
+        assert captured.get("iterations") == 50
+
+    def test_op_tracing_with_explicit_default_value_honored(self):
+        """--op-tracing basic --iterations 100 -> iterations=100.
+
+        Even when the user explicitly passes the value that matches the
+        normal default, the smart override does not fire — the parameter
+        source is COMMANDLINE, not DEFAULT.
+        """
+        captured = self._capture_config(
+            ["--op-tracing", "basic", "--iterations", "100", "-m", "fake/model"]
+        )
+        assert captured.get("iterations") == 100
+
+    def test_no_op_tracing_uses_default_100(self):
+        """Without --op-tracing the normal default of 100 stands."""
+        captured = self._capture_config(["-m", "fake/model"])
+        assert captured.get("iterations") == 100
+
+
+class _ConfigStub:
+    """Lightweight stand-in for BenchmarkConfig used by capture tests."""
+
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
 class TestCliOpTracingDispatch:
     """CLI-level integration tests for --op-tracing dispatch (mocked benchmark)."""
 
