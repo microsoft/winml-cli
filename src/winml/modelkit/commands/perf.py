@@ -1059,7 +1059,7 @@ def _run_onnx_benchmark(
     type=str,
     default=None,
     help="Force specific execution provider "
-    "(qnn, dml, migraphx, tensorrt, vitisai, openvino, cpu). "
+    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
     "Overrides device-to-provider mapping.",
 )
 @click.option(

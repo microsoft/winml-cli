@@ -1,72 +1,72 @@
 [
   {
-    "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
-    "task": "text-classification",
+    "hf_id": "AdamCodd/vit-base-nsfw-detector",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 380961,
+    "last_update_time": "2024-12-03T14:14:31+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "BAAI/bge-base-en-v1.5",
+    "task": "feature-extraction",
     "model_type": "bert",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 11509078,
-    "last_update_time": "2025-08-29T14:36:10+00:00",
+    "downloads": 4709619,
+    "last_update_time": "2024-02-21T03:00:19+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "ProsusAI/finbert",
-    "task": "text-classification",
+    "hf_id": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
     "model_type": "bert",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 5557248,
-    "last_update_time": "2023-05-23T12:43:35+00:00",
+    "downloads": 4709619,
+    "last_update_time": "2024-02-21T03:00:19+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
-    "task": "text-classification",
-    "model_type": "roberta",
+    "hf_id": "BAAI/bge-large-en-v1.5",
+    "task": "feature-extraction",
+    "model_type": "bert",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 4665492,
-    "last_update_time": "2025-08-04T07:58:29+00:00",
+    "downloads": 5387120,
+    "last_update_time": "2024-02-21T02:51:44+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-    "task": "text-classification",
-    "model_type": "distilbert",
+    "hf_id": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 3858636,
-    "last_update_time": "2023-12-19T16:29:37+00:00",
+    "downloads": 5387120,
+    "last_update_time": "2024-02-21T02:51:44+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "BAAI/bge-reranker-v2-m3",
-    "task": "text-classification",
+    "hf_id": "BAAI/bge-m3",
+    "task": "feature-extraction",
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 3652807,
-    "last_update_time": "2024-06-24T14:08:45+00:00",
+    "downloads": 16573109,
+    "last_update_time": "2024-07-03T14:50:10+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "facebook/bart-large-mnli",
-    "task": "text-classification",
-    "model_type": "bart",
+    "hf_id": "BAAI/bge-m3",
+    "task": "sentence-similarity",
+    "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 3537590,
-    "last_update_time": "2023-09-05T14:49:34+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/deberta-xlarge-mnli",
-    "task": "text-classification",
-    "model_type": "deberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2538747,
-    "last_update_time": "2022-06-27T15:47:33+00:00",
+    "downloads": 16573109,
+    "last_update_time": "2024-07-03T14:50:10+00:00",
     "optimum_supported": true
   },
   {
@@ -80,103 +80,33 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
+    "hf_id": "BAAI/bge-reranker-v2-m3",
     "task": "text-classification",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1599843,
-    "last_update_time": "2025-08-29T14:36:22+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "mixedbread-ai/mxbai-rerank-xsmall-v1",
-    "task": "text-classification",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1163824,
-    "last_update_time": "2025-04-02T14:42:01+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "w11wo/indonesian-roberta-base-posp-tagger",
-    "task": "token-classification",
-    "model_type": "roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2625922,
-    "last_update_time": "2024-02-19T11:03:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "dslim/bert-base-NER",
-    "task": "token-classification",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1465535,
-    "last_update_time": "2024-10-08T07:51:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "StanfordAIMI/stanford-deidentifier-base",
-    "task": "token-classification",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1128572,
-    "last_update_time": "2024-10-09T17:55:36+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
-    "task": "token-classification",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1055392,
-    "last_update_time": "2023-09-06T22:17:56+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "oliverguhr/fullstop-punctuation-multilang-large",
-    "task": "token-classification",
     "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 975485,
-    "last_update_time": "2023-11-16T09:35:35+00:00",
+    "downloads": 3652807,
+    "last_update_time": "2024-06-24T14:08:45+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
-    "task": "token-classification",
-    "model_type": "distilbert",
+    "hf_id": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "model_type": "bert",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 680745,
-    "last_update_time": "2025-11-14T09:28:25+00:00",
+    "downloads": 5466706,
+    "last_update_time": "2024-02-22T03:36:23+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "kredor/punctuate-all",
-    "task": "token-classification",
-    "model_type": "xlm-roberta",
+    "hf_id": "BAAI/bge-small-en-v1.5",
+    "task": "sentence-similarity",
+    "model_type": "bert",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 482916,
-    "last_update_time": "2024-04-26T05:37:58+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "obi/deid_roberta_i2b2",
-    "task": "token-classification",
-    "model_type": "roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 447433,
-    "last_update_time": "2025-02-23T03:36:26+00:00",
+    "downloads": 5466706,
+    "last_update_time": "2024-02-22T03:36:23+00:00",
     "optimum_supported": true
   },
   {
@@ -190,143 +120,13 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "Jean-Baptiste/camembert-ner-with-dates",
-    "task": "token-classification",
-    "model_type": "camembert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 295227,
-    "last_update_time": "2023-06-16T01:31:43+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "ahotrod/electra_large_discriminator_squad2_512",
-    "task": "question-answering",
-    "model_type": "electra",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 873227,
-    "last_update_time": "2020-12-11T21:31:42+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "deepset/roberta-base-squad2",
-    "task": "question-answering",
+    "hf_id": "FacebookAI/roberta-base",
+    "task": "fill-mask",
     "model_type": "roberta",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 744933,
-    "last_update_time": "2024-09-24T15:48:47+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
-    "task": "question-answering",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 235161,
-    "last_update_time": "2024-02-19T11:08:45+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "timpal0l/mdeberta-v3-base-squad2",
-    "task": "question-answering",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 188751,
-    "last_update_time": "2024-11-26T17:14:50+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "distilbert/distilbert-base-cased-distilled-squad",
-    "task": "question-answering",
-    "model_type": "distilbert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 182001,
-    "last_update_time": "2024-05-06T13:46:31+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
-    "task": "question-answering",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 177893,
-    "last_update_time": "2024-09-24T15:54:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "monologg/koelectra-small-v2-distilled-korquad-384",
-    "task": "question-answering",
-    "model_type": "electra",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 146325,
-    "last_update_time": "2023-06-12T12:30:35+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "tau/splinter-base",
-    "task": "question-answering",
-    "model_type": "splinter",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 96200,
-    "last_update_time": "2021-08-17T14:09:19+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "deepset/tinyroberta-squad2",
-    "task": "question-answering",
-    "model_type": "roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 83067,
-    "last_update_time": "2024-09-26T09:12:41+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "distilbert/distilbert-base-uncased-distilled-squad",
-    "task": "question-answering",
-    "model_type": "distilbert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 52098,
-    "last_update_time": "2024-05-06T13:46:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-bert/bert-base-uncased",
-    "task": "fill-mask",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 54254868,
-    "last_update_time": "2024-02-19T11:06:12+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/all-mpnet-base-v2",
-    "task": "fill-mask",
-    "model_type": "mpnet",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 24738314,
-    "last_update_time": "2025-08-19T10:14:25+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "FacebookAI/xlm-roberta-base",
-    "task": "fill-mask",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 23055328,
-    "last_update_time": "2024-02-19T12:48:21+00:00",
+    "downloads": 8760799,
+    "last_update_time": "2024-02-19T12:39:28+00:00",
     "optimum_supported": true
   },
   {
@@ -340,23 +140,13 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "FacebookAI/roberta-base",
+    "hf_id": "FacebookAI/xlm-roberta-base",
     "task": "fill-mask",
-    "model_type": "roberta",
+    "model_type": "xlm-roberta",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 8760799,
-    "last_update_time": "2024-02-19T12:39:28+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "distilbert/distilbert-base-uncased",
-    "task": "fill-mask",
-    "model_type": "distilbert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 7663501,
-    "last_update_time": "2024-05-06T13:44:53+00:00",
+    "downloads": 23055328,
+    "last_update_time": "2024-02-19T12:48:21+00:00",
     "optimum_supported": true
   },
   {
@@ -370,373 +160,13 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
-    "task": "fill-mask",
-    "model_type": "mpnet",
+    "hf_id": "Falconsai/nsfw_image_detection",
+    "task": "image-classification",
+    "model_type": "vit",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 4475402,
-    "last_update_time": "2025-08-19T10:21:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-bert/bert-base-multilingual-uncased",
-    "task": "fill-mask",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4165150,
-    "last_update_time": "2024-02-19T11:06:00+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-bert/bert-base-multilingual-cased",
-    "task": "fill-mask",
-    "model_type": "bert",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 3378746,
-    "last_update_time": "2024-02-19T11:05:41+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen2.5-7B-Instruct",
-    "task": "text-generation",
-    "model_type": "qwen2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 16620493,
-    "last_update_time": "2025-01-12T02:10:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen3-0.6B",
-    "task": "text-generation",
-    "model_type": "qwen3",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 10036447,
-    "last_update_time": "2025-07-26T03:46:27+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai-community/gpt2",
-    "task": "text-generation",
-    "model_type": "gpt2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 8528938,
-    "last_update_time": "2024-02-19T10:57:45+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen2.5-1.5B-Instruct",
-    "task": "text-generation",
-    "model_type": "qwen2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 6529214,
-    "last_update_time": "2024-09-25T12:32:50+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen2.5-0.5B-Instruct",
-    "task": "text-generation",
-    "model_type": "qwen2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 6033454,
-    "last_update_time": "2024-09-25T12:32:56+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/gpt-oss-20b",
-    "task": "text-generation",
-    "model_type": "gpt_oss",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5717889,
-    "last_update_time": "2025-08-26T17:25:47+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen2.5-3B-Instruct",
-    "task": "text-generation",
-    "model_type": "qwen2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5207812,
-    "last_update_time": "2024-09-25T12:33:00+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
-    "task": "text-generation",
-    "model_type": "qwen2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5093358,
-    "last_update_time": "2025-12-19T19:10:57+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen3-1.7B",
-    "task": "text-generation",
-    "model_type": "qwen3",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4985151,
-    "last_update_time": "2025-07-26T03:46:32+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Qwen/Qwen3-8B",
-    "task": "text-generation",
-    "model_type": "qwen3",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4955892,
-    "last_update_time": "2025-07-26T03:49:13+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 171219924,
-    "last_update_time": "2025-03-06T13:37:44+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/all-mpnet-base-v2",
-    "task": "feature-extraction",
-    "model_type": "mpnet",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 24738314,
-    "last_update_time": "2025-08-19T10:14:25+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 19151020,
-    "last_update_time": "2026-01-28T10:02:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-m3",
-    "task": "feature-extraction",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 16573109,
-    "last_update_time": "2024-07-03T14:50:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 12214201,
-    "last_update_time": "2025-07-22T00:07:45+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-    "task": "feature-extraction",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5684776,
-    "last_update_time": "2025-08-19T10:29:38+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-small-en-v1.5",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5466706,
-    "last_update_time": "2024-02-22T03:36:23+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-large-en-v1.5",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5387120,
-    "last_update_time": "2024-02-21T02:51:44+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-base-en-v1.5",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4709619,
-    "last_update_time": "2024-02-21T03:00:19+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
-    "task": "feature-extraction",
-    "model_type": "mpnet",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4475402,
-    "last_update_time": "2025-08-19T10:21:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/bart-large-cnn",
-    "task": "summarization",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2434935,
-    "last_update_time": "2024-02-13T18:02:05+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-base",
-    "task": "summarization",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2326954,
-    "last_update_time": "2024-02-14T17:21:55+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-small",
-    "task": "summarization",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1770498,
-    "last_update_time": "2023-06-30T02:31:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sshleifer/distilbart-cnn-12-6",
-    "task": "summarization",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 821377,
-    "last_update_time": "2021-06-14T07:51:12+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-3b",
-    "task": "summarization",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 746786,
-    "last_update_time": "2024-01-29T15:44:49+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-large",
-    "task": "summarization",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 355708,
-    "last_update_time": "2023-04-06T13:42:27+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/pegasus-xsum",
-    "task": "summarization",
-    "model_type": "pegasus",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 285435,
-    "last_update_time": "2023-01-24T16:42:49+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "philschmid/bart-large-cnn-samsum",
-    "task": "summarization",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 147025,
-    "last_update_time": "2022-12-23T19:48:57+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "moussaKam/mbarthez",
-    "task": "summarization",
-    "model_type": "mbart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 94613,
-    "last_update_time": "2024-02-20T14:35:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "knkarthick/MEETING_SUMMARY",
-    "task": "summarization",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 47465,
-    "last_update_time": "2023-03-27T15:08:14+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/flan-t5-base",
-    "task": "summarization",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1372124,
-    "last_update_time": "2023-07-17T12:48:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-base",
-    "task": "translation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2326954,
-    "last_update_time": "2024-02-14T17:21:55+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-small",
-    "task": "translation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1770498,
-    "last_update_time": "2023-06-30T02:31:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Helsinki-NLP/opus-mt-nl-en",
-    "task": "translation",
-    "model_type": "marian",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 915844,
-    "last_update_time": "2023-08-16T12:01:39+00:00",
+    "downloads": 37147963,
+    "last_update_time": "2025-04-06T13:42:07+00:00",
     "optimum_supported": true
   },
   {
@@ -750,23 +180,13 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "facebook/nllb-200-distilled-600M",
+    "hf_id": "Helsinki-NLP/opus-mt-es-en",
     "task": "translation",
-    "model_type": "m2m_100",
+    "model_type": "marian",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 880169,
-    "last_update_time": "2024-02-14T17:18:36+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google-t5/t5-3b",
-    "task": "translation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 746786,
-    "last_update_time": "2024-01-29T15:44:49+00:00",
+    "downloads": 465856,
+    "last_update_time": "2023-08-16T11:32:34+00:00",
     "optimum_supported": true
   },
   {
@@ -780,6 +200,16 @@
     "optimum_supported": true
   },
   {
+    "hf_id": "Helsinki-NLP/opus-mt-nl-en",
+    "task": "translation",
+    "model_type": "marian",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 915844,
+    "last_update_time": "2023-08-16T12:01:39+00:00",
+    "optimum_supported": true
+  },
+  {
     "hf_id": "Helsinki-NLP/opus-mt-tr-en",
     "task": "translation",
     "model_type": "marian",
@@ -790,733 +220,23 @@
     "optimum_supported": true
   },
   {
-    "hf_id": "Helsinki-NLP/opus-mt-es-en",
-    "task": "translation",
-    "model_type": "marian",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 465856,
-    "last_update_time": "2023-08-16T11:32:34+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/madlad400-3b-mt",
-    "task": "translation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 356428,
-    "last_update_time": "2023-11-27T15:58:35+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/flan-t5-base",
-    "task": "translation",
-    "model_type": "t5",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1372124,
-    "last_update_time": "2023-07-17T12:48:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/bart-large-mnli",
-    "task": "zero-shot-classification",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 3537590,
-    "last_update_time": "2023-09-05T14:49:34+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
-    "task": "zero-shot-classification",
-    "model_type": "distilbert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 718236,
-    "last_update_time": "2025-03-03T02:06:53+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "MoritzLaurer/deberta-v3-large-zeroshot-v2.0",
-    "task": "zero-shot-classification",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 607634,
-    "last_update_time": "2024-04-11T13:42:28+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
-    "task": "zero-shot-classification",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 266767,
-    "last_update_time": "2024-04-11T13:49:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "valhalla/distilbart-mnli-12-3",
-    "task": "zero-shot-classification",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 166299,
-    "last_update_time": "2021-06-14T10:29:48+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
-    "task": "zero-shot-classification",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 136671,
-    "last_update_time": "2024-01-08T12:37:16+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "joeddav/xlm-roberta-large-xnli",
-    "task": "zero-shot-classification",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 98082,
-    "last_update_time": "2024-10-16T21:59:20+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "joeddav/bart-large-mnli-yahoo-answers",
-    "task": "zero-shot-classification",
-    "model_type": "bart",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 95714,
-    "last_update_time": "2025-09-15T16:35:19+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
-    "task": "zero-shot-classification",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 92475,
-    "last_update_time": "2024-04-11T13:49:19+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "cross-encoder/nli-deberta-v3-small",
-    "task": "zero-shot-classification",
-    "model_type": "deberta-v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 76762,
-    "last_update_time": "2025-04-15T08:18:25+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
-    "task": "sentence-similarity",
+    "hf_id": "Intel/bert-base-uncased-mrpc",
+    "task": "feature-extraction",
     "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 171219924,
-    "last_update_time": "2025-03-06T13:37:44+00:00",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 3598,
+    "last_update_time": "2024-06-21T19:49:09+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "sentence-transformers/all-mpnet-base-v2",
-    "task": "sentence-similarity",
-    "model_type": "mpnet",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 24738314,
-    "last_update_time": "2025-08-19T10:14:25+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    "task": "sentence-similarity",
+    "hf_id": "Intel/bert-base-uncased-mrpc",
+    "task": "text-classification",
     "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 19151020,
-    "last_update_time": "2026-01-28T10:02:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-m3",
-    "task": "sentence-similarity",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 16573109,
-    "last_update_time": "2024-07-03T14:50:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-    "task": "sentence-similarity",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5684776,
-    "last_update_time": "2025-08-19T10:29:38+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-small-en-v1.5",
-    "task": "sentence-similarity",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5466706,
-    "last_update_time": "2024-02-22T03:36:23+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-large-en-v1.5",
-    "task": "sentence-similarity",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 5387120,
-    "last_update_time": "2024-02-21T02:51:44+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "BAAI/bge-base-en-v1.5",
-    "task": "sentence-similarity",
-    "model_type": "bert",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4709619,
-    "last_update_time": "2024-02-21T03:00:19+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
-    "task": "sentence-similarity",
-    "model_type": "mpnet",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4475402,
-    "last_update_time": "2025-08-19T10:21:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "intfloat/multilingual-e5-large",
-    "task": "sentence-similarity",
-    "model_type": "xlm-roberta",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4372595,
-    "last_update_time": "2025-02-17T03:50:15+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Falconsai/nsfw_image_detection",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 37147963,
-    "last_update_time": "2025-04-06T13:42:07+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "dima806/fairface_age_image_detection",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 7026563,
-    "last_update_time": "2024-12-15T19:54:53+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/vit-base-patch16-224",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "AITK",
+    "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 3970349,
-    "last_update_time": "2023-09-05T15:27:12+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "apple/mobilevit-small",
-    "task": "image-classification",
-    "model_type": "mobilevit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2634566,
-    "last_update_time": "2025-02-24T21:25:21+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "rizvandwiki/gender-classification",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 864793,
-    "last_update_time": "2023-05-18T11:16:33+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/beit-base-patch16-224-pt22k-ft22k",
-    "task": "image-classification",
-    "model_type": "beit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 754339,
-    "last_update_time": "2023-02-27T15:08:16+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "amunchet/rorshark-vit-base",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 588340,
-    "last_update_time": "2023-11-18T20:58:42+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/swin-large-patch4-window7-224",
-    "task": "image-classification",
-    "model_type": "swin",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 536088,
-    "last_update_time": "2022-05-16T19:58:33+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "buildborderless/CommunityForensics-DeepfakeDet-ViT",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 535133,
-    "last_update_time": "2025-06-11T17:19:56+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "AdamCodd/vit-base-nsfw-detector",
-    "task": "image-classification",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 380961,
-    "last_update_time": "2024-12-03T14:14:31+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/table-transformer-detection",
-    "task": "object-detection",
-    "model_type": "table-transformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2543594,
-    "last_update_time": "2023-09-06T14:49:09+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/table-transformer-structure-recognition",
-    "task": "object-detection",
-    "model_type": "table-transformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1598402,
-    "last_update_time": "2023-09-06T14:50:49+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "PekingU/rtdetr_r101vd_coco_o365",
-    "task": "object-detection",
-    "model_type": "rt_detr",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 812111,
-    "last_update_time": "2024-07-01T14:17:49+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "hustvl/yolos-small",
-    "task": "object-detection",
-    "model_type": "yolos",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 621366,
-    "last_update_time": "2024-05-08T07:49:12+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/detr-resnet-50",
-    "task": "object-detection",
-    "model_type": "detr",
-    "group": "Benchmark",
-    "priority": "P0",
-    "downloads": 438618,
-    "last_update_time": "2024-04-10T13:56:31+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "valentinafeve/yolos-fashionpedia",
-    "task": "object-detection",
-    "model_type": "yolos",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 392080,
-    "last_update_time": "2026-02-04T13:52:23+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/table-transformer-structure-recognition-v1.1-all",
-    "task": "object-detection",
-    "model_type": "table-transformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 357149,
-    "last_update_time": "2023-11-18T21:58:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "TahaDouaji/detr-doc-table-detection",
-    "task": "object-detection",
-    "model_type": "detr",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 151080,
-    "last_update_time": "2025-11-10T05:52:21+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "PekingU/rtdetr_v2_r18vd",
-    "task": "object-detection",
-    "model_type": "rt_detr_v2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 89941,
-    "last_update_time": "2025-02-06T18:21:53+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "PekingU/rtdetr_r50vd_coco_o365",
-    "task": "object-detection",
-    "model_type": "rt_detr",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 79477,
-    "last_update_time": "2024-07-01T14:17:52+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "jonathandinu/face-parsing",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 666776,
-    "last_update_time": "2026-02-18T22:38:54+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nvidia/segformer-b0-finetuned-ade-512-512",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 600025,
-    "last_update_time": "2024-01-14T10:46:46+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Xenova/segformer-b0-finetuned-ade-512-512",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 462050,
-    "last_update_time": "2025-07-01T15:39:50+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "mattmdjaga/segformer_b2_clothes",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 290987,
-    "last_update_time": "2025-09-19T07:21:11+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "fashn-ai/fashn-human-parser",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 188295,
-    "last_update_time": "2026-01-10T20:50:06+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nvidia/segformer-b5-finetuned-ade-640-640",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 164651,
-    "last_update_time": "2022-08-06T10:25:55+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nvidia/segformer-b1-finetuned-ade-512-512",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 142449,
-    "last_update_time": "2022-08-06T10:08:05+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 61883,
-    "last_update_time": "2022-08-09T11:29:37+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nvidia/segformer-b2-finetuned-ade-512-512",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 41766,
-    "last_update_time": "2022-08-06T10:07:54+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nvidia/segformer-b0-finetuned-cityscapes-1024-1024",
-    "task": "image-segmentation",
-    "model_type": "segformer",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 26587,
-    "last_update_time": "2022-08-08T13:43:30+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/dinov2-small",
-    "task": "image-feature-extraction",
-    "model_type": "dinov2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2729692,
-    "last_update_time": "2023-09-06T11:24:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/dinov2-base",
-    "task": "image-feature-extraction",
-    "model_type": "dinov2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1318542,
-    "last_update_time": "2024-01-17T08:27:01+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/vit-base-patch16-224-in21k",
-    "task": "image-feature-extraction",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1215150,
-    "last_update_time": "2024-02-05T16:37:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/dinov2-large",
-    "task": "image-feature-extraction",
-    "model_type": "dinov2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 719261,
-    "last_update_time": "2023-09-06T11:23:50+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/dino-vitb16",
-    "task": "image-feature-extraction",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 281317,
-    "last_update_time": "2023-05-22T07:04:00+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/dinov2-giant",
-    "task": "image-feature-extraction",
-    "model_type": "dinov2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 140781,
-    "last_update_time": "2023-09-06T11:23:25+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/dino-vits16",
-    "task": "image-feature-extraction",
-    "model_type": "vit",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 86562,
-    "last_update_time": "2023-05-22T07:05:10+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "StanfordAIMI/dinov2-base-xray-224",
-    "task": "image-feature-extraction",
-    "model_type": "dinov2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 70123,
-    "last_update_time": "2024-02-11T07:53:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "hi-wesley/gemma3-vision-encoder",
-    "task": "image-feature-extraction",
-    "model_type": "siglip_vision_model",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 69143,
-    "last_update_time": "2025-08-17T21:52:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/rad-dino",
-    "task": "image-feature-extraction",
-    "model_type": "dinov2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 65986,
-    "last_update_time": "2025-10-09T14:04:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-base-patch32",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 18079802,
-    "last_update_time": "2024-02-29T09:45:55+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-large-patch14",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 6677102,
-    "last_update_time": "2023-09-15T15:49:35+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-large-patch14-336",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 4829219,
-    "last_update_time": "2022-10-04T09:41:39+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-base-patch16",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 2664007,
-    "last_update_time": "2022-10-04T09:42:28+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 2663202,
-    "last_update_time": "2025-01-22T04:41:33+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "patrickjohncyh/fashion-clip",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2455656,
-    "last_update_time": "2024-09-17T15:19:43+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/siglip-so400m-patch14-384",
-    "task": "zero-shot-image-classification",
-    "model_type": "siglip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1990836,
-    "last_update_time": "2024-09-26T08:21:46+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/siglip-base-patch16-224",
-    "task": "zero-shot-image-classification",
-    "model_type": "siglip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 954521,
-    "last_update_time": "2024-09-26T08:20:18+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Marqo/marqo-fashionSigLIP",
-    "task": "zero-shot-image-classification",
-    "model_type": "siglip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 701267,
-    "last_update_time": "2026-02-18T03:34:31+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
-    "task": "zero-shot-image-classification",
-    "model_type": "clip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 669367,
-    "last_update_time": "2025-01-22T04:38:44+00:00",
+    "downloads": 3598,
+    "last_update_time": "2024-06-21T19:49:09+00:00",
     "optimum_supported": true
   },
   {
@@ -1550,13 +270,33 @@
     "optimum_supported": false
   },
   {
-    "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
+    "hf_id": "Isotonic/distilbert_finetuned_ai4privacy_v2",
+    "task": "token-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 680745,
+    "last_update_time": "2025-11-14T09:28:25+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Jean-Baptiste/camembert-ner-with-dates",
+    "task": "token-classification",
+    "model_type": "camembert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 295227,
+    "last_update_time": "2023-06-16T01:31:43+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "LiheYoung/depth-anything-base-hf",
     "task": "depth-estimation",
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 1155147,
-    "last_update_time": "2024-07-05T11:38:31+00:00",
+    "downloads": 41990,
+    "last_update_time": "2024-01-25T08:13:34+00:00",
     "optimum_supported": false
   },
   {
@@ -1568,6 +308,456 @@
     "downloads": 540183,
     "last_update_time": "2024-01-25T08:13:11+00:00",
     "optimum_supported": false
+  },
+  {
+    "hf_id": "LiheYoung/depth-anything-small-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_anything",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 53782,
+    "last_update_time": "2024-01-25T08:12:14+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "Marqo/marqo-fashionSigLIP",
+    "task": "zero-shot-image-classification",
+    "model_type": "siglip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 701267,
+    "last_update_time": "2026-02-18T03:34:31+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 266767,
+    "last_update_time": "2024-04-11T13:49:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "MoritzLaurer/deberta-v3-large-zeroshot-v2.0",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 607634,
+    "last_update_time": "2024-04-11T13:42:28+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 136671,
+    "last_update_time": "2024-01-08T12:37:16+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 92475,
+    "last_update_time": "2024-04-11T13:49:19+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "PekingU/rtdetr_r101vd_coco_o365",
+    "task": "object-detection",
+    "model_type": "rt_detr",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 812111,
+    "last_update_time": "2024-07-01T14:17:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "PekingU/rtdetr_r50vd_coco_o365",
+    "task": "object-detection",
+    "model_type": "rt_detr",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 79477,
+    "last_update_time": "2024-07-01T14:17:52+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "PekingU/rtdetr_v2_r18vd",
+    "task": "object-detection",
+    "model_type": "rt_detr_v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 89941,
+    "last_update_time": "2025-02-06T18:21:53+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "ProsusAI/finbert",
+    "task": "text-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 5557248,
+    "last_update_time": "2023-05-23T12:43:35+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen2.5-0.5B-Instruct",
+    "task": "text-generation",
+    "model_type": "qwen2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 6033454,
+    "last_update_time": "2024-09-25T12:32:56+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen2.5-1.5B-Instruct",
+    "task": "text-generation",
+    "model_type": "qwen2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 6529214,
+    "last_update_time": "2024-09-25T12:32:50+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen2.5-3B-Instruct",
+    "task": "text-generation",
+    "model_type": "qwen2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 5207812,
+    "last_update_time": "2024-09-25T12:33:00+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen2.5-7B-Instruct",
+    "task": "text-generation",
+    "model_type": "qwen2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 16620493,
+    "last_update_time": "2025-01-12T02:10:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen3-0.6B",
+    "task": "text-generation",
+    "model_type": "qwen3",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 10036447,
+    "last_update_time": "2025-07-26T03:46:27+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen3-1.7B",
+    "task": "text-generation",
+    "model_type": "qwen3",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4985151,
+    "last_update_time": "2025-07-26T03:46:32+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Qwen/Qwen3-8B",
+    "task": "text-generation",
+    "model_type": "qwen3",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4955892,
+    "last_update_time": "2025-07-26T03:49:13+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Salesforce/blip-image-captioning-base",
+    "task": "image-to-text",
+    "model_type": "blip",
+    "group": "Benchmark",
+    "priority": "P0",
+    "downloads": 2488150,
+    "last_update_time": "2025-02-03T06:45:16+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "Salesforce/blip-vqa-base",
+    "task": "visual-question-answering",
+    "model_type": "blip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 668600,
+    "last_update_time": "2025-02-03T06:44:34+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "Salesforce/blip2-flan-t5-xl",
+    "task": "visual-question-answering",
+    "model_type": "blip-2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 81399,
+    "last_update_time": "2025-02-03T06:36:28+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "Salesforce/blip2-opt-2.7b",
+    "task": "visual-question-answering",
+    "model_type": "blip-2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 453918,
+    "last_update_time": "2025-02-03T06:27:50+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "Salesforce/blip2-opt-2.7b-coco",
+    "task": "visual-question-answering",
+    "model_type": "blip-2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 327040,
+    "last_update_time": "2025-02-03T06:40:11+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "StanfordAIMI/dinov2-base-xray-224",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 70123,
+    "last_update_time": "2024-02-11T07:53:39+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "StanfordAIMI/stanford-deidentifier-base",
+    "task": "token-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1128572,
+    "last_update_time": "2024-10-09T17:55:36+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "TahaDouaji/detr-doc-table-detection",
+    "task": "object-detection",
+    "model_type": "detr",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 151080,
+    "last_update_time": "2025-11-10T05:52:21+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 12214201,
+    "last_update_time": "2025-07-22T00:07:45+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Xenova/segformer-b0-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 462050,
+    "last_update_time": "2025-07-01T15:39:50+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "Zigeng/SlimSAM-uniform-77",
+    "task": "mask-generation",
+    "model_type": "sam",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 3654,
+    "last_update_time": "2024-11-08T07:55:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "ahotrod/electra_large_discriminator_squad2_512",
+    "task": "question-answering",
+    "model_type": "electra",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 873227,
+    "last_update_time": "2020-12-11T21:31:42+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "ai-forever/Real-ESRGAN",
+    "task": "",
+    "model_type": "unknown",
+    "group": "Benchmark",
+    "priority": "P0",
+    "downloads": 0,
+    "last_update_time": "2022-09-25T13:17:44+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "alibaba-damo/mgp-str-base",
+    "task": "image-to-text",
+    "model_type": "mgp-str",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 98025,
+    "last_update_time": "2023-12-11T14:31:20+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "amunchet/rorshark-vit-base",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 588340,
+    "last_update_time": "2023-11-18T20:58:42+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "apple/DepthPro-hf",
+    "task": "depth-estimation",
+    "model_type": "depth_pro",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 17693,
+    "last_update_time": "2025-02-28T18:31:40+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "apple/mobilevit-small",
+    "task": "image-classification",
+    "model_type": "mobilevit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2634566,
+    "last_update_time": "2025-02-24T21:25:21+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "breezedeus/pix2text-mfr",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 101573,
+    "last_update_time": "2024-05-05T14:23:13+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "buildborderless/CommunityForensics-DeepfakeDet-ViT",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 535133,
+    "last_update_time": "2025-06-11T17:19:56+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "task": "text-classification",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4665492,
+    "last_update_time": "2025-08-04T07:58:29+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "cross-encoder/ms-marco-MiniLM-L4-v2",
+    "task": "text-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1599843,
+    "last_update_time": "2025-08-29T14:36:22+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
+    "task": "text-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 11509078,
+    "last_update_time": "2025-08-29T14:36:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "cross-encoder/nli-deberta-v3-small",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 76762,
+    "last_update_time": "2025-04-15T08:18:25+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "dandelin/vilt-b32-finetuned-vqa",
+    "task": "visual-question-answering",
+    "model_type": "vilt",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 66856,
+    "last_update_time": "2022-08-02T13:03:04+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+    "task": "token-classification",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1055392,
+    "last_update_time": "2023-09-06T22:17:56+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+    "task": "question-answering",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 177893,
+    "last_update_time": "2024-09-24T15:54:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "deepset/roberta-base-squad2",
+    "task": "question-answering",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 744933,
+    "last_update_time": "2024-09-24T15:48:47+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "deepset/tinyroberta-squad2",
+    "task": "question-answering",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 83067,
+    "last_update_time": "2024-09-26T09:12:41+00:00",
+    "optimum_supported": true
   },
   {
     "hf_id": "depth-anything/Depth-Anything-V2-Base-hf",
@@ -1590,443 +780,103 @@
     "optimum_supported": false
   },
   {
-    "hf_id": "LiheYoung/depth-anything-small-hf",
+    "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
     "task": "depth-estimation",
     "model_type": "depth_anything",
     "group": "Top200",
     "priority": "P1",
-    "downloads": 53782,
-    "last_update_time": "2024-01-25T08:12:14+00:00",
+    "downloads": 1155147,
+    "last_update_time": "2024-07-05T11:38:31+00:00",
     "optimum_supported": false
   },
   {
-    "hf_id": "LiheYoung/depth-anything-base-hf",
-    "task": "depth-estimation",
-    "model_type": "depth_anything",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 41990,
-    "last_update_time": "2024-01-25T08:13:34+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "apple/DepthPro-hf",
-    "task": "depth-estimation",
-    "model_type": "depth_pro",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 17693,
-    "last_update_time": "2025-02-28T18:31:40+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "microsoft/trocr-large-printed",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 691592,
-    "last_update_time": "2024-05-27T20:09:18+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "naver-clova-ix/donut-base",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 450310,
-    "last_update_time": "2022-08-13T08:27:12+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/trocr-base-printed",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 433260,
-    "last_update_time": "2024-05-27T20:11:53+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "nlpconnect/vit-gpt2-image-captioning",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 274372,
-    "last_update_time": "2023-02-27T15:00:09+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/trocr-base-handwritten",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 270295,
-    "last_update_time": "2025-02-11T04:26:58+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "kha-white/manga-ocr-base",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 223726,
-    "last_update_time": "2022-06-22T15:34:05+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "microsoft/trocr-large-handwritten",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 153852,
-    "last_update_time": "2024-05-27T20:10:58+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/nougat-base",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 139434,
-    "last_update_time": "2023-11-20T09:26:49+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "breezedeus/pix2text-mfr",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 101573,
-    "last_update_time": "2024-05-05T14:23:13+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "alibaba-damo/mgp-str-base",
-    "task": "image-to-text",
-    "model_type": "mgp-str",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 98025,
-    "last_update_time": "2023-12-11T14:31:20+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
-    "task": "image-to-text",
-    "model_type": "vision-encoder-decoder",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 20249,
-    "last_update_time": "2022-08-13T08:28:13+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/deplot",
-    "task": "visual-question-answering",
-    "model_type": "pix2struct",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 12305,
-    "last_update_time": "2023-09-06T19:53:17+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/pix2struct-docvqa-base",
-    "task": "visual-question-answering",
-    "model_type": "pix2struct",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2108,
-    "last_update_time": "2023-12-24T21:14:26+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "internlm/internlm-xcomposer2d5-7b",
-    "task": "visual-question-answering",
-    "model_type": "internlm2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1857,
-    "last_update_time": "2024-07-22T06:01:33+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "google/pix2struct-ai2d-base",
-    "task": "visual-question-answering",
-    "model_type": "pix2struct",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1197,
-    "last_update_time": "2023-12-24T21:14:49+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Salesforce/blip-vqa-base",
-    "task": "visual-question-answering",
-    "model_type": "blip",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 668600,
-    "last_update_time": "2025-02-03T06:44:34+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "Salesforce/blip2-opt-2.7b",
-    "task": "visual-question-answering",
-    "model_type": "blip-2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 453918,
-    "last_update_time": "2025-02-03T06:27:50+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "microsoft/Phi-4-multimodal-instruct",
-    "task": "visual-question-answering",
-    "model_type": "phi4mm",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 334764,
-    "last_update_time": "2025-12-10T20:18:10+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "Salesforce/blip2-opt-2.7b-coco",
-    "task": "visual-question-answering",
-    "model_type": "blip-2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 327040,
-    "last_update_time": "2025-02-03T06:40:11+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "Salesforce/blip2-flan-t5-xl",
-    "task": "visual-question-answering",
-    "model_type": "blip-2",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 81399,
-    "last_update_time": "2025-02-03T06:36:28+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "dandelin/vilt-b32-finetuned-vqa",
-    "task": "visual-question-answering",
-    "model_type": "vilt",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 66856,
-    "last_update_time": "2022-08-02T13:03:04+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "facebook/sam-vit-huge",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 138029,
-    "last_update_time": "2024-01-11T19:23:32+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/sam-vit-base",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 90715,
-    "last_update_time": "2024-01-11T19:23:17+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/sam-vit-large",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 20030,
-    "last_update_time": "2024-01-11T19:23:46+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "Zigeng/SlimSAM-uniform-77",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 3654,
-    "last_update_time": "2024-11-08T07:55:33+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "flaviagiammarino/medsam-vit-base",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 2608,
-    "last_update_time": "2023-07-13T15:43:56+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "wanglab/medsam-vit-base",
-    "task": "mask-generation",
-    "model_type": "sam",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 1912,
-    "last_update_time": "2023-05-03T07:03:04+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "facebook/sam2.1-hiera-large",
-    "task": "mask-generation",
-    "model_type": "sam2_video",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 221968,
-    "last_update_time": "2025-08-15T21:19:57+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "facebook/sam2.1-hiera-tiny",
-    "task": "mask-generation",
-    "model_type": "sam2_video",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 23533,
-    "last_update_time": "2025-08-15T21:18:13+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "facebook/sam2-hiera-large",
-    "task": "mask-generation",
-    "model_type": "sam2_video",
-    "group": "Top200",
-    "priority": "P1",
-    "downloads": 8715,
-    "last_update_time": "2025-08-15T21:22:23+00:00",
-    "optimum_supported": false
-  },
-  {
-    "hf_id": "microsoft/resnet-50",
+    "hf_id": "dima806/fairface_age_image_detection",
     "task": "image-classification",
-    "model_type": "resnet",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 184810,
-    "last_update_time": "2024-02-13T21:24:05+00:00",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 7026563,
+    "last_update_time": "2024-12-15T19:54:53+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "google-bert/bert-base-multilingual-cased",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 3378746,
-    "last_update_time": "2024-02-19T11:05:41+00:00",
+    "hf_id": "distilbert/distilbert-base-cased-distilled-squad",
+    "task": "question-answering",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 182001,
+    "last_update_time": "2024-05-06T13:46:31+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "google-bert/bert-base-multilingual-cased",
-    "task": "masked-lm",
-    "model_type": "bert",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 3378746,
-    "last_update_time": "2024-02-19T11:05:41+00:00",
+    "hf_id": "distilbert/distilbert-base-uncased",
+    "task": "fill-mask",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 7663501,
+    "last_update_time": "2024-05-06T13:44:53+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "Intel/bert-base-uncased-mrpc",
-    "task": "feature-extraction",
-    "model_type": "bert",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 3598,
-    "last_update_time": "2024-06-21T19:49:09+00:00",
+    "hf_id": "distilbert/distilbert-base-uncased-distilled-squad",
+    "task": "question-answering",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 52098,
+    "last_update_time": "2024-05-06T13:46:39+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "Intel/bert-base-uncased-mrpc",
+    "hf_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
     "task": "text-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 3858636,
+    "last_update_time": "2023-12-19T16:29:37+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "dslim/bert-base-NER",
+    "task": "token-classification",
     "model_type": "bert",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 3598,
-    "last_update_time": "2024-06-21T19:49:09+00:00",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1465535,
+    "last_update_time": "2024-10-08T07:51:39+00:00",
     "optimum_supported": true
   },
   {
-    "hf_id": "openai/clip-vit-base-patch16",
+    "hf_id": "facebook/bart-large-cnn",
+    "task": "summarization",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2434935,
+    "last_update_time": "2024-02-13T18:02:05+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/bart-large-mnli",
+    "task": "text-classification",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 3537590,
+    "last_update_time": "2023-09-05T14:49:34+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/bart-large-mnli",
     "task": "zero-shot-classification",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 2664007,
-    "last_update_time": "2022-10-04T09:42:28+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-base-patch16",
-    "task": "feature-extraction",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 2664007,
-    "last_update_time": "2022-10-04T09:42:28+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-base-patch32",
-    "task": "zero-shot-classification",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 18079802,
-    "last_update_time": "2024-02-29T09:45:55+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "openai/clip-vit-base-patch32",
-    "task": "feature-extraction",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 18079802,
-    "last_update_time": "2024-02-29T09:45:55+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-    "task": "zero-shot-classification",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 2663202,
-    "last_update_time": "2025-01-22T04:41:33+00:00",
-    "optimum_supported": true
-  },
-  {
-    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
-    "task": "feature-extraction",
-    "model_type": "clip",
-    "group": "AITK",
-    "priority": "P0",
-    "downloads": 2663202,
-    "last_update_time": "2025-01-22T04:41:33+00:00",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 3537590,
+    "last_update_time": "2023-09-05T14:49:34+00:00",
     "optimum_supported": true
   },
   {
@@ -2050,6 +900,146 @@
     "optimum_supported": true
   },
   {
+    "hf_id": "facebook/detr-resnet-50",
+    "task": "object-detection",
+    "model_type": "detr",
+    "group": "Benchmark",
+    "priority": "P0",
+    "downloads": 438618,
+    "last_update_time": "2024-04-10T13:56:31+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/dino-vitb16",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 281317,
+    "last_update_time": "2023-05-22T07:04:00+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/dino-vits16",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 86562,
+    "last_update_time": "2023-05-22T07:05:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/dinov2-base",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1318542,
+    "last_update_time": "2024-01-17T08:27:01+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/dinov2-giant",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 140781,
+    "last_update_time": "2023-09-06T11:23:25+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/dinov2-large",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 719261,
+    "last_update_time": "2023-09-06T11:23:50+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/dinov2-small",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2729692,
+    "last_update_time": "2023-09-06T11:24:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/nllb-200-distilled-600M",
+    "task": "translation",
+    "model_type": "m2m_100",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 880169,
+    "last_update_time": "2024-02-14T17:18:36+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/nougat-base",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 139434,
+    "last_update_time": "2023-11-20T09:26:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/sam-vit-base",
+    "task": "mask-generation",
+    "model_type": "sam",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 90715,
+    "last_update_time": "2024-01-11T19:23:17+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/sam-vit-huge",
+    "task": "mask-generation",
+    "model_type": "sam",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 138029,
+    "last_update_time": "2024-01-11T19:23:32+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/sam-vit-large",
+    "task": "mask-generation",
+    "model_type": "sam",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 20030,
+    "last_update_time": "2024-01-11T19:23:46+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "facebook/sam2-hiera-large",
+    "task": "mask-generation",
+    "model_type": "sam2_video",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 8715,
+    "last_update_time": "2025-08-15T21:22:23+00:00",
+    "optimum_supported": false
+  },
+  {
+    "hf_id": "facebook/sam2.1-hiera-large",
+    "task": "mask-generation",
+    "model_type": "sam2_video",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 221968,
+    "last_update_time": "2025-08-15T21:19:57+00:00",
+    "optimum_supported": false
+  },
+  {
     "hf_id": "facebook/sam2.1-hiera-small",
     "task": "mask-generation",
     "model_type": "sam2_video",
@@ -2060,23 +1050,1033 @@
     "optimum_supported": false
   },
   {
-    "hf_id": "Salesforce/blip-image-captioning-base",
-    "task": "image-to-text",
-    "model_type": "blip",
-    "group": "Benchmark",
-    "priority": "P0",
-    "downloads": 2488150,
-    "last_update_time": "2025-02-03T06:45:16+00:00",
+    "hf_id": "facebook/sam2.1-hiera-tiny",
+    "task": "mask-generation",
+    "model_type": "sam2_video",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 23533,
+    "last_update_time": "2025-08-15T21:18:13+00:00",
     "optimum_supported": false
   },
   {
-    "hf_id": "ai-forever/Real-ESRGAN",
-    "task": "",
-    "model_type": "unknown",
-    "group": "Benchmark",
+    "hf_id": "fashn-ai/fashn-human-parser",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 188295,
+    "last_update_time": "2026-01-10T20:50:06+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "flaviagiammarino/medsam-vit-base",
+    "task": "mask-generation",
+    "model_type": "sam",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2608,
+    "last_update_time": "2023-07-13T15:43:56+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Foundry Toolkit",
     "priority": "P0",
-    "downloads": 0,
-    "last_update_time": "2022-09-25T13:17:44+00:00",
+    "downloads": 3378746,
+    "last_update_time": "2024-02-19T11:05:41+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 3378746,
+    "last_update_time": "2024-02-19T11:05:41+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "masked-lm",
+    "model_type": "bert",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 3378746,
+    "last_update_time": "2024-02-19T11:05:41+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-uncased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4165150,
+    "last_update_time": "2024-02-19T11:06:00+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-bert/bert-base-uncased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 54254868,
+    "last_update_time": "2024-02-19T11:06:12+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+    "task": "question-answering",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 235161,
+    "last_update_time": "2024-02-19T11:08:45+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-3b",
+    "task": "summarization",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 746786,
+    "last_update_time": "2024-01-29T15:44:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-3b",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 746786,
+    "last_update_time": "2024-01-29T15:44:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-base",
+    "task": "summarization",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2326954,
+    "last_update_time": "2024-02-14T17:21:55+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-base",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2326954,
+    "last_update_time": "2024-02-14T17:21:55+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-large",
+    "task": "summarization",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 355708,
+    "last_update_time": "2023-04-06T13:42:27+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-small",
+    "task": "summarization",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1770498,
+    "last_update_time": "2023-06-30T02:31:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google-t5/t5-small",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1770498,
+    "last_update_time": "2023-06-30T02:31:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/deplot",
+    "task": "visual-question-answering",
+    "model_type": "pix2struct",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 12305,
+    "last_update_time": "2023-09-06T19:53:17+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/flan-t5-base",
+    "task": "summarization",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1372124,
+    "last_update_time": "2023-07-17T12:48:39+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/flan-t5-base",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1372124,
+    "last_update_time": "2023-07-17T12:48:39+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/madlad400-3b-mt",
+    "task": "translation",
+    "model_type": "t5",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 356428,
+    "last_update_time": "2023-11-27T15:58:35+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/pegasus-xsum",
+    "task": "summarization",
+    "model_type": "pegasus",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 285435,
+    "last_update_time": "2023-01-24T16:42:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/pix2struct-ai2d-base",
+    "task": "visual-question-answering",
+    "model_type": "pix2struct",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1197,
+    "last_update_time": "2023-12-24T21:14:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/pix2struct-docvqa-base",
+    "task": "visual-question-answering",
+    "model_type": "pix2struct",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2108,
+    "last_update_time": "2023-12-24T21:14:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/siglip-base-patch16-224",
+    "task": "zero-shot-image-classification",
+    "model_type": "siglip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 954521,
+    "last_update_time": "2024-09-26T08:20:18+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/siglip-so400m-patch14-384",
+    "task": "zero-shot-image-classification",
+    "model_type": "siglip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1990836,
+    "last_update_time": "2024-09-26T08:21:46+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/vit-base-patch16-224",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 3970349,
+    "last_update_time": "2023-09-05T15:27:12+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "google/vit-base-patch16-224-in21k",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1215150,
+    "last_update_time": "2024-02-05T16:37:39+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "hi-wesley/gemma3-vision-encoder",
+    "task": "image-feature-extraction",
+    "model_type": "siglip_vision_model",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 69143,
+    "last_update_time": "2025-08-17T21:52:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "hustvl/yolos-small",
+    "task": "object-detection",
+    "model_type": "yolos",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 621366,
+    "last_update_time": "2024-05-08T07:49:12+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "internlm/internlm-xcomposer2d5-7b",
+    "task": "visual-question-answering",
+    "model_type": "internlm2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1857,
+    "last_update_time": "2024-07-22T06:01:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "intfloat/multilingual-e5-large",
+    "task": "sentence-similarity",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4372595,
+    "last_update_time": "2025-02-17T03:50:15+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "joeddav/bart-large-mnli-yahoo-answers",
+    "task": "zero-shot-classification",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 95714,
+    "last_update_time": "2025-09-15T16:35:19+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "joeddav/xlm-roberta-large-xnli",
+    "task": "zero-shot-classification",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 98082,
+    "last_update_time": "2024-10-16T21:59:20+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "jonathandinu/face-parsing",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 666776,
+    "last_update_time": "2026-02-18T22:38:54+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "kha-white/manga-ocr-base",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 223726,
+    "last_update_time": "2022-06-22T15:34:05+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "knkarthick/MEETING_SUMMARY",
+    "task": "summarization",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 47465,
+    "last_update_time": "2023-03-27T15:08:14+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "kredor/punctuate-all",
+    "task": "token-classification",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 482916,
+    "last_update_time": "2024-04-26T05:37:58+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 2663202,
+    "last_update_time": "2025-01-22T04:41:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "zero-shot-classification",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 2663202,
+    "last_update_time": "2025-01-22T04:41:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 2663202,
+    "last_update_time": "2025-01-22T04:41:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 669367,
+    "last_update_time": "2025-01-22T04:38:44+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+    "task": "zero-shot-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 718236,
+    "last_update_time": "2025-03-03T02:06:53+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 290987,
+    "last_update_time": "2025-09-19T07:21:11+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/Phi-4-multimodal-instruct",
+    "task": "visual-question-answering",
+    "model_type": "phi4mm",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 334764,
+    "last_update_time": "2025-12-10T20:18:10+00:00",
     "optimum_supported": false
+  },
+  {
+    "hf_id": "microsoft/beit-base-patch16-224-pt22k-ft22k",
+    "task": "image-classification",
+    "model_type": "beit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 754339,
+    "last_update_time": "2023-02-27T15:08:16+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/deberta-xlarge-mnli",
+    "task": "text-classification",
+    "model_type": "deberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2538747,
+    "last_update_time": "2022-06-27T15:47:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/rad-dino",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 65986,
+    "last_update_time": "2025-10-09T14:04:39+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/resnet-50",
+    "task": "image-classification",
+    "model_type": "resnet",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 184810,
+    "last_update_time": "2024-02-13T21:24:05+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/swin-large-patch4-window7-224",
+    "task": "image-classification",
+    "model_type": "swin",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 536088,
+    "last_update_time": "2022-05-16T19:58:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/table-transformer-detection",
+    "task": "object-detection",
+    "model_type": "table-transformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2543594,
+    "last_update_time": "2023-09-06T14:49:09+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/table-transformer-structure-recognition",
+    "task": "object-detection",
+    "model_type": "table-transformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1598402,
+    "last_update_time": "2023-09-06T14:50:49+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/table-transformer-structure-recognition-v1.1-all",
+    "task": "object-detection",
+    "model_type": "table-transformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 357149,
+    "last_update_time": "2023-11-18T21:58:10+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/trocr-base-handwritten",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 270295,
+    "last_update_time": "2025-02-11T04:26:58+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/trocr-base-printed",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 433260,
+    "last_update_time": "2024-05-27T20:11:53+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/trocr-large-handwritten",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 153852,
+    "last_update_time": "2024-05-27T20:10:58+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "microsoft/trocr-large-printed",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 691592,
+    "last_update_time": "2024-05-27T20:09:18+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "mixedbread-ai/mxbai-rerank-xsmall-v1",
+    "task": "text-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1163824,
+    "last_update_time": "2025-04-02T14:42:01+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+    "task": "question-answering",
+    "model_type": "electra",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 146325,
+    "last_update_time": "2023-06-12T12:30:35+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "moussaKam/mbarthez",
+    "task": "summarization",
+    "model_type": "mbart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 94613,
+    "last_update_time": "2024-02-20T14:35:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "naver-clova-ix/donut-base",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 450310,
+    "last_update_time": "2022-08-13T08:27:12+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 20249,
+    "last_update_time": "2022-08-13T08:28:13+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nlpconnect/vit-gpt2-image-captioning",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 274372,
+    "last_update_time": "2023-02-27T15:00:09+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nvidia/segformer-b0-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 600025,
+    "last_update_time": "2024-01-14T10:46:46+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nvidia/segformer-b0-finetuned-cityscapes-1024-1024",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 26587,
+    "last_update_time": "2022-08-08T13:43:30+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nvidia/segformer-b1-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 142449,
+    "last_update_time": "2022-08-06T10:08:05+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 41766,
+    "last_update_time": "2022-08-06T10:07:54+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nvidia/segformer-b5-finetuned-ade-640-640",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 164651,
+    "last_update_time": "2022-08-06T10:25:55+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024",
+    "task": "image-segmentation",
+    "model_type": "segformer",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 61883,
+    "last_update_time": "2022-08-09T11:29:37+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "obi/deid_roberta_i2b2",
+    "task": "token-classification",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 447433,
+    "last_update_time": "2025-02-23T03:36:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "oliverguhr/fullstop-punctuation-multilang-large",
+    "task": "token-classification",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 975485,
+    "last_update_time": "2023-11-16T09:35:35+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai-community/gpt2",
+    "task": "text-generation",
+    "model_type": "gpt2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 8528938,
+    "last_update_time": "2024-02-19T10:57:45+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch16",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 2664007,
+    "last_update_time": "2022-10-04T09:42:28+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch16",
+    "task": "zero-shot-classification",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 2664007,
+    "last_update_time": "2022-10-04T09:42:28+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch16",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 2664007,
+    "last_update_time": "2022-10-04T09:42:28+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 18079802,
+    "last_update_time": "2024-02-29T09:45:55+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch32",
+    "task": "zero-shot-classification",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 18079802,
+    "last_update_time": "2024-02-29T09:45:55+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch32",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "downloads": 18079802,
+    "last_update_time": "2024-02-29T09:45:55+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-large-patch14",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 6677102,
+    "last_update_time": "2023-09-15T15:49:35+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/clip-vit-large-patch14-336",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4829219,
+    "last_update_time": "2022-10-04T09:41:39+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "openai/gpt-oss-20b",
+    "task": "text-generation",
+    "model_type": "gpt_oss",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 5717889,
+    "last_update_time": "2025-08-26T17:25:47+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "patrickjohncyh/fashion-clip",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2455656,
+    "last_update_time": "2024-09-17T15:19:43+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "philschmid/bart-large-cnn-samsum",
+    "task": "summarization",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 147025,
+    "last_update_time": "2022-12-23T19:48:57+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "rizvandwiki/gender-classification",
+    "task": "image-classification",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 864793,
+    "last_update_time": "2023-05-18T11:16:33+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 171219924,
+    "last_update_time": "2025-03-06T13:37:44+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 171219924,
+    "last_update_time": "2025-03-06T13:37:44+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "feature-extraction",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 24738314,
+    "last_update_time": "2025-08-19T10:14:25+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "fill-mask",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 24738314,
+    "last_update_time": "2025-08-19T10:14:25+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/all-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 24738314,
+    "last_update_time": "2025-08-19T10:14:25+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "feature-extraction",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4475402,
+    "last_update_time": "2025-08-19T10:21:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "fill-mask",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4475402,
+    "last_update_time": "2025-08-19T10:21:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "task": "sentence-similarity",
+    "model_type": "mpnet",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 4475402,
+    "last_update_time": "2025-08-19T10:21:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "feature-extraction",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 19151020,
+    "last_update_time": "2026-01-28T10:02:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "task": "sentence-similarity",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 19151020,
+    "last_update_time": "2026-01-28T10:02:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "feature-extraction",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 5684776,
+    "last_update_time": "2025-08-19T10:29:38+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 5684776,
+    "last_update_time": "2025-08-19T10:29:38+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "sshleifer/distilbart-cnn-12-6",
+    "task": "summarization",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 821377,
+    "last_update_time": "2021-06-14T07:51:12+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "tau/splinter-base",
+    "task": "question-answering",
+    "model_type": "splinter",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 96200,
+    "last_update_time": "2021-08-17T14:09:19+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "timpal0l/mdeberta-v3-base-squad2",
+    "task": "question-answering",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 188751,
+    "last_update_time": "2024-11-26T17:14:50+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+    "task": "text-generation",
+    "model_type": "qwen2",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 5093358,
+    "last_update_time": "2025-12-19T19:10:57+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "valentinafeve/yolos-fashionpedia",
+    "task": "object-detection",
+    "model_type": "yolos",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 392080,
+    "last_update_time": "2026-02-04T13:52:23+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "valhalla/distilbart-mnli-12-3",
+    "task": "zero-shot-classification",
+    "model_type": "bart",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 166299,
+    "last_update_time": "2021-06-14T10:29:48+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "w11wo/indonesian-roberta-base-posp-tagger",
+    "task": "token-classification",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 2625922,
+    "last_update_time": "2024-02-19T11:03:26+00:00",
+    "optimum_supported": true
+  },
+  {
+    "hf_id": "wanglab/medsam-vit-base",
+    "task": "mask-generation",
+    "model_type": "sam",
+    "group": "Top200",
+    "priority": "P1",
+    "downloads": 1912,
+    "last_update_time": "2023-05-03T07:03:04+00:00",
+    "optimum_supported": true
   }
 ]

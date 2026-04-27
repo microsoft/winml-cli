@@ -623,7 +623,7 @@ class ONNXStaticAnalyzer:
         Args:
             model_proto: ONNX ModelProto object
             ep: Target execution provider (e.g., "QNNExecutionProvider",
-                "OpenVINOExecutionProvider", "DirectMLExecutionProvider").
+                "OpenVINOExecutionProvider", "DmlExecutionProvider").
                 Also supports aliases: "qnn", "ov"/"openvino", "vitis"/"vitisai".
                 If None, analyzes all supported EPs.
             device: Target device type (e.g., "CPU", "GPU", "NPU").
