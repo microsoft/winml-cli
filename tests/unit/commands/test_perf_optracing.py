@@ -385,3 +385,95 @@ class TestCliOpTracingDispatch:
 
         assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         assert "degraded" in result.output.lower() or "notice" in result.output.lower()
+
+
+# ===========================================================================
+# Hardware-gated CLI E2E (SC-1)
+#
+# PRD §10.5 / coreloop §8.4 mandate this test:
+#   "test_cli_op_tracing_basic_on_qnn (skip if no QNN NPU): runs
+#    wmk perf -m resnet50 --device npu --op-tracing basic, asserts CSV
+#    produced, *_op_trace.json written, at least one operator entry."
+#
+# This is the only end-to-end proof that SC-1 holds: the headline
+# invocation produces real per-operator trace data on a QNN NPU.
+# The test is doubly-gated:
+#   * QNNMonitor.is_available() — actual hardware/runtime probe.
+#   * WINML_TEST_NPU=1 env var — explicit opt-in (matches existing
+#     project pattern for NPU-bound tests).
+# Without either, the test skips cleanly (Cardinal Rule 3 allows
+# hardware-gated skipif).
+# ===========================================================================
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("WINML_TEST_NPU", "0") != "1",
+    reason="Hardware-gated SC-1 test requires WINML_TEST_NPU=1 + QNN NPU",
+)
+def test_cli_op_tracing_basic_on_qnn(tmp_path):
+    """SC-1 end-to-end: ``wmk perf --device npu --op-tracing basic`` on QNN.
+
+    Hardware-gated. Must produce:
+      * a profiling CSV under the monitor's output directory,
+      * a ``*_op_trace.json`` next to the perf JSON output,
+      * at least one operator entry, with ``status == "ok"``.
+
+    A regression that silently falls back to CPU (the bug SC-1 explicitly
+    targets — see PRD §3) would emit ``status == "no_data"`` here and
+    ``test_no_data_status_exits_4`` would catch it logically. This test
+    proves the happy path on real hardware.
+    """
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    if not QNNMonitor.is_available():
+        pytest.skip("QNN EP not available on this system")
+
+    runner = CliRunner()
+    output_path = tmp_path / "perf_result.json"
+    result = runner.invoke(
+        perf,
+        [
+            "-m",
+            "microsoft/resnet-50",
+            "--device",
+            "npu",
+            "--op-tracing",
+            "basic",
+            "--iterations",
+            "10",
+            "--warmup",
+            "2",
+            "-o",
+            str(output_path),
+        ],
+        obj={},
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, (
+        f"perf --op-tracing basic failed (exit {result.exit_code}):\n{result.output}"
+    )
+
+    # Per-op trace JSON written next to the perf output.
+    trace_files = list(tmp_path.glob("*_op_trace.json"))
+    assert trace_files, (
+        f"Expected *_op_trace.json next to {output_path}; got: {list(tmp_path.iterdir())}"
+    )
+
+    import json
+
+    trace_data = json.loads(trace_files[0].read_text(encoding="utf-8"))
+    assert trace_data["status"] == "ok", (
+        f"Expected status='ok' on real hardware, got {trace_data['status']!r} "
+        f"with error={trace_data.get('error')!r}"
+    )
+    assert trace_data["operators"], (
+        "Expected at least one operator entry; got 0. "
+        "This is the canonical SC-1 silent-CPU-fallback signature."
+    )
+    # CSV path recorded in artifacts and present on disk.
+    csv_path_str = trace_data["artifacts"].get("csv")
+    assert csv_path_str, "Expected 'csv' key in artifacts"
+    from pathlib import Path as _Path
+
+    assert _Path(csv_path_str).is_file(), f"Expected profiling CSV at {csv_path_str}"
