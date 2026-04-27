@@ -9,7 +9,7 @@ import onnxruntime as ort
 
 # Supported execution providers — derived from sysinfo's authoritative EP→device map.
 def _get_supported_eps() -> list[str]:
-    from winml.modelkit.sysinfo.device import get_ep_device_map
+    from ..sysinfo.device import get_ep_device_map
 
     return list(get_ep_device_map().keys())
 
@@ -25,7 +25,7 @@ EP_ALIASES = {
     "vitis": "VitisAIExecutionProvider",
     "cpu": "CPUExecutionProvider",
     "dml": "DmlExecutionProvider",
-    "trtrtx": "NvTensorRTRTXExecutionProvider",
+    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
 }
 

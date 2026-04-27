@@ -79,9 +79,16 @@ def get_devices_with_rule_data(ep_name: str) -> list[str]:
         List of device strings (e.g., ``["NPU", "GPU"]``), empty if
         the EP is completely unknown.
     """
-    from winml.modelkit.sysinfo.device import get_ep_device_map
+    from ...sysinfo.device import get_ep_device_map
 
-    devices = [d for d in ("NPU", "GPU", "CPU") if has_rule_data_for_ep(ep_name, d)]
+    # Priority order: NPU > GPU > CPU (first match used as default device)
+    known_devices = {d.upper() for v in get_ep_device_map().values() for d in v.split("/") if d}
+    priority = ["NPU", "GPU", "CPU"]
+    probe_order = [d for d in priority if d in known_devices]
+    # Append any devices not in the priority list
+    probe_order.extend(d for d in sorted(known_devices) if d not in priority)
+
+    devices = [d for d in probe_order if has_rule_data_for_ep(ep_name, d)]
     if devices:
         return devices
     # Fallback: derive from the authoritative EP→device mapping

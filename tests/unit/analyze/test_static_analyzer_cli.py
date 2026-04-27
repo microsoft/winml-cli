@@ -765,4 +765,5 @@ class TestAnalyzeEPDeviceValidation:
             ["--model", str(model_file), "--ep", "dml"],
         )
         # Should proceed to analysis (not fail on validation)
-        assert result.exit_code != 2 or mock_instance.analyze.called
+        assert result.exit_code == 0
+        assert mock_instance.analyze.called

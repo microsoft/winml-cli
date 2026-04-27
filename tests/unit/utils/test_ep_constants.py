@@ -99,7 +99,7 @@ class TestNormalizeEPName:
             ("vitis", "VitisAIExecutionProvider"),
             ("cpu", "CPUExecutionProvider"),
             ("dml", "DmlExecutionProvider"),
-            ("trtrtx", "NvTensorRTRTXExecutionProvider"),
+            ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
             ("migraphx", "MIGraphXExecutionProvider"),
         ],
     )
@@ -110,7 +110,7 @@ class TestNormalizeEPName:
         """Aliases should resolve regardless of casing."""
         assert normalize_ep_name("QNN") == "QNNExecutionProvider"
         assert normalize_ep_name("Dml") == "DmlExecutionProvider"
-        assert normalize_ep_name("TRTRTX") == "NvTensorRTRTXExecutionProvider"
+        assert normalize_ep_name("NV_TENSORRT_RTX") == "NvTensorRTRTXExecutionProvider"
 
     def test_unknown_ep_returned_as_is(self) -> None:
         """Unrecognized names are returned unchanged for downstream validation."""
@@ -159,11 +159,11 @@ class TestExtractEPOptions:
         assert result == {}
 
     def test_new_aliases_work(self) -> None:
-        """Newly added aliases (trtrtx, migraphx) should also be recognized."""
-        result = extract_ep_options(
-            {
-                "trtrtx_precision": "fp16",
-                "migraphx_target": "gpu",
-            }
-        )
-        assert result == {"precision": "fp16", "target": "gpu"}
+        """Newly added alias migraphx should be recognized as prefix."""
+        result = extract_ep_options({"migraphx_target": "gpu"})
+        assert result == {"target": "gpu"}
+
+    def test_underscore_alias_not_matched_as_prefix(self) -> None:
+        """nv_tensorrt_rtx contains underscores so split('_', 1) won't match it."""
+        result = extract_ep_options({"nv_tensorrt_rtx_precision": "fp16"})
+        assert result == {}
