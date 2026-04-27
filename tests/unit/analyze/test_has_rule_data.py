@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from winml.modelkit.analyze.utils.ep_utils import (
+from winml.modelkit.analyze.utils import (
     get_devices_with_rule_data,
     has_rule_data_for_ep,
     infer_ihv_from_ep_name,
