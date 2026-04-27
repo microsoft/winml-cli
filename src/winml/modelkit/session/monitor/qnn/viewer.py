@@ -41,41 +41,19 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     }
 }
 
-# Common SDK installation directories (Windows).
-_COMMON_SDK_PATHS: list[str] = [
-    r"D:\QC",
-    r"C:\Qualcomm\AIStack\qairt",
-]
-
 
 def find_qnn_sdk() -> Path | None:
-    """Auto-detect QNN SDK installation.
+    """Resolve QNN SDK root from ``QNN_SDK_ROOT`` env var.
 
-    Resolution order:
-    1. ``QNN_SDK_ROOT`` environment variable.
-    2. Common installation directories on Windows.
-
-    Returns the SDK root ``Path`` or ``None`` when not found.
+    Returns ``None`` when unset or pointing to a non-directory. Detail-mode
+    QHAS post-processing degrades to basic CSV parsing when this returns
+    ``None`` (per design FR-5 / ``status='basic_fallback'``).
     """
     env_root = os.environ.get("QNN_SDK_ROOT")
-    if env_root:
-        root = Path(env_root)
-        if root.is_dir():
-            logger.debug("QNN SDK found via QNN_SDK_ROOT: %s", root)
-            return root
-
-    for base in _COMMON_SDK_PATHS:
-        base_path = Path(base)
-        if not base_path.is_dir():
-            continue
-        # Look for a versioned subdirectory containing bin/
-        for child in sorted(base_path.iterdir(), reverse=True):
-            if child.is_dir() and (child / "bin").is_dir():
-                logger.debug("QNN SDK found at: %s", child)
-                return child
-
-    logger.debug("QNN SDK not found")
-    return None
+    if not env_root:
+        return None
+    root = Path(env_root)
+    return root if root.is_dir() else None
 
 
 def _find_viewer_exe(sdk_root: Path | None = None) -> Path | None:
@@ -126,7 +104,10 @@ def run_basic_viewer(
     """
     viewer = _find_viewer_exe(sdk_root)
     if viewer is None:
-        logger.warning("qnn-profile-viewer not found; skipping basic viewer")
+        logger.warning(
+            "qnn-profile-viewer not found; set QNN_SDK_ROOT to enable detail mode "
+            "(falling back to basic CSV)"
+        )
         return None
 
     cmd = [
@@ -181,7 +162,10 @@ def run_qhas_viewer(
     """
     viewer = _find_viewer_exe(sdk_root)
     if viewer is None:
-        logger.warning("qnn-profile-viewer not found; skipping QHAS viewer")
+        logger.warning(
+            "qnn-profile-viewer not found; set QNN_SDK_ROOT to enable detail mode "
+            "(falling back to basic CSV)"
+        )
         return None
 
     if not schematic.is_file():
