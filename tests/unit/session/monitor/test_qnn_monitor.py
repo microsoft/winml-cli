@@ -203,6 +203,45 @@ def test_is_available_neither():
         assert QNNMonitor.is_available() is False
 
 
+def test_is_available_winml_path_failure_logs_warning(caplog, monkeypatch):
+    """NFR-2: real environmental failure on the WinML path must log at WARNING, not DEBUG.
+
+    The bare-Exception swallow downgraded broken Windows App SDK / denied
+    registry access to "feature unavailable" silently. Any non-ImportError
+    in ``ensure_initialized()`` MUST surface at WARNING with the exception
+    class, so users can diagnose the underlying environment problem.
+    """
+    import logging
+
+    import onnxruntime as ort
+
+    from winml.modelkit.session import ep_registry
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    # Force the QNN-bundled path to miss
+    monkeypatch.setattr(ort, "get_available_providers", lambda: ["CPUExecutionProvider"])
+    monkeypatch.setattr(ort, "get_ep_devices", list)
+
+    # Make ensure_initialized raise a non-ImportError exception
+    def _raises() -> None:
+        raise RuntimeError("simulated WinML init failure")
+
+    monkeypatch.setattr(ep_registry, "ensure_initialized", _raises)
+
+    with caplog.at_level(logging.WARNING):
+        assert QNNMonitor.is_available() is False
+
+    # Assert the log carries enough info to diagnose
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    matched = any(
+        "WinML EP probe failed" in r.message and "RuntimeError" in r.message for r in warnings
+    )
+    assert matched, (
+        f"expected WARNING with 'WinML EP probe failed' + 'RuntimeError', "
+        f"got: {[r.message for r in warnings]}"
+    )
+
+
 def test_result_property_none_before_exit():
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 

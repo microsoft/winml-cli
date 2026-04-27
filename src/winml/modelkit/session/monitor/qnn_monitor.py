@@ -153,13 +153,23 @@ class QNNMonitor(EPMonitor):
         # WinML-registered path.
         try:
             from ..ep_registry import ensure_initialized
+        except ImportError:
+            return False
 
+        try:
             ensure_initialized()
             return any(
                 getattr(d, "ep_name", None) == "QNNExecutionProvider" for d in ort.get_ep_devices()
             )
         except Exception as exc:
-            logger.debug("QNNMonitor.is_available: WinML path failed: %s", exc)
+            # Real environmental failure (e.g., broken Windows App SDK,
+            # denied registration, missing DLL) — surface at WARNING so
+            # users can diagnose. NFR-2: this MUST NOT be silent.
+            logger.warning(
+                "QNNMonitor.is_available: WinML EP probe failed (%s: %s); reporting unavailable",
+                type(exc).__name__,
+                exc,
+            )
             return False
 
     # ------------------------------------------------------------------
