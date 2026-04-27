@@ -438,8 +438,14 @@ class PerfBenchmark:
         )
 
     def _run_benchmark(self) -> PerfStats:
-        """Execute benchmark iterations with timing."""
-        if self.config.monitor:
+        """Execute benchmark iterations with timing.
+
+        Dispatches to the monitored path whenever ``--monitor`` was passed OR
+        ``--op-tracing`` was requested. Op-tracing requires the EP monitor to
+        wrap ``session.perf()``, so the simple no-monitor path cannot fulfill
+        it; routing both flags through the same code path guarantees parity.
+        """
+        if self.config.monitor or self.config.op_tracing:
             return self._run_benchmark_monitored()
         return self._run_benchmark_simple()
 
@@ -451,30 +457,28 @@ class PerfBenchmark:
         with session.perf(warmup=self.config.warmup) as ctx:
             _run_simple_loop(session, self._inputs, total_iterations)
 
+        # Expose ctx for post-benchmark reporting (parity with monitored path).
+        self._perf_ctx = ctx
         return ctx.stats
 
     def _run_benchmark_monitored(self) -> PerfStats:
-        """Execute benchmark with live hardware monitoring.
+        """Execute benchmark with live hardware monitoring and/or op-tracing.
 
-        Always runs HWMonitor for system-wide metrics (CPU, RAM, NPU/GPU).
-        Dispatches an EP-specific monitor (e.g., QNNMonitor, VitisAIMonitor)
-        via _resolve_ep_monitor; uses NullEPMonitor when no vendor monitor
-        applies. The EP monitor is integrated into session.perf() so that
-        op-tracing observes the user's actual benchmark iterations.
+        Resolves the EP-specific monitor (e.g., QNNMonitor, VitisAIMonitor)
+        via :func:`_resolve_ep_monitor` (NullEPMonitor when nothing applies).
+        The EP monitor is integrated into ``session.perf()`` so op-tracing
+        observes the user's actual benchmark iterations.
+
+        HWMonitor (system-wide CPU/RAM/NPU metrics) is engaged when available
+        AND either ``--monitor`` was set or HW data is otherwise needed. When
+        HWMonitor is unavailable but op-tracing is still requested, the run
+        proceeds with the EP monitor only — op-tracing is the headline goal
+        and must not be blocked by missing HW telemetry.
         """
         from ..session.monitor.hw_monitor import HWMonitor
 
         session = self._model._session
         total_iterations = self.config.warmup + self.config.iterations
-
-        if not HWMonitor.is_available():
-            Console(stderr=True).print(
-                "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
-                "Running without hardware monitoring."
-            )
-            return self._run_benchmark_simple()
-
-        hw_monitor = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
 
         output_dir = self.config.output_path.parent if self.config.output_path else Path.cwd()
         try:
@@ -482,37 +486,54 @@ class PerfBenchmark:
                 ep=self.config.ep,
                 op_tracing=self.config.op_tracing,
                 output_dir=output_dir,
+                device=self.config.device,
             )
         except RuntimeError as e:
             Console(stderr=True).print(f"[red]Error:[/red] {e}")
             raise SystemExit(1) from None
 
-        with (
-            session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx,
-            hw_monitor as hw,
-        ):
-            _run_monitored_loop(
-                session,
-                self._inputs,
-                ctx.stats,
-                hw,
-                total_iterations=total_iterations,
-                warmup=self.config.warmup,
-                model_id=self.config.model_id,
-                device=self.config.device,
+        # HWMonitor is best-effort: required only for the live-chart UI on
+        # --monitor. When it's unavailable but op-tracing is requested, run
+        # without HW telemetry rather than degrading op-tracing to a no-op.
+        hw_available = HWMonitor.is_available()
+        if self.config.monitor and not hw_available:
+            Console(stderr=True).print(
+                "[yellow]Warning:[/yellow] HWMonitor unavailable on this system. "
+                "Running without hardware monitoring."
             )
 
-            # Store hardware metrics
-            self._hw_metrics = hw.to_dict()
+        if hw_available:
+            hw_monitor = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+            with (
+                session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx,
+                hw_monitor as hw,
+            ):
+                _run_monitored_loop(
+                    session,
+                    self._inputs,
+                    ctx.stats,
+                    hw,
+                    total_iterations=total_iterations,
+                    warmup=self.config.warmup,
+                    model_id=self.config.model_id,
+                    device=self.config.device,
+                )
+                self._hw_metrics = hw.to_dict()
 
-        # EP proof data is now accessible via ctx.monitor.to_dict()
-        ep_dict = ctx.monitor.to_dict()
-        if ep_dict:  # NullEPMonitor returns {}, real monitors return data
-            self._hw_metrics["ep_proof"] = ep_dict
+            # EP proof data is accessible via ctx.monitor.to_dict()
+            ep_dict = ctx.monitor.to_dict()
+            if ep_dict:  # NullEPMonitor returns {}, real monitors return data
+                self._hw_metrics["ep_proof"] = ep_dict
+        else:
+            # HW unavailable: run with EP monitor only (op-tracing path).
+            with session.perf(warmup=self.config.warmup, monitor=ep_monitor) as ctx:
+                _run_simple_loop(session, self._inputs, total_iterations)
+            ep_dict = ctx.monitor.to_dict()
+            if ep_dict:
+                self._hw_metrics = {"ep_proof": ep_dict}
 
         # Store the op-trace context for post-benchmark reporting
         self._perf_ctx = ctx
-
         return ctx.stats
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
@@ -1198,7 +1219,9 @@ def _run_onnx_benchmark(
     "op_tracing",
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
-    help="Enable operator-level profiling (requires onnxruntime-qnn)",
+    help="Enable operator-level profiling (requires onnxruntime-qnn). "
+    "Currently supported only for HuggingFace model IDs and built model "
+    "directories — not for direct .onnx file inputs.",
 )
 @click.option(
     "--compare-devices",
@@ -1364,10 +1387,20 @@ def perf(
         op_tracing=op_tracing,
     )
 
-    try:
-        model_path = Path(hf_model)
-        is_onnx = model_path.suffix.lower() == ".onnx"
+    model_path = Path(hf_model)
+    is_onnx = model_path.suffix.lower() == ".onnx"
 
+    # NFR-2: --op-tracing on a direct .onnx input is not yet supported.
+    # _run_onnx_benchmark does not thread the EP monitor through session.perf
+    # yet — fail fast and clearly rather than running the benchmark and
+    # silently producing no profiling data.
+    if op_tracing and is_onnx:
+        raise click.UsageError(
+            "--op-tracing is not yet supported for direct ONNX file inputs. "
+            "Use a HuggingFace model ID or a built model directory."
+        )
+
+    try:
         if is_onnx:
             # ONNX direct path -- skip HF build, benchmark via WinMLSession
             if shape_config:
@@ -1410,30 +1443,53 @@ def perf(
 
         # =================================================================
         # Op-tracing post-benchmark report
-        # Op-tracing is now integrated into session.perf(monitor=...) via
+        # Op-tracing is integrated into session.perf(monitor=...) via
         # _resolve_ep_monitor; the monitor observes the actual benchmark
         # iterations rather than a separate synthetic profiling pass.
+        #
+        # NFR-2: when op_tracing was requested, missing/failed profiling data
+        # is an ERROR (exit 4), NOT a soft warning. The only degraded-success
+        # status is "basic_fallback" (yellow notice, exit 0).
         # =================================================================
         if op_tracing:
             from ..session.monitor.report import display_op_trace_report, write_op_trace_json
 
-            # For HF models, ctx is accessible via benchmark._perf_ctx.
-            # For ONNX direct path, op_tracing is not yet integrated into
-            # _run_onnx_benchmark (out of scope for this task).
-            perf_ctx = getattr(benchmark if not is_onnx else None, "_perf_ctx", None)
+            # ONNX direct path is rejected upstream with click.UsageError;
+            # only the HF / PerfBenchmark path reaches here with op_tracing.
+            perf_ctx = getattr(benchmark, "_perf_ctx", None)
             trace_result = perf_ctx.monitor.result if perf_ctx is not None else None
 
+            if trace_result is None:
+                console.print(
+                    "[red]Error:[/red] Op-tracing requested but no profiling data was "
+                    "produced. Check that the EP is correctly installed and the model "
+                    "compiled successfully."
+                )
+                sys.exit(4)
+            if trace_result.status == "no_data":
+                detail = trace_result.error or "no CSV written"
+                console.print(
+                    f"[red]Error:[/red] Op-tracing produced no profiling data "
+                    f"({detail}). The EP may have silently fallen back to CPU."
+                )
+                sys.exit(4)
+            if trace_result.status == "parse_failed":
+                console.print(
+                    f"[red]Error:[/red] Op-tracing artifact parse failed: {trace_result.error}"
+                )
+                sys.exit(4)
+            if trace_result.status == "basic_fallback":
+                console.print(
+                    "[yellow]Notice:[/yellow] Detail mode degraded to basic CSV "
+                    "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
+                )
+
+            display_op_trace_report(trace_result, console)
+            model_slug = hf_model.replace("/", "_").replace("\\", "_")
             output_dir = output.parent if output else Path.cwd()
-            if trace_result is None or trace_result.status == "no_data":
-                console.print("[yellow]Warning:[/yellow] No profiling data produced.")
-            else:
-                display_op_trace_report(trace_result, console)
-                model_slug = hf_model.replace("/", "_").replace("\\", "_")
-                if is_onnx:
-                    model_slug = model_path.stem
-                trace_output = output_dir / f"{model_slug}_op_trace.json"
-                write_op_trace_json(trace_result, trace_output)
-                console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
+            trace_output = output_dir / f"{model_slug}_op_trace.json"
+            write_op_trace_json(trace_result, trace_output)
+            console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] Model not found: {e}")

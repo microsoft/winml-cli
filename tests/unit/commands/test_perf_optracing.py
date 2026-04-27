@@ -212,3 +212,176 @@ class TestResolveEpMonitor:
         msg = str(excinfo.value)
         assert "QNN is not available" in msg
         assert "onnxruntime" in msg
+
+
+class TestCliOpTracingDispatch:
+    """CLI-level integration tests for --op-tracing dispatch (mocked benchmark)."""
+
+    def test_onnx_input_with_op_tracing_fails_at_parse_time(self, tmp_path: Path):
+        """--op-tracing on a .onnx input must fail BEFORE running the benchmark."""
+        runner = CliRunner()
+        onnx_file = tmp_path / "fake.onnx"
+        onnx_file.write_bytes(b"")
+
+        # Patch _run_onnx_benchmark to detect if it was called (it must NOT be).
+        with patch(
+            "winml.modelkit.commands.perf._run_onnx_benchmark",
+        ) as mock_run:
+            result = runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "--op-tracing", "basic"],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert "not yet supported for direct ONNX" in result.output
+        mock_run.assert_not_called()
+
+    def test_no_data_status_exits_4(self, tmp_path: Path):
+        """When op-tracing returns status='no_data', CLI exits 4 — not exit 0 with warning."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.perf import BenchmarkResult
+        from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+        # Fabricate a BenchmarkResult and a no_data OpTraceResult.
+        config = MagicMock()
+        config.model_id = "fake/model"
+        config.task = None
+        config.device = "npu"
+        config.precision = "auto"
+        config.iterations = 1
+        config.warmup = 0
+        config.batch_size = 1
+        bench_result = BenchmarkResult(config=config)
+
+        trace = OpTraceResult(
+            model="fake/model",
+            device="npu",
+            tracing_level="basic",
+            status="no_data",
+            error="profiler CSV missing",
+        )
+
+        # Mock benchmark to return the fabricated result and expose _perf_ctx.
+        mock_ctx = MagicMock()
+        mock_ctx.monitor.result = trace
+        mock_benchmark = MagicMock()
+        mock_benchmark.run.return_value = bench_result
+        mock_benchmark._perf_ctx = mock_ctx
+
+        runner = CliRunner()
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                return_value=mock_benchmark,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "fake/model", "--device", "npu", "--op-tracing", "basic"],
+                obj={},
+            )
+
+        assert result.exit_code == 4, f"Expected exit 4, got {result.exit_code}: {result.output}"
+        assert "no profiling data" in result.output.lower()
+
+    def test_parse_failed_status_exits_4(self, tmp_path: Path):
+        """parse_failed status exits 4 with the parser error message."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.perf import BenchmarkResult
+        from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+        config = MagicMock()
+        config.model_id = "fake/model"
+        config.device = "npu"
+        config.precision = "auto"
+        config.iterations = 1
+        config.warmup = 0
+        config.batch_size = 1
+        config.task = None
+        bench_result = BenchmarkResult(config=config)
+
+        trace = OpTraceResult(
+            model="fake/model",
+            device="npu",
+            tracing_level="detail",
+            status="parse_failed",
+            error="invalid CSV header",
+        )
+        mock_ctx = MagicMock()
+        mock_ctx.monitor.result = trace
+        mock_benchmark = MagicMock()
+        mock_benchmark.run.return_value = bench_result
+        mock_benchmark._perf_ctx = mock_ctx
+
+        runner = CliRunner()
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                return_value=mock_benchmark,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "fake/model", "--device", "npu", "--op-tracing", "detail"],
+                obj={},
+            )
+
+        assert result.exit_code == 4
+        assert "parse failed" in result.output.lower()
+        assert "invalid CSV header" in result.output
+
+    def test_basic_fallback_status_exits_0_with_notice(self, tmp_path: Path):
+        """basic_fallback status is degraded-success (exit 0 with yellow notice)."""
+        from unittest.mock import MagicMock
+
+        from winml.modelkit.commands.perf import BenchmarkResult
+        from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+        config = MagicMock()
+        config.model_id = "fake/model"
+        config.device = "npu"
+        config.precision = "auto"
+        config.iterations = 1
+        config.warmup = 0
+        config.batch_size = 1
+        config.task = None
+        bench_result = BenchmarkResult(config=config)
+
+        trace = OpTraceResult(
+            model="fake/model",
+            device="npu",
+            tracing_level="detail",
+            status="basic_fallback",
+        )
+        mock_ctx = MagicMock()
+        mock_ctx.monitor.result = trace
+        mock_benchmark = MagicMock()
+        mock_benchmark.run.return_value = bench_result
+        mock_benchmark._perf_ctx = mock_ctx
+
+        runner = CliRunner()
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                return_value=mock_benchmark,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+            patch("winml.modelkit.session.monitor.report.display_op_trace_report"),
+            patch("winml.modelkit.session.monitor.report.write_op_trace_json"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", "fake/model", "--device", "npu", "--op-tracing", "detail"],
+                obj={},
+            )
+
+        assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
+        assert "degraded" in result.output.lower() or "notice" in result.output.lower()
