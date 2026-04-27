@@ -218,6 +218,17 @@ def build_registry(
             curated_priority_lookup[(c["hf_id"], c["task"])] = c["priority"]
             curated_model_priority[c["hf_id"]] = c["priority"]
 
+    # Build (hf_id, task) lookup from the previous registry. Phase 1 inherits
+    # priority/group from this when re-picking a known entry, so labels are stable
+    # across runs. Curated still wins over this; this wins over the new-rule defaults.
+    existing_lookup_pt: dict[tuple[str, str], dict] = {}
+    if existing_entries:
+        for e in existing_entries:
+            hf = e.get("hf_id")
+            tk = e.get("task")
+            if hf and tk is not None:
+                existing_lookup_pt[(hf, tk)] = e
+
     # Phase 1: Query HF Hub for top models per task
     # Soft filter: prioritize Optimum-supported models, then fill remaining slots
     for task in tasks:
@@ -260,6 +271,7 @@ def build_registry(
 
             is_optimum = bool(optimum_types and model_type in optimum_types)
             is_curated = curated_models and model_id in curated_models
+            existing_pt = existing_lookup_pt.get(key)
             if is_curated:
                 priority = curated_priority_lookup.get(
                     (model_id, task)
@@ -267,9 +279,15 @@ def build_registry(
                 group = curated_group_lookup.get((model_id, task)) or curated_model_group.get(
                     model_id, "AITK"
                 )
+            elif existing_pt and "priority" in existing_pt and "group" in existing_pt:
+                priority = existing_pt["priority"]
+                group = existing_pt["group"]
+            elif model_id.startswith("microsoft/"):
+                priority = "P1"
+                group = "microsoft"
             else:
-                priority = "P1" if is_optimum else "P2"
-                group = "microsoft" if model_id.startswith("microsoft/") else "Top200"
+                priority = "P2"
+                group = "Top200"
             # list_models() may not populate last_modified; fall back to per-model API
             last_modified = m.get("last_modified")
             if not last_modified:
