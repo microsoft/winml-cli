@@ -112,6 +112,18 @@ logger = logging.getLogger(__name__)
     help="Enable verbose output.",
 )
 @click.option(
+    "--dataset-script",
+    type=str,
+    default=None,
+    help="Path to a Python script that builds the evaluation dataset.",
+)
+@click.option(
+    "--trust-remote-code",
+    is_flag=True,
+    default=False,
+    help="Allow execution of dataset scripts. Required when --dataset-script is used.",
+)
+@click.option(
     "--schema",
     "show_schema",
     is_flag=True,
@@ -136,6 +148,8 @@ def eval(
     label_mapping: Path | None,
     output: Path | None,
     verbose: bool,
+    dataset_script: str | None,
+    trust_remote_code: bool,
     show_schema: bool,
     config_file: Path | None,
 ) -> None:
@@ -171,57 +185,51 @@ def eval(
                 samples = build_cfg.quant.samples
             if not cli_utils.is_cli_provided(ctx, "dataset_name"):
                 dataset_name = build_cfg.quant.dataset_name
-        # Apply eval_dataset from config (CLI options take precedence)
-        if build_cfg.eval_dataset:
-            ed = build_cfg.eval_dataset
-            # Run build_script if needed to generate local dataset
-            build_script = ed.get("build_script")
-            if build_script:
-                import subprocess
-                import sys
+        # Apply eval_option from config (CLI options take precedence)
+        if build_cfg.eval_option:
+            eo = build_cfg.eval_option
+            if not cli_utils.is_cli_provided(ctx, "dataset_path") and eo.dataset.path:
+                dataset_path = eo.dataset.path
+            if not cli_utils.is_cli_provided(ctx, "dataset_name") and eo.dataset.name:
+                dataset_name = eo.dataset.name
+            if not cli_utils.is_cli_provided(ctx, "split"):
+                split = eo.dataset.split
+            if not cli_utils.is_cli_provided(ctx, "samples"):
+                samples = eo.dataset.samples
+            if not column and eo.dataset.columns_mapping:
+                column = tuple(f"{k}={v}" for k, v in eo.dataset.columns_mapping.items())
+            if label_mapping is None and eo.label_mapping_file:
+                label_mapping = Path(eo.label_mapping_file)
+            if dataset_script is None and eo.dataset_script:
+                dataset_script = eo.dataset_script
 
-                script_path = Path(build_script)
-                # Use the path from config as cache dir (expand ~),
-                # fallback to ~/.cache/winml/eval_datasets/<script_stem>/
-                raw_path = ed.get("path", "")
-                if raw_path:
-                    cache_dir = Path(raw_path).expanduser()
-                else:
-                    cache_dir = (
-                        Path.home() / ".cache" / "winml" / "eval_datasets" / script_path.stem
-                    )
-                if not (cache_dir / "dataset_info.json").exists():
-                    if script_path.exists():
-                        logger.info("Building dataset via %s ...", script_path.name)
-                        result = subprocess.run(  # noqa: S603
-                            [sys.executable, str(script_path), "--output", str(cache_dir)],
-                            capture_output=True,
-                            text=True,
-                            timeout=300,
-                        )
-                        if result.returncode != 0:
-                            logger.warning(
-                                "Dataset build failed: %s", result.stderr.strip()[-200:]
-                            )
-                    else:
-                        logger.warning("Build script not found: %s", script_path)
-                # Use the built local dataset path
-                if not cli_utils.is_cli_provided(ctx, "dataset_path"):
-                    dataset_path = str(cache_dir)
-            elif not cli_utils.is_cli_provided(ctx, "dataset_path") and ed.get("path"):
-                dataset_path = ed["path"]
-            if not cli_utils.is_cli_provided(ctx, "dataset_name") and ed.get("name"):
-                dataset_name = ed["name"]
-            if not cli_utils.is_cli_provided(ctx, "split") and ed.get("split"):
-                split = ed["split"]
-            if not cli_utils.is_cli_provided(ctx, "samples") and ed.get("samples"):
-                samples = ed["samples"]
-            if not column and ed.get("columns_mapping"):
-                column = tuple(f"{k}={v}" for k, v in ed["columns_mapping"].items())
-            if label_mapping is None and ed.get("label_mapping_file"):
-                lm_path = Path(ed["label_mapping_file"])
-                if lm_path.exists():
-                    label_mapping = lm_path
+    # Run dataset_script if provided (requires --trust-remote-code)
+    if dataset_script:
+        if not trust_remote_code:
+            raise click.UsageError(
+                "--trust-remote-code is required to execute a dataset script."
+            )
+        import subprocess
+        import sys
+
+        script_path = Path(dataset_script)
+        if not script_path.exists():
+            raise click.BadParameter(f"Dataset script not found: {script_path}")
+        logger.info("Building dataset via %s ...", script_path.name)
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            raise click.ClickException(
+                f"Dataset script failed: {result.stderr.strip()[-200:]}"
+            )
+        # Use script output (stdout) as dataset path if not already set
+        script_output = result.stdout.strip()
+        if script_output and not cli_utils.is_cli_provided(ctx, "dataset_path"):
+            dataset_path = script_output
 
     if show_schema:
         from ..eval import WinMLEvaluator
