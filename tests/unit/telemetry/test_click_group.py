@@ -9,57 +9,14 @@ auto-instruments every registered subcommand with ModelKit telemetry."""
 from unittest.mock import MagicMock
 
 import click
-import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.telemetry import consent as consent_mod
+from winml.modelkit.telemetry import ActionGroup, Telemetry
 from winml.modelkit.telemetry import telemetry as telemetry_mod
-from winml.modelkit.telemetry.click_group import ActionGroup
-from winml.modelkit.telemetry.telemetry import Telemetry
 
 
-@pytest.fixture(autouse=True)
-def _reset_singleton():
-    """Reset the Telemetry singleton between tests so each one starts clean.
-
-    Calls ``shutdown()`` on any pre-existing instance so a real
-    ``BatchLogRecordProcessor`` thread (created when a test exercises the
-    real LoggerProvider path) does not leak across tests.
-    """
-    if telemetry_mod._INSTANCE is not None:
-        try:
-            telemetry_mod._INSTANCE.shutdown()
-        except Exception:
-            # Best-effort cleanup: a half-initialized singleton from a
-            # prior test must not block resetting state for this test.
-            pass
-    telemetry_mod._INSTANCE = None
-    yield
-    if telemetry_mod._INSTANCE is not None:
-        try:
-            telemetry_mod._INSTANCE.shutdown()
-        except Exception:
-            # Same rationale as above; teardown must always reach the
-            # _INSTANCE = None reset below.
-            pass
-    telemetry_mod._INSTANCE = None
-
-
-@pytest.fixture
-def enabled_telemetry(monkeypatch, isolated_config, clean_env):
-    """Set up the environment for a fully-enabled Telemetry singleton.
-
-    The singleton itself is constructed lazily by ``ActionGroup.invoke``
-    on the first CLI invocation. Tests that want to capture emits should
-    eagerly call :func:`Telemetry.get_or_init` and replace ``_logger``
-    with a mock before invoking the CLI.
-
-    ``isolated_config`` and ``clean_env`` come from
-    ``tests/unit/telemetry/conftest.py``.
-    """
-    monkeypatch.setattr("winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "o:test-key")
-    consent_mod._write_stored_consent("enabled")
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+# `_reset_singleton` (autouse) and `enabled_telemetry` come from
+# tests/unit/telemetry/conftest.py.
 
 
 def _capture_logger(telemetry):

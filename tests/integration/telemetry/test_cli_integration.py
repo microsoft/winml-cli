@@ -5,12 +5,15 @@
 
 """Integration tests for telemetry wiring in the top-level CLI."""
 
-import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.cli import main
 from winml.modelkit.telemetry import ActionGroup
 from winml.modelkit.telemetry import telemetry as telemetry_mod
+
+
+# `_reset_singleton` (autouse) comes from
+# tests/integration/telemetry/conftest.py.
 
 
 def test_top_level_help_works():
@@ -35,20 +38,7 @@ def test_no_telemetry_subcommand():
     assert result.exit_code != 0
 
 
-@pytest.fixture
-def _no_singleton():
-    if telemetry_mod._INSTANCE is not None:
-        try:
-            telemetry_mod._INSTANCE.shutdown()
-        except Exception:
-            # Best-effort cleanup of any leaked singleton from prior tests.
-            pass
-    telemetry_mod._INSTANCE = None
-    yield
-    telemetry_mod._INSTANCE = None
-
-
-def test_help_path_does_not_materialize_telemetry_on_shutdown(_no_singleton):
+def test_help_path_does_not_materialize_telemetry_on_shutdown():
     """Regression: ``ctx.call_on_close(_shutdown_telemetry)`` must not
     materialize the Telemetry singleton when no subcommand actually ran.
 

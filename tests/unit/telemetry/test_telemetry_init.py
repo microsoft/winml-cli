@@ -3,23 +3,12 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-import pytest
-
+from winml.modelkit.telemetry import Telemetry
 from winml.modelkit.telemetry import consent as consent_mod
-from winml.modelkit.telemetry import telemetry as telemetry_mod
-from winml.modelkit.telemetry.telemetry import Telemetry
 
 
-@pytest.fixture(autouse=True)
-def _reset_singleton():
-    """Ensure each test starts with no cached Telemetry instance."""
-    telemetry_mod._INSTANCE = None
-    yield
-    telemetry_mod._INSTANCE = None
-
-
-# `isolated_config` and `clean_env` are provided by
-# tests/unit/telemetry/conftest.py.
+# `_reset_singleton` (autouse), `isolated_config`, and `clean_env` are
+# provided by tests/unit/telemetry/conftest.py.
 
 
 def test_empty_ikey_makes_telemetry_disabled(clean_env, isolated_config, monkeypatch):
