@@ -293,3 +293,32 @@ def test_find_schematic_prefers_output_dir_over_cwd(tmp_path, monkeypatch):
 
     monkeypatch.chdir(cwd_dir)
     assert monitor._find_schematic() == in_out
+
+
+def test_output_dir_property_exposes_path(tmp_path):
+    """The output_dir property returns the directory used for artifacts."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+    assert monitor.output_dir == tmp_path
+    assert monitor.output_dir.is_dir()
+
+
+def test_output_dir_property_for_default_tempdir():
+    """When output_dir=None, the property exposes the auto-minted tempdir."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="basic")
+    assert monitor.output_dir.is_dir()
+    assert monitor.output_dir.name.startswith("qnn_profile_")
+
+
+def test_output_dir_property_is_read_only(tmp_path):
+    """output_dir is exposed as a property; rebinding must raise AttributeError."""
+    import pytest as _pytest
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+    with _pytest.raises(AttributeError):
+        monitor.output_dir = tmp_path / "other"  # type: ignore[misc]

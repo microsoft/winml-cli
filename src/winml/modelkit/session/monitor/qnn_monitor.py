@@ -54,6 +54,16 @@ class QNNMonitor(EPMonitor):
     Produces an :class:`OpTraceResult` with per-operator cycle counts
     (``level="basic"``) or full QHAS roofline / DMA traffic
     (``level="detail"``).
+
+    .. note::
+
+       When ``output_dir`` is ``None``, a per-monitor temp directory
+       (``qnn_profile_*``) is created under the OS tempdir and is **never
+       auto-cleaned** so that profiling artifacts (CSV, QHAS JSON,
+       schematic, QNN log) remain available for post-run inspection.
+       Callers that care about disk hygiene should pass an explicit
+       ``output_dir`` they manage. The chosen directory is exposed via
+       :py:attr:`output_dir`.
     """
 
     #: QNN EP flushes the profiling CSV only on ``ort.InferenceSession``
@@ -67,10 +77,27 @@ class QNNMonitor(EPMonitor):
         output_dir: Path | None = None,
         extra_provider_options: Mapping[str, str] | None = None,
     ) -> None:
+        """Initialize the monitor.
+
+        Args:
+            level: ``"basic"`` (cycles only) or ``"detail"`` (QHAS roofline +
+                DMA traffic).
+            output_dir: Directory for profiling artifacts. When ``None``, a
+                per-monitor temp directory ``qnn_profile_*`` is created under
+                the OS tempdir; that directory is **never auto-cleaned** so
+                artifacts can be inspected post-run. Pass an explicit path if
+                you want to manage cleanup yourself.
+            extra_provider_options: Additional QNN EP provider options. The
+                two profiling-control keys (``profiling_level``,
+                ``profiling_file_path``) are owner-enforced per PRD C-3 and
+                cannot be overridden via this argument.
+        """
         if level not in _LEVEL_TO_PROFILING:
             raise ValueError(f"level must be 'basic' or 'detail', got {level!r}")
         self._level: str = level
         # Idempotency: paths produced at __init__, not per-call.
+        # When output_dir is None we mint a fresh tempdir; we deliberately
+        # do NOT register a finalizer to clean it up — see class docstring.
         self._output_dir: Path = (
             Path(output_dir)
             if output_dir is not None
@@ -81,6 +108,22 @@ class QNNMonitor(EPMonitor):
         self._extra: dict[str, str] = dict(extra_provider_options or {})
         self._entered: bool = False
         self._result: OpTraceResult | None = None
+
+    # ------------------------------------------------------------------
+    # Public read-only accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def output_dir(self) -> Path:
+        """Directory where profiling artifacts (CSV, QHAS JSON, schematic) are written.
+
+        When ``output_dir=None`` was passed at construction, this is a
+        per-monitor temp directory (``qnn_profile_*``) under the OS tempdir.
+        The directory is **NOT auto-cleaned** — artifacts persist for
+        post-hoc inspection. Callers that care about disk hygiene should
+        pass an explicit ``output_dir`` they manage.
+        """
+        return self._output_dir
 
     # ------------------------------------------------------------------
     # Availability
