@@ -13,7 +13,19 @@ from winml.modelkit.session.ep_registry import ensure_initialized
 
 
 def test_ensure_initialized_calls_registry_once():
-    """ensure_initialized() calls register_to_ort() via singleton; idempotent across calls."""
+    """ensure_initialized() calls register_to_ort() via singleton; idempotent across calls.
+
+    A2-I3 (PR review): the previous loose ``call_count >= 1`` assertion would
+    pass if the wrapper accidentally amplified calls (e.g., re-instantiating
+    the registry on every entry). Pin the contract:
+
+    * ``WinMLEPRegistry.get_instance()`` is hit exactly once per
+      ``ensure_initialized()`` call (no extra allocations).
+    * ``register_to_ort()`` is invoked once per call — the singleton's
+      internal ``_registered_eps`` skip-list provides actual no-op
+      idempotency, NOT the wrapper.
+    * No exception is raised for any number of calls.
+    """
     with patch("winml.modelkit.session.ep_registry.WinMLEPRegistry") as mock_registry_cls:
         instance = mock_registry_cls.get_instance.return_value
         instance.winml_available = True
@@ -22,8 +34,9 @@ def test_ensure_initialized_calls_registry_once():
         ensure_initialized()
         ensure_initialized()
 
-        assert mock_registry_cls.get_instance.call_count >= 1
-        # Multiple calls must not raise
+        # Wrapper makes exactly one get_instance + one register_to_ort per call.
+        assert mock_registry_cls.get_instance.call_count == 3
+        assert instance.register_to_ort.call_count == 3
 
 
 def test_ensure_initialized_failure_logs_warning(caplog):

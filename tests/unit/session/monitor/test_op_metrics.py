@@ -40,8 +40,19 @@ def test_status_can_be_set():
 
 
 def test_to_dict_preserves_nested_schema():
-    """Existing nested schema must be preserved."""
-    r = OpTraceResult(model="m.onnx", device="npu", tracing_level="basic", ep="QNN")
+    """Existing nested schema must be preserved.
+
+    The ``metadata`` block must include ``num_samples`` and ``timestamp`` —
+    A2-I1 in PR review: a regression that drops either field would silently
+    pass an "only check the easy keys" assertion.
+    """
+    r = OpTraceResult(
+        model="m.onnx",
+        device="npu",
+        tracing_level="basic",
+        ep="QNN",
+        num_samples=42,
+    )
     d = r.to_dict()
     assert "metadata" in d
     assert d["metadata"]["model"] == "m.onnx"
@@ -52,6 +63,17 @@ def test_to_dict_preserves_nested_schema():
     assert "operators" in d
     assert "statistics" in d
     assert "artifacts" in d
+    # A2-I1: num_samples + timestamp must be in nested metadata.
+    assert "num_samples" in d["metadata"]
+    assert "timestamp" in d["metadata"]
+    assert d["metadata"]["num_samples"] == r.num_samples == 42
+    # The timestamp default is an ISO-8601 string from datetime.isoformat().
+    assert isinstance(d["metadata"]["timestamp"], str)
+    assert d["metadata"]["timestamp"] == r.timestamp
+    # Sanity-check it parses as ISO-8601 (drops the 'Z'/offset gracefully).
+    from datetime import datetime
+
+    datetime.fromisoformat(d["metadata"]["timestamp"])
 
 
 def test_to_dict_adds_status_and_error_at_top_level():

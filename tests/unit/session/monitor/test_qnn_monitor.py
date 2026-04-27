@@ -361,3 +361,110 @@ def test_output_dir_property_is_read_only(tmp_path):
     monitor = QNNMonitor(level="basic", output_dir=tmp_path)
     with _pytest.raises(AttributeError):
         monitor.output_dir = tmp_path / "other"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Detail-mode fallback (FR-5 / PR review A2-I7)
+# ---------------------------------------------------------------------------
+
+
+def test_detail_mode_falls_back_to_basic_when_qhas_unavailable(tmp_path):
+    """A detail-level monitor with a valid CSV but no QHAS path produces status='basic_fallback'.
+
+    PRD FR-5: when the user requests ``level="detail"`` but post-processing
+    artifacts (``*_qnn.log`` / ``*_schematic.bin`` / SDK) are unavailable,
+    the monitor MUST surface a populated CSV-only result with
+    ``status="basic_fallback"`` rather than raising or producing
+    ``status="ok"`` (which would silently pretend QHAS data was present).
+    """
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="detail", output_dir=tmp_path)
+    # Drop the real CSV fixture into the spot the monitor expects so the
+    # CSV parse path succeeds. The QHAS branch will fail naturally because
+    # no *_qnn.log is present in the output directory — this is the
+    # cleanest hit on the basic_fallback codepath in _try_qhas.
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    monitor.__enter__()
+    monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    assert monitor.result.status == "basic_fallback"
+    # CSV-only data must still be populated — basic_fallback is degraded
+    # *success*, not failure: operators and summary are non-empty.
+    assert monitor.result.operators, "expected CSV-derived operators in basic_fallback result"
+    assert monitor.result.summary, "expected CSV-derived summary in basic_fallback result"
+    # No QHAS artifact recorded; CSV artifact recorded.
+    assert "qhas" not in monitor.result.artifacts
+    assert "csv" in monitor.result.artifacts
+
+
+# ---------------------------------------------------------------------------
+# Windows file-handle retry (R-2 / PR review A2-I8)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_artifacts_retries_when_csv_absent(tmp_path, monkeypatch):
+    """R-2 mitigation: a 50ms ``time.sleep`` retry fires when the CSV is
+    absent on the first ``is_file()`` check.
+
+    QNN EP flushes the profiling CSV on session destruction, but on Windows
+    file-handle close can lag the actual unlink/rename behind the calling
+    thread. The monitor's ``_parse_artifacts`` does one 50ms retry before
+    declaring ``no_data``. Without this retry, slow filesystems would
+    silently produce ``status="no_data"`` for runs that did finish flushing.
+    """
+    from winml.modelkit.session.monitor import qnn_monitor as qnn_monitor_mod
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+
+    sleep_calls: list[float] = []
+
+    def _track_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(qnn_monitor_mod.time, "sleep", _track_sleep)
+
+    # CSV never appears, so the retry will not save the result, but the
+    # critical assertion is that the 50ms retry DID fire.
+    monitor.__enter__()
+    monitor.__exit__(None, None, None)
+
+    assert any(abs(s - 0.05) < 1e-9 for s in sleep_calls), (
+        f"expected exactly one 0.05s retry sleep, got {sleep_calls!r}"
+    )
+    # And status confirms the post-retry path: CSV still missing → no_data.
+    assert monitor.result is not None
+    assert monitor.result.status == "no_data"
+
+
+def test_parse_artifacts_no_retry_when_csv_present_on_first_check(tmp_path, monkeypatch):
+    """If the CSV is on disk on the FIRST ``is_file()`` check, the 50ms
+    retry sleep MUST NOT fire. Verifies the retry is gated, not unconditional.
+    """
+    from pathlib import Path
+
+    from winml.modelkit.session.monitor import qnn_monitor as qnn_monitor_mod
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+    # Pre-populate the CSV with valid content.
+    fixture = Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(qnn_monitor_mod.time, "sleep", lambda s: sleep_calls.append(s))
+
+    monitor.__enter__()
+    monitor.__exit__(None, None, None)
+
+    assert sleep_calls == [], (
+        f"expected no retry sleep when CSV is present on first check, got {sleep_calls!r}"
+    )
+    assert monitor.result is not None
+    assert monitor.result.status == "ok"
