@@ -952,25 +952,27 @@ def _run_compile_stage(
             and Path(compile_result.output_path).resolve() != compiled_path.resolve()
         ):
             copy_onnx_model(compile_result.output_path, compiled_path)
-        current_path = compiled_path
+        if compiled_path.exists():
+            current_path = compiled_path
         _compile_elapsed = time.monotonic() - t0
         sl.set_done(_compile_elapsed)
 
         # Graph summary
-        try:
-            summary = get_onnx_graph_summary(compiled_path)
-            op_parts = ", ".join(
-                f"[cyan]{op}[/cyan] ({count})"
-                for op, count in list(summary["op_counts"].items())[:8]
-            )
-            sl.detail(f"[bold]Graph:[/bold]  {op_parts}")
-        except Exception:
-            logger.debug("Could not load graph summary", exc_info=True)
+        if compiled_path.exists():
+            try:
+                summary = get_onnx_graph_summary(compiled_path)
+                op_parts = ", ".join(
+                    f"[cyan]{op}[/cyan] ({count})"
+                    for op, count in list(summary["op_counts"].items())[:8]
+                )
+                sl.detail(f"[bold]Graph:[/bold]  {op_parts}")
+            except Exception:
+                logger.debug("Could not load graph summary", exc_info=True)
 
-        sl.artifact(
-            str(compiled_path),
-            _safe_size(compiled_path),
-        )
+            sl.artifact(
+                str(compiled_path),
+                _safe_size(compiled_path),
+            )
     stage_timings.append(("Compile", _compile_elapsed))
     return current_path
 
