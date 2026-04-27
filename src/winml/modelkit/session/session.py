@@ -72,6 +72,12 @@ DEVICE_POLICY_MAP = {
     "auto": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,  # Default to NPU
 }
 
+# Device to EP short name fallback (used when ep is not explicitly provided)
+_DEVICE_TO_EP: dict[str, str] = {
+    "npu": "qnn",
+    "gpu": "dml",
+}
+
 
 class WinMLSessionError(Exception):
     """Base exception for WinMLSession."""
@@ -423,8 +429,9 @@ class WinMLSession:
         avoid "already registered" errors from repeated calls.
         """
         # Explicit EP targeting: create fresh opts to avoid double-registration
-        if self._ep and self._ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(self._ep)
+        ep = self._ep or _DEVICE_TO_EP.get(device.lower())
+        if ep and ep != "cpu":
+            target_name = self._EP_NAME_MAP.get(ep)
             if target_name:
                 matched = self._find_ep_device(target_name)
                 if matched:
@@ -432,13 +439,13 @@ class WinMLSession:
                     opts.add_provider_for_devices([matched], self._provider_options)
                     logger.info(
                         "Explicit EP: %s (%s)",
-                        self._ep,
+                        ep,
                         target_name,
                     )
                     return opts
                 logger.warning(
                     "EP '%s' (%s) not found in available devices; falling back to policy",
-                    self._ep,
+                    ep,
                     target_name,
                 )
 
