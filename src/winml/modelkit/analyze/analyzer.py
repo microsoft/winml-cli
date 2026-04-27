@@ -656,6 +656,7 @@ class ONNXStaticAnalyzer:
         from .core.onnx_loader import ONNXLoader
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
+        from .utils.ep_utils import has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
         ep_normalized = normalize_ep_name(ep)
@@ -709,6 +710,21 @@ class ONNXStaticAnalyzer:
         information_list = {}
 
         for current_ep in eps_to_analyze:
+            # Skip EPs that have no rule data for the target device.
+            if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
+                if device_to_use:
+                    logger.warning(
+                        "No runtime check data for %s on %s — skipping op analysis.",
+                        current_ep,
+                        device_to_use,
+                    )
+                else:
+                    logger.warning(
+                        "No runtime check data for %s — skipping op analysis.",
+                        current_ep,
+                    )
+                continue
+
             logger.info("Checking runtime support for %s...", current_ep)
             if on_ep_start:
                 try:
