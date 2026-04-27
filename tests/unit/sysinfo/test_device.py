@@ -23,7 +23,7 @@ class TestGetAvailableDevices:
     """Tests for _get_available_devices()."""
 
     def test_with_npu_and_gpu(self) -> None:
-        """When NPU and GPU are present, returns ["npu", "gpu", "cpu"]."""
+        """When NPU and GPU are present, returns ("npu", "gpu", "cpu")."""
         mock_npu = MagicMock()
         mock_gpu = MagicMock()
 
@@ -39,10 +39,10 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["npu", "gpu", "cpu"]
+        assert devices == ("npu", "gpu", "cpu")
 
     def test_no_npu_with_gpu(self) -> None:
-        """When no NPU but GPU present, returns ["gpu", "cpu"]."""
+        """When no NPU but GPU present, returns ("gpu", "cpu")."""
         mock_gpu = MagicMock()
 
         with (
@@ -57,10 +57,10 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["gpu", "cpu"]
+        assert devices == ("gpu", "cpu")
 
     def test_no_npu_no_gpu(self) -> None:
-        """When no NPU and no GPU, returns ["cpu"]."""
+        """When no NPU and no GPU, returns ("cpu",)."""
         with (
             patch(
                 "winml.modelkit.sysinfo.hardware.NPU.get_all",
@@ -73,10 +73,10 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["cpu"]
+        assert devices == ("cpu",)
 
     def test_cpu_always_present(self) -> None:
-        """CPU is always in the result list, even if detection fails."""
+        """CPU is always in the result, even if detection fails."""
         with (
             patch(
                 "winml.modelkit.sysinfo.hardware.NPU.get_all",
@@ -90,7 +90,7 @@ class TestGetAvailableDevices:
             devices = _get_available_devices()
 
         assert "cpu" in devices
-        assert devices == ["cpu"]
+        assert devices == ("cpu",)
 
     def test_npu_detection_failure_falls_through(self) -> None:
         """If NPU detection raises, GPU and CPU still appear."""
@@ -108,7 +108,7 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["gpu", "cpu"]
+        assert devices == ("gpu", "cpu")
         assert "npu" not in devices
 
 

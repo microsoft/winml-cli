@@ -74,18 +74,30 @@ def get_ep_device_map() -> dict[str, str]:
     return dict(_EP_DEVICE_MAP)
 
 
-def _get_available_devices() -> list[str]:
-    """Return prioritized list of available devices.
+@functools.lru_cache(maxsize=1)
+def _get_available_devices() -> tuple[str, ...]:
+    """Return prioritized tuple of available devices (cached).
 
     Priority: NPU > GPU > CPU.
     Always includes "cpu" as fallback.
     Uses SysInfo hardware classes for detection.
 
+    Hardware does not change during a process lifetime, so this result is
+    cached via lru_cache (mirrors ``_get_available_eps``). Without this
+    cache, ``resolve_device`` calls within a single CLI invocation each
+    re-run Windows WMI/PowerShell subprocesses (~1.2s/call locally,
+    5-10x slower on cold CI), which on Windows CI runners has caused
+    user-facing commands like ``winml config -m <model> --device npu``
+    to balloon past 280s.
+
+    Returns a ``tuple`` (not ``list``) so the cached value is immutable
+    by construction — callers can't accidentally poison the cache.
+
     This is an internal helper for :func:`resolve_device` and should not
     be called directly by external code.
 
     Returns:
-        List like ["npu", "gpu", "cpu"] with only available devices.
+        Tuple like ("npu", "gpu", "cpu") with only available devices.
     """
     devices: list[str] = []
 
@@ -106,7 +118,7 @@ def _get_available_devices() -> list[str]:
         logger.debug("GPU detection failed or unavailable")
 
     devices.append("cpu")  # CPU always available
-    return devices
+    return tuple(devices)
 
 
 @functools.lru_cache(maxsize=1)
@@ -160,7 +172,9 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
     if device != "auto" and device not in _VALID_DEVICES:
         raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
 
-    available_devices = _get_available_devices()
+    # Materialize cached tuple as a fresh list per call so that any
+    # caller mutation (e.g. `available.append(...)`) cannot poison the cache.
+    available_devices = list(_get_available_devices())
     available_eps = _get_available_eps()
 
     if not available_eps:
