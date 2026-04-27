@@ -16,6 +16,7 @@ from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker
 from winml.modelkit.analyze.core.runtime_checker_query import (
     RuntimeCheckerQuery,
     _build_table_filter_conditions,
+    _try_load_external_initializer_array,
     get_query_conditions_for_node,
     node_to_pattern_match,
 )
@@ -178,6 +179,52 @@ class TestGetQueryConditionsForNode:
         assert conditions["A_is_none"] is False
         assert infinite_properties == ["A_shape", "B_shape"]
         assert is_qdq is False
+
+    def test_try_load_external_initializer_array_returns_plain_ndarray(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Loaded sidecar tensors are copied into memory and do not retain file handles."""
+        weight = onnx.numpy_helper.from_array(
+            np.array([[1.5, -2.0]], dtype=np.float32),
+            name="weight",
+        )
+        node = helper.make_node("Identity", ["weight"], ["output"], name="identity_node")
+        output_value_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2])
+        graph = helper.make_graph(
+            [node],
+            "external_initializer_graph",
+            [],
+            [output_value_info],
+            initializer=[weight],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_path = tmp_path / "external_initializer.onnx"
+        onnx.save_model(
+            model,
+            model_path,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="weights.bin",
+            size_threshold=0,
+        )
+        graph_only_model = onnx.load(str(model_path), load_external_data=False)
+
+        loaded = _try_load_external_initializer_array(
+            graph_only_model.graph.initializer[0],
+            model_path,
+        )
+
+        assert loaded is not None
+        assert isinstance(loaded, np.ndarray)
+        assert not isinstance(loaded, np.memmap)
+        assert not isinstance(getattr(loaded, "base", None), np.memmap)
+        assert np.array_equal(loaded, np.array([[1.5, -2.0]], dtype=np.float32))
+
+        sidecar_path = tmp_path / "weights.bin"
+        renamed_sidecar_path = tmp_path / "weights-renamed.bin"
+        sidecar_path.rename(renamed_sidecar_path)
+        assert renamed_sidecar_path.exists()
 
 
 class TestLocalEPFallback:

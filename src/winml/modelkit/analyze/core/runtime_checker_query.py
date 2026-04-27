@@ -188,8 +188,7 @@ def _expand_snapshot_payload(
     base_opset = payload.get(SNAPSHOT_BASE_OPSET_KEY)
     if not isinstance(base_opset, int):
         logger.warning(
-            "Delta snapshot %s in %s missing integer %s; "
-            "applying delta on empty base.",
+            "Delta snapshot %s in %s missing integer %s; applying delta on empty base.",
             file_name,
             zip_path,
             SNAPSHOT_BASE_OPSET_KEY,
@@ -217,8 +216,7 @@ def _expand_snapshot_payload(
     base_raw = _read_json_from_zip(base_zip_path, base_file_name)
     if base_raw is None:
         logger.warning(
-            "Base snapshot %s not found in %s (from %s); "
-            "applying delta on empty base.",
+            "Base snapshot %s not found in %s (from %s); applying delta on empty base.",
             base_file_name,
             base_zip_path,
             file_name,
@@ -706,14 +704,19 @@ def _try_load_external_initializer_array(
             )
             return None
 
-        arr = np.memmap(
-            data_path,
-            dtype=np_dtype,
-            mode="r",
-            offset=offset,
-            shape=(numel,),
-            order="C",
-        )
+        with data_path.open("rb") as f:
+            f.seek(offset)
+            arr = np.fromfile(f, dtype=np_dtype, count=numel)
+
+        if arr.size != numel:
+            logger.debug(
+                "External initializer %s only yielded %s elements, expected %s",
+                tensor.name,
+                arr.size,
+                numel,
+            )
+            return None
+
         return arr.reshape(shape)
     except Exception as e:
         logger.debug(
