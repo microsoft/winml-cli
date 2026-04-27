@@ -80,3 +80,20 @@ def test_operator_metrics_to_dict_preserved():
     d = op.to_dict()
     assert d["name"] == "Conv"
     assert d["duration_us"] == 12.5
+
+
+def test_to_dict_status_only_accepts_known_values_per_typing() -> None:
+    """status is a Literal — assert each declared value round-trips through to_dict.
+
+    Python does not enforce ``Literal`` at runtime, so this test verifies *the
+    declared values are accepted and serialize correctly*. Static enforcement
+    is delegated to mypy / ruff.
+    """
+    for status in ("ok", "no_data", "parse_failed", "basic_fallback", "not_run"):
+        r = OpTraceResult(model=None, device="npu", tracing_level="basic", status=status)
+        assert r.to_dict()["status"] == status
+
+
+def test_trace_status_alias_importable() -> None:
+    """``TraceStatus`` must be importable as a public symbol from op_metrics."""
+    from winml.modelkit.session.monitor.op_metrics import TraceStatus  # noqa: F401

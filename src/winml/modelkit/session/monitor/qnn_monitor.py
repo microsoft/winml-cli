@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from .ep_monitor import EPMonitor
-from .op_metrics import OperatorMetrics, OpTraceResult
+from .op_metrics import OperatorMetrics, OpTraceResult, TraceStatus
 from .qnn.csv_parser import parse_qnn_profiling_csv
 from .qnn.qhas_parser import parse_qhas
 from .qnn.viewer import find_qnn_sdk, run_qhas_viewer
@@ -237,7 +237,7 @@ class QNNMonitor(EPMonitor):
             "accel_execute_us": accel_us,
         }
 
-        status = "ok"
+        status: TraceStatus = "ok"
         # Detail mode: attempt QHAS post-processing.
         if self._level == "detail":
             qhas_summary, qhas_operators, qhas_path = self._try_qhas(artifacts)
@@ -351,7 +351,7 @@ class QNNMonitor(EPMonitor):
             return cwd_candidates[0]
         return None
 
-    def _make_failure_result(self, status: str, error: str | None) -> OpTraceResult:
+    def _make_failure_result(self, status: TraceStatus, error: str | None) -> OpTraceResult:
         """Build a minimal ``OpTraceResult`` for parse-time failures."""
         return OpTraceResult(
             model=None,

@@ -13,7 +13,23 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
+
+
+#: Closed set of values for :attr:`OpTraceResult.status`.
+#:
+#: * ``"ok"`` — trace parsed cleanly.
+#: * ``"no_data"`` — expected artifacts (e.g. profiling CSV) never appeared.
+#: * ``"parse_failed"`` — artifacts were present but unparseable; ``error``
+#:   carries the message.
+#: * ``"basic_fallback"`` — caller asked for ``detail`` mode but the backend
+#:   could only produce basic data (e.g. QHAS unavailable).
+#: * ``"not_run"`` — :py:meth:`__exit__` has not been called yet.
+#:
+#: ``Literal`` is enforced statically (mypy / ruff); at runtime ``status`` is
+#: still a plain ``str`` so :py:meth:`OpTraceResult.to_dict` and JSON
+#: serialization are unaffected.
+TraceStatus = Literal["ok", "no_data", "parse_failed", "basic_fallback", "not_run"]
 
 
 @dataclass
@@ -79,9 +95,10 @@ class OpTraceResult:
     # Raw artifact paths
     artifacts: dict[str, str] = field(default_factory=dict)
 
-    # Status of the trace — "ok" | "no_data" | "parse_failed" | "basic_fallback"
-    status: str = "ok"
-    # Populated when status == "parse_failed"
+    # Status of the trace. See :data:`TraceStatus` for the closed set of
+    # legal values; static type checkers enforce the alias.
+    status: TraceStatus = "ok"
+    # Populated when status == "parse_failed".
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
