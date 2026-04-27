@@ -405,9 +405,7 @@ def _render_analysis_summary(
     required=False, optional_message="If not specified, analyzes all supported EPs"
 )
 @cli_utils.device_option(
-    required=False,
-    optional_message="If not specified, inferred from EP rule data",
-    default=None,
+    required=False, optional_message="If not specified, uses NPU as default", default="NPU"
 )
 @cli_utils.verbosity_options
 @cli_utils.build_config_option
@@ -504,22 +502,10 @@ def analyze(
         )
 
         ep_normalized = normalize_ep_name(ep)
-        device_user_specified = device is not None
-
-        # Resolve device: explicit > inferred from EP support > None
-        if device is None and ep_normalized:
-            available = get_devices_with_rule_data(ep_normalized)
-            if available:
-                device = available[0]
-                logger.info(
-                    "Device not specified — resolved to %s for %s",
-                    device,
-                    ep_normalized,
-                )
 
         # Validate only when the user explicitly specified --device
         if (
-            device_user_specified
+            cli_utils.is_cli_provided(ctx, "device")
             and ep_normalized
             and device
             and not has_rule_data_for_ep(ep_normalized, device)

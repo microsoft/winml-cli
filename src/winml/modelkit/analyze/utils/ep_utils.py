@@ -54,8 +54,9 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     if "openvino" in ep_lower or "intel" in ep_lower:
         return IHVType.INTEL
 
-    # VitisAI / AMD / ACE (AMD)
-    if "amd" in ep_lower or "quark" in ep_lower or "vitis" in ep_lower or "ace" in ep_lower:
+    # VitisAI / MIGraphX / AMD / ACE (AMD)
+    amd_keywords = ("amd", "quark", "vitis", "ace", "migraphx")
+    if any(kw in ep_lower for kw in amd_keywords):
         return IHVType.AMD
 
     raise ValueError(

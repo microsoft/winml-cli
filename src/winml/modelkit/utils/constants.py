@@ -25,7 +25,7 @@ EP_ALIASES = {
     "vitis": "VitisAIExecutionProvider",
     "cpu": "CPUExecutionProvider",
     "dml": "DmlExecutionProvider",
-    "tensorrt": "NvTensorRTRTXExecutionProvider",
+    "trtrtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
 }
 

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for has_rule_data_for_ep and get_devices_with_rule_data utilities."""
+"""Tests for ep_utils: infer_ihv_from_ep_name, has_rule_data_for_ep, get_devices_with_rule_data."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import pytest
 from winml.modelkit.analyze.utils.ep_utils import (
     get_devices_with_rule_data,
     has_rule_data_for_ep,
+    infer_ihv_from_ep_name,
 )
 
 
@@ -20,6 +21,57 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _PATCH_TARGET = "winml.modelkit.analyze.utils.rule_loader.get_runtime_rules_search_dirs"
+
+
+class TestInferIHVFromEPName:
+    """Tests for infer_ihv_from_ep_name()."""
+
+    def test_qnn(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("QNNExecutionProvider") == IHVType.QC
+
+    def test_openvino(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("OpenVINOExecutionProvider") == IHVType.INTEL
+
+    def test_vitisai(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("VitisAIExecutionProvider") == IHVType.AMD
+
+    def test_migraphx_maps_to_amd(self) -> None:
+        """MIGraphX is an AMD EP — should map to IHVType.AMD."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("MIGraphXExecutionProvider") == IHVType.AMD
+
+    def test_case_insensitive(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
+        assert infer_ihv_from_ep_name("OPENVINOEXECUTIONPROVIDER") == IHVType.INTEL
+        assert infer_ihv_from_ep_name("vitisaiexecutionprovider") == IHVType.AMD
+
+    def test_unknown_ep_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown execution provider"):
+            infer_ihv_from_ep_name("TotallyFakeEP")
+
+    def test_cpu_ep_raises(self) -> None:
+        """CPUExecutionProvider has no IHV — should raise."""
+        with pytest.raises(ValueError, match="Unknown execution provider"):
+            infer_ihv_from_ep_name("CPUExecutionProvider")
+
+    def test_dml_ep_raises(self) -> None:
+        """DmlExecutionProvider is Microsoft, not an IHV — should raise."""
+        with pytest.raises(ValueError, match="Unknown execution provider"):
+            infer_ihv_from_ep_name("DmlExecutionProvider")
+
+    def test_nvidia_ep_raises(self) -> None:
+        """NvTensorRTRTXExecutionProvider has no IHV mapping — should raise."""
+        with pytest.raises(ValueError, match="Unknown execution provider"):
+            infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
 
 
 class TestHasRuleDataForEP:
