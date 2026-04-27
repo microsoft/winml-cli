@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
 from ..compiler.configs import WinMLCompileConfig
+from ..eval.config import WinMLEvaluationConfig
 from ..export.config import (
     InputTensorSpec,
     OutputTensorSpec,
@@ -58,7 +59,6 @@ from ..export.config import (
 )
 from ..loader.config import WinMLLoaderConfig, resolve_loader_config
 from ..optim.config import WinMLOptimizationConfig
-from ..eval.config import WinMLEvaluationConfig
 from ..quant.config import WinMLQuantizationConfig
 from ..utils.config_utils import merge_config
 
@@ -884,6 +884,7 @@ def _merge_export_config(
         dynamic_axes=(
             override.dynamic_axes if override.dynamic_axes is not None else base.dynamic_axes
         ),
+        dynamo=override.dynamo if override.dynamo else base.dynamo,
     )
 
 
