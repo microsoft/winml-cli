@@ -143,13 +143,29 @@ def test_exit_does_not_suppress_caller_exception(tmp_path):
 
 
 def test_to_dict_before_enter():
-    """Calling to_dict() before enter/exit returns 'not_run' status."""
+    """Calling to_dict() before enter/exit returns 'not_run' status in nested schema."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     m = QNNMonitor()
     d = m.to_dict()
-    assert d["ep"] == "QNN"
     assert d["status"] == "not_run"
+    # Schema must match the post-exit OpTraceResult.to_dict() shape.
+    assert d["metadata"]["ep"] == "QNNExecutionProvider"
+
+
+def test_to_dict_pre_exit_returns_nested_schema(tmp_path):
+    """Pre-exit to_dict() emits the same nested keys as a fully-populated result."""
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+    out = monitor.to_dict()
+    assert "metadata" in out
+    assert "summary" in out
+    assert "operators" in out
+    assert "artifacts" in out
+    assert out["status"] == "not_run"
+    assert out["metadata"]["tracing_level"] == "basic"
+    assert out["metadata"]["device"] == "npu"
 
 
 def test_is_available_via_bundled():

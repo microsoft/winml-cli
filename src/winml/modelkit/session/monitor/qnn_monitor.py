@@ -184,9 +184,17 @@ class QNNMonitor(EPMonitor):
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """JSON-serializable summary. Falls back to a ``not_run`` stub pre-exit."""
+        """JSON-serializable summary in :class:`OpTraceResult`'s nested schema.
+
+        Pre-exit (``self._result is None``) the monitor still returns the same
+        nested shape — ``{"metadata": ..., "summary": ..., "operators": ...,
+        "statistics": ..., "artifacts": ..., "status": "not_run", "error":
+        None}`` — by delegating to a ``status="not_run"`` failure result. This
+        keeps consumers that key on ``metadata`` / ``summary`` from breaking
+        when they probe the monitor before the context manager has exited.
+        """
         if self._result is None:
-            return {"ep": "QNN", "device": "NPU", "status": "not_run"}
+            return self._make_failure_result(status="not_run", error=None).to_dict()
         return self._result.to_dict()
 
     @property
