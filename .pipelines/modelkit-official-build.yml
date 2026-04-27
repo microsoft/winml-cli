@@ -91,6 +91,17 @@ extends:
               - script: pip install build twine
                 displayName: 'Install build tools'
 
+              # Build sdist BEFORE iKey injection so the source archive
+              # ships with the empty placeholder (sdist exposes source
+              # to anyone who downloads it - keep it clean). Lands in a
+              # temp dir so it is NOT picked up as a published artifact.
+              - script: python -m build --sdist --outdir "$(Agent.TempDirectory)\sdist"
+                displayName: 'Build sdist (with empty iKey placeholder)'
+
+              - script: twine check "$(Agent.TempDirectory)\sdist\*.tar.gz"
+                continueOnError: true
+                displayName: 'Validate sdist for PyPI'
+
               - powershell: |
                   $path = "$(Build.SourcesDirectory)\src\winml\modelkit\telemetry\constants.py"
                   $key = $env:INSTRUMENTATION_KEY
@@ -105,9 +116,32 @@ extends:
                   INSTRUMENTATION_KEY: $(INSTRUMENTATION_KEY)
                 displayName: 'Inject InstrumentationKey into constants.py'
 
-              - script: python -m build --outdir "$(ob_outputDirectory)"
-                displayName: 'Build sdist and wheel'
+              # Build wheel AFTER injection so the wheel carries the
+              # real iKey. Lands in ob_outputDirectory - this is the
+              # only artifact that gets published.
+              - script: python -m build --wheel --outdir "$(ob_outputDirectory)"
+                displayName: 'Build wheel (with injected iKey)'
 
-              - script: twine check "$(ob_outputDirectory)\*"
+              - powershell: |
+                  Add-Type -AssemblyName System.IO.Compression.FileSystem
+                  $wheel = Get-ChildItem "$(ob_outputDirectory)\*.whl" | Select-Object -First 1
+                  if (-not $wheel) { throw "no wheel found in $(ob_outputDirectory)" }
+                  $zip = [System.IO.Compression.ZipFile]::OpenRead($wheel.FullName)
+                  try {
+                    $entry = $zip.Entries | Where-Object { $_.FullName -like "*telemetry/constants.py" } | Select-Object -First 1
+                    if (-not $entry) { throw "telemetry/constants.py not found in wheel" }
+                    $reader = [System.IO.StreamReader]::new($entry.Open())
+                    $content = $reader.ReadToEnd()
+                    $reader.Close()
+                  } finally {
+                    $zip.Dispose()
+                  }
+                  if ($content -match 'INSTRUMENTATION_KEY\s*=\s*""') {
+                    throw "wheel contains empty INSTRUMENTATION_KEY placeholder - injection failed"
+                  }
+                  Write-Host "Wheel verified - constants.py has non-empty iKey"
+                displayName: 'Verify wheel has injected iKey'
+
+              - script: twine check "$(ob_outputDirectory)\*.whl"
                 continueOnError: true
-                displayName: 'Validate packages for PyPI'
+                displayName: 'Validate wheel for PyPI'
