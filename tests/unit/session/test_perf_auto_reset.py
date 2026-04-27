@@ -42,9 +42,13 @@ def test_auto_reset_fires_when_options_contributed(caplog):
     with caplog.at_level(logging.WARNING), session.perf(monitor=_ContributingMonitor()):
         pass
 
-    # The warning message must mention auto-reset
-    messages = [r.message.lower() for r in caplog.records]
-    assert any("auto-reset" in m for m in messages), f"no auto-reset log. records={messages}"
+    # NFR-3: the verbatim phrase MUST appear as a substring of the log.
+    expected = "auto-resetting compiled session to apply monitor session/provider options"
+    warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any(expected in m for m in warnings), (
+        f"NFR-3 verbatim phrase not in WARNING records. expected substring: "
+        f"{expected!r}; got: {warnings}"
+    )
     # Old session object was dropped
     assert session._session is None or session._session is not pre_session
 

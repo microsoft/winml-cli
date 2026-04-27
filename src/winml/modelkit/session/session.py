@@ -628,8 +628,8 @@ class WinMLSession:
         # Auto-reset if options to apply AND session is already compiled
         if (extra_sess or extra_prov) and self._session is not None:
             logger.warning(
-                "session.perf(): auto-resetting compiled session to apply monitor "
-                "session/provider options (monitor=%s)",
+                "auto-resetting compiled session to apply monitor session/provider options "
+                "(monitor=%s)",
                 type(mon).__name__,
             )
             self.reset()
