@@ -39,3 +39,24 @@ def test_hooks_return_fresh_dicts():
     d1["injected"] = "1"
     d2 = m.get_session_options()
     assert "injected" not in d2
+
+
+def test_requires_session_teardown_must_be_bool() -> None:
+    """Shadowing requires_session_teardown with a non-bool fails at class-def time."""
+    with pytest.raises(TypeError, match="requires_session_teardown must be a class-level bool"):
+
+        class _BadMonitor(EPMonitor):
+            requires_session_teardown = "yes"  # wrong type
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return None
+
+            def to_dict(self):
+                return {}
+
+            @classmethod
+            def is_available(cls):
+                return True

@@ -42,6 +42,22 @@ class EPMonitor(ABC):
     #: on session destroy. Default: False (no teardown needed).
     requires_session_teardown: ClassVar[bool] = False
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Reject subclasses that try to shadow load-bearing class vars.
+
+        The ``requires_session_teardown`` flag governs the C-2 teardown
+        ordering invariant in ``WinMLSession.perf()``. Catching a non-bool
+        shadow at class-definition time keeps the invariant *visible*;
+        runtime instance shadowing in ``__init__`` is not catchable here.
+        """
+        super().__init_subclass__(**kwargs)
+        cls_dict_value = cls.__dict__.get("requires_session_teardown")
+        if cls_dict_value is not None and not isinstance(cls_dict_value, bool):
+            raise TypeError(
+                f"{cls.__name__}.requires_session_teardown must be a class-level bool, "
+                f"got {type(cls_dict_value).__name__}"
+            )
+
     def get_session_options(self) -> dict[str, str]:
         """Entries to pass to ``SessionOptions.add_session_config_entry()``.
 
