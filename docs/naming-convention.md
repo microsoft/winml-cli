@@ -16,8 +16,7 @@ Domain acronyms in PascalCase class names **retain their uppercase form**, excep
 | QNN | Qualcomm Neural Network | `QNN` | `QNNMonitor` |
 | Op | Operator (2-letter prefix) | `Op` | `OpUnsupportedError` |
 | IO | Input/Output | `IO` | `IOConfigInfo` |
-| HF | HuggingFace | `HF` | `HF_MODEL_CLASS_MAPPING` |
-| HTP | Hexagon Tensor Processor | `HTP` | (directory/module level) |
+| HTP | Hexagon Tensor Processor | `HTP` | `HTPConfig`, `HTPExporter`, `HTPMetadataBuilder` |
 
 ### Why `Op` Not `OP`
 
@@ -28,6 +27,27 @@ Two-letter acronyms used as **class name prefixes** use PascalCase:
 - Consistent with conventions like `Id` vs `ID`
 
 All-caps is acceptable in **constants** (e.g., `SUPPORTED_OPS`).
+
+### Canonical Execution Provider Names
+
+Execution providers appear mainly in constants, EP-name strings, and config keys rather than as class prefixes. Each EP has a fixed canonical short name (used in our code) and an ORT full name (the `*ExecutionProvider` symbol).
+
+| Short name | ORT full name | Device | Vendor / Notes |
+|------------|---------------|--------|----------------|
+| `CPU` | `CPUExecutionProvider` | CPU | Default fallback. |
+| `CUDA` | `CUDAExecutionProvider` | GPU | NVIDIA. All caps. |
+| `DML` | `DmlExecutionProvider` | GPU | DirectML. Use `DML` in our code; do not write `DirectML` as the EP name. |
+| `MIGraphX` | `MIGraphXExecutionProvider` | GPU | AMD. Exact casing (mixed case). |
+| `NvTensorRTRTX` | `NvTensorRTRTXExecutionProvider` | GPU | NVIDIA TensorRT-RTX. Exact casing; do not shorten to `TensorRT`. |
+| `OpenVINO` | `OpenVINOExecutionProvider` | CPU / GPU / NPU | Intel. Exact casing. Alias: `ov`. |
+| `QNN` | `QNNExecutionProvider` | NPU | Qualcomm. All caps. |
+| `VitisAI` | `VitisAIExecutionProvider` | NPU | AMD Ryzen AI. Exact casing. Alias: `vitis`. |
+
+### Other Canonical Identifiers
+
+| Token | Meaning | Notes |
+|-------|---------|-------|
+| `HF_` | HuggingFace (constant/variable prefix) | e.g., `HF_MODEL_CLASS_MAPPING`, `HF_TASK_DEFAULTS`. Not used as a class prefix. |
 
 ## 2. Module and Package Names
 
@@ -82,19 +102,3 @@ Known collisions to be aware of:
 | `utils` | `modelkit/utils/`, `analyze/utils/` | no shared content |
 | `pattern` | `modelkit/pattern/`, `analyze/pattern/` | active vs near-empty |
 | `inspect` | `modelkit/inspect/` | shadows Python stdlib |
-
-## 7. Current Violations
-
-The following classes violate the acronym naming rules and should be renamed:
-
-| Current | Correct | File |
-|---|---|---|
-| `OnnxOP` | `ONNXOp` | `src/winml/modelkit/analyze/models/onnx_op.py` |
-| `OnnxConfigNotFoundError` | `ONNXConfigNotFoundError` | `src/winml/modelkit/export/io.py` |
-| `OnnxModelOutput` | `ONNXModelOutput` | `src/winml/modelkit/export/htp/metadata_builder.py` |
-| `EpContextNodeChecker` | `EPContextNodeChecker` | `src/winml/modelkit/analyze/core/node_checkers/ep_context_node_checker.py` |
-| `EpPackage` | `EPPackage` | `src/winml/modelkit/sysinfo/software.py` |
-| `QdqFixResult` | `QDQFixResult` | `src/winml/modelkit/quant/qdq_fix.py` |
-| `OPOptionalInputSupportError` | `OpOptionalInputSupportError` | `src/winml/modelkit/analyze/exceptions.py` |
-| `OPLackOfRequiredInformationError` | `OpLackOfRequiredInformationError` | `src/winml/modelkit/analyze/exceptions.py` |
-| `OPUnsupportedError` | `OpUnsupportedError` | `src/winml/modelkit/analyze/exceptions.py` |
