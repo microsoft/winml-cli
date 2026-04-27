@@ -1008,7 +1008,13 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--task", help="Filter by HF task")
-    parser.add_argument("--priority", choices=["P0", "P1", "P2"], help="Filter by priority")
+    parser.add_argument(
+        "--priority",
+        nargs="+",
+        choices=["P0", "P1", "P2"],
+        metavar="{P0,P1,P2}",
+        help="Filter by priority. Pass one or more, e.g. --priority P0 P1.",
+    )
     parser.add_argument("--model-type", help="Filter by model_type")
     parser.add_argument("--group", help="Filter by group")
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
