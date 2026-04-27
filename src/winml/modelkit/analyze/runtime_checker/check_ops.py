@@ -15,6 +15,7 @@ Usage:
         python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,45 @@ from .ep_checker import EPChecker
 winml.register_execution_providers(ort=True)
 
 
+def _load_case_indices_from_conflict_file(conflict_file: str | Path) -> list[str]:
+    """Load case_index values from the 2nd CSV column of a conflict file.
+
+    The expected layout is compatible with conflict CSVs where column 1 is
+    groupid and column 2 is case_index.
+    """
+    conflict_path = Path(conflict_file).expanduser()
+    if not conflict_path.is_absolute():
+        raise ValueError("--conflict_file must be an absolute path")
+    if not conflict_path.exists():
+        raise FileNotFoundError(f"Conflict file not found: {conflict_path}")
+
+    case_indices: list[str] = []
+    with conflict_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        for row_idx, row in enumerate(reader, start=1):
+            if not row:
+                continue
+            if len(row) < 2:
+                raise ValueError(
+                    f"Conflict file row {row_idx} has fewer than 2 columns: {conflict_path}"
+                )
+
+            case_value = str(row[1]).strip()
+            if not case_value:
+                continue
+
+            # Skip header row like: groupid,case_index,...
+            if row_idx == 1 and case_value.lower() == "case_index":
+                continue
+
+            case_indices.append(case_value)
+
+    case_indices = list(dict.fromkeys(case_indices))
+    if not case_indices:
+        raise ValueError(f"No case_index values found in conflict file: {conflict_path}")
+    return case_indices
+
+
 def check_ops(
     ep_checker: EPChecker,
     ops: list[str],
@@ -60,6 +100,7 @@ def check_ops(
     dynamic_axis_mode: str = "none",
     not_run_start_id: int = 1,
     case_index: str | list[str] | None = None,
+    conflict_file: str | Path | None = None,
 ):
     """Run operators on execution provider.
 
@@ -80,7 +121,15 @@ def check_ops(
         dynamic_axis_mode: Dynamic axis testing mode for input generators.
         not_run_start_id: Initial id used for not_run placeholder reasons (not_run_<id>).
         case_index: Optional hashed signature(s) to filter to specific test cases.
+        conflict_file: Optional absolute path to conflict CSV. When provided,
+            case_index values are loaded from the second CSV column.
     """
+    if conflict_file is not None:
+        if case_index is not None:
+            raise ValueError("--case_index and --conflict_file cannot be used together")
+        case_index = _load_case_indices_from_conflict_file(conflict_file)
+        print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
+
     sys_info = SysInfo().to_dict()
     domain = ONNXDomain.from_str(opset_domain)
 
@@ -395,7 +444,7 @@ def build_parser():
         action="store_true",
         help=(
             "Rerun only failed cases (compile failed or run failed). "
-            "Mutually exclusive with --delta_only and --case_index."
+            "Mutually exclusive with --delta_only, --case_index, and --conflict_file."
         ),
     )
     mode_group.add_argument(
@@ -403,7 +452,7 @@ def build_parser():
         action="store_true",
         help=(
             "Only run new test cases that do not exist in the existing results file. "
-            "Mutually exclusive with --rerun_failed and --case_index."
+            "Mutually exclusive with --rerun_failed, --case_index, and --conflict_file."
         ),
     )
     mode_group.add_argument(
@@ -413,7 +462,17 @@ def build_parser():
         default=None,
         help=(
             "Only process cases matching these case_index hashes. "
-            "Mutually exclusive with --rerun_failed and --delta_only."
+            "Mutually exclusive with --rerun_failed, --delta_only, and --conflict_file."
+        ),
+    )
+    mode_group.add_argument(
+        "--conflict_file",
+        type=str,
+        default=None,
+        help=(
+            "Absolute path to conflict CSV. case_index values are read from "
+            "the second column. Mutually exclusive with --case_index, "
+            "--rerun_failed, and --delta_only."
         ),
     )
     parser.add_argument(
@@ -474,6 +533,7 @@ def run_from_args(args: Any) -> None:
         dynamic_axis_mode="first_axis_dynamic" if args.with_dynamic else "none",
         not_run_start_id=args.not_run_start_id,
         case_index=args.case_index,
+        conflict_file=args.conflict_file,
     )
 
 

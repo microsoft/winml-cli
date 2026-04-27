@@ -88,10 +88,10 @@ extends:
               $outDir = "$(ob_outputDirectory)"
               New-Item -ItemType Directory -Path $outDir -Force | Out-Null
               $wheels = Get-ChildItem "$artifactDir" -Filter "*.whl" -Recurse
-              $zips = Get-ChildItem "$artifactDir" -Filter "*.zip" -Recurse
-              Write-Host "Found $($wheels.Count) wheel(s) and $($zips.Count) zip(s)"
+              $sdists = Get-ChildItem "$artifactDir" -Filter "*.tar.gz" -Recurse
+              Write-Host "Found $($wheels.Count) wheel(s) and $($sdists.Count) source archive(s)"
               $wheels | Copy-Item -Destination $outDir
-              $zips | Copy-Item -Destination $outDir
+              $sdists | Copy-Item -Destination $outDir
             displayName: 'Stage release assets'
 
           - task: GitHubRelease@1
@@ -106,7 +106,7 @@ extends:
               title: 'ModelKit $(ReleaseTag)'
               assets: |
                 $(ob_outputDirectory)\*.whl
-                $(ob_outputDirectory)\*.zip
+                $(ob_outputDirectory)\*.tar.gz
               isDraft: false
               isPreRelease: true
               addChangeLog: false

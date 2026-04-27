@@ -1,8 +1,8 @@
 # Runtime Check Rules
 
-This directory contains zip files with runtime check rules (negative rules and tables) used by the static analyzer. Each zip corresponds to a specific `{EP}_{Device}_{Domain}_opset{N}` combination.
+This directory contains parquet runtime rule artifacts used by the analyzer.
 
-The zip files are **not tracked by git**. They are hosted in a separate repo.
+Files are **not tracked by git** and are expected to come from `ModelKitArtifacts`.
 
 ## Setup
 
@@ -14,61 +14,40 @@ Requires [GitHub CLI](https://cli.github.com) (`gh`) with an account that has ac
 uv run python scripts/download_rules.py --account <your_gim-home_account>
 ```
 
-The script uses the specified `gh` account's token to authenticate, does a sparse checkout (downloads only the zip folder, not the full repo), and copies files here.
+The script sparse-checkouts `gim-home/ModelKitArtifacts/rules` and copies all `*.parquet`
+files here (preserving subdirectories).
 
 Use `--force` to re-download all files even if they already exist locally.
 
 ### Option 2: Manual copy
 
-Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/op_check_results/rules/`](https://github.com/gim-home/ModelKitArtifacts/tree/main/op_check_results/rules) into this directory.
+Copy all runtime rule parquet files from:
 
-### Option 3: Use external rules directory via environment variable
+`gim-home/ModelKitArtifacts/rules/`
 
-Set `MODELKIT_RULES_DIR` to one or more directories containing runtime rule zip files.
+### Option 3: Use external rules directories via environment variable
 
-Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` (the directory of `rule_loader.py`), not from your current terminal working directory.
+Set `MODELKIT_RULES_DIR` to one or more directories containing parquet rule artifacts.
 
-- Windows (PowerShell, user-level absolute path): `[Environment]::SetEnvironmentVariable("MODELKIT_RULES_DIR", "C:\*path*\rules_zip", "User")`
-- Windows (PowerShell, user-level repo-relative path): `[Environment]::SetEnvironmentVariable("MODELKIT_RULES_DIR", "..\..\..\..\..\..\ModelKitArtifacts\rules_zip", "User")`
+Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` (the
+directory of `rule_loader.py`), not from the current terminal working directory.
+
+- Windows (PowerShell, user-level absolute path): `[Environment]::SetEnvironmentVariable("MODELKIT_RULES_DIR", "C:\*path*\rules", "User")`
+- Windows (PowerShell, user-level repo-relative path): `[Environment]::SetEnvironmentVariable("MODELKIT_RULES_DIR", "..\..\..\..\..\..\ModelKitArtifacts\rules", "User")`
 
 Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
 
-### Option 4: Expand rule zips via CLI command
+## Rule lookup order
 
-You can materialize delta snapshots to full payloads in-place with:
-
-```bash
-winml expand_rules
-```
-
-This command reads all entries from `MODELKIT_RULES_DIR`, resolves each via
-`_resolve_env_rules_dir_entry`, and performs in-place rewrite for each existing
-directory that contains matching zip files.
-
-After a folder is successfully expanded (and has at least one matching zip),
-an empty marker file named `expanded` is created in that folder.
-
-You can also override the path entry:
-
-```bash
-winml expand_rules --rules-dir-entry C:\path\to\rules_zip
-```
-
-Multiple explicit entries are supported:
-
-```bash
-winml expand_rules --rules-dir-entry C:\path\a --rules-dir-entry C:\path\b
-```
-
-## Rule zip lookup order
-
-The analyzer searches zip files in this order:
+The analyzer searches directories in this order:
 
 1. Directories listed in `MODELKIT_RULES_DIR` (left to right)
-2. This embedded directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
+2. Embedded default directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
 
-This means `MODELKIT_RULES_DIR` takes precedence over the embedded default directory when the same zip filename exists in both locations.
+`MODELKIT_RULES_DIR` takes precedence over the embedded default when the same parquet file
+exists in multiple locations.
 
-## What happens if zips are missing
+## What happens if parquet rules are missing
 
-The analyzer will log a warning and treat affected operators as unknown. Analysis results will be incomplete but will not crash.
+The analyzer logs warnings and treats affected operators as unknown. Analysis results remain
+available but may be incomplete.

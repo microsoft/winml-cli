@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Download runtime check rule zips from gim-home/ModelKitArtifacts.
+"""Download runtime check rule parquet files from gim-home/ModelKitArtifacts.
 
 Requires gh CLI with an account that has access to gim-home org.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 SOURCE_REPO = "gim-home/ModelKitArtifacts"
-SOURCE_PATH = "op_check_results/rules"
+SOURCE_PATH = "rules"
 RULES_DIR = (
     Path(__file__).resolve().parent.parent
     / "src"
@@ -100,13 +100,17 @@ def _sparse_clone(clone_url: str, dest: Path) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download runtime check rule zips")
-    parser.add_argument("--force", action="store_true", help="Re-download all zips")
+    parser = argparse.ArgumentParser(description="Download runtime check rule parquet files")
+    parser.add_argument("--force", action="store_true", help="Re-download all parquet files")
     parser.add_argument("--account", type=str, help="gh CLI account with access to gim-home org")
     args = parser.parse_args()
 
     clone_url = _get_clone_url(args.account)
-    existing = set() if args.force else {f.name for f in RULES_DIR.glob("*.zip")}
+    existing = (
+        set()
+        if args.force
+        else {str(path.relative_to(RULES_DIR).as_posix()) for path in RULES_DIR.rglob("*.parquet")}
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp) / "repo"
@@ -121,23 +125,27 @@ def main() -> None:
             sys.exit(1)
 
         src_dir = tmp_path / SOURCE_PATH
-        zips = list(src_dir.glob("*.zip"))
+        parquet_files = sorted(src_dir.rglob("*.parquet"))
 
-        if not zips:
-            print(f"No zip files found in {SOURCE_REPO}/{SOURCE_PATH}")
+        if not parquet_files:
+            print(f"No parquet files found in {SOURCE_REPO}/{SOURCE_PATH}")
             sys.exit(1)
 
         RULES_DIR.mkdir(parents=True, exist_ok=True)
         copied = 0
-        for zip_file in zips:
-            if zip_file.name in existing:
+        for parquet_file in parquet_files:
+            rel_path = parquet_file.relative_to(src_dir)
+            rel_key = rel_path.as_posix()
+            if rel_key in existing:
                 continue
-            shutil.copy2(zip_file, RULES_DIR / zip_file.name)
+            destination = RULES_DIR / rel_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(parquet_file, destination)
             copied += 1
 
-        total = len(zips)
+        total = len(parquet_files)
         skipped = total - copied
-        size_mb = sum((RULES_DIR / z.name).stat().st_size for z in zips) / 1024 / 1024
+        size_mb = sum(path.stat().st_size for path in parquet_files) / 1024 / 1024
         print(f"Done. Copied: {copied}, skipped: {skipped}, total: {total} ({size_mb:.0f} MB)")
 
 

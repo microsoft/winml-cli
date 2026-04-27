@@ -15,6 +15,7 @@ Usage:
         python -m winml.modelkit.analyze.pattern.check_patterns --all_patterns
 """
 
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,45 @@ from ..utils import CheckResultWriter
 winml.register_execution_providers(ort=True)
 
 
+def _load_case_indices_from_conflict_file(conflict_file: str | Path) -> list[str]:
+    """Load case_index values from the 2nd CSV column of a conflict file.
+
+    The expected layout is compatible with conflict CSVs where column 1 is
+    groupid and column 2 is case_index.
+    """
+    conflict_path = Path(conflict_file).expanduser()
+    if not conflict_path.is_absolute():
+        raise ValueError("--conflict_file must be an absolute path")
+    if not conflict_path.exists():
+        raise FileNotFoundError(f"Conflict file not found: {conflict_path}")
+
+    case_indices: list[str] = []
+    with conflict_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        for row_idx, row in enumerate(reader, start=1):
+            if not row:
+                continue
+            if len(row) < 2:
+                raise ValueError(
+                    f"Conflict file row {row_idx} has fewer than 2 columns: {conflict_path}"
+                )
+
+            case_value = str(row[1]).strip()
+            if not case_value:
+                continue
+
+            # Skip header row like: groupid,case_index,...
+            if row_idx == 1 and case_value.lower() == "case_index":
+                continue
+
+            case_indices.append(case_value)
+
+    case_indices = list(dict.fromkeys(case_indices))
+    if not case_indices:
+        raise ValueError(f"No case_index values found in conflict file: {conflict_path}")
+    return case_indices
+
+
 def check_patterns(
     ep_checker: EPChecker,
     patterns: list[str],
@@ -48,6 +88,7 @@ def check_patterns(
     dry_run: bool = False,
     not_run_start_id: int = 1,
     case_index: str | list[str] | None = None,
+    conflict_file: str | Path | None = None,
     opset_mapping: dict[str, int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run patterns on execution provider and return results.
@@ -65,6 +106,8 @@ def check_patterns(
         dry_run: If True, skip compile/run execution and emit check_result with reason "not_run".
         not_run_start_id: Initial id used for not_run placeholder reasons (not_run_<id>).
         case_index: Optional hashed signature(s) to filter to specific test cases.
+        conflict_file: Optional absolute path to conflict CSV. When provided,
+                   case_index values are loaded from the second CSV column.
         opset_mapping: Required dict mapping domain strings to opset versions,
                        e.g., {"ai.onnx": 17, "com.microsoft": 1}.
                        Used for ONNX model generation.
@@ -77,6 +120,12 @@ def check_patterns(
             ...
         }
     """
+    if conflict_file is not None:
+        if case_index is not None:
+            raise ValueError("--case_index and --conflict_file cannot be used together")
+        case_index = _load_case_indices_from_conflict_file(conflict_file)
+        print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
+
     sys_info = SysInfo().to_dict()
 
     # Create output directory if it doesn't exist
@@ -360,6 +409,16 @@ def build_parser():
             "Mutually exclusive with --rerun_failed and --delta_only."
         ),
     )
+    parser.add_argument(
+        "--conflict_file",
+        type=str,
+        default=None,
+        help=(
+            "Optional absolute path to a conflict CSV. "
+            "When provided, case_index values are loaded from its 2nd column. "
+            "Cannot be used together with --case_index."
+        ),
+    )
 
     parser.add_argument(
         "--dry_run",
@@ -443,6 +502,7 @@ def run_from_args(args: Any) -> None:
         dry_run=args.dry_run,
         not_run_start_id=args.not_run_start_id,
         case_index=args.case_index,
+        conflict_file=args.conflict_file,
         opset_mapping=opset_mapping,
     )
 

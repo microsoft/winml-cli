@@ -72,15 +72,17 @@ extends:
                 displayName: 'Check Python version'
 
               - powershell: |
-                  $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\rules_zip"
+                  $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\rules"
                   $destDir = "$(Build.SourcesDirectory)\src\winml\modelkit\analyze\rules\runtime_check_rules"
-                  $outDir = "$(ob_outputDirectory)"
-                  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-                  $zips = Get-ChildItem "$rulesDir\*.zip"
-                  Write-Host "Found $($zips.Count) rule zips"
-                  $zips | Copy-Item -Destination $destDir
-                  $zips | Copy-Item -Destination $outDir
-                  Write-Host "Copied $($zips.Count) rule zips to $destDir and $outDir"
+                  $parquets = Get-ChildItem "$rulesDir\*.parquet" -Recurse
+                  Write-Host "Found $($parquets.Count) rule parquet file(s)"
+                  foreach ($parquet in $parquets) {
+                    $relativePath = $parquet.FullName.Substring($rulesDir.Length).TrimStart('\\')
+                    $targetPath = Join-Path $destDir $relativePath
+                    New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+                    Copy-Item $parquet.FullName -Destination $targetPath -Force
+                  }
+                  Write-Host "Copied $($parquets.Count) rule parquet file(s) to $destDir"
                 displayName: 'Copy runtime check rules'
 
               - task: PipAuthenticate@1
