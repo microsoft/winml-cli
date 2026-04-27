@@ -41,7 +41,7 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 |---|---|---|
 | `--top-n` | 10 | Models per task |
 | `--output` | `testsets/models_all.json` | Output path |
-| `--curated-source` / `-s` | `testsets/models_curated.json` | Curated model list (promoted to P0) |
+| `--curated-source` / `-s` | `testsets/models_curated.json` | Curated model list — `group`/`priority` fields applied verbatim |
 | `--no-optimum-filter` | off | Disable Optimum-first soft filter |
 | `--stats` | off | Print stats and exit |
 | `--dry-run` | off | Preview without writing |
@@ -82,7 +82,7 @@ uv run python scripts/e2e_eval/run_eval.py --retry-failed
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
 | `--task` | — | Filter by HF task |
-| `--priority` | — | Filter: `P0`, `P1`, `P2` |
+| `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
 | `--model-type` | — | Filter by model_type (e.g. `bert`) |
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
@@ -115,10 +115,11 @@ uv run python scripts/e2e_eval/generate_report.py --input-dir eval_results/2026-
 | Priority | Meaning |
 |---|---|
 | **P0** | Must-pass — core models, failures are critical |
-| **P1** | Important — tracked closely, regressions flagged |
-| **P2** | Extended coverage — best-effort |
+| **P1** | Important — ISV models, failures are critical |
+| **P2** | Important — tracked closely, regressions flagged |
+| **P3** | Extended coverage — best-effort |
 
-Groups (`Foundry Toolkit`, `Benchmark`, `Top200`, etc.) categorize models by source/purpose.
+Groups (`Foundry Toolkit`, `Benchmark`, `ISV`, `microsoft`, `Top200`, …) categorize models by source/purpose.
 
 ### Failure Classification
 
