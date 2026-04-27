@@ -31,7 +31,7 @@ class ModelEntry:
 
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
-_VALID_PRIORITIES = {"P0", "P1", "P2"}
+_VALID_PRIORITIES = {"P0", "P1", "P2", "P3"}
 
 
 def load_registry(path: Path) -> list[ModelEntry]:

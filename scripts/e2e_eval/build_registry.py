@@ -283,10 +283,12 @@ def build_registry(
                 priority = existing_pt["priority"]
                 group = existing_pt["group"]
             elif model_id.startswith("microsoft/"):
-                priority = "P1"
+                # New non-curated, non-existing Microsoft entry → P2.
+                priority = "P2"
                 group = "microsoft"
             else:
-                priority = "P2"
+                # New non-curated, non-existing, non-Microsoft entry → P3.
+                priority = "P3"
                 group = "Top200"
             # list_models() may not populate last_modified; fall back to per-model API
             last_modified = m.get("last_modified")

@@ -82,7 +82,7 @@ uv run python scripts/e2e_eval/run_eval.py --retry-failed
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
 | `--task` | — | Filter by HF task |
-| `--priority` | — | Filter: one or more of `P0`, `P1`, `P2` (e.g. `--priority P0 P1`) |
+| `--priority` | — | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`) |
 | `--model-type` | — | Filter by model_type (e.g. `bert`) |
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
@@ -115,10 +115,11 @@ uv run python scripts/e2e_eval/generate_report.py --input-dir eval_results/2026-
 | Priority | Meaning |
 |---|---|
 | **P0** | Must-pass — core models, failures are critical |
-| **P1** | Important — tracked closely, regressions flagged |
-| **P2** | Extended coverage — best-effort |
+| **P1** | Important — ISV models, failures are critical |
+| **P2** | Important — tracked closely, regressions flagged |
+| **P3** | Extended coverage — best-effort |
 
-Groups (`Foundry Toolkit`, `Benchmark`, `Top200`, etc.) categorize models by source/purpose.
+Groups (`Foundry Toolkit`, `Benchmark`, `ISV`, `microsoft`, `Top200`, …) categorize models by source/purpose.
 
 ### Failure Classification
 
