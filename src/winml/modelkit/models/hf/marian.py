@@ -336,9 +336,6 @@ class MarianDecoderWrapper(nn.Module):
         cache_position = args[4]  # static cache: absolute seq pos, drives mask + sin/cos
         kv_start = 5
 
-        # Build WinMLSlidingWindowCache from input KV tensors.  update() does
-        # Slice+Concat (not index_copy_/ScatterElements) — evicting the N
-        # oldest entries and appending the N new ones at the right.
         max_cache_len = args[kv_start].size(2)
         # self_attn_cache = WinMLSlidingWindowCache(self.config, max_cache_len=max_cache_len)
         self_attn_cache = WinMLStaticCache(self.config, max_cache_len=max_cache_len)
