@@ -118,6 +118,4 @@ def _emit_heartbeat_once(ctx: click.Context, telemetry: Telemetry) -> None:
 
 
 def _param(ctx: click.Context, name: str) -> Any:
-    if ctx.params is None:
-        return None
     return ctx.params.get(name)

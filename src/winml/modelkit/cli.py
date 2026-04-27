@@ -27,8 +27,8 @@ from pathlib import Path
 import click
 
 from . import __version__
-from . import telemetry as _telemetry_pkg
 from .telemetry import ActionGroup
+from .telemetry import telemetry as _telemetry_mod
 from .utils.logging import configure_logging
 
 
@@ -180,7 +180,7 @@ def _shutdown_telemetry() -> None:
     # Calling `get_or_init()` here unconditionally would build a fresh
     # Telemetry on the way out — which can trigger first-run consent
     # resolution during process shutdown if the iKey is non-empty.
-    instance = _telemetry_pkg.telemetry._INSTANCE
+    instance = _telemetry_mod._INSTANCE
     if instance is None:
         return
     try:

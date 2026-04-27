@@ -38,15 +38,19 @@ def test_no_telemetry_subcommand():
     assert result.exit_code != 0
 
 
-def test_help_path_does_not_materialize_telemetry_on_shutdown():
-    """Regression: ``ctx.call_on_close(_shutdown_telemetry)`` must not
-    materialize the Telemetry singleton when no subcommand actually ran.
+def test_shutdown_telemetry_does_not_materialize_singleton():
+    """Regression: ``_shutdown_telemetry`` (registered via
+    ``ctx.call_on_close``) must not build a fresh Telemetry on the way
+    out. Without the guard, a path that runs ``main``'s body but never
+    reaches ``wrapped_invoke`` (e.g. a Click usage error after the
+    group callback) would trigger first-run consent resolution during
+    process shutdown in production builds with a real iKey.
 
-    Without the guard in ``_shutdown_telemetry``, a Click usage error
-    after the group callback registers the close-callback would build a
-    fresh Telemetry on the way out — risking a first-run consent prompt
-    during process shutdown in production builds with a real iKey.
+    Calling the function directly exercises the guard regardless of the
+    Click invocation path.
     """
-    runner = CliRunner()
-    runner.invoke(main, ["--help"])
+    from winml.modelkit.cli import _shutdown_telemetry
+
+    assert telemetry_mod._INSTANCE is None
+    _shutdown_telemetry()
     assert telemetry_mod._INSTANCE is None
