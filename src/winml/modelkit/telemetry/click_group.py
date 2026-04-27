@@ -24,7 +24,6 @@ them.
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Any
 
@@ -33,7 +32,6 @@ import click
 from .telemetry import Telemetry
 
 
-_LOGGER = logging.getLogger(__name__)
 _INSTRUMENTED_ATTR = "_modelkit_instrumented"
 _HEARTBEAT_FLAG = "_modelkit_heartbeat_sent"
 
@@ -41,7 +39,8 @@ _HEARTBEAT_FLAG = "_modelkit_heartbeat_sent"
 class ActionGroup(click.Group):
     """Click group that auto-instruments every registered command."""
 
-    def resolve_command(self, ctx, args):  # noqa: D102 - Click override
+    def resolve_command(self, ctx, args):
+        """Wrap the resolved subcommand with telemetry instrumentation."""
         cmd_name, cmd, remaining = super().resolve_command(ctx, args)
         if cmd is None:
             return cmd_name, cmd, remaining
@@ -77,23 +76,17 @@ def _instrument(cmd: click.Command) -> click.Command:
             return original_invoke(ctx)
         except Exception as exc:
             success = False
-            try:
-                telemetry.log_error(exc)
-            except Exception:
-                _LOGGER.debug("error emit failed", exc_info=True)
+            telemetry.log_error(exc)
             raise
         finally:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            try:
-                telemetry.log_action(
-                    action_name=cmd.name or "",
-                    device=_param(ctx, "device"),
-                    ep=_param(ctx, "ep"),
-                    duration_ms=duration_ms,
-                    success=success,
-                )
-            except Exception:
-                _LOGGER.debug("action emit failed", exc_info=True)
+            telemetry.log_action(
+                action_name=cmd.name or "",
+                device=_param(ctx, "device"),
+                ep=_param(ctx, "ep"),
+                duration_ms=duration_ms,
+                success=success,
+            )
 
     cmd.invoke = wrapped_invoke
     setattr(cmd, _INSTRUMENTED_ATTR, True)
@@ -110,10 +103,7 @@ def _emit_heartbeat_once(ctx: click.Context, telemetry: Telemetry) -> None:
     root = ctx.find_root()
     if getattr(root, _HEARTBEAT_FLAG, False):
         return
-    try:
-        telemetry.log_heartbeat()
-    except Exception:
-        _LOGGER.debug("heartbeat emit failed", exc_info=True)
+    telemetry.log_heartbeat()
     setattr(root, _HEARTBEAT_FLAG, True)
 
 

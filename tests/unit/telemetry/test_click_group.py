@@ -19,10 +19,10 @@ from winml.modelkit.telemetry import telemetry as telemetry_mod
 # tests/unit/telemetry/conftest.py.
 
 
-def _capture_logger(telemetry):
-    """Replace the underlying logger with a mock that records emit() calls."""
-    telemetry._logger = MagicMock()
-    return telemetry._logger
+def _with_mock_logger(t: Telemetry) -> MagicMock:
+    """Replace ``t._logger`` with a ``MagicMock`` and return it."""
+    t._logger = MagicMock()
+    return t._logger
 
 
 def test_action_group_registers_subcommand(enabled_telemetry):
@@ -37,7 +37,7 @@ def test_action_group_registers_subcommand(enabled_telemetry):
     # Pre-create the singleton and mock the logger so this test does not
     # spin up a real BatchLogRecordProcessor thread / network exporter.
     telemetry = Telemetry.get_or_init()
-    _capture_logger(telemetry)
+    _with_mock_logger(telemetry)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["build"])
@@ -57,7 +57,7 @@ def test_heartbeat_and_action_emitted_on_success(enabled_telemetry):
         click.echo("built")
 
     telemetry = Telemetry.get_or_init()
-    mock_logger = _capture_logger(telemetry)
+    mock_logger = _with_mock_logger(telemetry)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["build", "--device", "NPU", "--ep", "QNN"])
@@ -86,7 +86,7 @@ def test_command_without_device_or_ep_params_sends_null(enabled_telemetry):
         click.echo("analyzed")
 
     telemetry = Telemetry.get_or_init()
-    mock_logger = _capture_logger(telemetry)
+    mock_logger = _with_mock_logger(telemetry)
 
     runner = CliRunner()
     runner.invoke(cli, ["analyze"])
@@ -106,7 +106,7 @@ def test_exception_emits_error_and_action_failure(enabled_telemetry):
         raise ValueError("boom")
 
     telemetry = Telemetry.get_or_init()
-    mock_logger = _capture_logger(telemetry)
+    mock_logger = _with_mock_logger(telemetry)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["blowup"])
