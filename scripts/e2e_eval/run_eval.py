@@ -122,6 +122,32 @@ _TEMP_DIR = Path(os.environ.get("TEMP", os.environ.get("TMP", tempfile.gettempdi
 _TEMP_PREFIXES = ("wmk_", "modelkit_compat_")
 
 
+def _suppress_windows_error_dialogs() -> None:
+    """Stop a crashing child process from popping the "Application Error" dialog.
+
+    Some models trigger a native access violation in the winml CLI subprocess
+    (onnxruntime / EP code). Without this, Windows shows a modal dialog
+    ("The instruction at 0x... referenced memory at 0x0...") that blocks the
+    crashing process from exiting, so our pipe readers and watchdog hang and
+    the self-hosted agent can wedge until reboot. Child processes inherit
+    these flags, so the OS terminates the crashing subprocess silently and
+    our normal exit-code path records the failure and continues.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+
+        SEM_FAILCRITICALERRORS = 0x0001
+        SEM_NOGPFAULTERRORBOX = 0x0002
+        SEM_NOOPENFILEERRORBOX = 0x8000
+        ctypes.windll.kernel32.SetErrorMode(
+            SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX
+        )
+    except (AttributeError, OSError):
+        pass  # Best-effort; do not fail the run if SetErrorMode is unavailable
+
+
 def _is_no_space_error(proc: dict) -> bool:
     """Return True if subprocess output indicates a disk-full condition."""
     combined = (proc.get("stdout", "") + proc.get("stderr", "")).lower()
@@ -1061,6 +1087,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Run E2E evaluation pipeline."""
+    _suppress_windows_error_dialogs()
     args = parse_args()
 
     # 1. Load registry
