@@ -13,11 +13,13 @@ Tests the model-centric I/O utilities that fully leverage Optimum:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
 from transformers import (
+    AutoConfig,
     CLIPTextConfig,
     CLIPTextModelWithProjection,
     CLIPVisionConfig,
@@ -36,6 +38,7 @@ from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
     _populate_image_size_from_preprocessor,
 )
+from winml.modelkit.models.winml.kv_cache import PastKeyValueInputGenerator
 
 
 # =============================================================================
@@ -672,3 +675,289 @@ class TestPopulateImageSize:
 
         assert "height" not in shape_kwargs
         assert "width" not in shape_kwargs
+
+
+# =============================================================================
+# PastKeyValueInputGenerator — shared KV cache dummy input generation
+# =============================================================================
+
+
+def _make_normalized_config(
+    num_layers: int = 4,
+    num_attention_heads: int = 2,
+    head_dim: int = 32,
+    max_cache_len: int = 16,
+) -> SimpleNamespace:
+    """Create a lightweight object that quacks like NormalizedConfig."""
+    return SimpleNamespace(
+        num_layers=num_layers,
+        num_attention_heads=num_attention_heads,
+        head_dim=head_dim,
+        max_cache_len=max_cache_len,
+    )
+
+
+@pytest.fixture(scope="module")
+def t5_config():
+    """T5-small config with n_positions overridden to 32 for fast tests."""
+    cfg = AutoConfig.from_pretrained("google-t5/t5-small")
+    cfg.n_positions = 32
+    return cfg
+
+
+@pytest.fixture(scope="module")
+def qwen_config():
+    """Qwen3-0.6B config with max_position_embeddings overridden to 256."""
+    cfg = AutoConfig.from_pretrained("Qwen/Qwen3-0.6B")
+    cfg.max_position_embeddings = 256
+    return cfg
+
+
+class TestPastKeyValueInputGenerator:
+    """Direct tests for PastKeyValueInputGenerator."""
+
+    def test_supported_input_names(self) -> None:
+        nc = _make_normalized_config(num_layers=3)
+        gen = PastKeyValueInputGenerator("text-generation", nc)
+        expected = (
+            "past_0_key",
+            "past_0_value",
+            "past_1_key",
+            "past_1_value",
+            "past_2_key",
+            "past_2_value",
+        )
+        assert expected == gen.SUPPORTED_INPUT_NAMES
+
+    def test_generate_key_shape(self) -> None:
+        nc = _make_normalized_config(
+            num_layers=2,
+            num_attention_heads=4,
+            head_dim=16,
+            max_cache_len=64,
+        )
+        gen = PastKeyValueInputGenerator("text-generation", nc, batch_size=2)
+        tensor = gen.generate("past_0_key")
+        assert tensor.shape == (2, 4, 64, 16)
+
+    def test_generate_value_shape(self) -> None:
+        nc = _make_normalized_config(
+            num_layers=2,
+            num_attention_heads=4,
+            head_dim=16,
+            max_cache_len=64,
+        )
+        gen = PastKeyValueInputGenerator("text-generation", nc, batch_size=1)
+        tensor = gen.generate("past_1_value")
+        assert tensor.shape == (1, 4, 64, 16)
+
+    def test_generate_returns_float_tensor(self) -> None:
+        nc = _make_normalized_config()
+        gen = PastKeyValueInputGenerator("text-generation", nc)
+        tensor = gen.generate("past_0_key")
+        assert isinstance(tensor, torch.Tensor)
+        assert tensor.dtype == torch.float32
+
+    def test_single_layer(self) -> None:
+        nc = _make_normalized_config(num_layers=1)
+        gen = PastKeyValueInputGenerator("text-generation", nc)
+        assert gen.SUPPORTED_INPUT_NAMES == ("past_0_key", "past_0_value")
+
+    def test_batch_size_propagated(self) -> None:
+        nc = _make_normalized_config()
+        gen = PastKeyValueInputGenerator("text-generation", nc, batch_size=8)
+        assert gen.batch_size == 8
+        tensor = gen.generate("past_0_key")
+        assert tensor.shape[0] == 8
+
+
+class TestT5DecoderKVInputs:
+    """T5 decoder dummy inputs use PastKeyValueInputGenerator."""
+
+    def test_kv_input_names(self, t5_config) -> None:
+        inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
+        num_layers = t5_config.num_layers  # 6
+        for i in range(num_layers):
+            assert f"past_{i}_key" in inputs
+            assert f"past_{i}_value" in inputs
+
+    def test_kv_shape(self, t5_config) -> None:
+        inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
+        kv = inputs["past_0_key"]
+        # [batch=1, heads=8, max_cache_len=32, d_kv=64]
+        assert kv.shape == (1, t5_config.num_heads, 32, t5_config.d_kv)
+
+    def test_decoder_attention_mask_matches_cache_len(self, t5_config) -> None:
+        inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
+        assert inputs["decoder_attention_mask"].shape[1] == 32
+
+    def test_all_kv_layers_present(self, t5_config) -> None:
+        inputs = generate_dummy_inputs("t5", "text2text-generation", t5_config)
+        kv_names = [n for n in inputs if n.startswith("past_")]
+        assert len(kv_names) == t5_config.num_layers * 2
+
+
+class TestQwenPrefillKVInputs:
+    """Qwen3 prefill dummy inputs use PastKeyValueInputGenerator."""
+
+    def test_kv_input_names(self, qwen_config) -> None:
+        inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
+        num_layers = qwen_config.num_hidden_layers  # 28
+        for i in range(num_layers):
+            assert f"past_{i}_key" in inputs
+            assert f"past_{i}_value" in inputs
+
+    def test_kv_shape(self, qwen_config) -> None:
+        inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
+        kv = inputs["past_0_key"]
+        # [batch=1, kv_heads=8, max_cache_len=256, head_dim=128]
+        assert kv.shape == (1, qwen_config.num_key_value_heads, 256, qwen_config.head_dim)
+
+    def test_attention_mask_matches_cache_len(self, qwen_config) -> None:
+        inputs = generate_dummy_inputs("qwen3", "feature-extraction", qwen_config)
+        assert inputs["attention_mask"].shape[1] == 256
+
+
+class TestQwenGenKVInputs:
+    """Qwen3 generation dummy inputs use PastKeyValueInputGenerator."""
+
+    def test_kv_shape_matches_prefill(self, qwen_config) -> None:
+        inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
+        kv = inputs["past_0_key"]
+        assert kv.shape == (1, qwen_config.num_key_value_heads, 256, qwen_config.head_dim)
+
+    def test_input_ids_single_token(self, qwen_config) -> None:
+        inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
+        assert inputs["input_ids"].shape == (1, 1)
+
+
+# =============================================================================
+# WinMLCache — build_decoder_mask and prepare_prefill_chunk
+# =============================================================================
+
+
+def _make_cache(cls, num_layers=2, num_heads=2, max_cache_len=16, head_dim=8):
+    """Create a WinMLCache instance with minimal config.
+
+    Uses a real PretrainedConfig subclass because HF StaticCache.__init__
+    calls config.get_text_config().
+    """
+    from transformers import PretrainedConfig
+
+    config = PretrainedConfig(num_hidden_layers=num_layers)
+    cache = cls.create(config, [1, num_heads, max_cache_len, head_dim], torch.float32)
+    cache.reset()
+    return cache
+
+
+class TestStaticCacheBuildDecoderMask:
+    """WinMLStaticCache.build_decoder_mask — left-aligned mask."""
+
+    def test_default_single_token(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        cache.step = 3
+        mask = cache.build_decoder_mask(16)
+        assert mask.shape == (1, 16)
+        assert mask[0, :4].tolist() == [1, 1, 1, 1]
+        assert mask[0, 4:].sum().item() == 0
+
+    def test_num_new_tokens(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        cache.step = 2
+        mask = cache.build_decoder_mask(16, num_new_tokens=4)
+        assert mask[0, :6].tolist() == [1, 1, 1, 1, 1, 1]
+        assert mask[0, 6:].sum().item() == 0
+
+
+class TestSlidingWindowCacheBuildDecoderMask:
+    """WinMLSlidingWindowCache.build_decoder_mask — right-aligned mask."""
+
+    def test_default_single_token(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        cache.step = 3
+        mask = cache.build_decoder_mask(16)
+        # rightmost 4 positions should be 1
+        assert mask[0, -4:].tolist() == [1, 1, 1, 1]
+        assert mask[0, :-4].sum().item() == 0
+
+    def test_num_new_tokens(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        cache.step = 2
+        mask = cache.build_decoder_mask(16, num_new_tokens=4)
+        # rightmost 6 positions
+        assert mask[0, -6:].tolist() == [1, 1, 1, 1, 1, 1]
+        assert mask[0, :-6].sum().item() == 0
+
+    def test_saturates_at_max_len(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache, max_cache_len=8)
+        cache.step = 10
+        mask = cache.build_decoder_mask(8, num_new_tokens=4)
+        # min(10+4, 8)=8 → all 1s
+        assert mask[0].sum().item() == 8
+
+
+class TestStaticCachePreparePrefillChunk:
+    """WinMLStaticCache.prepare_prefill_chunk — right-pad."""
+
+    def test_full_chunk_no_padding(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        chunk = torch.tensor([[10, 20, 30, 40]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=0, prefill_seq_len=4
+        )
+        assert pad_len == 0
+        assert padded_ids[0].tolist() == [10, 20, 30, 40]
+        assert pos_ids[0].tolist() == [0, 1, 2, 3]
+
+    def test_partial_chunk_right_padded(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache)
+        chunk = torch.tensor([[10, 20]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=4, prefill_seq_len=4
+        )
+        assert pad_len == 0
+        assert padded_ids[0, :2].tolist() == [10, 20]
+        assert padded_ids[0, 2:].tolist() == [0, 0]
+        assert pos_ids[0].tolist() == [4, 5, 6, 7]
+
+
+class TestSlidingWindowCachePreparePrefillChunk:
+    """WinMLSlidingWindowCache.prepare_prefill_chunk — left-pad."""
+
+    def test_full_chunk_no_padding(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        chunk = torch.tensor([[10, 20, 30, 40]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=0, prefill_seq_len=4
+        )
+        assert pad_len == 0
+        assert padded_ids[0].tolist() == [10, 20, 30, 40]
+        assert pos_ids[0].tolist() == [0, 1, 2, 3]
+
+    def test_partial_chunk_left_padded(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLSlidingWindowCache
+
+        cache = _make_cache(WinMLSlidingWindowCache)
+        chunk = torch.tensor([[10, 20]])
+        padded_ids, pos_ids, pad_len = cache.prepare_prefill_chunk(
+            chunk, start=4, prefill_seq_len=4
+        )
+        assert pad_len == 2
+        assert padded_ids[0].tolist() == [0, 0, 10, 20]
+        assert pos_ids[0].tolist() == [0, 0, 4, 5]

@@ -64,6 +64,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         onnx_path: str | Path,
         config: PretrainedConfig | None = None,
         device: str = "auto",
+        session_options: Any | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -71,6 +72,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             onnx_path: Path to ONNX model file
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
             device: Target device ("auto", "npu", "gpu", "cpu")
+            session_options: ORT SessionOptions (e.g., for graph_optimization_level)
         """
         self._onnx_path = Path(onnx_path)
         self.config = config
@@ -83,6 +85,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         self._session = WinMLSession(
             onnx_path=self._onnx_path,
             device=device,
+            session_options=session_options,
         )
 
     @property

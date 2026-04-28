@@ -27,7 +27,10 @@ dependencies = [
   "datasets>=4.1.1",
   "diffusers>=0.36",
   "evaluate>=0.4.6",
+  "fastapi>=0.135.3",
+  "httpx>=0.24.0",
   "jsonschema>=4.23",
+  "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
   "onnx==1.18",
@@ -39,6 +42,7 @@ dependencies = [
   "optimum-onnx>=0.1",
   "plotext>=5.3.2",
   "pydantic>=2",
+  "python-multipart>=0.0.22",
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
@@ -52,6 +56,7 @@ dependencies = [
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
   "transformers>=4.57",
+  "uvicorn[standard]>=0.42.0",
   "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
   "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
   "winrt-runtime>=3.2.1",
@@ -76,6 +81,7 @@ optional-dependencies.dev = [
   "tqdm>=4.67",
   "types-colorama>=0.4.15.20250801",
 ]
+optional-dependencies.audio = [ "soundfile>=0.13" ]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
@@ -119,6 +125,9 @@ include = [ "winml", "winml.*" ]
 ]
 "winml.modelkit.pattern" = [
   "rules/**/*.json",
+]
+"winml.modelkit.serve" = [
+  "static/**",
 ]
 
 # =============================================================================
@@ -371,8 +380,8 @@ markers = [
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
   "cuda: marks tests requiring CUDA runtime",
-  "directml: marks tests for DirectML backend",
-  "tensorrt: marks tests for TensorRT backend",
+  "dml: marks tests for Dml backend",
+  "nv_tensorrt_rtx: marks tests for NvTensorRTRTX backend",
   "vitisai: marks tests for AMD Vitis AI backend",
   "training: marks tests requiring training-specific ORT features",
 ]
