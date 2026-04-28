@@ -55,6 +55,37 @@ def run_eval(
         return "TIMEOUT"
 
 
+def run_perf(
+    hf_id: str,
+    config_path: Path,
+    output_path: Path,
+    device: str,
+    timeout: int,
+) -> str:
+    """Run winml perf and return 'PASS', 'FAIL', or 'TIMEOUT'."""
+    cmd = [
+        sys.executable, "-m", "winml.modelkit", "perf",
+        "-m", hf_id,
+        "--device", device,
+        "-c", str(config_path),
+        "-o", str(output_path),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, cwd=str(REPO_ROOT)
+        )
+        if result.returncode == 0 and output_path.exists():
+            return "PASS"
+        err_path = output_path.with_suffix(".error.txt")
+        err_path.write_text(result.stderr[-2000:] if result.stderr else "Unknown error")
+        return "FAIL"
+    except subprocess.TimeoutExpired:
+        timeout_path = output_path.with_suffix(".timeout")
+        timeout_path.write_text("timeout")
+        return "TIMEOUT"
+
+
 def infer_hf_id(config_path: Path) -> str | None:
     """Extract HF model ID from config's quant.model_name or loader."""
     try:
@@ -151,8 +182,16 @@ def main() -> None:
         prev_model = model_slug
 
         trust = needs_trust_remote_code(cfg_path)
-        print(f"[{i}/{len(configs)}] {hf_id} / {stem} ...", end=" ", flush=True)
 
+        # Run perf (unless --eval-only)
+        perf_output = cfg_path.parent / f"{stem}_perf.json"
+        if not args.eval_only and not perf_output.exists():
+            print(f"[{i}/{len(configs)}] {hf_id} / {stem} perf ...", end=" ", flush=True)
+            perf_status = run_perf(hf_id, cfg_path, perf_output, args.device, args.timeout)
+            print(perf_status)
+
+        # Run eval
+        print(f"[{i}/{len(configs)}] {hf_id} / {stem} eval ...", end=" ", flush=True)
         status = run_eval(hf_id, cfg_path, eval_output, args.device, args.timeout, trust)
         results[status] += 1
         print(status)
