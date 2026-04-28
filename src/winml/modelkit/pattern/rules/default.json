@@ -22,7 +22,7 @@
       "description": "GELU activation using Erf approximation - Variant 1",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_to_id": "SUBGRAPH/SingleGeluPattern",
           "pattern_class": "SingleGeluPattern",
           "module": "winml.modelkit.pattern.gelu_patterns",
           "priority": 1,
@@ -40,7 +40,7 @@
       "description": "GELU activation using Erf approximation - Variant 2",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_to_id": "SUBGRAPH/SingleGeluPattern",
           "pattern_class": "SingleGeluPattern",
           "module": "winml.modelkit.pattern.gelu_patterns",
           "priority": 1,
@@ -58,7 +58,7 @@
       "description": "GELU activation using Erf approximation - Variant 3",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_to_id": "SUBGRAPH/SingleGeluPattern",
           "pattern_class": "SingleGeluPattern",
           "module": "winml.modelkit.pattern.gelu_patterns",
           "priority": 1,
@@ -76,7 +76,7 @@
       "description": "GELU activation using Mul instead of Div - Variant 4",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/GeluPattern",
+          "pattern_to_id": "SUBGRAPH/SingleGeluPattern",
           "pattern_class": "SingleGeluPattern",
           "module": "winml.modelkit.pattern.gelu_patterns",
           "priority": 1,
@@ -94,7 +94,7 @@
       "description": "MatMul followed by Add (bias)",
       "alternatives": [
         {
-          "pattern_to_id": "SUBGRAPH/GemmPattern",
+          "pattern_to_id": "SUBGRAPH/ReshapeGemmReshapePattern",
           "pattern_class": "ReshapeGemmReshapePattern",
           "module": "winml.modelkit.pattern.gemm_patterns",
           "priority": 1,
@@ -102,7 +102,7 @@
           "reason": "Use Gemm operator outperforms MatMul+Add"
         },
         {
-          "pattern_to_id": "SUBGRAPH/GemmPattern",
+          "pattern_to_id": "SUBGRAPH/Conv2DInplaceLinear4DPattern",
           "pattern_class": "Conv2DInplaceLinear4DPattern",
           "module": "winml.modelkit.pattern.conv2d_inplace_linear_patterns",
           "priority": 2,
@@ -110,7 +110,7 @@
           "reason": "Use 1x1 Conv2D for Qualcomm NPU acceleration (4D NHWC inputs)"
         },
         {
-          "pattern_to_id": "SUBGRAPH/GemmPattern",
+          "pattern_to_id": "SUBGRAPH/Conv2DInplaceLinear3DPattern",
           "pattern_class": "Conv2DInplaceLinear3DPattern",
           "module": "winml.modelkit.pattern.conv2d_inplace_linear_patterns",
           "priority": 2,
@@ -118,7 +118,7 @@
           "reason": "Use 1x1 Conv2D for Qualcomm NPU acceleration (3D sequence inputs)"
         },
         {
-          "pattern_to_id": "SUBGRAPH/GemmPattern",
+          "pattern_to_id": "SUBGRAPH/Conv2DInplaceLinear2DPattern",
           "pattern_class": "Conv2DInplaceLinear2DPattern",
           "module": "winml.modelkit.pattern.conv2d_inplace_linear_patterns",
           "priority": 2,

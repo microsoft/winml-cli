@@ -187,7 +187,7 @@ def _expand_snapshot_payload(
 
     base_opset = payload.get(SNAPSHOT_BASE_OPSET_KEY)
     if not isinstance(base_opset, int):
-        logger.warning(
+        logger.debug(
             "Delta snapshot %s in %s missing integer %s; applying delta on empty base.",
             file_name,
             zip_path,
@@ -199,7 +199,7 @@ def _expand_snapshot_payload(
     if visited is None:
         visited = set()
     if token in visited:
-        logger.warning(
+        logger.debug(
             "Detected cyclic snapshot chain while loading %s from %s; "
             "applying delta on empty base.",
             file_name,
@@ -215,7 +215,7 @@ def _expand_snapshot_payload(
 
     base_raw = _read_json_from_zip(base_zip_path, base_file_name)
     if base_raw is None:
-        logger.warning(
+        logger.debug(
             "Base snapshot %s not found in %s (from %s); applying delta on empty base.",
             base_file_name,
             base_zip_path,
@@ -336,7 +336,7 @@ class LazyDomainTables:
                     columns_file_name=base_columns_file_name,
                 )
             else:
-                logger.warning(
+                logger.debug(
                     "Delta table snapshot %s in %s missing integer %s; "
                     "base fallback disabled for this table.",
                     self._file_name,
@@ -462,7 +462,7 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
             if self._set_error_on_missing:
                 self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
                 self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
-                logger.warning(f"Negative rule file not found: {self._rule_file}")
+                logger.debug(f"Negative rule file not found: {self._rule_file}")
             else:
                 logger.debug(f"Negative rule file not found: {self._rule_file}")
             return
@@ -916,7 +916,7 @@ def get_query_conditions_for_node(
                 conditions[column_name] = None
                 conditions[f"{column_name}_is_none"] = True
             else:
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): required attribute '%s' missing and has no default",
                     node.op_type,
                     node.name,
@@ -1003,7 +1003,7 @@ def get_query_conditions_for_node(
             if input_name in optional_input_names:
                 # Mark as optional/undefined - is_constant is True
                 # since the value is known (None/not provided)
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): input '%s' is optional"
                     " and not provided, setting value to None",
                     node.op_type,
@@ -1259,7 +1259,7 @@ class RuntimeCheckerQuery:
                 )
         except Exception as e:
             # If standard shape inference fails, use original model
-            logger.warning(f"Shape inference failed: {e}. Using original model.")
+            logger.debug(f"Shape inference failed: {e}. Using original model.")
             self.model_proto = model_proto
 
         self.ep_name = ep_name
@@ -1671,7 +1671,7 @@ class RuntimeCheckerQuery:
             model = self._build_single_node_model(node, op_domain, opset_version)
             input_feed = self._generate_node_inputs(node)
         except Exception as e:
-            logger.warning(
+            logger.debug(
                 "Failed to build single-node model for local EP check on %s (%s): %s",
                 node.name,
                 node.op_type,
