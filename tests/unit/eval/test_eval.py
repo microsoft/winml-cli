@@ -67,8 +67,19 @@ class TestResolveTask:
     def test_infer_from_model_id(self):
         from winml.modelkit.eval.evaluate import _resolve_task
 
+        fake_hf_config = MagicMock()
         config = WinMLEvaluationConfig(model_id="microsoft/resnet-50")
-        assert _resolve_task(config) == "image-classification"
+        with (
+            patch(
+                "transformers.AutoConfig.from_pretrained",
+                return_value=fake_hf_config,
+            ),
+            patch(
+                "winml.modelkit.loader.task._detect_task_from_config",
+                return_value="image-classification",
+            ),
+        ):
+            assert _resolve_task(config) == "image-classification"
 
 
 class TestEvaluate:

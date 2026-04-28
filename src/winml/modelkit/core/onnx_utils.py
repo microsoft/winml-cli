@@ -447,7 +447,7 @@ def get_epcontext_info(model_or_path: onnx.ModelProto | str | Path) -> dict[str,
         - ep_sdk_version: SDK version (e.g., "v2.40.0" for QNN)
         - hardware_architecture: Target hardware (e.g., "80+" for NVIDIA Ampere)
         - partition_name: Unique partition identifier with hash
-        - source: Source EP ("QNNExecutionProvider", "TensorrtExecutionProvider", etc.)
+        - source: Source EP ("QNNExecutionProvider", "NvTensorRTRTXExecutionProvider", etc.)
         - onnx_model_filename: Original ONNX model filename
 
     Args:

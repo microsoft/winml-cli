@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +68,14 @@ if TYPE_CHECKING:
 EG_RULE_DEBUG_DETAILS_KEY = "__debug_details"
 EG_RULE_ERROR_KEY = "__error"
 
+# Snapshot metadata keys used by runtime-check rule artifacts.
+SNAPSHOT_TYPE_KEY = "__snapshot_type__"
+SNAPSHOT_TYPE_DELTA = "delta_v1"
+SNAPSHOT_BASE_OPSET_KEY = "__base_opset__"
+SNAPSHOT_CURRENT_OPSET_KEY = "__current_opset__"
+SNAPSHOT_CHANGED_KEY = "__changed__"
+SNAPSHOT_DELETED_KEY = "__deleted__"
+
 
 class _PseudoNode:
     """Lightweight stand-in for onnx.NodeProto used only for logging in _check_negative_rules."""
@@ -116,6 +125,110 @@ def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _replace_opset_token(name: str, new_opset: int) -> str:
+    """Replace the first `_opset<digits>` token in a file name."""
+    return re.sub(r"_opset\d+", f"_opset{new_opset}", name, count=1)
+
+
+def _read_json_from_zip(zip_path: Path, file_name: str) -> dict[str, Any] | None:
+    """Read a JSON object from zip entry, returning None if not found/readable."""
+    if not zip_path.exists():
+        return None
+
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            if file_name not in zf.namelist():
+                return None
+            raw = json.loads(zf.read(file_name).decode("utf-8"))
+    except Exception as e:
+        logger.debug("Failed to read %s from %s: %s", file_name, zip_path, e)
+        return None
+
+    if not isinstance(raw, dict):
+        logger.debug("Unexpected non-dict payload in %s from %s", file_name, zip_path)
+        return None
+    return raw
+
+
+def _apply_snapshot_delta(
+    base_payload: dict[str, Any], delta_payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Apply changed/deleted entries from delta payload onto base payload."""
+    merged = dict(base_payload)
+    changed = delta_payload.get(SNAPSHOT_CHANGED_KEY, {})
+    if isinstance(changed, dict):
+        merged.update(changed)
+
+    deleted = delta_payload.get(SNAPSHOT_DELETED_KEY, [])
+    if isinstance(deleted, list):
+        for key in deleted:
+            if isinstance(key, str):
+                merged.pop(key, None)
+
+    return merged
+
+
+def _expand_snapshot_payload(
+    payload: dict[str, Any],
+    zip_path: Path,
+    file_name: str,
+    visited: set[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Expand a snapshot payload to full materialized data.
+
+    Full snapshots are returned as-is.
+    Delta snapshots are recursively applied on top of their base opset snapshot.
+    """
+    snapshot_type = payload.get(SNAPSHOT_TYPE_KEY)
+    if snapshot_type != SNAPSHOT_TYPE_DELTA:
+        return payload
+
+    base_opset = payload.get(SNAPSHOT_BASE_OPSET_KEY)
+    if not isinstance(base_opset, int):
+        logger.warning(
+            "Delta snapshot %s in %s missing integer %s; "
+            "applying delta on empty base.",
+            file_name,
+            zip_path,
+            SNAPSHOT_BASE_OPSET_KEY,
+        )
+        return _apply_snapshot_delta({}, payload)
+
+    token = (str(zip_path), file_name)
+    if visited is None:
+        visited = set()
+    if token in visited:
+        logger.warning(
+            "Detected cyclic snapshot chain while loading %s from %s; "
+            "applying delta on empty base.",
+            file_name,
+            zip_path,
+        )
+        return _apply_snapshot_delta({}, payload)
+
+    visited.add(token)
+
+    base_file_name = _replace_opset_token(file_name, base_opset)
+    base_zip_name = _replace_opset_token(zip_path.name, base_opset)
+    base_zip_path = resolve_rule_zip_path(base_zip_name)
+
+    base_raw = _read_json_from_zip(base_zip_path, base_file_name)
+    if base_raw is None:
+        logger.warning(
+            "Base snapshot %s not found in %s (from %s); "
+            "applying delta on empty base.",
+            base_file_name,
+            base_zip_path,
+            file_name,
+        )
+        return _apply_snapshot_delta({}, payload)
+
+    base_full = _expand_snapshot_payload(base_raw, base_zip_path, base_file_name, visited)
+    return _apply_snapshot_delta(base_full, payload)
+
+
 def _load_table_columns_file(zip_path: Path, columns_file_name: str | None) -> dict[str, list[str]]:
     """Load per-op table column metadata from a runtime-rules zip file.
 
@@ -126,21 +239,11 @@ def _load_table_columns_file(zip_path: Path, columns_file_name: str | None) -> d
     if not columns_file_name or not zip_path.exists():
         return {}
 
-    try:
-        import zipfile
-
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            if columns_file_name not in zf.namelist():
-                return {}
-            raw_columns = json.loads(zf.read(columns_file_name).decode("utf-8"))
-    except Exception as e:
-        logger.debug(
-            "Failed to load column file %s from %s: %s",
-            columns_file_name,
-            zip_path,
-            e,
-        )
+    raw_columns = _read_json_from_zip(zip_path, columns_file_name)
+    if raw_columns is None:
         return {}
+
+    raw_columns = _expand_snapshot_payload(raw_columns, zip_path, columns_file_name)
 
     if not isinstance(raw_columns, dict):
         return {}
@@ -178,6 +281,8 @@ class LazyDomainTables:
             for op_name, columns in (preloaded_columns or {}).items()
         }
         self._loaded_tables: dict[str, pd.DataFrame] = {}
+        self._base_tables: LazyDomainTables | None = None
+        self._deleted_keys: set[str] = set()
         self._loaded: bool = False
         self._columns_loaded: bool = bool(self._raw_columns) or self._columns_file_name is None
 
@@ -193,7 +298,6 @@ class LazyDomainTables:
         if self._loaded:
             return
         self._loaded = True
-        import zipfile
 
         if not self._zip_path.exists():
             logger.warning(
@@ -203,23 +307,61 @@ class LazyDomainTables:
                 self._zip_path,
             )
             return
-        try:
-            with zipfile.ZipFile(self._zip_path, "r") as zf:
-                if self._file_name in zf.namelist():
-                    self._raw_data = json.loads(zf.read(self._file_name).decode("utf-8"))
-                else:
-                    logger.debug(f"Table file not found in zip: {self._file_name}")
-        except Exception as e:
-            logger.debug(f"Failed to load table file {self._file_name}: {e}")
+
+        raw_table_payload = _read_json_from_zip(self._zip_path, self._file_name)
+        if raw_table_payload is None:
+            logger.debug(f"Table file not found in zip: {self._file_name}")
+            return
+
+        if raw_table_payload.get(SNAPSHOT_TYPE_KEY) == SNAPSHOT_TYPE_DELTA:
+            changed = raw_table_payload.get(SNAPSHOT_CHANGED_KEY, {})
+            deleted = raw_table_payload.get(SNAPSHOT_DELETED_KEY, [])
+            self._raw_data = changed if isinstance(changed, dict) else {}
+            if isinstance(deleted, list):
+                self._deleted_keys = {key for key in deleted if isinstance(key, str)}
+            else:
+                self._deleted_keys = set()
+
+            base_opset = raw_table_payload.get(SNAPSHOT_BASE_OPSET_KEY)
+            if isinstance(base_opset, int):
+                base_file_name = _replace_opset_token(self._file_name, base_opset)
+                base_zip_name = _replace_opset_token(self._zip_path.name, base_opset)
+                base_zip_path = resolve_rule_zip_path(base_zip_name)
+                base_columns_file_name = (
+                    _replace_opset_token(self._columns_file_name, base_opset)
+                    if self._columns_file_name
+                    else None
+                )
+                self._base_tables = LazyDomainTables(
+                    base_zip_path,
+                    base_file_name,
+                    columns_file_name=base_columns_file_name,
+                )
+            else:
+                logger.warning(
+                    "Delta table snapshot %s in %s missing integer %s; "
+                    "base fallback disabled for this table.",
+                    self._file_name,
+                    self._zip_path,
+                    SNAPSHOT_BASE_OPSET_KEY,
+                )
+            return
+
+        self._raw_data = raw_table_payload
 
     def __getitem__(self, key: str) -> pd.DataFrame:
         """Get table for operator, loading from zip if needed."""
         if key not in self._loaded_tables:
             self._ensure_loaded()
-            if key not in self._raw_data:
+            if key in self._raw_data:
+                self._loaded_tables[key] = _sanitize_df(build_table_df(self._raw_data[key]))
+                del self._raw_data[key]
+            elif key in self._deleted_keys:
                 raise KeyError(f"Operator '{key}' not found in tables")
-            self._loaded_tables[key] = _sanitize_df(build_table_df(self._raw_data[key]))
-            del self._raw_data[key]
+            elif self._base_tables and key in self._base_tables:
+                self._loaded_tables[key] = self._base_tables[key]
+            else:
+                raise KeyError(f"Operator '{key}' not found in tables")
         return self._loaded_tables[key]
 
     def __contains__(self, key: str) -> bool:
@@ -227,7 +369,13 @@ class LazyDomainTables:
         if key in self._loaded_tables:
             return True
         self._ensure_loaded()
-        return key in self._raw_data
+        if key in self._raw_data:
+            return True
+        if key in self._deleted_keys:
+            return False
+        if self._base_tables is not None:
+            return key in self._base_tables
+        return False
 
     def get(self, key: str, default: pd.DataFrame | None = None) -> pd.DataFrame | None:
         """Get table for operator with default fallback."""
@@ -253,6 +401,12 @@ class LazyDomainTables:
             return list(self._raw_columns[key])
 
         self._ensure_loaded()
+        if key in self._deleted_keys:
+            return None
+        if self._base_tables is not None:
+            base_columns = self._base_tables.get_columns(key)
+            if base_columns is not None:
+                return base_columns
 
         raw_table = self._raw_data.get(key)
         if isinstance(raw_table, dict):
@@ -293,8 +447,6 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
         self._load()
 
     def _load(self) -> None:
-        import zipfile
-
         if not self._zip_path.exists():
             if self._set_error_on_missing:
                 self[EG_RULE_ERROR_KEY] = "rules_zip_not_found"
@@ -307,17 +459,17 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
                 )
             return
 
-        with zipfile.ZipFile(self._zip_path, "r") as zf:
-            if self._rule_file not in zf.namelist():
-                if self._set_error_on_missing:
-                    self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
-                    self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
-                    logger.warning(f"Negative rule file not found: {self._rule_file}")
-                else:
-                    logger.debug(f"Negative rule file not found: {self._rule_file}")
-                return
+        raw_payload = _read_json_from_zip(self._zip_path, self._rule_file)
+        if raw_payload is None:
+            if self._set_error_on_missing:
+                self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
+                self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
+                logger.warning(f"Negative rule file not found: {self._rule_file}")
+            else:
+                logger.debug(f"Negative rule file not found: {self._rule_file}")
+            return
 
-            raw: dict[str, Any] = json.loads(zf.read(self._rule_file).decode("utf-8"))
+        raw = _expand_snapshot_payload(raw_payload, self._zip_path, self._rule_file)
 
         filtered: dict[str, Any] = {
             key: value
@@ -650,7 +802,7 @@ def get_query_conditions_for_node(
 
     # create runtime checker op
     try:
-        runtime_checker_op = get_runtime_checker_op(node.op_type)(schema)
+        runtime_checker_op = get_runtime_checker_op(node.op_type, domain=domain.value)(schema)
     except KeyError:
         raise OpUnsupportedError(f"Node {node.op_type} is not supported") from None
     type_vars = {}
@@ -776,9 +928,7 @@ def get_query_conditions_for_node(
         if inp_name in initializers:
             init = initializers[inp_name]
             arr = numpy_helper.to_array(init)
-            update_conditions_(
-                conditions, input_name, is_variadic, True, arr.shape, make_hashable(arr)
-            )
+            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for initializers
@@ -794,9 +944,7 @@ def get_query_conditions_for_node(
             # Handle Constant node inputs
             const_tensor = constants[inp_name]
             arr = numpy_helper.to_array(const_tensor)
-            update_conditions_(
-                conditions, input_name, is_variadic, True, arr.shape, make_hashable(arr)
-            )
+            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for constants
@@ -923,9 +1071,7 @@ def get_query_conditions_for_pattern(
         conditions[f"{input_name}_is_fixed_shape"] = len(dyn_axes) == 0
         conditions[f"{input_name}_dynamic_axes"] = dyn_axes
         conditions[f"{input_name}_shape"] = info.shape
-        conditions[f"{input_name}_value"] = (
-            make_hashable(info.value) if info.value is not None else None
-        )
+        conditions[f"{input_name}_value"] = info.value
         conditions[f"{input_name}_is_none"] = False
 
     # Attributes (with attr_ prefix)
@@ -1026,6 +1172,8 @@ class RuntimeCheckerQuery:
         self._failed_nodes_logged: set[Any] = set()
         # Cache of nodes that have been run locally for quick lookup
         self._local_run_nodes: dict[Any, RuntimeTestResult] = {}
+        # Cache of node results keyed by hashable table_filter_conditions
+        self._node_result_cache: dict[Any, PatternRuntime] = {}
 
         # Register per-domain lazy rule objects — no file I/O occurs here.
         registered_patterns = set(get_registered_pattern_input_generators())
@@ -1040,7 +1188,8 @@ class RuntimeCheckerQuery:
 
         for domain, opset_version in self.opset_versions.items():
             file_prefix = domain.name
-            base = f"{self.ep_name}_{self.device_type}_{file_prefix}_opset{opset_version}"
+            # Device type is uppercased to align with the convention used by check ops.
+            base = f"{self.ep_name}_{self.device_type.upper()}_{file_prefix}_opset{opset_version}"
             rule_zip_path = resolve_rule_zip_path(f"{base}.zip")
             rule_file = f"{base}_negative_rules.json"
             qdq_rule_file = f"{base}_negative_rules_qdq.json"
@@ -1602,7 +1751,7 @@ class RuntimeCheckerQuery:
         op_domain: ONNXDomain,
         opset_version: int,
         result: RuntimeTestResult,
-        table_filter_conditions: dict[str, Any],
+        cache_key: Any,
         save_node_types: set[str] | None = None,
     ) -> None:
         """Save unsupported or partial node models without re-running result computation."""
@@ -1619,7 +1768,7 @@ class RuntimeCheckerQuery:
         self._save_failed_node(
             node,
             node_model,
-            make_hashable(table_filter_conditions),
+            cache_key,
             name_suffix="unsupported" if is_unsupported else "partial",
         )
 
@@ -1836,10 +1985,23 @@ class RuntimeCheckerQuery:
             op_columns = domain_tables.get_columns(node.op_type)
         if op_columns is not None:
             table_filter_conditions = _build_table_filter_conditions(
-                conditions,
+                table_filter_conditions,
                 op_columns,
                 infinite_properties,
                 f"op {node.op_type} (domain: {op_domain})",
+            )
+
+        # Check cache using table_filter_conditions as key
+        # Values are already hashable from get_query_conditions_for_node;
+        # just convert the dict to a tuple of sorted items.
+        cache_key = tuple(sorted(table_filter_conditions.items()))
+        if cache_key in self._node_result_cache:
+            cached = self._node_result_cache[cache_key]
+            return PatternRuntime(
+                pattern_id=pattern_id,
+                result=cached.result,
+                alternatives=self.alternatives,
+                pattern_match=pattern_match,
             )
 
         # Phase 3: Check if op exists in target rules
@@ -1866,6 +2028,7 @@ class RuntimeCheckerQuery:
                     conditions=None,
                 )
                 if local_result is not None:
+                    self._node_result_cache[cache_key] = local_result
                     return local_result
 
             result = RuntimeTestResult(
@@ -1882,12 +2045,14 @@ class RuntimeCheckerQuery:
                 node_tags=node_tags,
             )
 
-            return PatternRuntime(
+            pattern_runtime = PatternRuntime(
                 pattern_id=pattern_id,
                 result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
+            self._node_result_cache[cache_key] = pattern_runtime
+            return pattern_runtime
 
         # Phase 4: Apply negative rules and table matching
         op_neg_rules = target_neg_rules[op_domain][node.op_type]
@@ -1895,10 +2060,10 @@ class RuntimeCheckerQuery:
 
         try:
             compile_result, compile_reason = self._check_negative_rules(
-                op_neg_rules, conditions, node, "compile"
+                op_neg_rules, table_filter_conditions, node, "compile"
             )
             run_result, run_reason = self._check_negative_rules(
-                op_neg_rules, conditions, node, "run"
+                op_neg_rules, table_filter_conditions, node, "run"
             )
             reason = compile_reason + run_reason
 
@@ -1915,16 +2080,6 @@ class RuntimeCheckerQuery:
                     )
                     table_file = str(getattr(domain_tables, "_file_name", ""))
                     table_df = domain_tables[node.op_type]
-                    if op_columns is None:
-                        op_columns = (
-                            domain_tables.get_columns(node.op_type) or table_df.columns.to_list()
-                        )
-                        table_filter_conditions = _build_table_filter_conditions(
-                            conditions,
-                            op_columns,
-                            infinite_properties,
-                            f"op {node.op_type} (domain: {op_domain})",
-                        )
 
                     ret = query_table_exact_match(table_df, table_filter_conditions)
                     if not ret.empty:
@@ -1975,9 +2130,10 @@ class RuntimeCheckerQuery:
                                 pattern_match,
                                 node_tags,
                                 fallback_reason,
-                                conditions=make_hashable(table_filter_conditions),
+                                conditions=cache_key,
                             )
                             if local_result is not None:
+                                self._node_result_cache[cache_key] = local_result
                                 return local_result
 
                         result = RuntimeTestResult(
@@ -1990,12 +2146,14 @@ class RuntimeCheckerQuery:
                             debug_details=debug_details,
                         )
 
-                        return PatternRuntime(
+                        pattern_runtime = PatternRuntime(
                             pattern_id=pattern_id,
                             result=result,
                             alternatives=self.alternatives,
                             pattern_match=pattern_match,
                         )
+                        self._node_result_cache[cache_key] = pattern_runtime
+                        return pattern_runtime
                 else:  # no table data
                     if run_unknown_op:
                         fallback_reason = self._get_domain_fallback_reason(
@@ -2011,6 +2169,7 @@ class RuntimeCheckerQuery:
                             conditions=None,
                         )
                         if local_result is not None:
+                            self._node_result_cache[cache_key] = local_result
                             return local_result
 
                     table_source = "qdq" if is_qdq else "non_qdq"
@@ -2061,12 +2220,14 @@ class RuntimeCheckerQuery:
                         },
                     )
 
-                    return PatternRuntime(
+                    pattern_runtime = PatternRuntime(
                         pattern_id=pattern_id,
                         result=result,
                         alternatives=self.alternatives,
                         pattern_match=pattern_match,
                     )
+                    self._node_result_cache[cache_key] = pattern_runtime
+                    return pattern_runtime
         except (OpOptionalInputSupportError, OpLackOfRequiredInformationError) as e:
             exception_type = type(e).__name__
             logger.error(
@@ -2094,12 +2255,14 @@ class RuntimeCheckerQuery:
                 },
             )
 
-            return PatternRuntime(
+            pattern_runtime = PatternRuntime(
                 pattern_id=pattern_id,
                 result=result,
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
             )
+            self._node_result_cache[cache_key] = pattern_runtime
+            return pattern_runtime
 
         result = RuntimeTestResult(
             compile=compile_result,
@@ -2114,16 +2277,18 @@ class RuntimeCheckerQuery:
             op_domain,
             opset_version,
             result,
-            table_filter_conditions,
+            cache_key,
             save_node_types=save_node_types,
         )
 
-        return PatternRuntime(
+        pattern_runtime = PatternRuntime(
             pattern_id=pattern_id,
             result=result,
             alternatives=self.alternatives,
             pattern_match=pattern_match,
         )
+        self._node_result_cache[cache_key] = pattern_runtime
+        return pattern_runtime
 
     def run_for_subgraph(
         self,

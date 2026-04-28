@@ -4,15 +4,25 @@
 # --------------------------------------------------------------------------
 """CLI utilities for ModelKit commands."""
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
 
 
-def model_option(required=True):
-    """Add --model option to a Click command.
+if TYPE_CHECKING:
+    from ..config import WinMLBuildConfig
+
+
+def model_path_option(required=True):
+    """Add --model option that accepts a local ONNX file path.
+
+    The path is validated for existence on disk.
 
     Args:
         required: Whether the model option is required (default: True)
@@ -26,6 +36,27 @@ def model_option(required=True):
         required=required,
         type=click.Path(exists=True, path_type=Path),
         help="Path to ONNX model file to analyze",
+    )
+
+
+def model_option(required=True):
+    """Add --model option that accepts any model reference.
+
+    Accepts a HuggingFace model ID, build output directory, or .onnx file path.
+    No path existence validation is performed.
+
+    Args:
+        required: Whether the model option is required (default: True)
+
+    Returns:
+        Decorator function
+    """
+    return click.option(
+        "--model",
+        "-m",
+        required=required,
+        default=None,
+        help="Model: HF model ID, build output directory, or .onnx file path",
     )
 
 
@@ -58,7 +89,7 @@ def ep_option(required=True, optional_message=None):
     )
 
 
-def device_option(required=True, optional_message=None, default="NPU"):
+def device_option(required=True, optional_message=None, default="NPU", include_auto=False):
     """Add --device option to a Click command.
 
     Args:
@@ -67,11 +98,14 @@ def device_option(required=True, optional_message=None, default="NPU"):
             optional (e.g., "If not specified, uses NPU as
             default.")
         default: Default value when optional (default: "NPU")
+        include_auto: Whether to include "auto" as a valid choice
+            (default: False).
 
     Returns:
         Decorator function
     """
-    help_text = "Target device type (CPU, GPU, NPU)"
+    choices = SUPPORTED_DEVICES_WITH_AUTO if include_auto else SUPPORTED_DEVICES
+    help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
@@ -79,7 +113,8 @@ def device_option(required=True, optional_message=None, default="NPU"):
         "--device",
         required=required,
         default=default if not required else None,
-        type=click.Choice(SUPPORTED_DEVICES, case_sensitive=True),
+        show_default=True,
+        type=click.Choice(choices, case_sensitive=False),
         help=help_text,
     )
 
@@ -113,3 +148,58 @@ def verbosity_options(f):
         help="Increase verbosity (-v=INFO, -vv=DEBUG)",
     )(f)
     return f  # noqa: RET504
+
+
+def build_config_option(func):
+    """Add -c/--config option for WinMLBuildConfig JSON file."""
+    return click.option(
+        "-c",
+        "--config",
+        "config_file",
+        type=click.Path(exists=True, path_type=Path),
+        default=None,
+        help="WinMLBuildConfig JSON file (from winml config). "
+        "Provides defaults; explicit CLI options take precedence.",
+    )(func)
+
+
+def load_build_config(config_path: Path) -> WinMLBuildConfig:
+    """Load a WinMLBuildConfig from a JSON file.
+
+    Args:
+        config_path: Path to JSON config file.
+
+    Returns:
+        Parsed WinMLBuildConfig.
+
+    Raises:
+        click.UsageError: If file is empty or invalid JSON.
+    """
+    from ..config import WinMLBuildConfig
+
+    try:
+        content = config_path.read_text()
+        if not content.strip():
+            raise click.UsageError(f"Config file is empty: {config_path}")
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"Invalid JSON in build config: {e}") from e
+
+    if not isinstance(data, dict):
+        raise click.UsageError(f"Build config must be a JSON object, got {type(data).__name__}")
+
+    return WinMLBuildConfig.from_dict(data)
+
+
+def is_cli_provided(ctx: click.Context, param_name: str) -> bool:
+    """Check whether a CLI parameter was explicitly provided by the user.
+
+    Args:
+        ctx: Click context.
+        param_name: The parameter name (Python name, e.g. 'model').
+
+    Returns:
+        True if the user explicitly passed the option on the command line.
+    """
+    source = ctx.get_parameter_source(param_name)
+    return source == click.core.ParameterSource.COMMANDLINE

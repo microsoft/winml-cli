@@ -3,6 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 """EP-agnostic operator profiling interface."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,7 +11,6 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-
     from .result import OpTraceResult
 
 
@@ -18,7 +18,7 @@ class OpTracer(ABC):
     """EP-agnostic operator profiling interface.
 
     Subclasses implement tracing logic for a specific execution provider
-    (e.g. QNN, DirectML, CUDA).
+    (e.g. QNN, Dml, CUDA).
 
     Concrete implementations receive the model path and output directory
     at construction time, then call ``run()`` to execute profiling.

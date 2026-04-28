@@ -1,5 +1,6 @@
 # ModelKit
 
+[![ModelKit CI](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml)
 ![Status](https://img.shields.io/badge/status-early%20access-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -26,9 +27,9 @@
 | **QNN** | Qualcomm NPU (Snapdragon X Elite) | 🟢 Ready | `--ep qnn` | `--device npu` |
 | **OpenVINO** | Intel NPU (Meteor Lake / Lunar Lake) | 🟢 Ready | `--ep openvino` | `--device npu` |
 | **VitisAI** | AMD NPU (Ryzen AI) | 🟢 Ready | `--ep vitisai` | `--device npu` |
-| **TensorRT** | NVIDIA discrete GPUs | 🔶 Planned | `--ep tensorrt` | `--device gpu` |
+| **NvTensorRTRTX** | NVIDIA discrete GPUs | 🔶 Planned | `--ep nv_tensorrt_rtx` | `--device gpu` |
 | **MIGraphX** | AMD discrete GPUs | 🔶 Planned | `--ep migraphx` | `--device gpu` |
-| **DirectML** | Hardware-agnostic GPU backend | 🔶 Planned | `--ep dml` | `--device gpu` |
+| **Dml** | Hardware-agnostic GPU backend | 🔶 Planned | `--ep dml` | `--device gpu` |
 | **CPU** | Cross-platform fallback | ⚪ Always available | `--ep cpu` | `--device cpu` |
 
 > **Tip:** Use `--device auto` and ModelKit picks the best available device — NPU first, then GPU, then CPU.
@@ -397,7 +398,7 @@ Supported tasks include:
 |:----------|:-------|:-----------|
 | 🟡 **Kickoff** | Q4 2025 | Internal prototype, core primitive commands |
 | 🟢 **Early Access** | Q1 2026 | First external testers, config + build pipeline, hub catalog |
-| 🔵 **Public Beta** | Q2 2026 | Open source, agent skills, AI Toolkit integration |
+| 🔵 **Public Beta** | Q2 2026 | Open source, agent skills, Foundry Toolkit integration |
 | 🟣 **RC** | Q3-Q4 2026 | **LLM support** (with LoRA), broader device coverage, MLIR |
 
 <details>
@@ -417,11 +418,11 @@ Supported tasks include:
 **Q2 2026 — Public Beta**
 - Open source release
 - Agent-ready skills for coding assistants (Claude Code, Cursor, Copilot)
-- AI Toolkit for VS Code integration
+- Foundry Toolkit for VS Code integration
 
 **Q3-Q4 2026 — Release Candidate**
 - LLM support (decoder-only architectures with LoRA adapters)
-- TensorRT, MIGraphX, and DirectML execution providers
+- NvTensorRTRTX, MIGraphX, and Dml execution providers
 - MLIR-based optimization backend
 - Public SDK and framework APIs
 

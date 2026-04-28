@@ -77,6 +77,7 @@ class ReductionInputGenerator(OpInputGenerator):
             axes_combinations.append([0, -1])  # First and last axes
             axes_combinations.append([0, 1])  # First 2 axes
             axes_combinations.append([-2, -1])  # Last 2 axes
+            axes_combinations.append([1])  # Single middle axis (not first, not last)
 
         # basically all Reduce* ops have "axes" as attrribute for opset <=17
         # and as input for opset >=18, EXCEPT ReduceSum, which has "axes" as input since opset 13

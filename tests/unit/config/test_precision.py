@@ -39,7 +39,7 @@ class TestResolvePrecision:
         "device,precision,exp_device,exp_precision,exp_weight,exp_act,exp_provider",
         [
             # device   precision  exp_device  exp_prec  weight    act      provider
-            ("npu", "auto", "npu", "int8", "uint8", "uint8", "qnn"),
+            ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "qnn"),
             ("npu", "int8", "npu", "int8", "uint8", "uint8", "qnn"),
             ("npu", "int16", "npu", "int16", "int16", "uint16", "qnn"),
             ("npu", "fp16", "npu", "fp16", None, None, "qnn"),
@@ -182,12 +182,12 @@ class TestEpOverride:
         assert policy.device == "gpu"
 
     def test_ep_overrides_default_dml(self) -> None:
-        """Without ep, gpu maps to dml. With ep='tensorrt', should be tensorrt."""
+        """Without ep, gpu maps to dml. With ep='nv_tensorrt_rtx', should be nv_tensorrt_rtx."""
         default = resolve_precision(device="gpu")
         assert default.compile_provider == "dml"
 
-        override = resolve_precision(device="gpu", ep="tensorrt")
-        assert override.compile_provider == "tensorrt"
+        override = resolve_precision(device="gpu", ep="nv_tensorrt_rtx")
+        assert override.compile_provider == "nv_tensorrt_rtx"
 
     def test_ep_infers_device_from_gpu_ep(self) -> None:
         """ep='migraphx' with device='auto' should infer device='gpu'."""

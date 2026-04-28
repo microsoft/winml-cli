@@ -299,6 +299,9 @@ def _render_analysis_summary(
     results: list,
     ep_instance_counts: dict[str, dict[str, dict[str, int]]],
     ep_patterns: dict[str, dict[str, dict]] | None = None,
+    *,
+    ep: str | None = None,
+    device: str | None = None,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -308,12 +311,30 @@ def _render_analysis_summary(
         ep_instance_counts: Per-EP instance counts accumulated during analysis,
             keyed by EP name, then op name, then support level.
         ep_patterns: Per-EP subgraph pattern support extracted from results.
+        ep: Requested EP name (for display when no results).
+        device: Requested device (for display when no results).
     """
     from ..analyze.models.support_level import SupportLevel
 
     console.print("═" * 80)
     console.print("\U0001f4c8 [bold]ANALYSIS SUMMARY[/bold]")
     console.print("═" * 80)
+
+    if not results:
+        ep_label = ep or "all EPs"
+        if device:
+            msg = (
+                f"   [dim]No runtime check results for [bold]{ep_label}[/bold] "
+                f"on [bold]{device}[/bold] — no rule data available.[/dim]"
+            )
+        else:
+            msg = (
+                f"   [dim]No runtime check results for [bold]{ep_label}[/bold] "
+                f"— no rule data available.[/dim]"
+            )
+        console.print(msg)
+        console.print()
+        return
 
     for ep_support in results:
         ep_name = ep_support.ep_type
@@ -379,7 +400,7 @@ def _render_analysis_summary(
 
 
 @click.command(name="analyze")
-@cli_utils.model_option(required=True)
+@cli_utils.model_path_option(required=True)
 @cli_utils.ep_option(
     required=False, optional_message="If not specified, analyzes all supported EPs"
 )
@@ -387,6 +408,7 @@ def _render_analysis_summary(
     required=False, optional_message="If not specified, uses NPU as default", default="NPU"
 )
 @cli_utils.verbosity_options
+@cli_utils.build_config_option
 @click.option(
     "--output",
     type=click.Path(path_type=Path),
@@ -422,7 +444,9 @@ def _render_analysis_summary(
     default=None,
     help="Save auto-discovered optimization config to JSON file",
 )
+@click.pass_context
 def analyze(
+    ctx: click.Context,
     model: Path,
     ep: str | None,
     device: str | None,
@@ -430,6 +454,7 @@ def analyze(
     information: bool,
     verbose: int,
     quiet: bool,
+    config_file: Path | None,
     htp_metadata: Path | None,
     run_unknown_op: bool,
     save_node: tuple[str, ...],
@@ -454,6 +479,13 @@ def analyze(
         winml analyze --model model.onnx --ep ov --device GPU
         winml analyze --model model.onnx --output results.json
     """
+    # Apply build config defaults (CLI explicit options take precedence)
+    if config_file is not None:
+        build_cfg = cli_utils.load_build_config(config_file)
+        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
+            ep = build_cfg.compile.ep_config.provider
+
+    # Configure logging
     configure_logging(verbosity=verbose, quiet=quiet)
 
     try:
@@ -464,10 +496,39 @@ def analyze(
             logger.error("ONNX model file not found: %s", model)
             sys.exit(2)
 
+        from ..analyze.utils.ep_utils import (
+            get_devices_with_rule_data,
+            has_rule_data_for_ep,
+        )
+
         ep_normalized = normalize_ep_name(ep)
 
+        # Validate only when the user explicitly specified --device
+        if (
+            cli_utils.is_cli_provided(ctx, "device")
+            and ep_normalized
+            and device
+            and not has_rule_data_for_ep(ep_normalized, device)
+        ):
+            available = get_devices_with_rule_data(ep_normalized)
+            if available:
+                logger.error(
+                    "%s only supports %s.",
+                    ep_normalized,
+                    ", ".join(available),
+                )
+            else:
+                logger.error(
+                    "%s has no rule data for %s.",
+                    ep_normalized,
+                    device,
+                )
+            sys.exit(2)
+
+        ep_label = ep_normalized or "all EPs"
+        device_label = device or "NPU"
         logger.info("Analyzing model: %s", model)
-        logger.info("Target: %s on %s", ep_normalized or "all EPs", device)
+        logger.info("Target: %s on %s", ep_label, device_label)
 
         analyzer = ONNXStaticAnalyzer()
 
@@ -500,6 +561,9 @@ def analyze(
                     f"   📋 Operators: [cyan]{_total_ops}[/cyan] total, "
                     f"[cyan]{_unique_ops}[/cyan] unique types"
                 )
+                console.print(
+                    f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device_label}[/bold]"
+                )
                 console.print()
                 del _proto  # free memory
             except Exception:
@@ -512,6 +576,14 @@ def analyze(
         ep_instance_counts: dict[str, dict[str, dict[str, int]]] = {}
         live: Live | None = None
         ep_counter = 0
+
+        run_unknown_op_for_ep = run_unknown_op
+        if ep == "VitisAIExecutionProvider":
+            run_unknown_op_for_ep = False
+            logger.info(
+                "Disabling --run-unknown-op for VitisAIExecutionProvider: "
+                "AMD op runtime results are not available yet"
+            )
 
         def _finalize_live(mark_complete: bool = True) -> None:
             """Stop the active Live display, optionally marking it complete."""
@@ -607,7 +679,7 @@ def analyze(
                     device=device,
                     enable_information=information,
                     htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                    run_unknown_op=run_unknown_op,
+                    run_unknown_op=run_unknown_op_for_ep,
                     save_node_types=save_node_types,
                     on_node_result=on_node_result,
                     on_ep_start=on_ep_start,
@@ -634,17 +706,20 @@ def analyze(
                 result.output.results,
                 ep_instance_counts,
                 ep_patterns=ep_patterns,
+                ep=ep_normalized,
+                device=device,
             )
 
-            # Legend (at the very bottom)
-            console.print(
-                "  [dim]S/P/U = Supported/Partial/Unsupported[/dim]"
-                "  [green]██[/green] supported"
-                "  [yellow]██[/yellow] partial"
-                "  [red]██[/red] unsupported"
-                "  [bright_black]██[/bright_black] unknown"
-            )
-            console.print()
+            # Legend (at the very bottom, only when there are EP results)
+            if result.output.results:
+                console.print(
+                    "  [dim]S/P/U = Supported/Partial/Unsupported[/dim]"
+                    "  [green]██[/green] supported"
+                    "  [yellow]██[/yellow] partial"
+                    "  [red]██[/red] unsupported"
+                    "  [bright_black]██[/bright_black] unknown"
+                )
+                console.print()
         else:
             # Quiet mode — no live display
             save_node_types = set(save_node)
@@ -654,7 +729,7 @@ def analyze(
                 device=device,
                 enable_information=information,
                 htp_metadata_path=str(htp_metadata) if htp_metadata else None,
-                run_unknown_op=run_unknown_op,
+                run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
             )
 
