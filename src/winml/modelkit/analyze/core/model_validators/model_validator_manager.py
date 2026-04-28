@@ -11,6 +11,8 @@ into Information objects.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import TYPE_CHECKING, ClassVar
 
 from .constant_folding_validator import ConstantFoldingValidator
@@ -27,6 +29,24 @@ if TYPE_CHECKING:
     from .base import ModelValidator
 
 logger = logging.getLogger(__name__)
+
+_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _log_timing(event: str, **fields: object) -> None:
+    """Emit structured timing logs when timing mode is enabled."""
+    if not _TIMING_LOG_ENABLED:
+        return
+    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
+    if parts:
+        logger.info("[timing] %s %s", event, " ".join(parts))
+    else:
+        logger.info("[timing] %s", event)
 
 
 class ModelValidatorManager:
@@ -134,23 +154,53 @@ class ModelValidatorManager:
                       not raised to caller
         """
         information_list: list[Information] = []
+        total_start = time.perf_counter()
+        successful_validators = 0
+        failed_validators = 0
 
         for validator in self.validators:
+            validator_start = time.perf_counter()
             try:
                 logger.debug(f"Running validator: {validator.validator_name}")
                 info = validator.validate()
+                validator_ms = int((time.perf_counter() - validator_start) * 1000)
+                successful_validators += 1
                 if info:
                     logger.info(f"{validator.validator_name} found issue: {info.pattern_id}")
                     information_list.append(info)
+                _log_timing(
+                    "model_validators.validator",
+                    name=validator.validator_name,
+                    has_issue=bool(info),
+                    total_ms=validator_ms,
+                )
             except Exception as e:  # noqa: PERF203
+                validator_ms = int((time.perf_counter() - validator_start) * 1000)
+                failed_validators += 1
                 logger.exception(
                     f"Validator {validator.validator_name} failed with exception: "
                     f"{type(e).__name__}",
+                )
+                _log_timing(
+                    "model_validators.validator",
+                    name=validator.validator_name,
+                    failed=True,
+                    error_type=type(e).__name__,
+                    total_ms=validator_ms,
                 )
 
         logger.info(
             f"Validation complete: {len(information_list)} issue(s) detected "
             f"by {len(self.validators)} validator(s)"
+        )
+
+        _log_timing(
+            "model_validators.run_all",
+            validators=len(self.validators),
+            successful_validators=successful_validators,
+            failed_validators=failed_validators,
+            issues=len(information_list),
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
         return information_list

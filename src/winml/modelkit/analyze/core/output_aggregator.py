@@ -10,6 +10,8 @@ Implements FR-026-031 (Output assembly and structure).
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import TYPE_CHECKING
 
 
@@ -23,6 +25,24 @@ from ..utils import infer_ihv_from_ep_name
 
 
 logger = logging.getLogger(__name__)
+
+_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _log_timing(event: str, **fields: object) -> None:
+    """Emit structured timing logs when timing mode is enabled."""
+    if not _TIMING_LOG_ENABLED:
+        return
+    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
+    if parts:
+        logger.info("[timing] %s %s", event, " ".join(parts))
+    else:
+        logger.info("[timing] %s", event)
 
 
 class OutputAggregator:
@@ -94,6 +114,7 @@ class OutputAggregator:
             >>> json_output = output.model_dump_json()
         """
         logger.info("Aggregating analysis results for model: %s", metadata.model_path)
+        total_start = time.perf_counter()
 
         # Input validation
         if not check_results and not information_list:
@@ -102,6 +123,7 @@ class OutputAggregator:
         # Build IHV support sections for all EP names from both sources
         all_ep_names = set(check_results.keys()) | set(information_list.keys())
         results: list[EPSupport] = []
+        build_results_start = time.perf_counter()
 
         for ep_name in all_ep_names:
             ep_check_results = check_results.get(ep_name, [])
@@ -115,18 +137,31 @@ class OutputAggregator:
                 device_type=device,
             )
             results.append(ep_support)
+        build_results_ms = int((time.perf_counter() - build_results_start) * 1000)
 
         # Create final output
+        output_build_start = time.perf_counter()
         output = AnalysisOutput(
             analyzer_version=self.analyzer_version,
             metadata=metadata,
             results=results,
         )
+        output_build_ms = int((time.perf_counter() - output_build_start) * 1000)
 
         logger.info(
             "Aggregation complete: %d IHV results, %d patterns",
             len(results),
             sum(metadata.detected_pattern_count.values()),
+        )
+
+        _log_timing(
+            "output_aggregator.aggregate",
+            model=metadata.model_path,
+            eps=len(all_ep_names),
+            total_pattern_count=sum(metadata.detected_pattern_count.values()),
+            build_results_ms=build_results_ms,
+            output_build_ms=output_build_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
         return output
@@ -158,6 +193,7 @@ class OutputAggregator:
             2. Determine overall runtime_support status (False if any unsupported)
             3. Assemble EPSupport with classification and information
         """
+        total_start = time.perf_counter()
         # Infer IHVType from EP name using utility function
         ihv = infer_ihv_from_ep_name(ep_type)
 
@@ -212,7 +248,7 @@ class OutputAggregator:
         )
 
         logger.debug(f"Creating EPSupport with device_type: {device_type}")
-        return EPSupport(
+        ep_support = EPSupport(
             ihv_type=ihv,
             ep_type=ep_type,
             device_type=device_type,
@@ -224,3 +260,17 @@ class OutputAggregator:
             classification=classification,
             information=information_list,
         )
+        _log_timing(
+            "output_aggregator.build_ep_support",
+            ep=ep_type,
+            device=device_type,
+            check_results=len(check_results),
+            information_items=len(information_list),
+            supported=len(classification[SupportLevel.SUPPORTED]),
+            partial=len(classification[SupportLevel.PARTIAL]),
+            unsupported=len(classification[SupportLevel.UNSUPPORTED]),
+            unknown=len(classification[SupportLevel.UNKNOWN]),
+            runtime_support=runtime_support,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
+        )
+        return ep_support

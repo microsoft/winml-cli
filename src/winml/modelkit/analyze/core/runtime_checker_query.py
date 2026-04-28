@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 import sys
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -64,11 +65,34 @@ logger = logging.getLogger(__name__)
 _LOG_COLOR_LIGHT_CYAN = "\033[96m"
 _LOG_COLOR_GREEN = "\033[92m"
 _LOG_COLOR_RESET = "\033[0m"
+_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
     from .node_checkers.base import NodeChecker
+
+
+def _elapsed_ms(start_time: float) -> int:
+    """Return elapsed milliseconds from `start_time` to now."""
+    return int((time.perf_counter() - start_time) * 1000)
+
+
+def _log_timing(event: str, **fields: Any) -> None:
+    """Emit structured timing logs when timing mode is enabled."""
+    if not _TIMING_LOG_ENABLED:
+        return
+
+    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
+    if parts:
+        logger.info("[timing] %s %s", event, " ".join(parts))
+    else:
+        logger.info("[timing] %s", event)
 
 
 def query_table_exact_match(df: pd.DataFrame, query: dict[str, Any]) -> pd.DataFrame:
@@ -1563,18 +1587,54 @@ class RuntimeCheckerQuery:
         save_node_types: set[str] | None,
     ) -> PatternRuntime:
         """Run parquet-based per-op matching for a node."""
+        total_start = time.perf_counter()
+        since_version_ms: int | None = None
+        load_table_ms: int | None = None
+        build_filter_ms: int | None = None
+        cache_lookup_ms: int | None = None
+        row_lookup_ms: int | None = None
+        local_fallback_ms: int | None = None
+        maybe_save_ms: int | None = None
+
+        def _finish(result: PatternRuntime, outcome: str, **extra: Any) -> PatternRuntime:
+            _log_timing(
+                "run_for_node.parquet",
+                op=node.op_type,
+                node=node.name or "<unnamed>",
+                ep=self.ep_name,
+                device=self.device_type,
+                is_qdq=is_qdq,
+                outcome=outcome,
+                total_ms=_elapsed_ms(total_start),
+                since_version_ms=since_version_ms,
+                load_table_ms=load_table_ms,
+                build_filter_ms=build_filter_ms,
+                cache_lookup_ms=cache_lookup_ms,
+                row_lookup_ms=row_lookup_ms,
+                local_fallback_ms=local_fallback_ms,
+                maybe_save_ms=maybe_save_ms,
+                **extra,
+            )
+            return result
+
+        since_version_start = time.perf_counter()
         op_since_version = self._get_op_since_version_cached(node.op_type, op_domain, opset_version)
+        since_version_ms = _elapsed_ms(since_version_start)
+
+        load_table_start = time.perf_counter()
         table_df, parquet_path, condition_tree = self._load_parquet_rule_table(
             node.op_type,
             op_domain,
             op_since_version,
             is_qdq,
         )
+        load_table_ms = _elapsed_ms(load_table_start)
         parquet_file = parquet_path.name
         parquet_path_norm = _normalize_table_path(parquet_path)
 
         if table_df is None:
             if run_unknown_op:
+                local_fallback_start = time.perf_counter()
                 local_result = self._try_local_ep_check(
                     node,
                     op_domain,
@@ -1585,10 +1645,20 @@ class RuntimeCheckerQuery:
                     conditions=None,
                     save_node_types=save_node_types,
                 )
+                local_fallback_ms = _elapsed_ms(local_fallback_start)
                 if local_result is not None:
-                    return local_result
+                    return _finish(
+                        local_result,
+                        outcome="rules_not_found_local_fallback",
+                        table_file=parquet_file,
+                        op_since_version=op_since_version,
+                        compile=local_result.result.compile,
+                        run=local_result.result.run,
+                        no_data=local_result.result.no_data,
+                    )
 
-            return PatternRuntime(
+            return _finish(
+                PatternRuntime(
                 pattern_id=pattern_id,
                 result=RuntimeTestResult(
                     compile=False,
@@ -1611,9 +1681,14 @@ class RuntimeCheckerQuery:
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
+                ),
+                outcome="rules_not_found",
+                table_file=parquet_file,
+                op_since_version=op_since_version,
             )
 
         op_columns = condition_tree.condition_columns if condition_tree is not None else []
+        build_filter_start = time.perf_counter()
         table_filter_conditions = _build_table_filter_conditions(
             conditions,
             op_columns,
@@ -1625,25 +1700,38 @@ class RuntimeCheckerQuery:
             for k, v in table_filter_conditions.items()
         }
         query_signature = tuple(parquet_filter_conditions[col] for col in op_columns)
+        build_filter_ms = _elapsed_ms(build_filter_start)
 
         cache_key = (node.op_type, op_domain.value, op_since_version, is_qdq, query_signature)
+        cache_lookup_start = time.perf_counter()
         if cache_key in self._node_result_cache:
+            cache_lookup_ms = _elapsed_ms(cache_lookup_start)
             cached = self._node_result_cache[cache_key]
-            return PatternRuntime(
-                pattern_id=pattern_id,
-                result=cached.result,
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
+            return _finish(
+                PatternRuntime(
+                    pattern_id=pattern_id,
+                    result=cached.result,
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
+                ),
+                outcome="result_cache_hit",
+                table_file=parquet_file,
+                op_since_version=op_since_version,
+                query_signature_size=len(query_signature),
             )
+        cache_lookup_ms = _elapsed_ms(cache_lookup_start)
 
         matched_row = None
+        row_lookup_start = time.perf_counter()
         row_position = _lookup_row_position_in_condition_tree(condition_tree, parquet_filter_conditions)
+        tree_hit = row_position is not None
         if row_position is not None:
             matched_row = table_df.iloc[row_position]
         else:
             ret = query_table_exact_match(table_df, parquet_filter_conditions)
             if not ret.empty:
                 matched_row = ret.iloc[0]
+        row_lookup_ms = _elapsed_ms(row_lookup_start)
 
         if matched_row is None:
             debug_details = None
@@ -1675,6 +1763,7 @@ class RuntimeCheckerQuery:
                 debug_details["steps"] = debug_steps
 
             if run_unknown_op:
+                local_fallback_start = time.perf_counter()
                 local_result = self._try_local_ep_check(
                     node,
                     op_domain,
@@ -1685,9 +1774,19 @@ class RuntimeCheckerQuery:
                     conditions=cache_key,
                     save_node_types=save_node_types,
                 )
+                local_fallback_ms = _elapsed_ms(local_fallback_start)
                 if local_result is not None:
                     self._node_result_cache[cache_key] = local_result
-                    return local_result
+                    return _finish(
+                        local_result,
+                        outcome="properties_not_found_local_fallback",
+                        table_file=parquet_file,
+                        op_since_version=op_since_version,
+                        tree_hit=tree_hit,
+                        compile=local_result.result.compile,
+                        run=local_result.result.run,
+                        no_data=local_result.result.no_data,
+                    )
 
             result = RuntimeTestResult(
                 compile=False,
@@ -1705,7 +1804,14 @@ class RuntimeCheckerQuery:
                 pattern_match=pattern_match,
             )
             self._node_result_cache[cache_key] = pattern_runtime
-            return pattern_runtime
+            return _finish(
+                pattern_runtime,
+                outcome="properties_not_found",
+                table_file=parquet_file,
+                op_since_version=op_since_version,
+                tree_hit=tree_hit,
+                query_signature_size=len(query_signature),
+            )
 
         row = matched_row
         compile_run = row.get("compile_run_success", (False, False))
@@ -1731,6 +1837,7 @@ class RuntimeCheckerQuery:
             ),
         )
 
+        maybe_save_start = time.perf_counter()
         self._maybe_save_failed_node_result(
             node,
             op_domain,
@@ -1739,6 +1846,7 @@ class RuntimeCheckerQuery:
             cache_key,
             save_node_types=save_node_types,
         )
+        maybe_save_ms = _elapsed_ms(maybe_save_start)
 
         pattern_runtime = PatternRuntime(
             pattern_id=pattern_id,
@@ -1747,7 +1855,16 @@ class RuntimeCheckerQuery:
             pattern_match=pattern_match,
         )
         self._node_result_cache[cache_key] = pattern_runtime
-        return pattern_runtime
+        return _finish(
+            pattern_runtime,
+            outcome="matched",
+            table_file=parquet_file,
+            op_since_version=op_since_version,
+            tree_hit=tree_hit,
+            query_signature_size=len(query_signature),
+            compile=compile_result,
+            run=run_result,
+        )
 
     def run_for_node(
         self,
@@ -1767,7 +1884,42 @@ class RuntimeCheckerQuery:
         Returns:
             PatternRuntime with check results.
         """
+        total_start = time.perf_counter()
+        pattern_match_ms: int | None = None
+        collect_tags_ms: int | None = None
+        domain_resolve_ms: int | None = None
+        custom_checker_ms: int | None = None
+        custom_checker_name: str | None = None
+        conditions_ms: int | None = None
+        parquet_rules_ms: int | None = None
+
+        pattern_match_start = time.perf_counter()
         pattern_match = node_to_pattern_match(node)
+        pattern_match_ms = _elapsed_ms(pattern_match_start)
+
+        def _finish(result: PatternRuntime, outcome: str) -> PatternRuntime:
+            _log_timing(
+                "run_for_node",
+                op=node.op_type,
+                node=node.name or "<unnamed>",
+                ep=self.ep_name,
+                device=self.device_type,
+                pattern_id=result.pattern_id,
+                outcome=outcome,
+                total_ms=_elapsed_ms(total_start),
+                pattern_match_ms=pattern_match_ms,
+                collect_tags_ms=collect_tags_ms,
+                domain_resolve_ms=domain_resolve_ms,
+                custom_checker_ms=custom_checker_ms,
+                custom_checker=custom_checker_name,
+                conditions_ms=conditions_ms,
+                parquet_rules_ms=parquet_rules_ms,
+                compile=result.result.compile,
+                run=result.result.run,
+                no_data=result.result.no_data,
+                reason=result.result.reason or "",
+            )
+            return result
 
         # Ignore QuantizeLinear and DequantizeLinear ops for now,
         # Q and DQ ops will be tested in quantized ops
@@ -1779,63 +1931,90 @@ class RuntimeCheckerQuery:
             "OP/com.microsoft/DequantizeLinear",
         }
         if pattern_match.pattern.pattern_id in ignored_ops:
-            return PatternRuntime(
-                pattern_id=pattern_match.pattern.pattern_id,
-                result=RuntimeTestResult(run=True, compile=True, no_data=False, debug_details=None),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
+            return _finish(
+                PatternRuntime(
+                    pattern_id=pattern_match.pattern.pattern_id,
+                    result=RuntimeTestResult(
+                        run=True,
+                        compile=True,
+                        no_data=False,
+                        debug_details=None,
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
+                ),
+                outcome="ignored_op",
             )
 
         # Collect all tags for this node
+        collect_tags_start = time.perf_counter()
         node_tags = self._collect_node_tags(node)
+        collect_tags_ms = _elapsed_ms(collect_tags_start)
 
         # If all inputs are constant, short-circuit with success
         if NodeTag.ALL_INPUTS_CONSTANT in node_tags:
             logger.warning("Op %s (%s) has all inputs constant", node.name, node.op_type)
-            return PatternRuntime(
-                pattern_id=pattern_match.pattern.pattern_id,
-                result=RuntimeTestResult(
-                    run=True,
-                    compile=True,
-                    no_data=False,
-                    reason="all_inputs_constant",
-                    node_tags=node_tags,
-                    debug_details=None,
+            return _finish(
+                PatternRuntime(
+                    pattern_id=pattern_match.pattern.pattern_id,
+                    result=RuntimeTestResult(
+                        run=True,
+                        compile=True,
+                        no_data=False,
+                        reason="all_inputs_constant",
+                        node_tags=node_tags,
+                        debug_details=None,
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
                 ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
+                outcome="all_inputs_constant",
             )
 
+        domain_resolve_start = time.perf_counter()
         try:
             op_domain = ONNXDomain.from_str(node.domain)
         except ValueError:
+            domain_resolve_ms = _elapsed_ms(domain_resolve_start)
             # Unknown domain (e.g., custom ops) — report as no_data
-            return PatternRuntime(
-                pattern_id=pattern_match.pattern.pattern_id,
-                result=RuntimeTestResult(
-                    run=False,
-                    compile=False,
-                    no_data=True,
-                    reason=f"unsupported_domain:{node.domain}",
+            return _finish(
+                PatternRuntime(
+                    pattern_id=pattern_match.pattern.pattern_id,
+                    result=RuntimeTestResult(
+                        run=False,
+                        compile=False,
+                        no_data=True,
+                        reason=f"unsupported_domain:{node.domain}",
+                        debug_details=None,
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
                 ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
+                outcome="unsupported_domain",
             )
+        domain_resolve_ms = _elapsed_ms(domain_resolve_start)
 
         # Determine the opset version based on domain (default to 1 if not in model)
         opset_version = self.opset_versions.get(op_domain, 1)
 
         # Evaluate custom checkers (before rule-based checks — handles EPContext, etc.)
+        custom_checker_start = time.perf_counter()
         for checker in self.node_checkers:
             if checker.can_check(node, op_domain, opset_version):
-                return checker.check(
-                    node,
-                    op_domain,
-                    opset_version,
-                    pattern_match,
-                    self.alternatives,
-                    ep_name=self.ep_name,
+                custom_checker_ms = _elapsed_ms(custom_checker_start)
+                custom_checker_name = checker.__class__.__name__
+                return _finish(
+                    checker.check(
+                        node,
+                        op_domain,
+                        opset_version,
+                        pattern_match,
+                        self.alternatives,
+                        ep_name=self.ep_name,
+                    ),
+                    outcome="custom_checker",
                 )
+        custom_checker_ms = _elapsed_ms(custom_checker_start)
 
         # Phase 1: Extract conditions to determine if node is QDQ
         is_qdq = False
@@ -1847,6 +2026,7 @@ class RuntimeCheckerQuery:
                 else pattern_match.pattern.pattern_id
             )
 
+        conditions_start = time.perf_counter()
         try:
             conditions, infinite_properties, is_qdq = get_query_conditions_for_node(
                 node,
@@ -1864,6 +2044,7 @@ class RuntimeCheckerQuery:
             OpLackOfRequiredInformationError,
             OpUnsupportedError,
         ) as e:
+            conditions_ms = _elapsed_ms(conditions_start)
             exception_type = type(e).__name__
             logger.error(
                 "%s caught for op %s (node: %s): %s",
@@ -1872,28 +2053,33 @@ class RuntimeCheckerQuery:
                 node.name,
                 str(e),
             )
-            return PatternRuntime(
-                pattern_id=get_pattern_id(is_qdq),
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason="optional_input_properties_not_found",
-                    node_tags=node_tags,
-                    debug_details={
-                        "op_type": node.op_type,
-                        "node_name": node.name,
-                        "error_message": str(e),
-                        "table_path": "",
-                        "table_file": "",
-                    },
+            return _finish(
+                PatternRuntime(
+                    pattern_id=get_pattern_id(is_qdq),
+                    result=RuntimeTestResult(
+                        compile=False,
+                        run=False,
+                        no_data=True,
+                        reason="optional_input_properties_not_found",
+                        node_tags=node_tags,
+                        debug_details={
+                            "op_type": node.op_type,
+                            "node_name": node.name,
+                            "error_message": str(e),
+                            "table_path": "",
+                            "table_file": "",
+                        },
+                    ),
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
                 ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
+                outcome="conditions_error",
             )
+        conditions_ms = _elapsed_ms(conditions_start)
 
         pattern_id = get_pattern_id(is_qdq)
-        return self._run_for_node_with_parquet_rules(
+        parquet_rules_start = time.perf_counter()
+        final_result = self._run_for_node_with_parquet_rules(
             node,
             op_domain,
             opset_version,
@@ -1907,6 +2093,8 @@ class RuntimeCheckerQuery:
             run_unknown_op,
             save_node_types,
         )
+        parquet_rules_ms = _elapsed_ms(parquet_rules_start)
+        return _finish(final_result, outcome="parquet_rules")
 
     def run_for_subgraph(
         self,
@@ -1916,7 +2104,7 @@ class RuntimeCheckerQuery:
         """Run runtime check for subgraph pattern via per-node checks."""
         pattern_name = pattern_match.pattern.__class__.__name__
         logger.info(
-            "Pattern-level zip rules are removed; checking individual operators for '%s'",
+            "Pattern-level aggregated rules are removed; checking individual operators for '%s'",
             pattern_name,
         )
         return self._run_for_subgraph_per_node(

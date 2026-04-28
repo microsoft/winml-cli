@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _mock_rule_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bypass rule-data validation so CLI tests don't depend on rule zips."""
+    """Bypass rule-data validation so CLI tests don't depend on rule artifacts."""
     monkeypatch.setattr(
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         lambda *_args, **_kwargs: True,

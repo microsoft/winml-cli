@@ -262,5 +262,5 @@ specs/
 .claude/settings.local.json
 /sa_eval_results/
 
-# Runtime check rule zips (hosted in external repo)
+# Runtime check rule artifacts (hosted in external repo)
 src/winml/modelkit/analyze/rules/runtime_check_rules/**/*.parquet

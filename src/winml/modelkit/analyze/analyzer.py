@@ -12,6 +12,8 @@ Public API:
 from __future__ import annotations
 
 import logging
+import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -57,6 +59,24 @@ class LintResult:
 
 
 logger = logging.getLogger(__name__)
+
+_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _log_timing(event: str, **fields: object) -> None:
+    """Emit structured timing logs when timing mode is enabled."""
+    if not _TIMING_LOG_ENABLED:
+        return
+    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
+    if parts:
+        logger.info("[timing] %s %s", event, " ".join(parts))
+    else:
+        logger.info("[timing] %s", event)
 
 
 class AnalysisResult:
@@ -566,6 +586,8 @@ class ONNXStaticAnalyzer:
         """
         import onnx
 
+        total_start = time.perf_counter()
+
         # Normalize EP name (convert aliases to full names)
         ep_normalized = normalize_ep_name(ep)
         if ep != ep_normalized:
@@ -581,14 +603,17 @@ class ONNXStaticAnalyzer:
 
         # Load ONNX model
         try:
+            load_model_start = time.perf_counter()
             # Load without strict validation to allow custom attributes like hierarchy_tag
             model_proto = onnx.load(str(model_file), load_external_data=True)
             # Skip onnx.checker.check_model() which rejects custom attributes
+            load_model_ms = int((time.perf_counter() - load_model_start) * 1000)
         except (OSError, FileNotFoundError) as e:
             raise RuntimeError(f"Failed to load ONNX model: {e}") from e
 
         # Delegate to analyze_from_proto
-        return self.analyze_from_proto(
+        delegate_start = time.perf_counter()
+        result = self.analyze_from_proto(
             model_proto=model_proto,
             ep=ep_normalized,
             device=device,
@@ -600,6 +625,17 @@ class ONNXStaticAnalyzer:
             on_node_result=on_node_result,
             on_ep_start=on_ep_start,
         )
+        delegate_ms = int((time.perf_counter() - delegate_start) * 1000)
+        _log_timing(
+            "analyzer.analyze",
+            model=model_file.name,
+            ep=ep_normalized,
+            device=device,
+            load_model_ms=load_model_ms,
+            analyze_from_proto_ms=delegate_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
+        )
+        return result
 
     def analyze_from_proto(
         self,
@@ -658,6 +694,7 @@ class ONNXStaticAnalyzer:
         from .utils.ep_utils import has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
+        total_start = time.perf_counter()
         ep_normalized = normalize_ep_name(ep)
         if ep != ep_normalized:
             logger.debug("EP alias '%s' normalized to '%s'", ep, ep_normalized)
@@ -689,6 +726,7 @@ class ONNXStaticAnalyzer:
             logger.info("Using device: %s", device_to_use)
 
         # Step 1: Create ONNXModel and extract patterns (once)
+        extraction_start = time.perf_counter()
         logger.info("Loading model and extracting patterns...")
         onnx_loader = ONNXLoader(model_proto=model_proto)
         onnx_model = onnx_loader.load()
@@ -703,14 +741,19 @@ class ONNXStaticAnalyzer:
         metadata = extraction_result["summary"]
         pattern_matches = extraction_result["subgraph_patterns"]
         logger.info("Extracted %d patterns", len(pattern_matches))
+        extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
 
         # Step 2: Check runtime support for each EP
         check_op_results = {}
         information_list = {}
+        ep_runtime_timing: dict[str, int] = {}
+        ep_info_timing: dict[str, int] = {}
+        skipped_ep_count = 0
 
         for current_ep in eps_to_analyze:
             # Skip EPs that have no rule data for the target device.
             if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
+                skipped_ep_count += 1
                 if device_to_use:
                     logger.warning(
                         "No runtime check data for %s on %s — skipping op analysis.",
@@ -730,7 +773,7 @@ class ONNXStaticAnalyzer:
                     on_ep_start(current_ep, metadata.operator_counts)
                 except Exception:
                     logger.debug("on_ep_start callback failed", exc_info=True)
-
+            runtime_summary_start = time.perf_counter()
             runtime_checker = RuntimeChecker(
                 ep=current_ep,
                 device=device_to_use,
@@ -749,6 +792,8 @@ class ONNXStaticAnalyzer:
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,
             )
+            runtime_summary_ms = int((time.perf_counter() - runtime_summary_start) * 1000)
+            ep_runtime_timing[current_ep] = runtime_summary_ms
 
             # Convert runtime summary to expected format
             op_results_list = runtime_summary.get("op_runtime_check_result", [])
@@ -761,6 +806,7 @@ class ONNXStaticAnalyzer:
                 logger.info("Generating recommendations for %s...", current_ep)
                 # Always create InformationEngine to run model-level validators
                 # even if there are no runtime check results
+                information_start = time.perf_counter()
                 engine = self.information_engine_cls(
                     op_runtime_results=op_results_list,
                     subgraph_runtime_results=subgraph_results_list,
@@ -769,14 +815,31 @@ class ONNXStaticAnalyzer:
                     device=device_to_use,
                 )
                 information_list[current_ep] = engine.summary()  # Use EP name as key
+                ep_info_timing[current_ep] = int((time.perf_counter() - information_start) * 1000)
 
         # Step 4: Aggregate results
         logger.info("Aggregating results...")
+        aggregate_start = time.perf_counter()
         output = self.output_aggregator.aggregate(
             metadata=metadata,
             check_results=check_op_results,
             information_list=information_list,
             device=device_to_use,
+        )
+        aggregate_ms = int((time.perf_counter() - aggregate_start) * 1000)
+
+        _log_timing(
+            "analyzer.analyze_from_proto",
+            ep=ep_normalized,
+            device=device_to_use,
+            eps=len(eps_to_analyze),
+            skipped_eps=skipped_ep_count,
+            patterns=len(pattern_matches),
+            extraction_ms=extraction_ms,
+            aggregate_ms=aggregate_ms,
+            runtime_ms_by_ep=ep_runtime_timing,
+            information_ms_by_ep=ep_info_timing,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
         logger.info("Analysis complete")
