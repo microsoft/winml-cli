@@ -15,6 +15,12 @@ parameters:
   - name: modelTimeout
     type: number
     default: 1800
+  - name: singleHfModel
+    type: string
+    default: 'auto'
+  - name: singleHfTask
+    type: string
+    default: 'auto'
 
 jobs:
   - job: Prepare_${{ parameters.agentSuffix }}
