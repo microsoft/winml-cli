@@ -12,6 +12,7 @@
   - Output consistency: all outputs (log, JSON, config, report) accurately reflect user input and actual execution state for device/EP/precision fields.
   - Interruption safety: Ctrl+C leaves no corrupted files, leftover temp files, or inconsistent state.
   - Idempotency: same input + same environment produces identical results on repeated execution.
+  - Terminal compatibility: output rendering (colors, progress bars, tables) works correctly across different terminals (PowerShell, CMD, Windows Terminal, VS Code integrated terminal).
 - **Bug Bash & Triage** — After the above items are substantially complete, organize a team-wide bug bash, categorize all known failures, and drive P0 bugs to zero.
 
 ## Performance & Memory (Driver: TBD)
