@@ -30,6 +30,9 @@ from __future__ import annotations
 # on their OnnxConfig classes at import time.
 from .bert import BERT_CONFIG
 from .blip import BLIP_CONFIG
+from .blip import MODEL_CLASS_MAPPING as _BLIP_CLASS_MAPPING
+from .blip import BlipDecoderIOConfig as _BlipDecoderIOConfig  # triggers registration
+from .blip import BlipVisionEncoderIOConfig as _BlipVisionEncoderIOConfig  # triggers registration
 from .clip import CLIP_CONFIG
 from .clip import MODEL_CLASS_MAPPING as _CLIP_CLASS_MAPPING
 from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registration
@@ -53,18 +56,25 @@ from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
+from .vision_encoder_decoder import MODEL_CLASS_MAPPING as _VED_CLASS_MAPPING
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
+from .vision_encoder_decoder import (
+    VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
+)
+from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
 # Aggregated model class mappings: (model_type, task) -> HF model class
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+    **_BLIP_CLASS_MAPPING,
     **_CLIP_CLASS_MAPPING,
     **_MU2_CLASS_MAPPING,
     **_QWEN_CLASS_MAPPING,
     **_SAM2_CLASS_MAPPING,
     **_SEGFORMER_CLASS_MAPPING,
     **_T5_CLASS_MAPPING,
+    **_VED_CLASS_MAPPING,
 }
 
 # Registry: model_type -> WinMLBuildConfig

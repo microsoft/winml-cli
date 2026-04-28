@@ -521,7 +521,7 @@ def _resolve_composite_model_components(
 ) -> dict[str, str] | None:
     """Check if (model_type, task) is a registered composite model.
 
-    Returns _SUB_MODEL_CONFIG dict if found, None otherwise.
+    Returns sub-model config dict if found, None otherwise.
     """
     if task is None:
         return None
@@ -531,19 +531,21 @@ def _resolve_composite_model_components(
     from ..models.winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
     # Resolve model_type from HF config if not provided
+    hf_config = None
     resolved_type = model_type
     if resolved_type is None and hf_model is not None:
         from transformers import AutoConfig
 
-        resolved_type = AutoConfig.from_pretrained(
+        hf_config = AutoConfig.from_pretrained(
             hf_model, trust_remote_code=trust_remote_code
-        ).model_type
+        )
+        resolved_type = hf_config.model_type
 
     if resolved_type is None:
         return None
 
     cls = COMPOSITE_MODEL_REGISTRY.get((resolved_type, task))
-    return cls._SUB_MODEL_CONFIG if cls is not None else None
+    return cls.get_sub_model_config(hf_config) if cls is not None else None
 
 
 def _generate_pipeline_configs(

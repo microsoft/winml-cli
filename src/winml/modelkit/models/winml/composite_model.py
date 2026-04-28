@@ -98,6 +98,22 @@ class WinMLCompositeModel(PreTrainedModel):
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {}
 
+    @classmethod
+    def get_sub_model_config(
+        cls, hf_config: PretrainedConfig | None = None
+    ) -> dict[str, str] | None:
+        """Return the sub-component task map, or ``None`` if not applicable.
+
+        Default: ``cls._SUB_MODEL_CONFIG`` (always applicable).  Override
+        to return ``None`` when the registered composite class doesn't
+        actually fit a particular ``hf_config`` — callers fall through to
+        monolithic build/inference.
+
+        ``_SUB_MODEL_CONFIG`` is the implementation detail; callers should
+        always go through this method.
+        """
+        return cls._SUB_MODEL_CONFIG
+
     def __init__(
         self,
         sub_models: dict[str, Any],
