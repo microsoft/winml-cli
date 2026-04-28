@@ -780,6 +780,14 @@ if __name__ == "__main__":
         default="ai.onnx,com.microsoft",
         help="Comma-separated domains to process: ai.onnx,com.microsoft",
     )
+    parser.add_argument(
+        "--stop-on-conflict",
+        action="store_true",
+        help=(
+            "Stop immediately when the first per-op conflict is detected. "
+            "Useful for auto-resolve workflows that process one conflict file per round."
+        ),
+    )
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -804,6 +812,7 @@ if __name__ == "__main__":
     qdq_generator = None
     processed = 0
     skipped = 0
+    conflict_skipped = 0
 
     output_cols = ["compile_run_success"]
     compare_output_cols = ["compile_run_success"]
@@ -880,18 +889,20 @@ if __name__ == "__main__":
             )
 
             if conflict_df is not None and not conflict_df.empty:
-                # Conflict is detected before any rule artifacts are written for this file.
-                # Raising here guarantees no JSON/parquet output is emitted.
-
+                # Conflict is detected before any rule artifacts are written for this file,
+                # so skip only this op file and continue processing remaining files.
                 conflict_dir = output_dir / "conflicts"
                 conflict_dir.mkdir(parents=True, exist_ok=True)
                 conflict_file = conflict_dir / f"{json_file.stem}_conflicts.csv"
                 conflict_df.to_csv(conflict_file, index=False)
-                print("ERROR")
-                raise ValueError(
-                    "Conflicting compile/run outputs detected for duplicate rule conditions. "
-                    f"Conflict details saved to {conflict_file}"
-                )
+                conflict_skipped += 1
+                skipped += 1
+                print(f"CONFLICT (saved: {conflict_file})")
+
+                if args.stop_on_conflict:
+                    sys.exit(2)
+
+                continue
 
             parquet_df = dedup_df.loc[:, [*condition_cols, *output_cols]].copy()
 
@@ -932,7 +943,13 @@ if __name__ == "__main__":
             sys.exit(1)
 
     print(
-        f"Completed per-op rule generation. processed={processed}, skipped={skipped}, "
+        "Completed per-op rule generation. "
+        f"processed={processed}, skipped={skipped}, conflict_skipped={conflict_skipped}, "
         f"output_dir={output_dir}"
     )
     print(f"Parquet rule files written to: {parquet_dir}")
+
+    if conflict_skipped > 0:
+        # Exit with a dedicated code so batch scripts can treat conflicts differently
+        # from hard failures while still detecting that conflicts occurred.
+        sys.exit(2)
