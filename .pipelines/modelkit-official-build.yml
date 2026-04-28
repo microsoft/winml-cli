@@ -88,12 +88,12 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install build twine
+              - script: pip install --upgrade build twine packaging
                 displayName: 'Install build tools'
 
               - script: python -m build --outdir "$(ob_outputDirectory)"
                 displayName: 'Build sdist and wheel'
 
-              - script: twine check "$(ob_outputDirectory)\*"
+              - script: twine check "$(ob_outputDirectory)\*.whl" "$(ob_outputDirectory)\*.tar.gz"
                 continueOnError: true
                 displayName: 'Validate packages for PyPI'
