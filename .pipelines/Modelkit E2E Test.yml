@@ -17,6 +17,14 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
+  - name: singleHfModel
+    displayName: 'Single HF model id to repro (auto = full matrix)'
+    type: string
+    default: 'auto'
+  - name: singleHfTask
+    displayName: 'Single HF task to repro (auto = full matrix)'
+    type: string
+    default: 'auto'
 
 stages:
   - stage: NPU_QNN
@@ -28,6 +36,8 @@ stages:
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          singleHfModel: ${{ parameters.singleHfModel }}
+          singleHfTask: ${{ parameters.singleHfTask }}
 
   - stage: NPU_OV
     displayName: 'E2E Eval — NPU-OV'
@@ -39,4 +49,6 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          singleHfModel: ${{ parameters.singleHfModel }}
+          singleHfTask: ${{ parameters.singleHfTask }}
           modelTimeout: 3600

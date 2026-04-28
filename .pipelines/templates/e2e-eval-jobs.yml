@@ -100,6 +100,19 @@ jobs:
         displayName: 'Set eval output directory'
 
       - powershell: |
+          $singleModel = '${{ parameters.singleHfModel }}'
+          $singleTask  = '${{ parameters.singleHfTask }}'
+          $useSingle = ($singleModel -and $singleModel -ne 'auto' -and
+                        $singleTask  -and $singleTask  -ne 'auto')
+
+          if ($useSingle) {
+              Write-Host "Single-model repro mode: $singleModel / $singleTask"
+              # Bypass list generation; emit an empty list file for parity with downstream tooling.
+              New-Item -ItemType Directory -Force -Path "$(Build.SourcesDirectory)/temp" | Out-Null
+              '[]' | Out-File -Encoding utf8 "$(Build.SourcesDirectory)/temp/model_list.json"
+              return
+          }
+
           $args = @(
               "run", "python", "scripts/e2e_eval/run_eval.py",
               "--list-json", "temp/model_list.json",
@@ -113,6 +126,28 @@ jobs:
         displayName: 'Generate model list'
 
       - powershell: |
+          $singleModel = '${{ parameters.singleHfModel }}'
+          $singleTask  = '${{ parameters.singleHfTask }}'
+          $useSingle = ($singleModel -and $singleModel -ne 'auto' -and
+                        $singleTask  -and $singleTask  -ne 'auto')
+
+          if ($useSingle) {
+              $slug = (($singleModel + '_' + $singleTask) -replace '[^A-Za-z0-9]', '_')
+              $matrix = @{
+                  $slug = @{
+                      hf_id       = [string]$singleModel
+                      hf_task     = [string]$singleTask
+                      priority    = 'manual'
+                      model_type  = 'manual'
+                      model_group = 'manual'
+                  }
+              }
+              $json = $matrix | ConvertTo-Json -Compress -Depth 5
+              Write-Host "Prepared single-model matrix for repro: $singleModel / $singleTask"
+              Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]$json"
+              return
+          }
+
           $models = Get-Content "$(Build.SourcesDirectory)/temp/model_list.json" | ConvertFrom-Json
           $total = $models.Count
           if ($total -eq 0) {
