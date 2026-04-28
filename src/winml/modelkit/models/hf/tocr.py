@@ -9,27 +9,104 @@ the ``VisionDecoderWrapper`` dispatcher routes to ``TocrDecoderWrapper``
 when ``config.decoder.model_type == "trocr"``.
 
 Models: microsoft/trocr-base-printed, microsoft/trocr-large-*, etc.
+
+Why a positional-embedding patch is needed
+------------------------------------------
+``TrOCRDecoder.forward`` (transformers 4.57.6) drives the learned positional
+embedding via::
+
+    past_key_values_length = past_key_values.get_seq_length()
+    embed_pos = self.embed_positions(input, past_key_values_length=past_key_values_length)
+
+and ``TrOCRLearnedPositionalEmbedding.forward`` derives positions with
+``torch.arange(past_key_values_length, past_key_values_length + seq_len)`` —
+which traces as a ``Range`` op driven by a symbolic scalar.  NPU compilers
+reject that.
+
+To avoid the ``Range``, we side-channel the absolute seq pos onto the
+embedding module as a tensor attribute named ``position_id`` and
+``PATCHING_SPECS``-replace ``TrOCRLearnedPositionalEmbedding.forward`` with
+a variant that reads that attribute and does a plain ``Embedding`` lookup
+(adding TrOCR's ``+offset``).  The pattern mirrors the bart/marian
+sliding-window patches in ``hf/bart.py`` / ``hf/marian.py``.
+
+The patched forward falls back to stock HF behavior when ``position_id``
+is not set, so any non-TrOCR ``nn.Embedding`` instance (and a TrOCR
+embedding used outside this exporter) is unaffected.
 """
 
 from __future__ import annotations
 
-import types
-from typing import TYPE_CHECKING, Any, ClassVar
+import logging
+from typing import Any
 
 import torch
 import torch.nn as nn
-from optimum.exporters.onnx.model_patcher import ModelPatcher
+from optimum.exporters.onnx.model_patcher import PatchingSpec
 from optimum.utils import NormalizedConfig
 from transformers import VisionEncoderDecoderModel
 from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
-
-if TYPE_CHECKING:
-    from optimum.exporters.onnx import OnnxConfig
-
 from ..winml.encoder_decoder import EncoderDecoderInputGenerator
 from ..winml.kv_cache import PastKeyValueInputGenerator
 from .decoder_wrapper import WinMLDecoderWrapper, WinMLStaticCacheDecoderIOConfig
+
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Positional-embedding patch (side-channel)
+# =============================================================================
+
+
+def _patched_tocr_learned_positional_embedding_forward(
+    self,
+    input_ids: torch.Tensor,
+    past_key_values_length: Any = 0,
+    position_ids: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Patched ``TrOCRLearnedPositionalEmbedding.forward``.
+
+    If a ``position_id`` tensor attribute has been set on this module by
+    the export wrapper, use it as the lookup index (with TrOCR's
+    ``+self.offset`` preserved) and ignore the kwargs that HF would
+    otherwise derive via ``torch.arange``.  Without ``position_id`` set,
+    behavior is bit-identical to the original HF implementation.
+    """
+    abs_pos = getattr(self, "position_id", None)
+    if abs_pos is not None:
+        if abs_pos.dim() == 1:
+            abs_pos = abs_pos.unsqueeze(0)
+        return nn.Embedding.forward(self, abs_pos + self.offset)
+    # Fallback: bit-identical to stock HF behavior.
+    if position_ids is None:
+        bsz, seq_len = input_ids.shape[:2]
+        position_ids = torch.arange(
+            past_key_values_length,
+            past_key_values_length + seq_len,
+            dtype=torch.long,
+            device=self.weight.device,
+        ).expand(bsz, -1)
+    else:
+        position_ids = position_ids.unsqueeze(0)
+    return nn.Embedding.forward(self, position_ids + self.offset)
+
+
+def _build_tocr_patching_specs() -> list[PatchingSpec]:
+    """Return PatchingSpec list for TrOCR, or [] if the target class is unavailable."""
+    try:
+        from transformers.models.trocr.modeling_trocr import TrOCRLearnedPositionalEmbedding
+    except ImportError:
+        logger.debug("TrOCRLearnedPositionalEmbedding not found; learned-embedding patch skipped.")
+        return []
+    return [
+        PatchingSpec(
+            o=TrOCRLearnedPositionalEmbedding,
+            name="forward",
+            custom_op=_patched_tocr_learned_positional_embedding_forward,
+        ),
+    ]
 
 
 # =============================================================================
@@ -85,6 +162,7 @@ class TocrDecoderIOConfig(WinMLStaticCacheDecoderIOConfig):
         TocrDecoderInputGenerator,
         PastKeyValueInputGenerator,
     )
+    PATCHING_SPECS = _build_tocr_patching_specs()
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
@@ -121,13 +199,22 @@ class TocrDecoderWrapper(WinMLDecoderWrapper):
 
     def _make_cache(self, inputs: dict[str, torch.Tensor]) -> Any:
         cache = super()._make_cache(inputs)
-        # Without this, embed_positions reads cache.get_seq_length() (= buffer
-        # length) and indexes the position table out of range.
+        # ``TrOCRDecoder.forward`` reads ``past_key_values.get_seq_length()`` and
+        # threads it as ``past_key_values_length`` into the causal-mask prep.
+        # Override so the mask shape reflects the actual generation step.
         position = inputs["cache_position"].squeeze()
         cache.get_seq_length = lambda layer_idx=0: position
         return cache
 
     def _invoke_hf(self, cache: Any, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        # Side-channel the absolute seq pos to the (patched) learned embedding.
+        # Stock HF derives positions via ``torch.arange(past_kv_len, ...)`` in
+        # ``TrOCRLearnedPositionalEmbedding.forward``; the patch reads this
+        # attribute and does a plain Embedding lookup instead — avoiding the
+        # ``Range`` op.  See module docstring.
+        decoder = self.model.decoder.model.decoder  # VED -> TrOCRForCausalLM -> TrOCRDecoder
+        decoder.embed_positions.position_id = inputs["cache_position"]
+
         outputs = self.model.decoder(
             input_ids=inputs["decoder_input_ids"],
             attention_mask=inputs["decoder_attention_mask"],
@@ -139,159 +226,6 @@ class TocrDecoderWrapper(WinMLDecoderWrapper):
             return_dict=True,
         )
         return outputs.logits
-
-
-# =============================================================================
-# Internal: TrOCR static-shape patches for ONNX export
-# =============================================================================
-# TrOCRAttention reshapes Q/K/V to ``(bsz * num_heads, ...)`` and
-# TrOCRLearnedPositionalEmbedding builds positions via ``torch.arange`` —
-# both produce symbolic shapes that NPU compilers reject.  The patches below
-# replace both with static-shape equivalents only during ``torch.onnx.export``.
-
-
-def _patched_tocr_attention_forward(
-    self,
-    hidden_states: torch.Tensor,
-    key_value_states: torch.Tensor | None = None,
-    past_key_values: Any | None = None,
-    attention_mask: torch.Tensor | None = None,
-    layer_head_mask: torch.Tensor | None = None,
-    output_attentions: bool = False,
-    cache_position: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """4-D matmul replacement for TrOCR attention; assumes ``bsz == 1``."""
-    assert hidden_states.size(0) == 1, (
-        "TrOCR static-shape patch assumes batch_size=1 (WinML split-export contract)."
-    )
-    is_cross_attention = key_value_states is not None
-    bsz = 1
-    tgt_len = hidden_states.size(1)
-
-    q = (
-        (self.q_proj(hidden_states) * self.scaling)
-        .view(bsz, tgt_len, self.num_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-
-    is_updated = False
-    curr_past_key_value = None
-    if past_key_values is not None:
-        if isinstance(past_key_values, EncoderDecoderCache):
-            is_updated = past_key_values.is_updated.get(self.layer_idx)
-            curr_past_key_value = (
-                past_key_values.cross_attention_cache
-                if is_cross_attention
-                else past_key_values.self_attention_cache
-            )
-        else:
-            curr_past_key_value = past_key_values
-
-    if is_cross_attention and curr_past_key_value is not None and is_updated:
-        k = curr_past_key_value.layers[self.layer_idx].keys
-        v = curr_past_key_value.layers[self.layer_idx].values
-    else:
-        current_states = key_value_states if is_cross_attention else hidden_states
-        k = (
-            self.k_proj(current_states)
-            .view(bsz, -1, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        v = (
-            self.v_proj(current_states)
-            .view(bsz, -1, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        if curr_past_key_value is not None:
-            cache_pos = cache_position if not is_cross_attention else None
-            k, v = curr_past_key_value.update(
-                k, v, self.layer_idx, {"cache_position": cache_pos}
-            )
-            if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
-                past_key_values.is_updated[self.layer_idx] = True
-
-    attn_weights = torch.matmul(q, k.transpose(-2, -1))
-    if attention_mask is not None:
-        attn_weights = attn_weights + attention_mask
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1)
-    if layer_head_mask is not None:
-        attn_weights = layer_head_mask.view(1, -1, 1, 1) * attn_weights
-    attn_probs = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
-
-    attn_output = (
-        torch.matmul(attn_probs, v)
-        .transpose(1, 2)
-        .reshape(bsz, tgt_len, self.embed_dim)
-    )
-    attn_output = self.out_proj(attn_output)
-    return attn_output, (attn_weights if output_attentions else None)
-
-
-def _patched_tocr_learned_positional_embedding_forward(
-    self,
-    input_ids: torch.Tensor,
-    past_key_values_length: Any = 0,
-    position_ids: torch.Tensor | None = None,
-) -> torch.Tensor:
-    """Static-shape replacement for ``TrOCRLearnedPositionalEmbedding.forward``."""
-    if position_ids is None:
-        if isinstance(past_key_values_length, torch.Tensor):
-            position_ids = past_key_values_length.reshape(1, 1)
-        else:
-            position_ids = torch.full(
-                (1, 1),
-                int(past_key_values_length),
-                dtype=torch.long,
-                device=self.weight.device,
-            )
-    else:
-        position_ids = position_ids.unsqueeze(0)
-    return nn.Embedding.forward(self, position_ids + self.offset)
-
-
-class _TocrStaticShapePatcher(ModelPatcher):
-    """Applies TrOCR static-shape patches during ``torch.onnx.export``."""
-
-    _ATTN_REQUIRED: ClassVar[tuple[str, ...]] = (
-        "q_proj", "k_proj", "v_proj", "out_proj",
-        "num_heads", "head_dim", "embed_dim",
-    )
-    _POS_REQUIRED: ClassVar[tuple[str, ...]] = (
-        "offset", "weight", "num_embeddings", "embedding_dim",
-    )
-
-    def __init__(
-        self,
-        config: OnnxConfig,
-        model: nn.Module,
-        model_kwargs: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(config, model, model_kwargs=model_kwargs)
-        self._patched: list[tuple[nn.Module, Any]] = []
-
-    def __enter__(self):
-        super().__enter__()
-        for _name, module in self._model.named_modules():
-            patch_fn: Any = None
-            if all(hasattr(module, a) for a in self._ATTN_REQUIRED):
-                patch_fn = _patched_tocr_attention_forward
-            elif isinstance(module, nn.Embedding) and all(
-                hasattr(module, a) for a in self._POS_REQUIRED
-            ):
-                patch_fn = _patched_tocr_learned_positional_embedding_forward
-            if patch_fn is not None:
-                self._patched.append((module, module.forward))
-                module.forward = types.MethodType(patch_fn, module)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        for module, original in self._patched:
-            module.forward = original
-        self._patched.clear()
-        super().__exit__(exc_type, exc_val, exc_tb)
-
-
-TocrDecoderIOConfig._MODEL_PATCHER = _TocrStaticShapePatcher
 
 
 __all__ = [
