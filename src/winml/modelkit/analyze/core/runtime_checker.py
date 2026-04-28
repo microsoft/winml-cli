@@ -159,6 +159,7 @@ class RuntimeChecker:
                 model_proto=model_proto,
                 ep_name=self._ep,
                 device_type=self._device,
+                model_path=self._model.model_path,
                 dynamic_axis_strict_mode=self._dynamic_axis_strict_mode,
             )
 
