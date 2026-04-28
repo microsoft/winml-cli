@@ -97,7 +97,7 @@ class OutputAggregator:
 
         # Input validation
         if not check_results and not information_list:
-            logger.warning("Both check_results and information_list are empty")
+            logger.info("Both check_results and information_list are empty")
 
         # Build IHV support sections for all EP names from both sources
         all_ep_names = set(check_results.keys()) | set(information_list.keys())

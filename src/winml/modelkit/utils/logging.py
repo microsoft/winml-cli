@@ -2,27 +2,52 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Logging utilities for ModelKit."""
+"""Logging utilities for ModelKit.
+
+Verbosity Convention (adopted from pip, ansible, pytest):
+=========================================================
+
+    Flag        Level       Value   Use case
+    ----        -----       -----   --------
+    -q          ERROR       40      Errors only (quiet / scripting)
+    (default)   WARNING     30      Warnings + errors (production default)
+    -v          INFO        20      Operational progress messages
+    -vv         DEBUG       10      Developer-level tracing
+    --debug     DEBUG       10      Alias for -vv (backward compat)
+
+    Formula: level = WARNING - (verbosity * 10)  ->  30, 20, 10
+    Quiet:   level = ERROR (40)
+
+All log output goes to stderr so stdout stays clean for structured data
+(JSON, compact output, piped commands).
+"""
 
 import logging
 import sys
 
 
-def configure_logging(verbose: bool = False, quiet: bool = False) -> None:
-    """Configure logging level based on verbosity flags.
+def configure_logging(
+    verbosity: int = 0,
+    quiet: bool = False,
+    *,
+    # Backward-compat: accept old bool signature
+    verbose: bool = False,
+) -> None:
+    """Configure root logger based on verbosity level.
 
     Args:
-        verbose: Enable verbose logging (DEBUG level)
-        quiet: Enable quiet mode (ERROR level only)
-
-    Default level is INFO when both flags are False.
+        verbosity: Number of ``-v`` flags (0=WARNING, 1=INFO, 2+=DEBUG).
+        quiet: If True, override to ERROR level regardless of verbosity.
+        verbose: **Deprecated bool compat** — treated as verbosity=1 when
+                 True and verbosity is 0. Existing callers that pass
+                 ``verbose=True`` keep working without changes.
     """
-    if quiet:
-        log_level = logging.ERROR
-    elif verbose:
-        log_level = logging.DEBUG
-    else:
-        log_level = logging.INFO
+    # Backward compat: bool verbose → int, also handles count passthrough
+    if verbose and verbosity == 0:
+        verbosity = int(verbose)
+
+    # Clamp between DEBUG (10) and WARNING (30); quiet overrides to ERROR
+    log_level = logging.ERROR if quiet else max(logging.DEBUG, logging.WARNING - verbosity * 10)
 
     logging.basicConfig(
         level=log_level,

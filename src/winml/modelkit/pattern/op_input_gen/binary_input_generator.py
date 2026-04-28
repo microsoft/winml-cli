@@ -371,10 +371,10 @@ class BinaryInputGenerator(OpInputGenerator):
         """Return QDQ configuration for binary operator inputs."""
         return {
             self.op_input_names[0]: QDQParameterConfig(
-                support_activation=True, support_weight=True
+                support_activation=True, support_weight=True, support_non_qdq=True
             ),
             self.op_input_names[1]: QDQParameterConfig(
-                support_activation=True, support_weight=True
+                support_activation=True, support_weight=True, support_non_qdq=True
             ),
         }
 

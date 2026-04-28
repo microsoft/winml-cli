@@ -26,6 +26,8 @@ from .runtime_checker_query import RuntimeCheckerQuery
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import onnx
 
     from winml.modelkit.pattern.match import PatternMatchResult
@@ -137,25 +139,40 @@ class RuntimeChecker:
                 model_proto=model_proto,
                 ep_name=self._ep,
                 device_type=self._device,
+                model_path=self._model.model_path,
                 dynamic_axis_strict_mode=self._dynamic_axis_strict_mode,
             )
 
         return self._query
 
-    def get_shape_inferred_model_proto(self) -> onnx.ModelProto | None:
-        """Return the shape-inferred model proto from the cached query, if available."""
-        if self._query is not None:
-            return self._query.model_proto
-        return None
-
     def op_support(
         self,
         run_unknown_op: bool = True,
         save_node_types: set[str] | None = None,
+        on_node_result: Callable | None = None,
     ) -> list[PatternRuntime]:
         """Check operator-level runtime support.
 
         Returns operator-level runtime check results for each operator.
+
+        Args:
+            on_node_result: Optional per-node progress callback.
+                When provided, tqdm progress bar is suppressed (caller
+                handles progress display via Rich Live).
+
+                Signature::
+
+                    (result: PatternRuntime) -> None
+
+                The ``PatternRuntime`` passed to the callback has:
+
+                - ``pattern_id`` (str): Full pattern ID, e.g.
+                  ``"OP/ai.onnx/Conv"``. Use ``split("/")[-1]`` to get
+                  the display name (``"Conv"``).
+                - ``result.classification`` (SupportLevel): The support
+                  level enum. Call ``.value`` to get the string, e.g.
+                  ``"supported"``, ``"partial"``, ``"unsupported"``,
+                  ``"unknown"``.
 
         Returns:
             List[PatternRuntime]: Runtime results for each operator pattern
@@ -177,15 +194,21 @@ class RuntimeChecker:
         model_proto = self._model.get_model()
         # Get cached RuntimeCheckerQuery
         query = self._get_query()
-        for node in tqdm.tqdm(model_proto.graph.node):
-            # Run runtime check for node
-            results.append(  # noqa: PERF401
-                query.run_for_node(
-                    node,
-                    run_unknown_op=run_unknown_op,
-                    save_node_types=save_node_types,
-                )
+        # Use tqdm for progress unless caller provides a callback
+        nodes = model_proto.graph.node
+        iterator = nodes if on_node_result else tqdm.tqdm(nodes)
+        for node in iterator:
+            result = query.run_for_node(
+                node,
+                run_unknown_op=run_unknown_op,
+                save_node_types=save_node_types,
             )
+            results.append(result)
+            if on_node_result:
+                try:
+                    on_node_result(result)
+                except Exception:
+                    logger.debug("on_node_result callback failed", exc_info=True)
 
         logger.info("Checked %d operators", len(results))
 
@@ -302,6 +325,7 @@ class RuntimeChecker:
         patterns: list[PatternMatchResult] | None = None,
         run_unknown_op: bool = True,
         save_node_types: set[str] | None = None,
+        on_node_result: Callable | None = None,
     ) -> dict[str, list[PatternRuntime]]:
         """Combine operator-level & pattern-level runtime results.
 
@@ -325,6 +349,7 @@ class RuntimeChecker:
             op_results = self.op_support(
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
+                on_node_result=on_node_result,
             )
             summary_dict["op_runtime_check_result"] = op_results
 

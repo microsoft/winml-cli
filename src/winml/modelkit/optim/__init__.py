@@ -28,13 +28,49 @@ from .api import optimize_onnx
 from .config import WinMLOptimizationConfig
 from .errors import ConfigurationError, ModelValidationError, OptimizationError
 from .optimizer import Optimizer
+from .registry import (
+    BoolCapability,
+    ChoiceCapability,
+    IntCapability,
+    auto_enable_dependencies,
+    validate,
+    validate_dependencies,
+)
 
 
 __all__ = [
+    "BoolCapability",
+    "ChoiceCapability",
     "ConfigurationError",
+    "IntCapability",
     "ModelValidationError",
     "OptimizationError",
     "Optimizer",
     "WinMLOptimizationConfig",
+    "auto_enable_dependencies",
     "optimize_onnx",
+    "validate",
+    "validate_dependencies",
 ]
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "get_all_capabilities": (".pipes", "get_all_capabilities"),
+}
+
+
+def __getattr__(name: str):
+    """Lazy-load pipe utilities that pull in heavy dependencies."""
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
+
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return list(set(list(globals()) + __all__))

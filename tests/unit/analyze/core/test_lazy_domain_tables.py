@@ -439,3 +439,111 @@ class TestLazyNegRulesSanitization:
         # make_hashable converts lists to tuples
         assert isinstance(value, tuple)
         assert value == (1, 2, 3)
+
+
+class TestDeltaSnapshots:
+    """Test delta snapshot chaining for rules/tables/columns."""
+
+    def test_lazy_neg_rules_supports_delta_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        base_zip = tmp_path / "EP_CPU_ai.onnx_opset12.zip"
+        delta_zip = tmp_path / "EP_CPU_ai.onnx_opset13.zip"
+        base_file = "EP_CPU_ai.onnx_opset12_negative_rules.json"
+        delta_file = "EP_CPU_ai.onnx_opset13_negative_rules.json"
+
+        base_rules = {
+            "Conv": _make_op_rule("Conv"),
+            "Add": _make_op_rule("Add"),
+        }
+        delta_rules = {
+            "__snapshot_type__": "delta_v1",
+            "__base_opset__": 12,
+            "__current_opset__": 13,
+            "__changed__": {
+                "Mul": _make_op_rule("Mul"),
+            },
+            "__deleted__": ["Add"],
+        }
+
+        with zipfile.ZipFile(base_zip, "w") as zf:
+            zf.writestr(base_file, json.dumps(base_rules))
+        with zipfile.ZipFile(delta_zip, "w") as zf:
+            zf.writestr(delta_file, json.dumps(delta_rules))
+
+        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+
+        rules = _LazyNegRules(delta_zip, delta_file, REGISTERED_PATTERNS)
+        keys = set(rules.keys())
+        assert "Conv" in keys
+        assert "Mul" in keys
+        assert "Add" not in keys
+
+    def test_lazy_domain_tables_supports_delta_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        base_zip = tmp_path / "EP_CPU_ai.onnx_opset12.zip"
+        delta_zip = tmp_path / "EP_CPU_ai.onnx_opset13.zip"
+        base_tables_file = "EP_CPU_ai.onnx_opset12_tables.json"
+        delta_tables_file = "EP_CPU_ai.onnx_opset13_tables.json"
+        base_columns_file = "EP_CPU_ai.onnx_opset12_table_columns.json"
+        delta_columns_file = "EP_CPU_ai.onnx_opset13_table_columns.json"
+
+        base_tables = {
+            "Conv": RAW_DATA["Conv"],
+            "Add": RAW_DATA["Add"],
+        }
+        base_columns = {
+            "Conv": RAW_COLUMNS["Conv"],
+            "Add": RAW_COLUMNS["Add"],
+        }
+
+        delta_tables = {
+            "__snapshot_type__": "delta_v1",
+            "__base_opset__": 12,
+            "__current_opset__": 13,
+            "__changed__": {
+                "Mul": {
+                    "A_shape": {0: (1, 3, 224, 224)},
+                    "B_shape": {0: (1, 3, 224, 224)},
+                    "compile_run_success": {0: (True, True)},
+                }
+            },
+            "__deleted__": ["Add"],
+        }
+        delta_columns = {
+            "__snapshot_type__": "delta_v1",
+            "__base_opset__": 12,
+            "__current_opset__": 13,
+            "__changed__": {
+                "Mul": ["A_shape", "B_shape"],
+            },
+            "__deleted__": ["Add"],
+        }
+
+        with zipfile.ZipFile(base_zip, "w") as zf:
+            zf.writestr(base_tables_file, json.dumps(base_tables))
+            zf.writestr(base_columns_file, json.dumps(base_columns))
+        with zipfile.ZipFile(delta_zip, "w") as zf:
+            zf.writestr(delta_tables_file, json.dumps(delta_tables))
+            zf.writestr(delta_columns_file, json.dumps(delta_columns))
+
+        monkeypatch.setenv("MODELKIT_RULES_DIR", str(tmp_path))
+
+        tables = LazyDomainTables(
+            delta_zip,
+            delta_tables_file,
+            columns_file_name=delta_columns_file,
+        )
+
+        assert "Conv" in tables  # inherited from base
+        assert "Mul" in tables  # changed in delta
+        assert "Add" not in tables  # deleted in delta
+
+        conv_df = tables["Conv"]
+        mul_df = tables["Mul"]
+        assert isinstance(conv_df, pd.DataFrame)
+        assert isinstance(mul_df, pd.DataFrame)
+        assert tables.get_columns("Conv") == RAW_COLUMNS["Conv"]
+        assert tables.get_columns("Mul") == ["A_shape", "B_shape"]
+        assert tables.get_columns("Add") is None

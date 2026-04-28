@@ -658,6 +658,69 @@ class TestAnalysisResult:
         # Should accept any custom option
         assert config.get("custom_fusion", False) is True
 
+    def test_get_optimization_config_normalizes_kebab_case(
+        self, mock_output: AnalysisOutput
+    ) -> None:
+        """Test get_optimization_config normalizes kebab-case keys to snake_case."""
+        rtr_action = Action(
+            pattern_from_id="SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+            pattern_to_id="SUBGRAPH/ReshapeTransposeReshapeLowDimPattern",
+            details="RTR optimization",
+            action_items=[
+                ActionItem(
+                    type="GraphOptimization",
+                    optimization_options={"highdimRTR-lowdimRTR": True},
+                )
+            ],
+        )
+        mock_output.results[0].information = [
+            Information(
+                pattern_id="SUBGRAPH/ReshapeTransposeReshapeOverlyHighDimPattern",
+                explanation="RTR pattern detected",
+                actions=[rtr_action],
+            )
+        ]
+
+        result = AnalysisResult(output=mock_output)
+        config = result.get_optimization_config()
+
+        # Kebab-case key should be normalized to underscore
+        assert config.get("highdimRTR_lowdimRTR", False) is True
+        # Original kebab-case key should NOT be present
+        assert "highdimRTR-lowdimRTR" not in config
+
+    def test_get_optimization_config_mixed_kebab_and_snake(
+        self, mock_output: AnalysisOutput
+    ) -> None:
+        """Test get_optimization_config handles mix of kebab-case and snake_case keys."""
+        action = Action(
+            pattern_from_id="SUBGRAPH/TestPattern",
+            pattern_to_id="OP/Test",
+            details="Mixed key test",
+            action_items=[
+                ActionItem(
+                    type="GraphOptimization",
+                    optimization_options={
+                        "already_snake": True,
+                        "kebab-style-key": True,
+                    },
+                )
+            ],
+        )
+        mock_output.results[0].information = [
+            Information(
+                pattern_id="SUBGRAPH/TestPattern",
+                explanation="Test",
+                actions=[action],
+            )
+        ]
+
+        result = AnalysisResult(output=mock_output)
+        config = result.get_optimization_config()
+
+        assert config.get("already_snake", False) is True
+        assert config.get("kebab_style_key", False) is True
+
 
 class TestONNXStaticAnalyzer:
     """Tests for ONNXStaticAnalyzer."""
@@ -721,6 +784,7 @@ class TestONNXStaticAnalyzer:
         with pytest.raises(RuntimeError, match="Failed to load ONNX model"):
             analyzer.analyze("invalid.onnx", ep="QNNExecutionProvider", device="NPU")
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -729,6 +793,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto with single EP."""
         # Setup mocks
@@ -780,6 +845,7 @@ class TestONNXStaticAnalyzer:
         # Verify RuntimeChecker was called once
         assert mock_runtime_checker_cls.call_count == 1
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -788,6 +854,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto with multiple EPs (ep=None)."""
         # Setup mocks
@@ -844,6 +911,7 @@ class TestONNXStaticAnalyzer:
         # Verify RuntimeChecker was called 3 times (once per EP)
         assert mock_runtime_checker_cls.call_count == 3
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -852,6 +920,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto uses NPU as default driver."""
         # Setup mocks
@@ -899,6 +968,7 @@ class TestONNXStaticAnalyzer:
         call_args = mock_runtime_checker_cls.call_args
         assert call_args.kwargs["device"] == "NPU"
 
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=True)
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
@@ -909,6 +979,7 @@ class TestONNXStaticAnalyzer:
         mock_runtime_checker_cls: Mock,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
+        _mock_has_rule: Mock,
     ) -> None:
         """Test analyze_from_proto with information enabled."""
         # Setup mocks
@@ -971,3 +1042,59 @@ class TestONNXStaticAnalyzer:
 
         # Verify InformationEngine was instantiated
         assert mock_info_engine_cls.called
+
+    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=False)
+    @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
+    @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
+    @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
+    def test_analyze_from_proto_skips_ep_without_rule_data(
+        self,
+        mock_pattern_extractor_cls: Mock,
+        mock_onnx_loader_cls: Mock,
+        mock_runtime_checker_cls: Mock,
+        mock_has_rule_data: Mock,
+    ) -> None:
+        """analyze_from_proto must skip runtime check for EPs lacking rule data.
+
+        When has_rule_data_for_ep returns False (e.g. DML), the analyzer should
+        still succeed — pattern extraction runs, but RuntimeChecker / InformationEngine
+        are never invoked, and the output contains no EP results.
+        """
+        mock_model = MagicMock()
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = mock_model
+        mock_onnx_loader_cls.return_value = mock_loader
+
+        mock_extractor = MagicMock()
+        mock_extractor.summary.return_value = {
+            "summary": ModelStats(
+                model_path="test.onnx",
+                opset_version=13,
+                total_operators=10,
+                operator_counts={"Conv": 10},
+                unique_operator_types=1,
+                detected_pattern_count={},
+            ),
+            "subgraph_patterns": [],
+        }
+        mock_pattern_extractor_cls.return_value = mock_extractor
+
+        analyzer = ONNXStaticAnalyzer()
+        model_proto = MagicMock(spec=onnx.ModelProto)
+
+        result = analyzer.analyze_from_proto(
+            model_proto=model_proto,
+            ep="DmlExecutionProvider",
+            device="GPU",
+            enable_information=False,
+        )
+
+        assert isinstance(result, AnalysisResult)
+        # No EP results because DML has no rule data
+        assert result.output.results == []
+        # Pattern extraction metadata is still present
+        assert result.output.metadata.total_operators == 10
+        # has_rule_data_for_ep was consulted with the correct arguments
+        mock_has_rule_data.assert_called_once_with("DmlExecutionProvider", "GPU")
+        # RuntimeChecker must never be instantiated when rule data is absent
+        mock_runtime_checker_cls.assert_not_called()

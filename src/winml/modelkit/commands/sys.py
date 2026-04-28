@@ -105,7 +105,6 @@ def _get_library_versions() -> dict[str, str | None]:
         "onnxruntime",
         "onnxruntime-windowsml",
         "onnxruntime-gpu",
-        "onnxruntime-directml",
         "onnxruntime-silicon",
     ]
     libraries["onnxruntime"] = None
@@ -465,7 +464,7 @@ def _gather_ep_info() -> list[dict[str, Any]]:
 
     # Try WinML EP Registry first
     try:
-        from ..session.ep_registry import WinMLEPRegistry
+        from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
         winml_eps = registry.get_available_eps()

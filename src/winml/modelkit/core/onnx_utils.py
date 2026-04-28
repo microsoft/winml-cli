@@ -18,8 +18,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import torch
-
 
 if TYPE_CHECKING:
     import onnx
@@ -356,7 +354,7 @@ def infer_output_names(outputs: Any) -> list[str] | None:
 
         for field_name in outputs.__dataclass_fields__:
             field_value = getattr(outputs, field_name, None)
-            if field_value is not None and isinstance(field_value, torch.Tensor):
+            if field_value is not None and type(field_value).__module__.startswith("torch"):
                 output_names.append(field_name)
 
         # Only return names if we found simple tensor outputs
@@ -449,7 +447,7 @@ def get_epcontext_info(model_or_path: onnx.ModelProto | str | Path) -> dict[str,
         - ep_sdk_version: SDK version (e.g., "v2.40.0" for QNN)
         - hardware_architecture: Target hardware (e.g., "80+" for NVIDIA Ampere)
         - partition_name: Unique partition identifier with hash
-        - source: Source EP ("QNNExecutionProvider", "TensorrtExecutionProvider", etc.)
+        - source: Source EP ("QNNExecutionProvider", "NvTensorRTRTXExecutionProvider", etc.)
         - onnx_model_filename: Original ONNX model filename
 
     Args:
