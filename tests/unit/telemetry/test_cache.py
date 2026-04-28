@@ -29,6 +29,34 @@ def test_cache_dir_default_uses_userprofile(monkeypatch, tmp_path):
     assert _cache_dir() == tmp_path / ".winml" / "telemetry"
 
 
+def test_cache_dir_returns_none_when_no_user_home(monkeypatch):
+    """Regression: with no USERPROFILE / HOMEDRIVE+HOMEPATH and no
+    override, _cache_dir must return None rather than silently
+    resolving to a CWD-relative path."""
+    monkeypatch.delenv("MODELKIT_TELEMETRY_CACHE_DIR", raising=False)
+    monkeypatch.delenv("USERPROFILE", raising=False)
+    monkeypatch.delenv("HOMEDRIVE", raising=False)
+    monkeypatch.delenv("HOMEPATH", raising=False)
+    assert _cache_dir() is None
+    from winml.modelkit.telemetry._cache import _cache_file
+
+    assert _cache_file() is None
+
+
+def test_cache_no_op_when_no_user_home(monkeypatch):
+    """A cache built with a None path must silently no-op on every
+    operation rather than crash."""
+    monkeypatch.delenv("MODELKIT_TELEMETRY_CACHE_DIR", raising=False)
+    monkeypatch.delenv("USERPROFILE", raising=False)
+    monkeypatch.delenv("HOMEDRIVE", raising=False)
+    monkeypatch.delenv("HOMEPATH", raising=False)
+    cache = _PersistentCache()
+    assert cache._path is None
+    cache.append([{"a": 1}])  # no-op, no raise
+    assert cache.drain() == []
+    cache.clear()  # no-op, no raise
+
+
 @pytest.fixture
 def cache(tmp_path):
     return _PersistentCache(path=tmp_path / "modelkit.json")

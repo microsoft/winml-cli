@@ -30,29 +30,39 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .utils import _decode_cache_entry, _encode_cache_entry, _ExclusiveFileLock
+from .utils import (
+    _decode_cache_entry,
+    _encode_cache_entry,
+    _ExclusiveFileLock,
+    _resolve_user_home,
+)
 
 
 _CACHE_FILE_NAME = "modelkit.json"
 
 
-def _cache_dir() -> Path:
+def _cache_dir() -> Path | None:
     r"""Resolve the cache directory.
 
     Honors the ``MODELKIT_TELEMETRY_CACHE_DIR`` env var; otherwise
-    falls back to ``%USERPROFILE%\.winml\telemetry``.
+    falls back to ``%USERPROFILE%\.winml\telemetry``. Returns ``None``
+    when no user home is resolvable — the cache becomes inert in that
+    case rather than writing to a CWD-relative path.
     """
     override = os.environ.get("MODELKIT_TELEMETRY_CACHE_DIR")
     if override:
         return Path(override)
-    profile = os.environ.get("USERPROFILE")
-    if not profile:
-        profile = os.environ.get("HOMEDRIVE", "") + os.environ.get("HOMEPATH", "")
-    return Path(profile) / ".winml" / "telemetry"
+    home = _resolve_user_home()
+    if home is None:
+        return None
+    return Path(home) / ".winml" / "telemetry"
 
 
-def _cache_file() -> Path:
-    return _cache_dir() / _CACHE_FILE_NAME
+def _cache_file() -> Path | None:
+    base = _cache_dir()
+    if base is None:
+        return None
+    return base / _CACHE_FILE_NAME
 
 
 class _PersistentCache:
@@ -64,12 +74,14 @@ class _PersistentCache:
     """
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path = path or _cache_file()
-        self._lock_path = self._path.with_suffix(self._path.suffix + ".lock")
+        self._path: Path | None = path if path is not None else _cache_file()
+        self._lock_path: Path | None = (
+            self._path.with_suffix(self._path.suffix + ".lock") if self._path is not None else None
+        )
 
     def append(self, envelopes: list[dict[str, Any]]) -> None:
         """Append the given envelopes to the cache."""
-        if not envelopes:
+        if not envelopes or self._path is None or self._lock_path is None:
             return
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,9 +99,11 @@ class _PersistentCache:
     def drain(self) -> list[dict[str, Any]]:
         """Read all cached envelopes and delete the cache file.
 
-        Returns an empty list on missing file, lock timeout, or any
-        other I/O error. Malformed lines are skipped silently.
+        Returns an empty list on missing file, no-home, lock timeout, or
+        any other I/O error. Malformed lines are skipped silently.
         """
+        if self._path is None or self._lock_path is None:
+            return []
         try:
             with _ExclusiveFileLock(self._lock_path):
                 if not self._path.exists():
@@ -108,6 +122,8 @@ class _PersistentCache:
 
     def clear(self) -> None:
         """Best-effort delete the cache file (e.g. on opt-out)."""
+        if self._path is None or self._lock_path is None:
+            return
         try:
             with _ExclusiveFileLock(self._lock_path):
                 if self._path.exists():

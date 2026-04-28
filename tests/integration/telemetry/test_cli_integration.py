@@ -32,7 +32,7 @@ def test_main_group_is_action_group():
 
 def test_no_telemetry_subcommand():
     """Regression: there is no ``winml telemetry`` subcommand. Consent
-    is managed by editing ``%USERPROFILE%\\.modelkit\\config.json``."""
+    is managed by editing ``%USERPROFILE%\\.winml\\config.json``."""
     runner = CliRunner()
     result = runner.invoke(main, ["telemetry", "--help"])
     assert result.exit_code != 0

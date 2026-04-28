@@ -22,21 +22,20 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-
-# `USERPROFILE` is virtually always set on Windows, but can be missing in
-# minimal service accounts / containers. Fall back to the Windows-native
-# `HOMEDRIVE + HOMEPATH` pair so we never silently resolve to a
-# CWD-relative `.winml/config.json`.
-def _resolve_user_home() -> str:
-    profile = os.environ.get("USERPROFILE")
-    if profile:
-        return profile
-    drive = os.environ.get("HOMEDRIVE", "")
-    path = os.environ.get("HOMEPATH", "")
-    return drive + path  # empty string if neither is set
+from .utils import _resolve_user_home
 
 
-_CONFIG_PATH: Path = Path(_resolve_user_home()) / ".winml" / "config.json"
+def _default_config_path() -> Path | None:
+    home = _resolve_user_home()
+    if home is None:
+        return None
+    return Path(home) / ".winml" / "config.json"
+
+
+# ``None`` means we couldn't resolve a user home at import time — read /
+# write paths below treat that as "no persistence" rather than silently
+# falling through to CWD. Tests monkeypatch this to a ``tmp_path``.
+_CONFIG_PATH: Path | None = _default_config_path()
 
 # Consent notice version + text are a pair: bump the version whenever
 # _PROMPT_TEXT's scope materially changes (new data category, widened
@@ -82,6 +81,8 @@ def _is_ci_environment() -> bool:
 
 def _load_config() -> dict:
     """Read the full config.json. Return ``{}`` if missing or unreadable."""
+    if _CONFIG_PATH is None:
+        return {}
     try:
         raw = _CONFIG_PATH.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -128,8 +129,10 @@ def _write_stored_consent(value: Consent) -> None:
     """Persist consent to config.json. Atomic: temp file + replace.
 
     Preserves any unrelated top-level keys the user (or future features)
-    may have added.
+    may have added. No-op if no user home is resolvable.
     """
+    if _CONFIG_PATH is None:
+        return
     data = _load_config()
     tele = data.get("telemetry") if isinstance(data.get("telemetry"), dict) else {}
     tele["consent"] = value
