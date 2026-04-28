@@ -88,7 +88,7 @@ extends:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install build twine
+              - script: pip install --upgrade build twine packaging
                 displayName: 'Install build tools'
 
               # Build sdist BEFORE iKey injection so the source archive
