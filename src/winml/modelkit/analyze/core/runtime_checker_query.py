@@ -658,7 +658,7 @@ def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
     return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
 
 
-def _try_load_external_initializer_array(
+def try_load_external_initializer_array(
     tensor: onnx.TensorProto,
     model_path: str | Path | None,
 ) -> np.ndarray | None:
@@ -1032,7 +1032,7 @@ def get_query_conditions_for_node(
             # the relevant signal for whether bytes were loaded into this proto.
             external_arr = None
             if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
-                external_arr = _try_load_external_initializer_array(init, model_path)
+                external_arr = try_load_external_initializer_array(init, model_path)
 
                 if external_arr is not None:
                     update_conditions_(

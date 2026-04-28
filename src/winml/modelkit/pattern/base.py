@@ -168,6 +168,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -1207,7 +1208,12 @@ class PatternMatcher:
     results = matcher.match()  # Returns list[PatternMatchResult]
     """
 
-    def __init__(self, onnx_model: ModelProto, raise_on_invalid_model: bool = True) -> None:
+    def __init__(
+        self,
+        onnx_model: ModelProto,
+        raise_on_invalid_model: bool = True,
+        model_path: str | Path | None = None,
+    ) -> None:
         """Initialize the pattern matcher with an ONNX model.
 
         This performs shape inference and builds all lookup dictionaries upfront
@@ -1215,12 +1221,19 @@ class PatternMatcher:
 
         Args:
             onnx_model: The ONNX model to search for patterns in.
+            raise_on_invalid_model: Whether to validate the model and log issues.
+            model_path: Optional path to the source ONNX model on disk. When provided,
+                external-data initializers whose payloads are not loaded into the
+                proto will be lazily resolved from sidecar files (subject to the
+                size limits in the runtime-checker query helper) so that
+                value-based pattern constraints can still be evaluated.
         """
         # Run shape inference to populate value_info with type information
         # This is critical for type inference and shape lookups
 
         self.model = infer_onnx_shapes(onnx_model)
         self.graph = self.model.graph
+        self.model_path = Path(model_path) if model_path is not None else None
 
         # Registered patterns: pattern class name -> pattern instance
         self.patterns: dict[str, Pattern] = {}
@@ -1316,16 +1329,28 @@ class PatternMatcher:
         # Build tensor values from initializers
         for initializer in self.graph.initializer:
             self.producer_lookup.setdefault(initializer.name, (initializer.name, 0, "Initializer"))
-            if initializer.name:
-                try:
-                    self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
-                except Exception:
-                    # External data not loaded — skip tensor value extraction.
+            if not initializer.name:
+                continue
+            if initializer.data_location == onnx.TensorProto.EXTERNAL and not initializer.raw_data:
+                # External data not loaded — try resolving the sidecar file lazily
+                # via the runtime-checker query helper. Lazy import avoids the
+                # circular dependency between pattern.base and analyze.core.
+                from ..analyze.core.runtime_checker_query import (
+                    try_load_external_initializer_array,
+                )
+
+                external_arr = try_load_external_initializer_array(initializer, self.model_path)
+                if external_arr is not None:
+                    self.tensor_values[initializer.name] = external_arr
+                else:
                     # Pattern matching still works via graph topology; only
                     # value-based constraint checks will be skipped for this tensor.
                     logger.debug(
-                        "Skipping tensor value for '%s': external data not loaded", initializer.name
+                        "Skipping tensor value for '%s': external data not loaded",
+                        initializer.name,
                     )
+            else:
+                self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
 
         for node_idx, node in enumerate(self.graph.node):
             node_name = node.name or f"node_{node_idx}"
@@ -1340,15 +1365,9 @@ class PatternMatcher:
                         tensor_proto = attr.t
                         for output_name in node.output:
                             if output_name:
-                                try:
-                                    self.tensor_values[output_name] = numpy_helper.to_array(
-                                        tensor_proto
-                                    )
-                                except Exception:
-                                    logger.debug(
-                                        "Skipping constant '%s': external data not loaded",
-                                        output_name,
-                                    )
+                                self.tensor_values[output_name] = numpy_helper.to_array(
+                                    tensor_proto
+                                )
                                 # Add shape and type for constant
                                 self.tensor_shapes[output_name] = tuple(tensor_proto.dims)
                                 self.tensor_types[output_name] = self._elem_type_to_str(
