@@ -7,9 +7,12 @@
 
 from pathlib import Path
 
+import numpy as np
 import onnx
 import onnx.helper as oh
+import onnx.numpy_helper as onph
 import pytest
+from onnx import TensorProto
 
 from winml.modelkit.pattern import (
     Gelu2Pattern,
@@ -328,3 +331,78 @@ class TestPatternMatchingWithUnnamedNodes:
         matcher.register_pattern(Gelu2Pattern())
         results = matcher.match()
         assert len(results) == 1
+
+
+def _make_gelu_model_with_external_initializers() -> onnx.ModelProto:
+    """Gelu2 model where weight initializers simulate load_external_data=False.
+
+    The graph topology is identical to a normal Gelu2 model; only the weight
+    tensors have data_location=EXTERNAL with empty raw_data, mimicking what
+    onnx.load(..., load_external_data=False) produces for large models.
+    """
+    X = oh.make_tensor_value_info("X", TensorProto.FLOAT, [1, 8])  # noqa: N806
+    Y = oh.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 8])  # noqa: N806
+
+    def _external_tensor(name: str, values: list, dtype=TensorProto.FLOAT, dims=None):
+        t = onph.from_array(
+            np.array(values, dtype=np.float32 if dtype == TensorProto.FLOAT else np.int64),
+            name=name,
+        )
+        t.data_location = TensorProto.EXTERNAL
+        t.ClearField("raw_data")
+        entry = t.external_data.add()
+        entry.key = "location"
+        entry.value = "model.onnx.data"
+        return t
+
+    sqrt2 = _external_tensor("sqrt2", [1.4142135])
+    half = _external_tensor("half", [0.5])
+    one = _external_tensor("one_val", [1.0])
+
+    div = oh.make_node("Div", ["X", "sqrt2"], ["div_out"], name="div_node")
+    erf = oh.make_node("Erf", ["div_out"], ["erf_out"], name="erf_node")
+    add = oh.make_node("Add", ["erf_out", "one_val"], ["add_out"], name="add_node")
+    mul1 = oh.make_node("Mul", ["X", "add_out"], ["mul1_out"], name="mul1_node")
+    mul2 = oh.make_node("Mul", ["mul1_out", "half"], ["Y"], name="mul2_node")
+
+    graph = oh.make_graph(
+        [div, erf, add, mul1, mul2],
+        "gelu_external",
+        [X],
+        [Y],
+        initializer=[sqrt2, half, one],
+    )
+    return oh.make_model(graph, opset_imports=[oh.make_opsetid("", 13)])
+
+
+class TestPatternMatchingWithUnloadedExternalData:
+    """PatternMatcher must not fail when model initializers have unloaded external data.
+
+    This covers the regression where models loaded with load_external_data=False
+    triggered an ONNX ValidationError in check_onnx_model because the sidecar
+    .data file could not be found, causing pattern matching to be silently skipped.
+    """
+
+    def test_pattern_matcher_does_not_raise(self):
+        model = _make_gelu_model_with_external_initializers()
+        matcher = PatternMatcher(model)
+        assert matcher is not None
+
+    def test_gelu_pattern_still_matched_on_topology(self):
+        """Topology-based pattern matching succeeds even without tensor values."""
+        model = _make_gelu_model_with_external_initializers()
+        matcher = PatternMatcher(model)
+        matcher.register_pattern(Gelu2Pattern())
+        results = matcher.match()
+        assert len(results) == 1, f"Expected 1 Gelu2Pattern match, got {len(results)}"
+
+    def test_unloaded_initializers_absent_from_tensor_values(self):
+        """External-data initializers must not pollute tensor_values with zero arrays."""
+        model = _make_gelu_model_with_external_initializers()
+        matcher = PatternMatcher(model)
+        # None of the external initializer names should have values loaded.
+        external_names = {init.name for init in model.graph.initializer}
+        for name in external_names:
+            assert name not in matcher.tensor_values, (
+                f"Initializer '{name}' should not be in tensor_values when external data is unloaded"
+            )

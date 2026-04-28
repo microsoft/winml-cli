@@ -20,7 +20,7 @@ from .io import InputTensorSpec, OutputTensorSpec, generate_inputs_from_onnx, ge
 from .metadata import capture_metadata, restore_metadata
 from .persistence import cleanup_onnx, load_onnx, save_onnx
 from .shape import infer_onnx_shapes, infer_shapes
-from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size
+from .utils import EXTERNAL_DATA_THRESHOLD, check_onnx_model, get_model_size, has_unloaded_external_data
 
 
 __all__ = [
@@ -36,6 +36,7 @@ __all__ = [
     "generate_inputs_from_onnx",
     "get_io_config",
     "get_model_size",
+    "has_unloaded_external_data",
     "infer_onnx_shapes",
     "infer_shapes",
     "is_compiled_onnx",

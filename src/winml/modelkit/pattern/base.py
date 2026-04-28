@@ -1238,6 +1238,12 @@ class PatternMatcher:
         # Maps tensor name -> numpy array value (for constants/initializers)
         self.tensor_values: dict[str, np.ndarray] = {}
 
+        # Names of initializers whose external data was not loaded into memory.
+        # Constant-value constraints are skipped for these tensors so that
+        # topology-based pattern matching still works on models loaded with
+        # load_external_data=False.
+        self._external_unloaded_names: set[str] = set()
+
         # Maps tensor name -> shape tuple
         self.tensor_shapes: dict[str, tuple] = {}
 
@@ -1255,7 +1261,7 @@ class PatternMatcher:
 
         if raise_on_invalid_model:
             try:
-                check_onnx_model(self.model)
+                check_onnx_model(self.model, skip_if_unloaded_external_data=True)
             except onnx.checker.ValidationError as e:
                 raise InvalidPatternMatcherModelError(
                     f"Model failed ONNX validation: {e}",
@@ -1320,6 +1326,11 @@ class PatternMatcher:
         for initializer in self.graph.initializer:
             self.producer_lookup.setdefault(initializer.name, (initializer.name, 0, "Initializer"))
             if initializer.name:
+                if initializer.data_location == onnx.TensorProto.EXTERNAL and not initializer.raw_data:
+                    # External data not loaded; record the name so constant-value
+                    # checks can be skipped rather than returning a false failure.
+                    self._external_unloaded_names.add(initializer.name)
+                    continue
                 self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
 
         for node_idx, node in enumerate(self.graph.node):
@@ -1519,6 +1530,10 @@ class PatternMatcher:
 
             # Get tensor value
             if input_tensor_name not in self.tensor_values:
+                # If the initializer's external data was not loaded, skip the value
+                # check: topology matched, but we can't verify the scalar constant.
+                if input_tensor_name in self._external_unloaded_names:
+                    continue
                 return False
             actual_value = self.tensor_values[input_tensor_name]
 
