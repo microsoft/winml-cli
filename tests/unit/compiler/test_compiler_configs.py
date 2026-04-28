@@ -90,10 +90,10 @@ class TestCompileConfig:
         assert config.ep_config.provider == "dml"
         assert config.ep_config.enable_ep_context is False
 
-    def test_for_tensorrt(self):
-        """Test TensorRT factory method."""
-        config = WinMLCompileConfig.for_tensorrt()
-        assert config.ep_config.provider == "tensorrt"
+    def test_for_nv_tensorrt_rtx(self):
+        """Test NvTensorRTRTX factory method."""
+        config = WinMLCompileConfig.for_nv_tensorrt_rtx()
+        assert config.ep_config.provider == "nv_tensorrt_rtx"
         assert config.ep_config.enable_ep_context is False
 
     def test_for_openvino(self):
@@ -208,7 +208,7 @@ class TestDeprecationWarnings:
             "for_cpu",
             "for_cuda",
             "for_dml",
-            "for_tensorrt",
+            "for_nv_tensorrt_rtx",
             "for_openvino",
             "for_vitisai",
             "for_migraphx",
@@ -234,7 +234,7 @@ class TestDeprecationWarnings:
             "for_cpu",
             "for_cuda",
             "for_dml",
-            "for_tensorrt",
+            "for_nv_tensorrt_rtx",
             "for_openvino",
             "for_vitisai",
             "for_migraphx",
@@ -256,7 +256,7 @@ class TestDeprecationWarnings:
             "for_cpu",
             "for_cuda",
             "for_dml",
-            "for_tensorrt",
+            "for_nv_tensorrt_rtx",
             "for_openvino",
             "for_vitisai",
             "for_migraphx",
@@ -302,7 +302,7 @@ class TestForProvider:
             ("qnn", "qnn"),
             ("dml", "dml"),
             ("cuda", "cuda"),
-            ("tensorrt", "tensorrt"),
+            ("nv_tensorrt_rtx", "nv_tensorrt_rtx"),
             ("openvino", "openvino"),
             ("vitisai", "vitisai"),
             ("migraphx", "migraphx"),

@@ -27,6 +27,8 @@ from optimum.exporters.onnx import OnnxConfig
 from optimum.utils import NormalizedConfig
 from optimum.utils.input_generators import DummyVisionInputGenerator
 
+from ...export import register_onnx_overwrite
+
 
 class _DepthProNormalizedConfig(NormalizedConfig):
     """Normalized config for DepthPro with computed image_size.
@@ -44,8 +46,7 @@ class _DepthProNormalizedConfig(NormalizedConfig):
         return int(self.config.patch_size / min(self.config.scaled_images_ratios))
 
 
-# TODO: enable registration once quantization can be done with enough RAM
-# @register_onnx_overwrite("depth_pro", "depth-estimation", library_name="transformers")
+@register_onnx_overwrite("depth_pro", "depth-estimation", library_name="transformers")
 class DepthProIOConfig(OnnxConfig):
     """ONNX config for DepthPro depth estimation.
 

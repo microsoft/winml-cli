@@ -36,6 +36,8 @@ from .winml import get_supported_tasks, get_winml_class
 
 
 if TYPE_CHECKING:
+    from transformers import PretrainedConfig
+
     from ..config import WinMLBuildConfig
     from .winml.base import WinMLPreTrainedModel
 
@@ -96,7 +98,7 @@ class WinMLAutoModel:
     @classmethod
     def from_onnx(
         cls,
-        onnx_path: str | Path,
+        onnx_path: str | Path | dict[str, str | Path],
         *,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
@@ -107,8 +109,10 @@ class WinMLAutoModel:
         use_cache: bool = True,
         force_rebuild: bool = False,
         skip_build: bool = False,
+        session_options: Any | None = None,
+        hf_config: PretrainedConfig | None = None,
         **kwargs: Any,
-    ) -> WinMLPreTrainedModel:
+    ) -> WinMLPreTrainedModel | WinMLCompositeModel:  # noqa: F821
         """Build from a pre-exported ONNX file.
 
         Runs optimize -> [quantize] -> [compile] via ``build_onnx_model()``.
@@ -124,11 +128,33 @@ class WinMLAutoModel:
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
+            hf_config: HF ``PretrainedConfig`` for composite (dict) dispatch only.
+                Required when ``onnx_path`` is a dict so the composite registry
+                lookup can resolve ``(model_type, task)``. Ignored for single-file
+                builds.
             **kwargs: Forwarded to ``build_onnx_model()``.
 
         Returns:
             WinMLPreTrainedModel inference wrapper.
         """
+        if isinstance(onnx_path, dict):
+            from .winml.composite_model import WinMLCompositeModel
+
+            return WinMLCompositeModel.from_onnx(
+                onnx_path,
+                task=task,
+                hf_config=hf_config,
+                device=device,
+                precision=precision,
+                ep=ep,
+                cache_dir=cache_dir,
+                use_cache=use_cache,
+                force_rebuild=force_rebuild,
+                skip_build=skip_build,
+                session_options=session_options,
+                **kwargs,
+            )
+
         onnx_path = Path(onnx_path)
         if not onnx_path.is_file():
             raise FileNotFoundError(
@@ -165,6 +191,7 @@ class WinMLAutoModel:
                 onnx_path=onnx_path,
                 config=None,
                 device=device,
+                session_options=session_options,
             )
 
         # Resolve output directory
@@ -200,6 +227,7 @@ class WinMLAutoModel:
             onnx_path=result.final_onnx_path,
             config=None,  # No HF PretrainedConfig for bare ONNX builds
             device=device,
+            session_options=session_options,
         )
 
     @classmethod
@@ -279,6 +307,43 @@ class WinMLAutoModel:
             )
 
         # =====================================================================
+        # COMPOSITE MODEL CHECK — delegate to WinMLCompositeModel.from_pretrained
+        # when (model_type, task) is a registered composite (e.g., T5 translation,
+        # Qwen text-generation).  AutoConfig is lightweight (~config.json only).
+        # The registry probe (AutoConfig.from_pretrained) is gated on whether
+        # `task` appears in any registered composite entry, avoiding an
+        # unconditional network/disk round-trip for every non-composite call.
+        # =====================================================================
+        if task is not None:
+            from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
+
+            _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}
+            if task in _known_composite_tasks:
+                from transformers import AutoConfig
+
+                _hf_cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+                _model_type = getattr(_hf_cfg, "model_type", None)
+            else:
+                _model_type = None
+
+            if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
+                from .winml.composite_model import WinMLCompositeModel
+
+                return WinMLCompositeModel.from_pretrained(
+                    model_id,
+                    task,
+                    device=device,
+                    use_cache=use_cache,
+                    force_rebuild=force_rebuild,
+                    trust_remote_code=trust_remote_code,
+                    shape_config=shape_config,
+                    precision=precision,
+                    config=config,
+                    cache_dir=cache_dir,
+                    **kwargs,
+                )
+
+        # =====================================================================
         # [1] CONFIG PHASE - Generate complete config with I/O specs (Lightweight, ~2s)
         # =====================================================================
         from ..config import generate_hf_build_config
@@ -292,6 +357,7 @@ class WinMLAutoModel:
             shape_config=shape_config,
             device=device,
             precision=precision,
+            trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
         )
 

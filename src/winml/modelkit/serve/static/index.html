@@ -1,0 +1,2735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ModelKit Inference Demo</title>
+<style>
+:root {
+  --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2e3348;
+  --accent:#5b8dee; --accent2:#7c5cdb; --green:#3ecf8e; --yellow:#f5a623;
+  --red:#f06070; --text:#e2e8f0; --text2:#8892a4; --r:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+/* ── Custom scrollbar ── */
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text2)}
+::-webkit-scrollbar-corner{background:transparent}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* Header */
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:8px;margin-right:8px}
+.logo-icon{font-size:20px}
+.logo-text{font-size:15px;font-weight:700}
+.logo-sub{font-size:10px;color:var(--text2)}
+.server-row{display:flex;align-items:center;gap:6px;flex:1;min-width:260px}
+.server-row input{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px;outline:none}
+.server-row input:focus{border-color:var(--accent)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--text2);flex-shrink:0}
+.status-dot.ok{background:var(--green);box-shadow:0 0 5px var(--green)}
+.status-dot.err{background:var(--red)}
+.status-label{font-size:11px;color:var(--text2);white-space:nowrap}
+.btn{padding:6px 12px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;transition:opacity .15s}
+.btn:hover:not(:disabled){opacity:.85}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text2)}
+.btn-danger{background:rgba(240,96,112,.15);border:1px solid var(--red);color:var(--red)}
+.btn-sm{padding:4px 9px;font-size:11px}
+
+/* Nav tabs */
+.nav-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--surface);padding:0 20px}
+.nav-tab{padding:10px 16px;font-size:13px;font-weight:500;cursor:pointer;color:var(--text2);border-bottom:2px solid transparent;transition:color .15s;user-select:none}
+.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Pages */
+.page{display:none;flex:1;overflow:hidden;min-height:0}
+.page.active{display:flex}
+
+/* ── INFERENCE page ── */
+.inf-layout{display:grid;grid-template-columns:320px 1fr;flex:1;overflow:hidden;min-height:0}
+.left-panel{border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.panel-sec{padding:16px;border-bottom:1px solid var(--border)}
+.panel-sec:last-child{border-bottom:none;flex:1}
+.sec-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text2);margin-bottom:10px}
+.drop-zone{border:2px dashed var(--border);border-radius:var(--r);padding:24px 12px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;position:relative}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--accent);background:rgba(91,141,238,.05)}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.drop-hint{font-size:12px;color:var(--text2)}.drop-hint strong{color:var(--accent)}
+.preview-wrap{margin-top:10px;display:none;border-radius:6px;overflow:hidden;border:1px solid var(--border)}
+.preview-wrap.show{display:block}
+.preview-wrap img{width:100%;max-height:160px;object-fit:contain;background:#0a0b10}
+.preview-name{padding:5px 8px;font-size:10px;color:var(--text2);background:var(--surface2)}
+.field{margin-bottom:10px}
+.field label{font-size:11px;color:var(--text2);display:block;margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 9px;font-size:12px;outline:none}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.run-btn{width:100%;padding:10px;border-radius:var(--r);border:none;cursor:pointer;font-size:13px;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s}
+.run-btn:hover:not(:disabled){opacity:.88}
+.run-btn:disabled{opacity:.4;cursor:not-allowed}
+.spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
+.run-btn.loading .spinner{display:block}
+.run-btn.loading .run-label{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ep-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.ep-btn{padding:6px 4px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;font-size:11px;font-weight:500;text-align:center;transition:all .15s}
+.ep-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ep-btn.active{border-color:var(--accent);background:rgba(91,141,238,.15);color:var(--accent)}
+.ep-status{font-size:10px;color:var(--text2);margin-top:5px;min-height:14px}
+.right-panel{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.results-area{flex:1;min-height:0;padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text2);gap:8px}
+.empty-icon{font-size:40px;opacity:.3}
+.empty-text{font-size:13px}
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;flex-shrink:0}
+.result-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface2);flex-wrap:wrap;gap:6px}
+.result-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tag{font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500}
+.tag-blue{background:rgba(91,141,238,.15);color:var(--accent)}
+.tag-green{background:rgba(62,207,142,.12);color:var(--green)}
+.tag-yellow{background:rgba(245,166,35,.12);color:var(--yellow)}
+.result-lat{font-size:11px;color:var(--text2)}
+.result-body{padding:14px}
+.pred-list{display:flex;flex-direction:column;gap:8px}
+.pred-item{}
+.pred-top{display:flex;justify-content:space-between;margin-bottom:3px}
+.pred-label{font-size:12px;font-weight:500}
+.pred-score{font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums}
+.pred-bar-bg{height:5px;background:var(--surface2);border-radius:3px;overflow:hidden}
+.pred-bar{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .5s cubic-bezier(.4,0,.2,1)}
+.pred-item:first-child .pred-bar{background:linear-gradient(90deg,var(--green),var(--accent))}
+
+/* ── MODELS page ── */
+.models-page{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0}
+.models-toolbar{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.models-toolbar h2{font-size:14px;font-weight:600;margin-right:auto}
+.models-body{flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+/* Active model cards */
+.model-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.model-card-header{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--surface2)}
+.model-name{font-size:13px;font-weight:600;font-family:monospace;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model-card-body{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border)}
+.stat-cell{background:var(--surface);padding:12px 14px}
+.stat-label{font-size:10px;color:var(--text2);margin-bottom:3px}
+.stat-value{font-size:18px;font-weight:600}
+.stat-sub{font-size:10px;color:var(--text2);margin-top:1px}
+.lat-bars{padding:12px 14px;border-top:1px solid var(--border)}
+.lat-title{font-size:10px;color:var(--text2);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.lat-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.lat-key{font-size:10px;color:var(--text2);width:28px;flex-shrink:0}
+.lat-bar-bg{flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
+.lat-bar{height:100%;border-radius:3px;transition:width .4s}
+.lat-val{font-size:11px;color:var(--text2);width:52px;text-align:right;font-variant-numeric:tabular-nums}
+.bench-section{padding:12px 14px;border-top:1px solid var(--border)}
+.bench-result{margin-top:10px;font-size:12px;color:var(--text2)}
+.bench-result pre{background:var(--surface2);border-radius:6px;padding:10px;font-size:11px;overflow:auto;max-height:180px;margin-top:6px}
+.load-form{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.load-form h3{font-size:13px;font-weight:600;margin-bottom:12px}
+.load-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* Section headers */
+.section-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.section-hd h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin:0}
+.section-hd-count{font-size:11px;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:1px 7px}
+.section-hd-spacer{flex:1}
+/* Hub catalog */
+.hub-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.hub-search{background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 10px;font-size:12px;width:180px;outline:none}
+.hub-search:focus{border-color:var(--accent)}
+.hub-filter{background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;cursor:pointer}
+.hub-filter:focus{border-color:var(--accent)}
+.hub-grid{display:flex;flex-direction:column;gap:16px}
+.hub-task-group-title{font-size:12px;font-weight:600;color:var(--accent);padding-bottom:6px;border-bottom:1px solid var(--border);text-transform:capitalize}
+.hub-task-group-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.hub-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s}
+.hub-card:hover{border-color:var(--accent)}
+.hub-card.running{border-color:var(--green)}
+.hub-card-org{font-size:10px;color:var(--text2);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hub-card-name{font-size:13px;font-weight:600;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hub-card-meta{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.hub-card-perf{font-size:11px;color:var(--text2);margin-top:2px}
+.hub-card-perf strong{color:var(--green);font-variant-numeric:tabular-nums}
+.hub-card-footer{display:flex;align-items:center;gap:6px;margin-top:2px}
+.hub-running-badge{font-size:10px;color:var(--green);font-weight:600;display:flex;align-items:center;gap:3px}
+.verdict-dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.verdict-pass{background:var(--green)}
+.verdict-risk{background:var(--yellow)}
+.verdict-fail{background:var(--red)}
+
+/* ── HARDWARE page ── */
+.hw-page{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0}
+.hw-body{flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.hw-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.gauge-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.gauge-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.gauge-title{font-size:12px;font-weight:600;color:var(--text2)}
+.gauge-value{font-size:28px;font-weight:700}
+.gauge-track{height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-bottom:6px}
+.gauge-fill{height:100%;border-radius:4px;transition:width .6s}
+.gauge-sub{font-size:10px;color:var(--text2)}
+.sparkline-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.sparkline-title{font-size:11px;color:var(--text2);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+canvas.spark{width:100%;height:60px;display:block}
+.hw-note{font-size:11px;color:var(--text2);padding:10px 14px;background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.2);border-radius:var(--r)}
+/* CLI tab */
+.cli-page{display:flex;flex:1;overflow:hidden}
+.cli-sidebar{width:160px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:12px 0}
+.cli-sidebar h4{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text2);padding:0 14px;margin-bottom:6px}
+.cmd-btn{display:block;width:100%;text-align:left;padding:7px 14px;font-size:12px;font-weight:500;background:none;border:none;color:var(--text2);cursor:pointer;transition:background .15s}
+.cmd-btn:hover{background:var(--surface2);color:var(--text)}
+.cmd-btn.active{background:rgba(91,141,238,.15);color:var(--accent)}
+.cmd-btn small{display:block;font-size:10px;color:var(--text2);font-weight:400;margin-top:1px}
+.cli-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.cli-form{padding:16px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
+.cli-form-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.cli-actions{display:flex;align-items:center;gap:10px}
+.terminal{flex:1;background:#0a0b10;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:12px;overflow-y:auto;padding:14px 16px;color:#c8d3e0;line-height:1.6}
+.terminal-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.terminal-header span{font-size:11px;color:var(--text2)}
+.exit-ok{color:var(--green)}
+.exit-err{color:var(--red)}
+.term-cmd{color:var(--accent);margin-bottom:6px}
+.term-out{white-space:pre-wrap;word-break:break-all}
+.term-sep{border:none;border-top:1px solid var(--border);margin:10px 0}
+
+/* ── TOOLS page ── */
+.tools-page{display:flex;flex-direction:column;overflow:hidden}
+.tools-toolbar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.tools-toolbar h2{margin:0;font-size:18px;font-weight:600}
+.tools-body{flex:1;overflow-y:auto;padding:20px}
+.tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px}
+.tool-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
+.tool-card:hover{border-color:var(--accent);transition:border-color .15s}
+.tool-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.tool-name{font-weight:600;color:var(--accent);font-size:13px;font-family:monospace;flex:1}
+.tool-desc{font-size:12px;color:var(--text2);line-height:1.5}
+.tool-section{margin-top:6px}
+.tool-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:4px}
+.tool-params{display:flex;flex-direction:column;gap:4px}
+.tool-param{font-size:11px;color:var(--text);background:var(--surface2);padding:6px 8px;border-radius:4px;border-left:2px solid var(--accent2)}
+.tool-param-name{font-weight:500;font-family:monospace;color:var(--accent2)}
+.tool-param-type{font-size:10px;color:var(--text2);margin-left:4px}
+.tool-param-default{font-size:10px;color:var(--green);margin-left:4px}
+.tool-empty{color:var(--text2);font-size:12px}
+.tools-note{background:rgba(123,92,219,.1);border:1px solid rgba(123,92,219,.3);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.5}
+.tools-note code{background:rgba(0,0,0,.3);padding:2px 4px;border-radius:3px;color:var(--accent2)}
+.tool-actions{display:flex;gap:6px;margin-top:8px}
+.tool-copy-btn{flex:1;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text2);font-size:10px;cursor:pointer;transition:all .15s}
+.tool-copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tools-loading{text-align:center;padding:40px 20px;color:var(--text2)}
+.tools-error{background:rgba(240,96,112,.1);border:1px solid var(--red);border-radius:var(--r);padding:12px 14px;margin:20px;color:var(--red);font-size:12px}
+
+/* ── MCP page ── */
+.mcp-page{display:flex;flex-direction:column;overflow:hidden}
+.mcp-toolbar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.mcp-toolbar h2{margin:0;font-size:18px;font-weight:600}
+.mcp-body{flex:1;overflow-y:auto;padding:20px}
+.mcp-note{background:rgba(62,207,142,.1);border:1px solid rgba(62,207,142,.3);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.5}
+.mcp-note code{background:rgba(0,0,0,.3);padding:2px 4px;border-radius:3px;color:var(--green)}
+.mcp-info{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px}
+.mcp-info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.mcp-info-row:last-child{border:none}
+.mcp-info-label{font-weight:500;color:var(--text2);font-size:12px}
+.mcp-info-value{color:var(--accent);font-family:monospace;font-size:12px}
+.mcp-section{margin-bottom:20px}
+.mcp-section-title{font-weight:600;color:var(--accent);margin-bottom:10px;font-size:13px}
+.mcp-code-block{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-family:monospace;font-size:11px;overflow-x:auto;line-height:1.6;color:var(--text);margin-bottom:10px}
+.mcp-json-key{color:var(--accent2)}
+.mcp-json-string{color:var(--green)}
+.mcp-json-number{color:var(--yellow)}
+.mcp-copy-block{display:flex;gap:8px}
+.mcp-copy-btn{flex:1;padding:8px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;transition:opacity .15s}
+.mcp-copy-btn:hover{opacity:.85}
+.mcp-loading{text-align:center;padding:40px 20px;color:var(--text2)}
+.mcp-error{background:rgba(240,96,112,.1);border:1px solid var(--red);border-radius:var(--r);padding:12px 14px;margin:20px;color:var(--red);font-size:12px}
+
+/* ── INTEGRATION page ── */
+.integration-page{display:flex;flex-direction:column;overflow:hidden;width:100%;height:100%}
+.integration-header{flex-shrink:0;padding:24px 32px 0 32px}
+.integration-body{flex:1;overflow-y:auto;padding:0 0 24px 32px}
+.integration-section{margin-bottom:28px}
+.integration-title{font-size:16px;font-weight:700;color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.integration-subtitle{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;margin-top:12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.integration-desc{font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:10px}
+.code-block{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-family:monospace;font-size:11px;overflow-x:auto;line-height:1.5;color:var(--accent2);margin:8px 0;position:relative;white-space:pre}
+.code-copy{position:absolute;top:8px;right:8px;padding:4px 8px;background:var(--accent);color:#fff;border:none;border-radius:3px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .2s}
+.code-block:hover .code-copy{opacity:1}
+.client-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:10px}
+.client-name{font-weight:600;color:var(--accent);font-size:12px;margin-bottom:6px}
+.client-status{font-size:10px;color:var(--green);margin-bottom:8px}
+.steps-list{margin:10px 0;padding-left:20px}
+.steps-list li{font-size:11px;color:var(--text);margin:6px 0;line-height:1.5}
+.integration-note{background:rgba(91,141,238,.1);border-left:3px solid var(--accent);padding:10px 12px;margin:10px 0;font-size:11px;color:var(--text2);line-height:1.5}
+.int-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px}
+.int-tab{padding:8px 16px;font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;user-select:none}
+.int-tab:hover{color:var(--text)}
+.int-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.int-panel{display:none;padding-right:32px}
+.int-panel.active{display:block}
+.int-badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;text-transform:uppercase;margin-left:6px}
+.int-badge-green{background:rgba(62,207,142,.15);color:var(--green)}
+.int-badge-blue{background:rgba(91,141,238,.15);color:var(--accent)}
+.int-badge-yellow{background:rgba(246,185,59,.15);color:var(--yellow)}
+
+/* Toast */
+.toast{position:fixed;bottom:18px;right:18px;background:var(--green);color:#fff;padding:9px 14px;border-radius:7px;font-size:12px;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.4);transform:translateY(80px);opacity:0;transition:all .25s;z-index:999}
+.toast.show{transform:none;opacity:1}
+
+@media(max-width:680px){
+  .inf-layout{grid-template-columns:1fr}
+  .left-panel{border-right:none;border-bottom:1px solid var(--border)}
+  .model-card-body{grid-template-columns:1fr 1fr}
+  .hw-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <span class="logo-icon">⚡</span>
+    <div><div class="logo-text">ModelKit</div><div class="logo-sub">Inference Demo</div></div>
+  </div>
+  <div class="server-row">
+    <span class="status-dot" id="statusDot"></span>
+    <input type="text" id="serverUrl">
+    <button class="btn btn-outline" onclick="connectServer()">Connect</button>
+  </div>
+  <span class="status-label" id="statusLabel">Not connected</span>
+</header>
+
+<!-- Nav -->
+<div class="nav-tabs">
+  <div class="nav-tab active" onclick="showPage('models',this)">🗂 Models</div>
+  <div class="nav-tab" onclick="showPage('inference',this)">🎯 Inference</div>
+  <div class="nav-tab" onclick="showPage('tools',this)">🔧 Tools</div>
+  <div class="nav-tab" onclick="showPage('mcp',this)">🤖 MCP</div>
+  <div class="nav-tab" onclick="showPage('hardware',this)">📊 Hardware</div>
+  <div class="nav-tab" onclick="showPage('integration',this)">📚 Integration</div>
+</div>
+
+<!-- ════════════════ PAGE: INFERENCE ════════════════ -->
+<div class="page" id="page-inference">
+  <div class="inf-layout">
+    <aside class="left-panel">
+      <!-- Model selector (always shown when multi mode) -->
+      <div class="panel-sec" id="modelIdField" style="display:none">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <div class="sec-title" style="margin:0">Model</div>
+          <span id="modelIdBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(91,141,238,.15);color:var(--accent)">multi</span>
+          <span id="taskBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(62,207,142,.1);color:var(--green);display:none"></span>
+        </div>
+        <select id="modelId" onchange="onModelChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 9px;font-size:12px;outline:none;width:100%">
+          <option value="">— select model —</option>
+        </select>
+      </div>
+
+      <!-- Task selector -->
+      <div class="panel-sec" id="taskField">
+        <div class="sec-title">Task</div>
+        <select id="taskSelect" onchange="onTaskChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 9px;font-size:12px;outline:none;width:100%">
+          <option value="">Auto (from model)</option>
+        </select>
+      </div>
+
+      <!-- Image input -->
+      <div class="panel-sec" id="imageInputSection">
+        <div class="sec-title">Input Image</div>
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept="image/*,audio/*,video/*" onchange="onFileSelect(event)">
+          <div style="font-size:28px;margin-bottom:6px">🖼️</div>
+          <div class="drop-hint">Drop image or <strong>browse</strong></div>
+        </div>
+        <div class="preview-wrap" id="previewWrap">
+          <img id="previewImg" src="" alt="">
+          <div class="preview-name" id="previewName"></div>
+        </div>
+      </div>
+
+      <!-- Text input (NLP tasks) — fields built dynamically from schema -->
+      <div class="panel-sec" id="textInputSection" style="display:none">
+        <div id="textFieldsContainer"></div>
+        <div id="textExamples" style="margin-top:8px;display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+
+      <!-- Options — pipeline params built dynamically from /v1/schema -->
+      <div class="panel-sec">
+        <div class="sec-title">Options</div>
+        <div id="pipelineParamsContainer"></div>
+        <button class="run-btn" id="runBtn" onclick="runInference()" disabled>
+          <div class="spinner"></div><span class="run-label">▶ Run Inference</span>
+        </button>
+      </div>
+
+      <!-- EP -->
+      <div class="panel-sec">
+        <div class="sec-title">Execution Provider</div>
+        <div class="ep-grid">
+          <div class="ep-btn" onclick="switchEP('cpu',this)">CPU</div>
+          <div class="ep-btn" onclick="switchEP('dml',this)">DirectML</div>
+          <div class="ep-btn" onclick="switchEP('qnn',this)">QNN</div>
+          <div class="ep-btn" onclick="switchEP('openvino',this)">OpenVINO</div>
+          <div class="ep-btn" onclick="switchEP('auto',this)">Auto</div>
+        </div>
+        <div class="ep-status" id="epStatus"></div>
+      </div>
+    </aside>
+    <section class="right-panel">
+      <div class="results-area" id="resultsArea">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">🎯</div>
+          <div class="empty-text" id="emptyHint">Provide input and click Run Inference</div>
+        </div>
+      </div>
+
+      <!-- Request / Response repro panel (inference) -->
+      <div id="infReproPanel" style="background:var(--surface2);border-top:1px solid var(--border);flex-shrink:0;height:250px;display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:7px 16px;font-size:11px;font-weight:600;cursor:pointer;user-select:none;color:var(--text2);display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);flex-shrink:0" onclick="toggleReproPanel('infReproBody','infReproArrow')">
+          <span id="infReproArrow" style="font-size:9px">▶</span>
+          <span id="infReproSummary">📋 Request / Response</span>
+        </div>
+        <div id="infReproBody" style="display:none;flex:1;overflow-y:auto">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border)">
+          <div style="background:var(--surface);padding:12px 14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:6px">
+              Request
+              <button onclick="copyText('infReproReq')" class="btn btn-outline btn-sm" style="margin-left:8px">Copy</button>
+            </div>
+            <pre id="infReproReq" style="font-size:11px;color:var(--text);overflow:auto;max-height:160px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+          </div>
+          <div style="background:var(--surface);padding:12px 14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:6px">
+              Response
+              <button onclick="copyText('infReproRes')" class="btn btn-outline btn-sm" style="margin-left:8px">Copy</button>
+            </div>
+            <pre id="infReproRes" style="font-size:11px;color:var(--text);overflow:auto;max-height:160px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+          </div>
+        </div>
+        <div style="padding:8px 14px;background:var(--surface);border-top:1px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:5px">
+            curl equivalent
+            <button onclick="copyText('infReproCurl')" class="btn btn-outline btn-sm" style="margin-left:8px">Copy</button>
+          </div>
+          <pre id="infReproCurl" style="font-size:11px;color:var(--accent);overflow:auto;max-height:60px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+        </div>
+        </div><!-- infReproBody -->
+      </div><!-- infReproPanel -->
+    </section>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: MODELS ════════════════ -->
+<div class="page active" id="page-models">
+  <div class="models-page">
+    <div class="models-toolbar">
+      <h2>Models</h2>
+      <button class="btn btn-outline btn-sm" onclick="refreshModels()">↻ Refresh</button>
+      <button class="btn btn-primary btn-sm" onclick="openLoadForm()">➕ Load Model</button>
+    </div>
+    <div class="models-body">
+
+      <!-- ── ACTIVE MODELS ── -->
+      <div>
+        <div class="section-hd">
+          <h3>Active</h3>
+          <span class="section-hd-count" id="activeCount">0</span>
+        </div>
+        <!-- Load form — hidden in single/cli-wrapper mode, shown in multi mode -->
+        <div id="loadFormNote" style="display:none;font-size:12px;color:var(--text2);padding:12px 14px;background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.2);border-radius:var(--r);margin-bottom:10px">
+          💡 Dynamic model loading requires <strong>multi-model mode</strong>.<br>
+          Restart with: <code style="background:var(--surface2);padding:2px 6px;border-radius:3px">winml serve &lt;model&gt; --multi</code>
+        </div>
+        <div class="load-form" id="loadForm" style="display:none;margin-bottom:10px">
+          <h3>➕ Load Model</h3>
+          <div class="load-form-grid">
+            <div class="field"><label>Model ID / Path</label>
+              <input type="text" id="lm-id" placeholder="microsoft/resnet-50 or ./build/…"></div>
+            <div class="field"><label>Task (optional)</label>
+              <input type="text" id="lm-task" placeholder="image-classification"></div>
+            <div class="field"><label>Device</label>
+              <select id="lm-device"><option>auto</option><option>npu</option><option>gpu</option><option>cpu</option></select></div>
+            <div class="field"><label>EP (optional)</label>
+              <input type="text" id="lm-ep" placeholder="dml / qnn / cpu"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="loadModel()" id="loadBtn" style="margin-top:4px">Load</button>
+          <span id="load-status" style="font-size:11px;color:var(--text2);margin-left:10px"></span>
+        </div>
+        <div id="loadLog" style="display:none;background:#0a0b10;border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;font-family:monospace;font-size:11px;line-height:1.7;color:#c8d3e0;height:160px;flex-shrink:0;overflow-y:auto;margin-bottom:10px"></div>
+        <div id="modelCards"></div>
+      </div>
+
+      <!-- ── HUB CATALOG ── -->
+      <div>
+        <div class="section-hd">
+          <h3>Hub Catalog</h3>
+          <span class="section-hd-count" id="hubCount">—</span>
+          <div class="section-hd-spacer"></div>
+          <div class="hub-toolbar" style="margin:0">
+            <input class="hub-search" id="hubSearch" placeholder="🔍 Search…" oninput="filterHub()">
+            <select class="hub-filter" id="hubSourceFilter" onchange="filterHub()">
+              <option value="">All sources</option>
+              <option value="built-in">Built-in</option>
+              <option value="cache">Cached</option>
+            </select>
+            <select class="hub-filter" id="hubTaskFilter" onchange="filterHub()">
+              <option value="">All tasks</option>
+            </select>
+          </div>
+        </div>
+        <div class="hub-grid" id="hubCards">
+          <div style="color:var(--text2);font-size:12px">Loading catalog…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: HARDWARE ════════════════ -->
+<div class="page" id="page-hardware">
+  <div class="hw-page">
+    <div class="hw-body">
+      <div class="hw-note">
+        💡 Live gauges use <code>GET /v1/resources</code>. For deep NPU/GPU counters, click
+        <strong>Run winml perf</strong> on the Models page — results include HWMonitor data
+        (requires <code>--monitor</code> flag in winml perf).
+      </div>
+      <div class="hw-grid">
+        <div class="gauge-card">
+          <div class="gauge-header"><span class="gauge-title">Process RSS</span><span class="gauge-value" id="hw-mem">—</span></div>
+          <div class="gauge-track"><div class="gauge-fill" id="hw-mem-bar" style="width:0%;background:var(--accent)"></div></div>
+          <div class="gauge-sub" id="hw-mem-sub">MB (Python + ORT + model)</div>
+        </div>
+        <div class="gauge-card">
+          <div class="gauge-header"><span class="gauge-title">Request Count</span><span class="gauge-value" id="hw-req">—</span></div>
+          <div class="gauge-track"><div class="gauge-fill" id="hw-req-bar" style="width:0%;background:var(--green)"></div></div>
+          <div class="gauge-sub" id="hw-req-sub">total requests</div>
+        </div>
+        <div class="gauge-card">
+          <div class="gauge-header"><span class="gauge-title">Uptime</span><span class="gauge-value" id="hw-uptime">—</span></div>
+          <div class="gauge-track"><div class="gauge-fill" id="hw-uptime-bar" style="width:0%;background:var(--yellow)"></div></div>
+          <div class="gauge-sub">seconds</div>
+        </div>
+      </div>
+      <!-- Charts -->
+      <div class="sparkline-wrap">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="sparkline-title" style="margin:0">Inference Latency — last 20 requests</div>
+          <div style="display:flex;gap:12px;font-size:11px">
+            <span><span style="display:inline-block;width:10px;height:3px;background:var(--green);border-radius:2px;vertical-align:middle;margin-right:4px"></span>p50 <strong id="lat-p50-cur">—</strong> ms</span>
+            <span><span style="display:inline-block;width:10px;height:3px;background:var(--yellow);border-radius:2px;vertical-align:middle;margin-right:4px"></span>p95 <strong id="lat-p95-cur">—</strong> ms</span>
+          </div>
+        </div>
+        <canvas id="latencyCanvas" height="80" style="width:100%;display:block"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9px;color:var(--text2)">
+          <span>20 requests ago</span><span>now</span>
+        </div>
+      </div>
+      <div class="sparkline-wrap">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="sparkline-title" style="margin:0">Process Memory (RSS) — rolling</div>
+          <div style="font-size:11px;color:var(--text2)">current: <strong id="mem-cur" style="color:var(--accent)">—</strong> MB</div>
+        </div>
+        <canvas id="memCanvas" height="80" style="width:100%;display:block"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9px;color:var(--text2)">
+          <span>oldest</span><span>now</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: TOOLS ════════════════ -->
+<div class="page" id="page-tools">
+  <div class="tools-page">
+    <div class="tools-toolbar">
+      <h2>Tools</h2>
+      <button class="btn btn-outline btn-sm" onclick="refreshTools()">↻ Refresh</button>
+    </div>
+    <div class="tools-body">
+      <div class="tools-note">
+        💡 OpenAI-compatible function-calling tool definitions. Auto-generated from the model manifest.
+      </div>
+      <div id="toolsContainer" class="tools-grid">
+        <div class="tools-loading">Loading tools…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: MCP ════════════════ -->
+<div class="page" id="page-mcp">
+  <div class="mcp-page">
+    <div class="mcp-toolbar">
+      <h2>MCP Server</h2>
+      <button class="btn btn-outline btn-sm" onclick="refreshMCP()">↻ Refresh</button>
+    </div>
+    <div class="mcp-body">
+      <div class="mcp-note">
+        💡 Model Context Protocol (MCP) tools for Claude integration. Use with <code>claude-sdk</code> or <code>anthropic-sdk</code>.
+      </div>
+      <div id="mcpContainer">
+        <div class="mcp-loading">Loading MCP schema…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: INTEGRATION ════════════════ -->
+<div class="page" id="page-integration">
+  <div class="integration-page">
+    <div class="integration-header">
+      <div class="integration-section">
+        <div class="integration-title">Client Integration Guide</div>
+        <div class="integration-desc">ModelKit exposes inference via MCP, OpenAI-compatible tools, REST API, and more. Pick your integration method below.</div>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="int-tabs">
+        <div class="int-tab active" onclick="showIntTab('skill-int',this)">Skill<span class="int-badge int-badge-green">recommended</span></div>
+        <div class="int-tab" onclick="showIntTab('mcp-int',this)">MCP</div>
+        <div class="int-tab" onclick="showIntTab('tools-int',this)">OpenAI Tools</div>
+        <div class="int-tab" onclick="showIntTab('agent-int',this)">Agent Frameworks</div>
+        <div class="int-tab" onclick="showIntTab('rest-int',this)">REST API</div>
+        <div class="int-tab" onclick="showIntTab('ref-int',this)">Reference</div>
+      </div>
+    </div>
+
+    <div class="integration-body">
+      <!-- ── MCP Integration Panel ── -->
+      <div class="int-panel" id="panel-mcp-int">
+
+        <div class="integration-subtitle">Claude Desktop</div>
+        <div class="client-card">
+          <div class="client-name">Full MCP support with auto-discovered tools</div>
+          <ol class="steps-list">
+            <li>Start ModelKit serve: <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">winml serve &lt;model&gt;</code></li>
+            <li>Edit <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">%APPDATA%\Claude\claude_desktop_config.json</code></li>
+            <li>Add the config below, then restart Claude Desktop</li>
+          </ol>
+          <div class="code-block" id="int-mcp-desktop-config"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Config</button>
+          <div class="integration-note">
+            The standalone <code>scripts/mcp_server.py</code> avoids importing PyTorch, keeping startup under 4s.
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Claude Code (.mcp.json)</div>
+        <div class="client-card">
+          <div class="client-name">Project-scoped MCP for Claude Code IDE / CLI</div>
+          <ol class="steps-list">
+            <li>Place <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.mcp.json</code> in the project root</li>
+            <li>Claude Code auto-discovers MCP servers on startup</li>
+          </ol>
+          <div class="code-block" id="int-mcp-code-config"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Config</button>
+        </div>
+
+        <div class="integration-subtitle">Claude Code CLI (one-liner)</div>
+        <div class="client-card">
+          <div class="client-name">Register via command line</div>
+          <div class="code-block" id="int-mcp-cli-cmd"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">How it works</div>
+        <div class="client-card">
+          <div class="integration-desc" style="margin:0">
+            MCP server starts alongside Claude and auto-discovers loaded models via <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">GET /v1/models</code>. Each model becomes a uniquely-named tool:
+          </div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.8;margin-top:8px">
+            Image tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">classification_image_&lt;model&gt;(image_path, top_k)</code> &mdash; reads local file, multipart upload<br>
+            Text tasks &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">classification_text_&lt;model&gt;(text, top_k)</code> &mdash; JSON POST<br>
+            Always available &rarr; <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">list_models()</code> &mdash; enumerate loaded models
+          </div>
+        </div>
+      </div>
+
+      <!-- ── OpenAI Tools Panel ── -->
+      <div class="int-panel" id="panel-tools-int">
+
+        <div class="integration-subtitle">Anthropic SDK (Python)</div>
+        <div class="client-card">
+          <div class="client-name">Use ModelKit tools with Claude API tool_use</div>
+          <div class="code-block" id="int-tools-anthropic"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">OpenAI SDK (Python)</div>
+        <div class="client-card">
+          <div class="client-name">Works with any OpenAI-compatible provider</div>
+          <div class="code-block" id="int-tools-openai"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+          <div class="integration-note">
+            <code>GET /v1/tools</code> returns OpenAI function-calling format. <code>GET /v1/mcp-schema</code> returns MCP format. Both are auto-generated from the model manifest.
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Tool-calling loop pattern</div>
+        <div class="client-card">
+          <div class="client-name">Full agentic loop: Claude decides when to call ModelKit</div>
+          <div class="code-block" id="int-tools-loop"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+      </div>
+
+      <!-- ── Agent Frameworks Panel ── -->
+      <div class="int-panel" id="panel-agent-int">
+
+        <div class="integration-note">
+          ModelKit exposes standard REST endpoints that any agent framework can call. Below are copy-paste examples for the most popular frameworks.
+        </div>
+
+        <div class="integration-subtitle">LangChain / LangGraph</div>
+        <div class="client-card">
+          <div class="client-name">Custom tool with @tool decorator</div>
+          <div class="code-block" id="int-agent-langchain"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">Semantic Kernel</div>
+        <div class="client-card">
+          <div class="client-name">Native function plugin</div>
+          <div class="code-block" id="int-agent-sk"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">AutoGen / AG2</div>
+        <div class="client-card">
+          <div class="client-name">Register function for ConversableAgent</div>
+          <div class="code-block" id="int-agent-autogen"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">CrewAI</div>
+        <div class="client-card">
+          <div class="client-name">Custom BaseTool subclass</div>
+          <div class="code-block" id="int-agent-crewai"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+        <div class="integration-subtitle">OpenAI Agents SDK</div>
+        <div class="client-card">
+          <div class="client-name">Function tool for the Agents framework</div>
+          <div class="code-block" id="int-agent-openai"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+
+
+      </div>
+
+      <!-- ── REST API Panel ── -->
+      <div class="int-panel" id="panel-rest-int">
+
+        <div class="integration-subtitle">Image inference (file upload)</div>
+        <div class="client-card">
+          <div class="client-name">Multipart upload — best for image tasks</div>
+          <div class="code-block" id="int-rest-image"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">Image inference (base64 JSON)</div>
+        <div class="client-card">
+          <div class="client-name">Base64-encoded image in JSON body</div>
+          <div class="code-block" id="int-rest-b64"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">Text inference</div>
+        <div class="client-card">
+          <div class="client-name">JSON body — for NLP / text classification</div>
+          <div class="code-block" id="int-rest-text"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Command</button>
+        </div>
+
+        <div class="integration-subtitle">Python (httpx)</div>
+        <div class="client-card">
+          <div class="client-name">Programmatic access without any SDK</div>
+          <div class="code-block" id="int-rest-python"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
+        </div>
+      </div>
+
+      <!-- ── Skill Panel ── -->
+      <div class="int-panel active" id="panel-skill-int">
+
+        <div class="integration-subtitle">What is a Skill?</div>
+        <div class="client-card">
+          <div class="integration-desc" style="margin:0">
+            Skills are reusable prompt templates that AI coding agents (Claude Code, Cursor, Windsurf, etc.) can load automatically. Create a skill to give the agent persistent knowledge of your ModelKit server — it learns the available endpoints, input formats, and usage patterns without needing MCP or tool registration.
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Claude Code</div>
+        <div class="client-card">
+          <div class="client-name">Save as <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.claude/skills/modelkit-inference.md</code></div>
+          <div class="code-block" id="int-skill-file"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Skill</button>
+        </div>
+
+        <div class="integration-subtitle">Cursor / Windsurf</div>
+        <div class="client-card">
+          <div class="client-name">Save as <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.cursorrules</code> or <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.windsurfrules</code></div>
+          <div class="code-block" id="int-skill-cursor"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Rules</button>
+        </div>
+
+        <div class="integration-subtitle">Generic (any agent)</div>
+        <div class="client-card">
+          <div class="client-name">System prompt snippet — paste into any AI agent's instructions</div>
+          <div class="code-block" id="int-skill-generic"></div>
+          <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Prompt</button>
+        </div>
+
+        <div class="integration-subtitle">When to use Skills vs MCP vs Tools</div>
+        <div class="client-card">
+          <div style="font-size:11px;color:var(--text2);line-height:1.8">
+            <strong>Skill</strong> — Agent calls REST API via shell/code. Zero setup, works everywhere. Best for quick integration and custom workflows.<br>
+            <strong>MCP</strong> — Agent auto-discovers typed tools. Richer UX, but requires MCP-compatible client and server process.<br>
+            <strong>OpenAI Tools</strong> — Programmatic tool-calling loop via SDK. Best for custom applications and pipelines.<br>
+            <strong>Combine them:</strong> Skill for domain knowledge + MCP for native tool calling = best of both.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Reference Panel ── -->
+      <div class="int-panel" id="panel-ref-int">
+
+        <div class="integration-subtitle">API Endpoints</div>
+        <div class="client-card" style="background:rgba(91,141,238,.05);border-color:var(--accent)">
+          <div style="font-size:11px;color:var(--text2);line-height:2.0" id="int-ref-endpoints">
+            <strong style="color:var(--text)">Inference</strong><br>
+            <code>POST /v1/predict</code> &mdash; JSON inputs (text, base64 image, raw tensors)<br>
+            <code>POST /v1/predict/file</code> &mdash; Image file upload (multipart)<br>
+            <br>
+            <strong style="color:var(--text)">Discovery</strong><br>
+            <code>GET /v1/tools</code> &mdash; OpenAI function-calling tool definitions<br>
+            <code>GET /v1/mcp-schema</code> &mdash; MCP tool definitions<br>
+            <code>GET /v1/models</code> &mdash; All loaded models and status<br>
+            <code>GET /v1/schema</code> &mdash; Request/response schema for current model<br>
+            <code>GET /v1/models/{id}/schema</code> &mdash; Schema for a specific model<br>
+            <code>GET /v1/hub</code> &mdash; Model catalog (built-in + user cache)<br>
+            <br>
+            <strong style="color:var(--text)">Management</strong><br>
+            <code>GET /v1/health</code> &mdash; Server status and uptime<br>
+            <code>POST /v1/models</code> &mdash; Load a new model (multi-model mode)<br>
+            <code>DELETE /v1/models/{id}</code> &mdash; Unload a model<br>
+            <code>POST /v1/ep</code> &mdash; Switch execution provider<br>
+            <code>GET /v1/resources</code> &mdash; Memory and request stats<br>
+            <code>GET /v1/models/{id}/stats</code> &mdash; Live latency stats for a model<br>
+            <code>GET /v1/logs</code> &mdash; Poll recent log lines<br>
+            <code>POST /v1/cli/{command}</code> &mdash; Run any winml CLI command
+          </div>
+        </div>
+
+        <div class="integration-subtitle">Server Info</div>
+        <div class="client-card">
+          <div style="font-size:11px;color:var(--text2);line-height:1.8">
+            <span id="serverInfoDisplay" style="font-family:monospace">Loading...</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ PAGE: CLI ════════════════ -->
+<div class="page" id="page-cli" style="display:none">
+    <!-- Sidebar: command list -->
+    <nav class="cli-sidebar">
+      <h4>Commands</h4>
+      <button class="cmd-btn active" onclick="selectCmd('sys',this)">sys<small>System info</small></button>
+      <button class="cmd-btn" onclick="selectCmd('inspect',this)">inspect<small>Model I/O info</small></button>
+      <button class="cmd-btn" onclick="selectCmd('analyze',this)">analyze<small>EP compatibility</small></button>
+      <button class="cmd-btn" onclick="selectCmd('perf',this)">perf<small>Benchmark</small></button>
+      <button class="cmd-btn" onclick="selectCmd('config',this)">config<small>Generate config</small></button>
+      <button class="cmd-btn" onclick="selectCmd('export',this)">export<small>Export to ONNX</small></button>
+      <button class="cmd-btn" onclick="selectCmd('build',this)">build<small>Full build pipeline</small></button>
+      <button class="cmd-btn" onclick="selectCmd('optimize',this)">optimize<small>ORT graph opt</small></button>
+      <button class="cmd-btn" onclick="selectCmd('quantize',this)">quantize<small>Quantization</small></button>
+    </nav>
+
+    <!-- Main: form + terminal -->
+    <div class="cli-main">
+      <!-- Dynamic arg form -->
+      <div class="cli-form" id="cliForm"></div>
+
+      <!-- Terminal header -->
+      <div class="terminal-header">
+        <span id="term-cmd-label" style="font-family:monospace;color:var(--text)">winml sys</span>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span id="term-duration"></span>
+          <span id="term-exit"></span>
+          <button class="btn btn-outline btn-sm" onclick="clearTerminal()">Clear</button>
+        </div>
+      </div>
+
+      <!-- Terminal output -->
+      <div class="terminal" id="terminal" style="flex:1;min-height:0;overflow-y:scroll">
+        <div style="color:var(--text2);font-size:11px">Select a command and click ▶ Run</div>
+      </div>
+
+      <!-- Request / Response repro panel -->
+      <div id="reproPanel" style="background:var(--surface2);border-top:1px solid var(--border);flex-shrink:0;height:250px;display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:7px 16px;font-size:11px;font-weight:600;cursor:pointer;user-select:none;color:var(--text2);display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);flex-shrink:0" onclick="toggleReproPanel('reproBody','reproArrow')">
+          <span id="reproArrow" style="font-size:9px">▶</span>
+          <span id="reproSummary">📋 Request / Response</span>
+        </div>
+        <div id="reproBody" style="display:none;flex:1;overflow-y:auto">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border)">
+          <div style="background:var(--surface);padding:12px 14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:6px">
+              Request
+              <button onclick="copyText('reproReq')" class="btn btn-outline btn-sm" style="margin-left:8px">Copy</button>
+            </div>
+            <pre id="reproReq" style="font-size:11px;color:var(--text);overflow:auto;max-height:160px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+          </div>
+          <div style="background:var(--surface);padding:12px 14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:6px">
+              Response
+              <button onclick="copyText('reproRes')" class="btn btn-outline btn-sm" style="margin-left:8px">Copy</button>
+            </div>
+            <pre id="reproRes" style="font-size:11px;color:var(--text);overflow:auto;max-height:160px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+          </div>
+        </div>
+        <div style="padding:8px 14px;background:var(--surface);border-top:1px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:5px">
+            curl equivalent
+            <button onclick="copyText('reproCurl')" class="btn btn-outline btn-sm" style="margin-left:8px">Copy</button>
+          </div>
+          <pre id="reproCurl" style="font-size:11px;color:var(--accent);overflow:auto;max-height:60px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+        </div>
+        </div><!-- reproBody -->
+      </div><!-- reproPanel -->
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════════
+let serverUrl = window.location.origin;
+let selectedFile = null;
+let pollTimer = null;
+let _log_handler_seq = 0;  // tracks last seen log seq for /v1/logs polling
+const latencyHistory = [];  // {p50,p95} objects, max 20
+const memHistory = [];       // floats, max 20
+
+// ══════════════════════════════════════════════════
+// Navigation
+// ══════════════════════════════════════════════════
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+  if (name === 'models') refreshModels();
+  if (name === 'tools') refreshTools();
+  if (name === 'mcp') refreshMCP();
+  if (name === 'integration') loadIntegrationInfo();
+}
+
+// ══════════════════════════════════════════════════
+// Server
+// ══════════════════════════════════════════════════
+async function connectServer() {
+  serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, '');
+  try {
+    const r = await fetch(`${serverUrl}/v1/health`, { signal: AbortSignal.timeout(3000) });
+    const d = await r.json();
+    setStatus('ok', `${d.mode} · ${d.model_id || 'no model'}`);
+    applyServerMode(d.mode);
+    if (d.mode !== 'multi' && d.task) {
+      // Single-model mode: auto-select task in dropdown
+      const taskSel = document.getElementById('taskSelect');
+      if ([...taskSel.options].some(o => o.value === d.task)) taskSel.value = d.task;
+      _setInputModeFromSchema(d.task);
+    }
+    checkRunReady();
+    startPolling();
+    // Pre-fetch hub catalog in background
+    fetch(`${serverUrl}/v1/hub`).then(r => r.json()).then(hd => { _hubCatalog = hd.models || []; _populateHubTaskFilter(); _populateTaskDropdown(); }).catch(() => {});
+  } catch {
+    setStatus('err', 'Cannot reach server');
+    stopPolling();
+  }
+}
+
+let _serverMode = 'single';
+let _inputMode = 'image'; // 'image' | 'text'
+let _textInputFields = []; // schema-driven text input fields [{name, description, required}, ...]
+
+// Text examples per task
+const TEXT_EXAMPLES = {
+  'text-classification':  ['Stocks surged to record highs amid strong earnings.', 'The company reported a significant loss this quarter.'],
+  'sentiment-analysis':   ['I love this product! Highly recommended.', 'Very disappointed with the quality.'],
+  'feature-extraction':   ['The quick brown fox jumps over the lazy dog.'],
+  'sentence-similarity':  ['A man is eating food.', 'A man is eating a piece of bread.'],
+};
+const _BINARY_INPUT_TYPES = new Set(['image', 'audio', 'video']);
+
+function applyServerMode(mode) {
+  _serverMode = mode;
+  const isMulti = mode === 'multi';
+  // loadForm stays hidden until user clicks "Load Model"; note shown in single mode
+  document.getElementById('loadFormNote').style.display = isMulti ? 'none' : '';
+  document.getElementById('modelIdField').style.display = isMulti ? '' : 'none';
+}
+
+function onModelChange() {
+  const sel = document.getElementById('modelId');
+  const opt = sel.options[sel.selectedIndex];
+  // Parse task from option text: "microsoft/resnet-50 (image-classification)"
+  const match = opt?.textContent?.match(/\(([^)]+)\)$/);
+  const task = match ? match[1].trim() : '';
+  const modelId = sel.value || null;
+  // Auto-select the model's task in the task dropdown
+  const taskSel = document.getElementById('taskSelect');
+  if (task && [...taskSel.options].some(o => o.value === task)) {
+    taskSel.value = task;
+  } else {
+    taskSel.value = '';
+  }
+  // Fetch schema to determine input mode from user_inputs types
+  _setInputModeFromSchema(task, modelId);
+  checkRunReady();
+}
+
+function onTaskChange() {
+  const task = document.getElementById('taskSelect').value;
+  const modelId = document.getElementById('modelId').value || null;
+  if (task) {
+    _setInputModeFromSchema(task, modelId);
+  }
+  checkRunReady();
+}
+
+function _populateTaskDropdown() {
+  const sel = document.getElementById('taskSelect');
+  const tasks = new Set();
+  _hubCatalog.forEach(m => { if (m.task) tasks.add(m.task); });
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Auto (from model)</option>' +
+    [...tasks].sort().map(t => `<option value="${t}">${t.replace(/-/g, ' ')}</option>`).join('');
+  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
+async function _setInputModeFromSchema(task, modelId) {
+  // Try model-specific schema first (multi-model), fall back to /v1/schema (single)
+  // Pass task as query param so the backend resolves user_inputs for the overridden task
+  const taskQ = task ? `?task=${encodeURIComponent(task)}` : '';
+  const urls = modelId
+    ? [`${serverUrl}/v1/models/${encodeURIComponent(modelId)}/schema${taskQ}`, `${serverUrl}/v1/schema${taskQ}`]
+    : [`${serverUrl}/v1/schema${taskQ}`];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      if (r.ok) {
+        const schema = await r.json();
+        const inputs = schema.user_inputs || [];
+        const hasBinary = inputs.some(f => _BINARY_INPUT_TYPES.has(f.type));
+        _textInputFields = inputs.filter(f => !_BINARY_INPUT_TYPES.has(f.type));
+        _buildPipelineParamsUI(schema.parameters || []);
+        setInputMode(task, hasBinary ? 'image' : 'text');
+        return;
+      }
+    } catch { /* try next */ }
+  }
+  // Fallback: infer mode from task name when schema is unavailable
+  const _TEXT_TASKS = new Set([
+    'text-classification','sentiment-analysis','token-classification','ner',
+    'question-answering','text-generation','text2text-generation',
+    'feature-extraction','sentence-similarity','fill-mask','summarization',
+    'translation','zero-shot-classification','table-question-answering',
+  ]);
+  _textInputFields = [];
+  _buildPipelineParamsUI([]);
+  setInputMode(task, _TEXT_TASKS.has(task) ? 'text' : 'image');
+}
+
+function _buildPipelineParamsUI(params) {
+  const container = document.getElementById('pipelineParamsContainer');
+  const key = params.map(p => p.name).join(',');
+  if (container.dataset.paramKey === key) return;   // no change
+  container.dataset.paramKey = key;
+  if (!params.length) { container.innerHTML = ''; return; }
+  const inputStyle = 'width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 10px;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box';
+  container.innerHTML = params.map(p => {
+    const label = p.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // default → pre-fill (sent unless user clears); sample_value → placeholder only (not sent unless user fills)
+    const dflt = p.default;
+    const sample = p.sample_value;
+    const typ = p.type || 'any';
+    if (typ === 'boolean') {
+      const checked = (dflt === true) ? ' checked' : '';
+      return `<div class="field"><label>${escHtml(label)}</label><input type="checkbox" class="pipe-param" data-param="${escHtml(p.name)}" data-type="boolean"${checked} style="width:auto;accent-color:var(--accent)"></div>`;
+    }
+    const inputType = (typ === 'integer' || typ === 'number') ? 'number' : 'text';
+    const value = (dflt !== undefined && dflt !== null) ? escHtml(String(dflt)) : '';
+    const placeholder = (!value && sample !== undefined) ? ` placeholder="${escHtml(String(sample))}"` : '';
+    return `<div class="field"><label>${escHtml(label)}</label><input type="${inputType}" class="pipe-param" data-param="${escHtml(p.name)}" data-type="${escHtml(typ)}" value="${value}"${placeholder} style="${inputStyle}"></div>`;
+  }).join('');
+}
+
+function _collectPipelineParams() {
+  const params = {};
+  document.querySelectorAll('.pipe-param').forEach(el => {
+    const name = el.dataset.param;
+    const typ = el.dataset.type;
+    if (typ === 'boolean') { if (el.checked) params[name] = true; return; }
+    const raw = el.value.trim();
+    if (!raw) return;
+    if (typ === 'integer') params[name] = parseInt(raw, 10);
+    else if (typ === 'number') params[name] = parseFloat(raw);
+    else params[name] = raw;
+  });
+  return params;
+}
+
+function setInputMode(task, mode) {
+  _inputMode = mode || 'image';
+  const isText = _inputMode === 'text';
+
+  document.getElementById('imageInputSection').style.display = isText ? 'none' : '';
+  document.getElementById('textInputSection').style.display  = isText ? '' : 'none';
+
+  // Keep the inline badge in sync (shown next to "Model" title in multi mode)
+  const badge = document.getElementById('taskBadge');
+  if (task) { badge.textContent = task; badge.style.display = ''; }
+  else badge.style.display = 'none';
+  // Also sync the task dropdown if it wasn't the change source
+  const taskSel = document.getElementById('taskSelect');
+  if (task && !taskSel.value && [...taskSel.options].some(o => o.value === task)) {
+    taskSel.value = task;
+  }
+
+  // Build dynamic text input fields from schema — only rebuild when fields change
+  const container = document.getElementById('textFieldsContainer');
+  const fields = _textInputFields.length > 0
+    ? _textInputFields
+    : [{ name: 'text', description: 'Text input', required: true }];
+  const newFieldKey = fields.map(f => f.name).join(',');
+  if (container.dataset.fieldKey !== newFieldKey) {
+    container.dataset.fieldKey = newFieldKey;
+    const taStyle = 'width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 10px;font-size:12px;outline:none;resize:vertical;min-height:70px;line-height:1.5;font-family:inherit';
+    container.innerHTML = fields.map(f => {
+      const label = f.name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+      return `<div style="margin-bottom:8px">` +
+        `<div class="sec-title">${escHtml(label)}${f.required === false ? ' <span style="font-size:10px;color:var(--text2)">(optional)</span>' : ''}</div>` +
+        `<textarea class="schema-text-input" data-field="${escHtml(f.name)}" oninput="checkRunReady()" style="${taStyle}" placeholder="${escHtml(f.description || f.name)}"></textarea>` +
+        `</div>`;
+    }).join('');
+  }
+
+  // Populate examples
+  const examples = TEXT_EXAMPLES[task] || TEXT_EXAMPLES['text-classification'] || [];
+  const exDiv = document.getElementById('textExamples');
+  const allInputs = container.querySelectorAll('.schema-text-input');
+  if (isText && examples.length && allInputs.length) {
+    // When example count matches field count (e.g. sentence-similarity: 2 examples → 2 fields),
+    // show a single "Try example" that fills all fields at once.
+    if (examples.length === allInputs.length && allInputs.length > 1) {
+      exDiv.innerHTML = '<div style="font-size:10px;color:var(--text2);margin-bottom:3px">Example:</div>' +
+        `<div onclick="document.querySelectorAll('.schema-text-input').forEach((el,i)=>{el.value=_textExamples[i]||'';});checkRunReady()"
+          style="font-size:11px;color:var(--text2);padding:5px 8px;background:var(--surface2);border-radius:4px;cursor:pointer;border:1px solid var(--border)"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${examples.map(e => escHtml(e)).join(' ⟷ ')}</div>`;
+      window._textExamples = examples;
+    } else {
+      exDiv.innerHTML = '<div style="font-size:10px;color:var(--text2);margin-bottom:3px">Examples:</div>' +
+        examples.map(e => `<div onclick="document.querySelector('.schema-text-input').value=\`${e.replace(/`/g,"'")}\`;checkRunReady()"
+          style="font-size:11px;color:var(--text2);padding:5px 8px;background:var(--surface2);border-radius:4px;cursor:pointer;border:1px solid var(--border)"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${escHtml(e)}</div>`).join('');
+    }
+  } else {
+    exDiv.innerHTML = '';
+  }
+
+  const hint = document.getElementById('emptyHint');
+  if (hint) hint.textContent = isText ? 'Enter text and click Run Inference' : 'Upload an image and click Run Inference';
+}
+
+function checkRunReady() {
+  const modelId = document.getElementById('modelId').value.trim();
+  const requiresModel = _serverMode === 'multi';
+  const hasModel = !requiresModel || modelId.length > 0;
+  let hasInput;
+  if (_inputMode === 'text') {
+    // At least one required field must be filled (or any field if all optional)
+    const fields = document.querySelectorAll('.schema-text-input');
+    hasInput = [...fields].some(f => f.value.trim().length > 0);
+  } else {
+    hasInput = !!selectedFile;
+  }
+  document.getElementById('runBtn').disabled = !(hasModel && hasInput);
+}
+function refreshModelDropdown(models) {
+  const sel = document.getElementById('modelId');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— select model —</option>';
+  models.filter(m => m.status === 'ready').forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.model_id;
+    opt.textContent = m.model_id + (m.task ? ` (${m.task})` : '');
+    sel.appendChild(opt);
+  });
+  // Restore previous selection if still available
+  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+  else if (sel.options.length === 2) sel.selectedIndex = 1; // auto-select if only one model
+  // Only fire onModelChange when the selection actually changed —
+  // polling refreshes the dropdown every 3s and must not clobber
+  // a user's manual task override.
+  if (sel.value !== prev) onModelChange();
+}
+function setStatus(s, label) {
+  document.getElementById('statusDot').className = 'status-dot ' + (s === 'ok' ? 'ok' : 'err');
+  document.getElementById('statusLabel').textContent = label;
+}
+
+// ══════════════════════════════════════════════════
+// File handling
+// ══════════════════════════════════════════════════
+function onFileSelect(e) { const f = e.target.files[0]; if (f) setFile(f); }
+function setFile(file) {
+  selectedFile = file;
+  const r = new FileReader();
+  r.onload = ev => {
+    document.getElementById('previewImg').src = ev.target.result;
+    document.getElementById('previewName').textContent = `${file.name} · ${(file.size/1024).toFixed(1)} KB`;
+    document.getElementById('previewWrap').classList.add('show');
+  };
+  r.readAsDataURL(file);
+  if (document.getElementById('statusDot').classList.contains('ok'))
+    checkRunReady();
+}
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f) setFile(f); });
+
+// ══════════════════════════════════════════════════
+// Inference
+// ══════════════════════════════════════════════════
+async function runInference() {
+  const btn = document.getElementById('runBtn');
+  btn.classList.add('loading'); btn.disabled = true;
+  const pipeParams = _collectPipelineParams();
+  const modelId = document.getElementById('modelId').value || '_';
+  const taskOverride = document.getElementById('taskSelect').value || null;
+
+  document.getElementById('infReproRes').textContent = '…waiting…';
+  openReproPanel('infReproBody','infReproArrow');
+
+  const t0 = performance.now();
+  try {
+    let res, reqDesc, curlCmd;
+
+    if (_inputMode === 'text') {
+      // ── Text inference — collect all schema-driven fields ──
+      const inputs = {};
+      document.querySelectorAll('.schema-text-input').forEach(el => {
+        const v = el.value.trim();
+        if (v) inputs[el.dataset.field] = v;
+      });
+      if (Object.keys(inputs).length === 0) { showToast('Please enter some text'); return; }
+      const payload = { inputs, ...(Object.keys(pipeParams).length ? { params: pipeParams } : {}), ...(taskOverride ? { task: taskOverride } : {}) };
+      const body = JSON.stringify(payload);
+      const url = `${serverUrl}/v1/predict?model_id=${encodeURIComponent(modelId)}`;
+      reqDesc = `POST /v1/predict\nContent-Type: application/json\n\n${JSON.stringify(payload, null, 2)}`;
+      curlCmd = `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`;
+      document.getElementById('infReproReq').textContent = reqDesc;
+      document.getElementById('infReproCurl').textContent = curlCmd;
+      res = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+    } else {
+      // ── Image inference ──
+      if (!selectedFile) { showToast('Please select an image'); return; }
+      const fd = new FormData();
+      fd.append('file', selectedFile);
+      fd.append('model_id', modelId);
+      if (taskOverride) fd.append('task', taskOverride);
+      if (Object.keys(pipeParams).length) fd.append('params', JSON.stringify(pipeParams));
+      const paramsStr = Object.keys(pipeParams).length ? `\nparams:   ${JSON.stringify(pipeParams)}` : '';
+      reqDesc = `POST /v1/predict/file (multipart/form-data)\n\nfile:     ${selectedFile.name} (${(selectedFile.size/1024).toFixed(1)} KB)\nmodel_id: ${modelId}${taskOverride ? `\ntask:     ${taskOverride}` : ''}${paramsStr}`;
+      const paramsCurl = Object.keys(pipeParams).length ? ` \\\n  -F 'params=${JSON.stringify(pipeParams)}'` : '';
+      curlCmd = `curl -X POST ${serverUrl}/v1/predict/file \\\n  -F "file=@${selectedFile.name}" \\\n  -F "model_id=${modelId}"${taskOverride ? ` \\\n  -F "task=${taskOverride}"` : ''}${paramsCurl}`;
+      document.getElementById('infReproReq').textContent = reqDesc;
+      document.getElementById('infReproCurl').textContent = curlCmd;
+      res = await fetch(`${serverUrl}/v1/predict/file`, { method: 'POST', body: fd });
+    }
+
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
+    const data = await res.json();
+    const clientMs = performance.now() - t0;
+    document.getElementById('infReproRes').textContent = `HTTP 200  (${clientMs.toFixed(0)}ms)\n\n${JSON.stringify(data, null, 2)}`;
+    document.getElementById('infReproSummary').textContent =
+      `📋 Request / Response  —  ${data.task || ''}  ${data.latency_ms?.toFixed(1)}ms server`;
+    renderResult(data, clientMs);
+  } catch(e) {
+    showToast('Inference error: ' + e.message);
+    document.getElementById('infReproRes').textContent = 'Error: ' + e.message;
+  }
+  finally { btn.classList.remove('loading'); btn.disabled = false; }
+}
+
+function renderResult(data, clientMs) {
+  const es = document.getElementById('emptyState');
+  if (es) es.remove();
+  const preds = data.predictions;
+  const isClassification = Array.isArray(preds) && preds.length && preds[0]?.label != null && preds[0]?.score != null;
+  const isDict = preds && typeof preds === 'object' && !Array.isArray(preds);
+  const maxScore = isClassification ? Math.max(...preds.map(p => p.score)) : 1;
+  const card = document.createElement('div');
+  card.className = 'result-card';
+
+  let bodyHtml;
+  if (isClassification) {
+    bodyHtml = `<div class="pred-list">${preds.map((p,i) => `
+      <div class="pred-item">
+        <div class="pred-top">
+          <span class="pred-label">${i===0?'🏆 ':''}${escHtml(p.label)}</span>
+          <span class="pred-score">${(p.score*100).toFixed(2)}%</span>
+        </div>
+        <div class="pred-bar-bg"><div class="pred-bar" style="width:${(p.score/maxScore*100).toFixed(1)}%"></div></div>
+      </div>`).join('')}</div>`;
+  } else if (isDict) {
+    bodyHtml = `<div style="display:flex;flex-direction:column;gap:6px">${Object.entries(preds).map(([k,v]) => `
+      <div style="display:flex;gap:8px;align-items:baseline">
+        <span style="font-size:11px;font-weight:600;color:var(--accent);min-width:80px">${escHtml(k)}</span>
+        <span style="font-size:12px;word-break:break-all">${escHtml(typeof v === 'string' ? v : JSON.stringify(v))}</span>
+      </div>`).join('')}</div>`;
+  } else {
+    bodyHtml = `<pre style="font-size:11px;color:var(--text2);overflow:auto;max-height:200px;background:var(--surface2);padding:8px;border-radius:5px;white-space:pre-wrap;word-break:break-all">${escHtml(JSON.stringify(preds, null, 2))}</pre>`;
+  }
+
+  card.innerHTML = `
+    <div class="result-header">
+      <div class="result-meta">
+        <span class="tag tag-blue">${data.task||'unknown'}</span>
+        <span class="tag tag-green">${data.device||''}</span>
+        ${data.ep?`<span class="tag tag-yellow">${data.ep}</span>`:''}
+        ${data.model_id?`<span style="font-size:11px;color:var(--text2)">${data.model_id}</span>`:''}
+      </div>
+      <span class="result-lat">⏱ ${data.latency_ms?.toFixed(1)}ms server · ${clientMs.toFixed(0)}ms total</span>
+    </div>
+    <div class="result-body">${bodyHtml}</div>`;
+  document.getElementById('resultsArea').insertBefore(card, document.getElementById('resultsArea').firstChild);
+}
+
+// ══════════════════════════════════════════════════
+// EP Switch
+// ══════════════════════════════════════════════════
+async function switchEP(ep, el) {
+  document.getElementById('epStatus').textContent = `Switching to ${ep}…`;
+  try {
+    const r = await fetch(`${serverUrl}/v1/ep`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ep}) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    document.querySelectorAll('.ep-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('epStatus').textContent = `✓ Active: ${ep}`;
+  } catch(e) {
+    document.getElementById('epStatus').textContent = `✗ ${e.message}`;
+    showToast('EP switch failed: ' + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// Model Management
+// ══════════════════════════════════════════════════
+let _hubCatalog = [];         // full hub model list
+let _loadedModelIds = new Set(); // currently active model IDs
+
+function openLoadForm(modelId, task) {
+  const f = document.getElementById('loadForm');
+  f.style.display = 'block';
+  if (modelId !== undefined) document.getElementById('lm-id').value = modelId;
+  if (task !== undefined) document.getElementById('lm-task').value = task;
+  if (!modelId) {
+    document.getElementById('lm-id').value = '';
+    document.getElementById('lm-task').value = '';
+    document.getElementById('load-status').textContent = '';
+    document.getElementById('loadLog').style.display = 'none';
+  }
+  document.getElementById('lm-id').focus();
+  f.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function refreshModels() {
+  try {
+    const [mRes, hubRes] = await Promise.all([
+      fetch(`${serverUrl}/v1/models`),
+      _hubCatalog.length ? Promise.resolve(null) : fetch(`${serverUrl}/v1/hub`).catch(() => null),
+    ]);
+    if (!mRes.ok) return;
+    const models = await mRes.json();
+
+    // Load hub catalog once
+    if (hubRes) {
+      try {
+        const hd = await hubRes.json();
+        _hubCatalog = hd.models || [];
+        _populateHubTaskFilter();
+      } catch {}
+    }
+
+    // Fetch stats for each active model
+    const statsMap = {};
+    await Promise.all(models.map(async m => {
+      try {
+        const sr = await fetch(`${serverUrl}/v1/models/${encodeURIComponent(m.model_id)}/stats`);
+        if (sr.ok) statsMap[m.model_id] = await sr.json();
+      } catch {}
+    }));
+
+    _loadedModelIds = new Set(models.map(m => m.model_id));
+    renderModelCards(models, statsMap);
+    renderHubCards();
+    refreshModelDropdown(models);
+
+    document.getElementById('activeCount').textContent = models.length;
+  } catch(e) { showToast('Failed to load models: ' + e.message); }
+}
+
+function renderModelCards(models, statsMap) {
+  const container = document.getElementById('modelCards');
+  if (!models.length) {
+    container.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:8px 0">No models loaded. Load one from the Hub Catalog below.</div>`;
+    return;
+  }
+  container.innerHTML = models.map(m => {
+    const st = statsMap[m.model_id] || {};
+    const lat = st.latency || {};
+    const maxLat = Math.max(lat.p99_ms || 1, 1);
+    const statusColor = m.status === 'ready' ? 'var(--green)' : m.status === 'loading' ? 'var(--yellow)' : 'var(--text2)';
+    return `
+    <div class="model-card" id="mc-${cssId(m.model_id)}">
+      <div class="model-card-header">
+        <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0;display:inline-block"></span>
+        <span class="model-name" title="${escHtml(m.model_id)}">${escHtml(m.model_id)}</span>
+        <span class="tag tag-blue" style="font-size:10px">${escHtml(m.task||'—')}</span>
+        <span class="tag tag-yellow" style="font-size:10px">${escHtml(m.ep||m.device||'—')}</span>
+        <button class="btn btn-outline btn-sm" onclick="goInferWithModel('${escJs(m.model_id)}')">▶ Infer</button>
+        <button class="btn btn-outline btn-sm" onclick="runBench('${escJs(m.model_id)}',this)">⚡ Bench</button>
+        <button class="btn btn-danger btn-sm" onclick="unloadModel('${escJs(m.model_id)}')">✕</button>
+      </div>
+      <div class="model-card-body">
+        <div class="stat-cell">
+          <div class="stat-label">Status</div>
+          <div class="stat-value" style="font-size:14px;color:${statusColor}">${escHtml(m.status)}</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Memory</div>
+          <div class="stat-value">${(m.memory_mb||0).toFixed(0)}</div>
+          <div class="stat-sub">MB</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Requests</div>
+          <div class="stat-value">${st.request_count||0}</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">p50 Latency</div>
+          <div class="stat-value">${lat.p50_ms?.toFixed(1)||'—'}</div>
+          <div class="stat-sub">ms</div>
+        </div>
+      </div>
+      ${lat.sample_count > 0 ? `
+      <div class="lat-bars">
+        <div class="lat-title">Latency Distribution (last ${lat.sample_count} requests)</div>
+        ${['p50','p90','p95','p99'].map(k => `
+          <div class="lat-row">
+            <span class="lat-key">${k}</span>
+            <div class="lat-bar-bg"><div class="lat-bar" style="width:${((lat[k+'_ms']||0)/maxLat*100).toFixed(1)}%;background:${k==='p50'?'var(--green)':k==='p99'?'var(--red)':'var(--accent)'}"></div></div>
+            <span class="lat-val">${(lat[k+'_ms']||0).toFixed(1)} ms</span>
+          </div>`).join('')}
+      </div>` : ''}
+      <div class="bench-section" id="bench-${cssId(m.model_id)}"></div>
+    </div>`;
+  }).join('');
+}
+
+// ── Hub Catalog ─────────────────────────────────
+function filterHub() {
+  renderHubCards();
+}
+
+function _populateHubTaskFilter() {
+  const sel = document.getElementById('hubTaskFilter');
+  const prev = sel.value;
+  const tasks = [...new Set(_hubCatalog.map(m => m.task).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All tasks</option>' +
+    tasks.map(t => `<option value="${t}">${t.replace(/-/g, ' ')}</option>`).join('');
+  if (prev) sel.value = prev;
+}
+
+function renderHubCards() {
+  const container = document.getElementById('hubCards');
+  if (!_hubCatalog.length) {
+    container.innerHTML = `<div style="color:var(--text2);font-size:12px">Catalog unavailable — is the server running?</div>`;
+    document.getElementById('hubCount').textContent = '0';
+    return;
+  }
+  const q = (document.getElementById('hubSearch')?.value || '').toLowerCase();
+  const taskF = document.getElementById('hubTaskFilter')?.value || '';
+  const srcF = document.getElementById('hubSourceFilter')?.value || '';
+  const filtered = _hubCatalog.filter(m => {
+    if (taskF && m.task !== taskF) return false;
+    if (srcF && !(m.source||'').includes(srcF)) return false;
+    if (q && !m.model_id.toLowerCase().includes(q) && !(m.model_type||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  document.getElementById('hubCount').textContent = filtered.length + ' / ' + _hubCatalog.length;
+
+  if (!filtered.length) {
+    container.innerHTML = `<div style="color:var(--text2);font-size:12px;padding:12px 0">No models match your filter.</div>`;
+    return;
+  }
+
+  // Group by task
+  const groups = {};
+  for (const m of filtered) {
+    const t = m.task || 'other';
+    if (!groups[t]) groups[t] = [];
+    groups[t].push(m);
+  }
+
+  container.innerHTML = Object.entries(groups).map(([task, models]) => {
+    const taskTitle = task.replace(/-/g, ' ');
+    const cards = models.map(m => _renderHubCard(m)).join('');
+    return `<div>
+      <div class="hub-task-group-title">${escHtml(taskTitle)} (${models.length})</div>
+      <div class="hub-task-group-cards">${cards}</div>
+    </div>`;
+  }).join('');
+}
+
+function _renderHubCard(m) {
+  const isRunning = _loadedModelIds.has(m.model_id);
+  const [org, name] = m.model_id.includes('/') ? m.model_id.split('/', 2) : ['', m.model_id];
+
+  const perf = m.perf || {};
+  const eps = Object.keys(perf);
+  const bestEp = eps.includes('QNN') ? 'QNN' : eps[0];
+  const bestPerf = bestEp ? perf[bestEp] : null;
+
+  const acc = m.accuracy || {};
+  const verdicts = Object.values(acc).map(a => a.verdict || 'PASS');
+  const overallVerdict = verdicts.includes('REGRESSION') ? 'REGRESSION'
+                       : verdicts.includes('AT_RISK') ? 'AT_RISK' : 'PASS';
+  const verdictClass = overallVerdict === 'PASS' ? 'verdict-pass'
+                     : overallVerdict === 'AT_RISK' ? 'verdict-risk' : 'verdict-fail';
+  const verdictLabel = overallVerdict === 'PASS' ? 'PASS' : overallVerdict === 'AT_RISK' ? 'AT RISK' : 'REGRESSION';
+
+  return `<div class="hub-card${isRunning?' running':''}">
+    <div>
+      <div class="hub-card-org">${escHtml(org)}/</div>
+      <div class="hub-card-name" title="${escHtml(m.model_id)}">${escHtml(name)}</div>
+    </div>
+    <div class="hub-card-meta">
+      ${m.model_type ? `<span class="tag" style="font-size:9px;background:var(--surface2);color:var(--text2)">${escHtml(m.model_type)}</span>` : ''}
+      ${(m.source||'').includes('built-in') ? '<span class="tag" style="font-size:9px;background:rgba(62,207,142,.15);color:var(--green)">built-in</span>' : ''}
+      ${(m.source||'').includes('cache') ? '<span class="tag" style="font-size:9px;background:rgba(246,185,59,.15);color:var(--yellow)">cached</span>' : ''}
+    </div>
+    ${bestPerf ? `<div class="hub-card-perf">${bestEp} p50 <strong>${bestPerf.p50_ms?.toFixed(1)||'—'} ms</strong></div>` : ''}
+    <div class="hub-card-footer">
+      <span class="verdict-dot ${verdictClass}" title="${verdictLabel}"></span>
+      <span style="font-size:10px;color:var(--text2);flex:1">${verdictLabel}</span>
+      ${isRunning
+        ? `<span class="hub-running-badge">● Running</span>
+           <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 8px" onclick="goInferWithModel('${escJs(m.model_id)}')">▶ Infer</button>`
+        : `<button class="btn btn-primary btn-sm" style="font-size:10px;padding:3px 8px" onclick="hubLoad('${escJs(m.model_id)}','${escJs(m.task)}')">Load</button>`}
+    </div>
+  </div>`;
+}
+
+function hubLoad(modelId, task) {
+  openLoadForm(modelId, task);
+}
+
+function goInferWithModel(modelId) {
+  // Select the model in the dropdown
+  const sel = document.getElementById('modelId');
+  if (sel && modelId) {
+    sel.value = modelId;
+    onModelChange();
+  }
+  // Switch to Inference tab
+  const tab = document.querySelector('.nav-tab[onclick*="inference"]');
+  if (tab) showPage('inference', tab);
+}
+
+async function loadModel() {
+  const id = document.getElementById('lm-id').value.trim();
+  if (!id) return;
+
+  const st = document.getElementById('load-status');
+  const log = document.getElementById('loadLog');
+  const btn = document.getElementById('loadBtn');
+
+  // Reset log
+  log.style.display = 'block';
+  log.innerHTML = '';
+  btn.disabled = true;
+  st.textContent = '';
+
+  const task = document.getElementById('lm-task').value || null;
+  const device = document.getElementById('lm-device').value;
+  const ep = document.getElementById('lm-ep').value || null;
+
+  const t0 = Date.now();
+  let elapsed = 0;
+  let timerEl = null;
+
+  function logLine(msg, color) {
+    const ts = ((Date.now() - t0) / 1000).toFixed(1);
+    const line = document.createElement('div');
+    line.innerHTML = `<span style="color:var(--text2)">[${ts}s]</span> <span style="color:${color||'#c8d3e0'}">${escHtml(msg)}</span>`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // Live elapsed counter
+  function startTimer() {
+    timerEl = document.createElement('div');
+    timerEl.id = 'load-timer';
+    timerEl.style.color = 'var(--text2)';
+    log.appendChild(timerEl);
+    const iv = setInterval(() => {
+      elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      if (timerEl.parentNode) timerEl.textContent = `  ⏳ ${elapsed}s elapsed…`;
+      else clearInterval(iv);
+    }, 200);
+    return iv;
+  }
+
+  logLine(`Loading model: ${id}`, '#5b8dee');
+  logLine(`Device: ${device}${ep ? ' / EP: '+ep : ''}${task ? ' / Task: '+task : ''}`, 'var(--text2)');
+  logLine('Sending request to server…');
+  const iv = startTimer();
+
+  // Poll /v1/logs for live server-side output
+  let lastSeq = _log_handler_seq;
+  const logPollIv = setInterval(async () => {
+    try {
+      const lr = await fetch(`${serverUrl}/v1/logs?after=${lastSeq}`);
+      if (!lr.ok) return;
+      const ld = await lr.json();
+      for (const line of ld.lines) {
+        const color = line.level === 'WARNING' ? '#f5a623'
+                    : line.level === 'ERROR'   ? '#f06070'
+                    : '#8892a4';
+        logLine(`[${line.name}] ${line.msg}`, color);
+      }
+      if (ld.latest_seq > lastSeq) lastSeq = ld.latest_seq;
+    } catch {}
+  }, 600);
+
+  try {
+    const r = await fetch(`${serverUrl}/v1/models`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ model_id: id, task, device, ep }),
+    });
+    clearInterval(iv);
+    clearInterval(logPollIv);
+    _log_handler_seq = lastSeq;
+    if (timerEl) timerEl.remove();
+
+    let d;
+    try { d = await r.json(); } catch { d = null; }
+    if (!r.ok) throw new Error(d?.detail || r.statusText);
+
+    const totalSec = ((Date.now() - t0) / 1000).toFixed(1);
+    logLine(`✓ Model loaded in ${totalSec}s`, '#3ecf8e');
+
+    // Poll until status = ready
+    logLine('Verifying status…', 'var(--text2)');
+    let ready = false;
+    for (let i = 0; i < 10; i++) {
+      await new Promise(res => setTimeout(res, 500));
+      try {
+        const sr = await fetch(`${serverUrl}/v1/models/${encodeURIComponent(id)}/stats`);
+        if (sr.ok) {
+          const sd = await sr.json();
+          if (sd.status === 'ready') {
+            logLine(`✓ Status: ready  |  Memory: ${sd.memory_mb?.toFixed(0)} MB`, '#3ecf8e');
+            ready = true;
+            break;
+          }
+        }
+      } catch {}
+    }
+    if (!ready) logLine('Status check timed out — refresh manually', '#f5a623');
+
+    st.textContent = '✓ Loaded';
+    refreshModels();
+    // Clear form so user can immediately load another model
+    setTimeout(() => {
+      document.getElementById('lm-id').value = '';
+      document.getElementById('lm-task').value = '';
+      st.textContent = '';
+      document.getElementById('loadLog').style.display = 'none';
+    }, 1500);
+  } catch(e) {
+    clearInterval(iv);
+    clearInterval(logPollIv);
+    if (timerEl) timerEl.remove();
+    logLine(`✗ Error: ${e.message}`, '#f06070');
+    st.textContent = '✗ Failed';
+    showToast('Load failed: ' + e.message);
+  }
+  btn.disabled = false;
+}
+
+async function unloadModel(modelId) {
+  if (!confirm(`Unload "${modelId}"?`)) return;
+  try {
+    const r = await fetch(`${serverUrl}/v1/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    refreshModels();
+  } catch(e) { showToast('Unload failed: ' + e.message); }
+}
+
+async function runBench(modelId, btn) {
+  // Use Phase 0 /v1/cli/perf to run a quick benchmark
+  const section = document.getElementById('bench-' + cssId(modelId));
+  btn.disabled = true; btn.textContent = '⏳ Benching…';
+  section.innerHTML = `<div style="color:var(--text2);font-size:11px">Running winml perf… (10 iterations)</div>`;
+  try {
+    const r = await fetch(`${serverUrl}/v1/cli/perf`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ args: { model: modelId, iterations: 10, format: 'json' } }),
+    });
+    const d = await r.json();
+    if (d.exit_code !== 0) throw new Error(d.stderr || 'perf failed');
+    // Parse JSON from stdout
+    const result = d.result || JSON.parse(d.stdout || '{}');
+    const lat = result.latency_ms || {};
+    const thr = result.throughput || {};
+    section.innerHTML = `
+      <div class="bench-result">
+        <strong style="font-size:11px;color:var(--text)">winml perf result (10 iters)</strong>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px">
+          ${[['mean',lat.mean],['p50',lat.p50],['p95',lat.p95],['p99',lat.p99]].map(([k,v]) => `
+            <div style="background:var(--surface2);border-radius:5px;padding:8px;text-align:center">
+              <div style="font-size:9px;color:var(--text2)">${k}</div>
+              <div style="font-size:16px;font-weight:600">${v!=null?v.toFixed(1):'—'}</div>
+              <div style="font-size:9px;color:var(--text2)">ms</div>
+            </div>`).join('')}
+        </div>
+        ${thr.samples_per_sec != null ? `<div style="margin-top:8px;font-size:11px;color:var(--text2)">Throughput: <strong style="color:var(--green)">${thr.samples_per_sec.toFixed(1)} req/s</strong></div>` : ''}
+        ${result.hw_monitor ? `<pre>${escHtml(JSON.stringify(result.hw_monitor,null,2))}</pre>` : ''}
+      </div>`;
+  } catch(e) {
+    section.innerHTML = `<div style="color:var(--red);font-size:11px">✗ ${escHtml(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '⚡ Bench';
+}
+
+// ══════════════════════════════════════════════════
+// Hardware Monitor
+// ══════════════════════════════════════════════════
+function updateHardware(res, statsMap) {
+  // Gauges
+  const memMB = res.memory_mb || 0;
+  document.getElementById('hw-mem').textContent = memMB.toFixed(0);
+  document.getElementById('hw-mem-bar').style.width = Math.min(memMB/8192*100,100).toFixed(1) + '%';
+  // Aggregate request_count across all loaded models from statsMap
+  const totalReq = Object.values(statsMap).reduce((s, st) => s + (st.request_count||0), 0)
+                   || res.request_count || 0;
+  document.getElementById('hw-req').textContent = totalReq;
+  document.getElementById('hw-req-bar').style.width = Math.min(totalReq/1000*100,100).toFixed(1) + '%';
+  const uptime = res.uptime_sec || 0;
+  document.getElementById('hw-uptime').textContent = uptime.toFixed(0);
+  document.getElementById('hw-uptime-bar').style.width = Math.min(uptime/3600*100,100).toFixed(1) + '%';
+
+  // Latency history — use model with most samples, or fallback to res.model_id
+  const bestStats = Object.values(statsMap).sort((a,b) => (b.latency?.sample_count||0) - (a.latency?.sample_count||0))[0];
+  const activeStat = bestStats || (res.model_id ? statsMap[res.model_id] : null);
+  if (activeStat) {
+    const lat = activeStat.latency || {};
+    latencyHistory.push({ p50: lat.p50_ms||0, p95: lat.p95_ms||0 });
+    if (latencyHistory.length > 20) latencyHistory.shift();
+  }
+  memHistory.push(memMB);
+  if (memHistory.length > 20) memHistory.shift();
+
+  // Update latency legend
+  if (latencyHistory.length) {
+    const last = latencyHistory[latencyHistory.length - 1];
+    document.getElementById('lat-p50-cur').textContent = last.p50.toFixed(1);
+    document.getElementById('lat-p95-cur').textContent = last.p95.toFixed(1);
+  }
+  document.getElementById('mem-cur').textContent = memMB.toFixed(0);
+
+  drawChart('latencyCanvas',
+    [{ data: latencyHistory.map(x => x.p50), color: '#3ecf8e', label: 'p50' },
+     { data: latencyHistory.map(x => x.p95), color: '#f5a623', label: 'p95' }],
+    { unit: 'ms' });
+
+  drawChart('memCanvas',
+    [{ data: memHistory, color: '#5b8dee', label: 'RSS' }],
+    { unit: 'MB' });
+}
+
+function drawChart(canvasId, series, opts) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement?.clientWidth || canvas.offsetWidth || 800;
+  const H = 100;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = '100%';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const allVals = series.flatMap(s => s.data).filter(v => v > 0);
+  if (!allVals.length) {
+    ctx.fillStyle = 'rgba(136,146,164,0.3)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data yet', W / 2, H / 2 + 4);
+    return;
+  }
+
+  const maxV = Math.max(...allVals) * 1.1 || 1;
+  const PAD_L = 36, PAD_B = 4, PAD_T = 4;
+  const cW = W - PAD_L, cH = H - PAD_B - PAD_T;
+  const toX = (i, len) => PAD_L + (i / Math.max(len - 1, 1)) * cW;
+  const toY = (v) => PAD_T + cH - (v / maxV) * cH;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(46,51,72,0.8)';
+  ctx.lineWidth = 1;
+  [0, 0.5, 1].forEach(f => {
+    const y = PAD_T + cH * (1 - f);
+    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W, y); ctx.stroke();
+  });
+
+  // Y-axis labels
+  ctx.fillStyle = '#8892a4';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  const unit = opts.unit || '';
+  ctx.fillText(maxV.toFixed(0) + unit, PAD_L - 3, PAD_T + 8);
+  ctx.fillText((maxV / 2).toFixed(0), PAD_L - 3, PAD_T + cH / 2 + 4);
+  ctx.fillText('0', PAD_L - 3, PAD_T + cH + 3);
+
+  // Series lines + fills
+  series.forEach(s => {
+    if (!s.data.length) return;
+    const pts = s.data.map((v, i) => [toX(i, s.data.length), toY(v)]);
+
+    // Fill
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], toY(0));
+    pts.forEach(([x, y]) => ctx.lineTo(x, y));
+    ctx.lineTo(pts[pts.length - 1][0], toY(0));
+    ctx.closePath();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.stroke();
+
+    // Last point dot
+    const [lx, ly] = pts[pts.length - 1];
+    ctx.beginPath();
+    ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+  });
+}
+
+// ══════════════════════════════════════════════════
+// Polling
+// ══════════════════════════════════════════════════
+function startPolling() { stopPolling(); pollOnce(); pollTimer = setInterval(pollOnce, 3000); }
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+async function pollOnce() {
+  try {
+    const [rRes, mRes] = await Promise.all([
+      fetch(`${serverUrl}/v1/resources`),
+      fetch(`${serverUrl}/v1/models`),
+    ]);
+    const res = rRes.ok ? await rRes.json() : {};
+    const models = mRes.ok ? await mRes.json() : [];
+    // Fetch stats for hw monitor
+    const statsMap = {};
+    await Promise.all(models.map(async m => {
+      try {
+        const sr = await fetch(`${serverUrl}/v1/models/${encodeURIComponent(m.model_id)}/stats`);
+        if (sr.ok) statsMap[m.model_id] = await sr.json();
+      } catch {}
+    }));
+    updateHardware(res, statsMap);
+    if (_serverMode === 'multi') refreshModelDropdown(models);
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════
+// Utils
+// ══════════════════════════════════════════════════
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+}
+// Strip ANSI escape codes before displaying in terminal
+function stripAnsi(s) { return String(s).replace(/\x1b\[[0-9;]*[mGKHF]/g, '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''); }
+function escHtml(s) { return stripAnsi(String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Escape for use inside JS string literals in inline handlers (onclick="fn('${escJs(v)}')")
+function escJs(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\$/g,'\\$'); }
+function cssId(s) { return s.replace(/[^a-zA-Z0-9]/g, '_'); }
+function toggleReproPanel(bodyId, arrowId) {
+  const body = document.getElementById(bodyId);
+  const arrow = document.getElementById(arrowId);
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'flex';
+  body.style.flexDirection = 'column';
+  body.style.flex = '1';
+  body.style.overflow = 'hidden';
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
+}
+function openReproPanel(bodyId, arrowId) {
+  const body = document.getElementById(bodyId);
+  const arrow = document.getElementById(arrowId);
+  if (!body) return;
+  body.style.display = 'flex';
+  body.style.flexDirection = 'column';
+  body.style.flex = '1';
+  body.style.overflow = 'hidden';
+  if (arrow) arrow.textContent = '▼';
+}
+function copyText(elId) {
+  const text = document.getElementById(elId)?.textContent || '';
+  navigator.clipboard.writeText(text).then(() => showToast('Copied!')).catch(() => showToast('Copy failed'));
+}
+
+// ══════════════════════════════════════════════════
+// CLI Tab
+// ══════════════════════════════════════════════════
+
+// Command schema: fields shown in the form
+const CMD_SCHEMA = {
+  sys:      { desc: 'Show system info (device, EP, driver versions)', fields: [
+    { key:'format', label:'Output format', type:'select', options:['text','json','compact'], default:'text' },
+    { key:'list_device', label:'List devices', type:'bool' },
+    { key:'list_ep',     label:'List EPs',     type:'bool' },
+  ]},
+  inspect:  { desc: 'Show model inputs/outputs and graph summary', fields: [
+    { key:'model', label:'Model path (.onnx or build dir)', type:'text', required:true },
+    { key:'format', label:'Output format', type:'select', options:['table','json'], default:'table' },
+    { key:'verbose', label:'Verbose', type:'bool' },
+  ]},
+  analyze:  { desc: 'Check EP compatibility and operator support', fields: [
+    { key:'model', label:'Model path (.onnx)', type:'text', required:true },
+    { key:'device', label:'Device', type:'select', options:['auto','npu','gpu','cpu'] },
+    { key:'ep',     label:'EP (optional)',  type:'text' },
+    { key:'verbose', label:'Verbose', type:'bool' },
+  ]},
+  perf:     { desc: 'Benchmark inference latency and throughput', fields: [
+    { key:'model',      label:'Model path (.onnx or HF ID)', type:'text', required:true },
+    { key:'iterations', label:'Iterations', type:'number', default:20 },
+    { key:'device',     label:'Device', type:'select', options:['auto','npu','gpu','cpu'] },
+    { key:'ep',         label:'EP (optional)', type:'text' },
+    { key:'monitor',    label:'HW monitor (NPU/CPU)', type:'bool' },
+  ]},
+  config:   { desc: 'Auto-generate WinML build config for a model', fields: [
+    { key:'model',  label:'HF model ID or path', type:'text', required:true },
+    { key:'task',   label:'Task (optional)',  type:'text' },
+    { key:'device', label:'Device', type:'select', options:['auto','npu','gpu','cpu'] },
+  ]},
+  export:   { desc: 'Export PyTorch model to ONNX', fields: [
+    { key:'model',  label:'HF model ID or path', type:'text', required:true },
+    { key:'output', label:'Output path (.onnx)',  type:'text' },
+    { key:'task',   label:'Task (optional)',      type:'text' },
+    { key:'verbose', label:'Verbose', type:'bool' },
+  ]},
+  build:    { desc: 'Full build pipeline: export → optimize → [quantize] → [compile]', fields: [
+    { key:'model',      label:'HF model ID or path', type:'text', required:true },
+    { key:'output_dir', label:'Output directory',    type:'text' },
+    { key:'device',     label:'Device', type:'select', options:['auto','npu','gpu','cpu'] },
+    { key:'no_quant',   label:'Skip quantization',   type:'bool' },
+    { key:'no_compile', label:'Skip compile',        type:'bool' },
+  ]},
+  optimize: { desc: 'Run ORT graph optimizations on an ONNX model', fields: [
+    { key:'model',  label:'Model path (.onnx)',  type:'text', required:true },
+    { key:'output', label:'Output path (.onnx)', type:'text' },
+    { key:'device', label:'Device', type:'select', options:['auto','npu','gpu','cpu'] },
+  ]},
+  quantize: { desc: 'Quantize an ONNX model (INT8/INT16)', fields: [
+    { key:'model',     label:'Model path (.onnx)',  type:'text', required:true },
+    { key:'output',    label:'Output path (.onnx)', type:'text' },
+    { key:'precision', label:'Precision', type:'select', options:['int8','int16','fp16'] },
+    { key:'method',    label:'Method',    type:'select', options:['static','dynamic'] },
+  ]},
+};
+
+let _activeCmd = 'sys';
+
+function selectCmd(cmd, el) {
+  _activeCmd = cmd;
+  document.querySelectorAll('.cmd-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderCliForm(cmd);
+  document.getElementById('term-cmd-label').textContent = 'winml ' + cmd;
+}
+
+function renderCliForm(cmd) {
+  const schema = CMD_SCHEMA[cmd] || { desc:'', fields:[] };
+  const form = document.getElementById('cliForm');
+  form.innerHTML = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:4px">${schema.desc}</div>
+    <div class="cli-form-row" id="cliFields">
+      ${schema.fields.map(f => `
+        <div class="field" style="margin:0">
+          <label>${f.label}${f.required?' <span style="color:var(--red)">*</span>':''}</label>
+          ${f.type === 'select' ? `
+            <select id="cf-${f.key}">
+              ${(f.options||[]).map(o => `<option${f.default===o?' selected':''}>${o}</option>`).join('')}
+            </select>` : f.type === 'bool' ? `
+            <select id="cf-${f.key}">
+              <option value="">no (default)</option>
+              <option value="true">yes</option>
+            </select>` : `
+            <input type="${f.type||'text'}" id="cf-${f.key}" placeholder="${f.default||''}" value="${f.default||''}">
+          `}
+        </div>`).join('')}
+    </div>
+    <div class="cli-actions">
+      <button class="btn btn-primary" onclick="runCliCmd()">▶ Run</button>
+      <span style="font-size:11px;color:var(--text2)">via POST /v1/cli/${cmd}</span>
+    </div>`;
+}
+
+async function runCliCmd() {
+  const schema = CMD_SCHEMA[_activeCmd] || { fields:[] };
+  const args = {};
+  for (const f of schema.fields) {
+    const el = document.getElementById('cf-' + f.key);
+    if (!el) continue;
+    const v = el.value.trim();
+    if (!v) continue;
+    if (f.type === 'bool') args[f.key] = v === 'true';
+    else if (f.type === 'number') args[f.key] = Number(v);
+    else args[f.key] = v;
+  }
+
+  // Disable Run button for the duration to prevent concurrent requests
+  const runBtnEl = document.querySelector('.cli-actions .btn-primary');
+  if (runBtnEl) { runBtnEl.disabled = true; runBtnEl.textContent = '⏳ Running…'; }
+
+  const term = document.getElementById('terminal');
+  const cmdLine = `winml ${_activeCmd} ${Object.entries(args).map(([k,v]) => `--${k.replace(/_/g,'-')} ${v===true?'':v}`).join(' ')}`.trim();
+  document.getElementById('term-cmd-label').textContent = cmdLine;
+  document.getElementById('term-duration').textContent = '';
+  document.getElementById('term-exit').textContent = '';
+
+  // Add command line to terminal
+  const sep = term.children.length > 1 ? '<hr class="term-sep">' : '';
+  term.innerHTML += `${sep}<div class="term-cmd">$ ${escHtml(cmdLine)}</div>`;
+  term.scrollTop = term.scrollHeight;
+
+  const reqBody = JSON.stringify({ args }, null, 2);
+  const endpoint = `/v1/cli/${_activeCmd}`;
+
+  // Populate request pane immediately
+  document.getElementById('reproReq').textContent =
+    `POST ${endpoint}\nContent-Type: application/json\n\n${reqBody}`;
+  document.getElementById('reproRes').textContent = '…waiting…';
+  document.getElementById('reproCurl').textContent =
+    `curl -X POST ${serverUrl}${endpoint} \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({args})}'`;
+  openReproPanel('reproBody','reproArrow');
+
+  try {
+    const r = await fetch(`${serverUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: reqBody,
+    });
+    if (r.status === 404) {
+      appendTerminal('⚠️  /v1/cli endpoints require Phase 0 server (winml serve without a model path).', 'var(--yellow)');
+      document.getElementById('reproRes').textContent = 'HTTP 404 — endpoint not found.\nRestart with: winml serve (no model path)';
+      return;
+    }
+    const d = await r.json();
+    const ok = d.exit_code === 0;
+    document.getElementById('term-duration').textContent = `${d.duration_ms?.toFixed(0) ?? '?'}ms`;
+    document.getElementById('term-exit').innerHTML =
+      `exit <span class="${ok?'exit-ok':'exit-err'}">${d.exit_code}</span>`;
+    document.getElementById('reproRes').textContent =
+      `HTTP ${r.status}\n\n${JSON.stringify(d, null, 2)}`;
+    document.getElementById('reproSummary').textContent =
+      `📋 Request / Response  —  exit ${d.exit_code}  ${d.duration_ms?.toFixed(0)}ms`;
+
+    if (d.stdout) term.innerHTML += `<div class="term-out">${escHtml(d.stdout)}</div>`;
+    if (d.stderr) term.innerHTML += `<div class="term-out" style="color:var(--red)">${escHtml(d.stderr)}</div>`;
+  } catch(e) {
+    appendTerminal('Error: ' + e.message, 'var(--red)');
+    document.getElementById('reproRes').textContent = 'Error: ' + e.message;
+  } finally {
+    if (runBtnEl) { runBtnEl.disabled = false; runBtnEl.textContent = '▶ Run'; }
+  }
+  term.scrollTop = term.scrollHeight;
+}
+
+function appendTerminal(msg, color) {
+  document.getElementById('terminal').innerHTML +=
+    `<div style="color:${color}">${escHtml(msg)}</div>`;
+}
+
+function clearTerminal() {
+  document.getElementById('terminal').innerHTML = '';
+  document.getElementById('term-duration').textContent = '';
+  document.getElementById('term-exit').textContent = '';
+}
+
+// ══════════════════════════════════════════════════
+// Tools
+// ══════════════════════════════════════════════════
+async function refreshTools() {
+  const container = document.getElementById('toolsContainer');
+  container.innerHTML = '<div class="tools-loading">Loading tools…</div>';
+  try {
+    const r = await fetch(`${serverUrl}/v1/tools`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const err = await r.json();
+        if (err.detail) detail = err.detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    const d = await r.json();
+    renderTools(d.tools || []);
+  } catch (e) {
+    container.innerHTML = `<div class="tools-error">Error: ${e.message}</div>`;
+  }
+}
+
+function renderTools(toolsList) {
+  const container = document.getElementById('toolsContainer');
+  if (toolsList.length === 0) {
+    container.innerHTML = '<div class="tools-empty">No tools available</div>';
+    return;
+  }
+  container.innerHTML = toolsList.map((tool, idx) => {
+    const fn = tool.function || {};
+    const name = fn.name || 'unknown';
+    const desc = fn.description || '';
+    const params = fn.parameters || {};
+    const props = params.properties || {};
+    const required = params.required || [];
+
+    // Build param list
+    const paramEntries = Object.entries(props);
+    const paramHtml = paramEntries.length > 0
+      ? paramEntries.map(([pname, pschema]) => {
+        const ptype = pschema.type || 'unknown';
+        const pdesc = pschema.description || '';
+        const pdefault = pschema.default !== undefined ? ` = ${JSON.stringify(pschema.default)}` : '';
+        const isRequired = required.includes(pname) ? '' : ' (optional)';
+        return `<div class="tool-param">
+          <span class="tool-param-name">${escHtml(pname)}</span><span class="tool-param-type">${escHtml(ptype)}${isRequired}</span>${pdefault ? `<span class="tool-param-default">${escHtml(pdefault)}</span>` : ''}
+          ${pdesc ? `<div style="font-size:10px;margin-top:2px;color:var(--text2)">${escHtml(pdesc)}</div>` : ''}
+        </div>`;
+      }).join('')
+      : '<div class="tool-empty">No parameters</div>';
+
+    return `<div class="tool-card">
+      <div class="tool-header">
+        <span class="tool-name">${escHtml(name)}</span>
+      </div>
+      ${desc ? `<div class="tool-desc">${escHtml(desc)}</div>` : ''}
+      ${paramEntries.length > 0 ? `<div class="tool-section">
+        <div class="tool-section-title">Parameters</div>
+        <div class="tool-params">${paramHtml}</div>
+      </div>` : ''}
+      <div class="tool-actions">
+        <button class="tool-copy-btn" onclick="copyToolDef(${idx})">Copy Definition</button>
+      </div>
+    </div>`;
+  }).join('');
+  // Store tools for copying
+  window._loadedTools = toolsList;
+}
+
+function copyToolDef(idx) {
+  if (!window._loadedTools || !window._loadedTools[idx]) return;
+  const tool = window._loadedTools[idx];
+  const json = JSON.stringify(tool, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const toast = document.createElement('div');
+    toast.className = 'toast show';
+    toast.textContent = 'Tool definition copied!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+// escHtml defined above (line ~1733) — single definition used everywhere
+
+// ══════════════════════════════════════════════════
+// Integration Guide
+// ══════════════════════════════════════════════════
+
+function showIntTab(panelId, tab) {
+  document.querySelectorAll('.int-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.int-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  const panel = document.getElementById('panel-' + panelId);
+  if (panel) panel.classList.add('active');
+}
+
+async function loadIntegrationInfo() {
+  const url = serverUrl;
+  // Server info
+  try {
+    const r = await fetch(`${url}/v1/health`);
+    const h = await r.json();
+    const el = document.getElementById('serverInfoDisplay');
+    if (el) el.textContent = `${url} | ${h.model_id || 'no model'} (${h.task || '-'}) | Mode: ${h.mode} | Status: ${h.status}`;
+  } catch (e) {
+    const el = document.getElementById('serverInfoDisplay');
+    if (el) el.textContent = 'Cannot connect to server';
+  }
+
+  // Populate code blocks with current URL
+  const esc = s => s.replace(/\\/g, '\\\\');
+  const escJson = s => s.replace(/\\/g, '\\\\\\\\');
+
+  // MCP — Claude Desktop
+  const el1 = document.getElementById('int-mcp-desktop-config');
+  if (el1) el1.textContent = JSON.stringify({
+    mcpServers: {
+      modelkit: {
+        command: "python",
+        args: ["scripts/mcp_server.py", "--model-url", url]
+      }
+    }
+  }, null, 2);
+
+  // MCP — .mcp.json
+  const el2 = document.getElementById('int-mcp-code-config');
+  if (el2) el2.textContent = JSON.stringify({
+    mcpServers: {
+      modelkit: {
+        command: "python",
+        args: ["scripts/mcp_server.py", "--model-url", url]
+      }
+    }
+  }, null, 2);
+
+  // MCP — CLI
+  const el3 = document.getElementById('int-mcp-cli-cmd');
+  if (el3) el3.textContent = `claude mcp add modelkit -- python scripts/mcp_server.py --model-url ${url}`;
+
+  // Tools — Anthropic SDK
+  const el4 = document.getElementById('int-tools-anthropic');
+  if (el4) el4.textContent = `import httpx
+from anthropic import Anthropic
+
+client = Anthropic()
+
+# Fetch tool definitions (MCP format)
+schema = httpx.get("${url}/v1/mcp-schema").json()
+
+# Convert MCP tools to Anthropic tool format
+tools = []
+for t in schema["tools"]:
+    tools.append({
+        "name": t["name"],
+        "description": t["description"],
+        "input_schema": t["inputSchema"],
+    })
+
+# Ask Claude to use the tools
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=1024,
+    tools=tools,
+    messages=[{"role": "user", "content": "Classify this image: /path/to/photo.jpg"}],
+)
+print(response.content)`;
+
+  // Tools — OpenAI SDK
+  const el5 = document.getElementById('int-tools-openai');
+  if (el5) el5.textContent = `import httpx
+from openai import OpenAI
+
+# Fetch OpenAI-format tool definitions
+tools = httpx.get("${url}/v1/tools").json()["tools"]
+
+client = OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    tools=tools,
+    messages=[{"role": "user", "content": "What is in this image?"}],
+)
+print(response.choices[0].message)`;
+
+  // Tools — agentic loop
+  const el6 = document.getElementById('int-tools-loop');
+  if (el6) el6.textContent = `import httpx, json, base64
+from anthropic import Anthropic
+
+client = Anthropic()
+tools = [...]  # fetched from /v1/mcp-schema (see above)
+messages = [{"role": "user", "content": "Classify this text: Great product!"}]
+
+while True:
+    resp = client.messages.create(
+        model="claude-sonnet-4-20250514", max_tokens=1024,
+        tools=tools, messages=messages,
+    )
+    # Check if Claude wants to call a tool
+    tool_calls = [b for b in resp.content if b.type == "tool_use"]
+    if not tool_calls:
+        # Final text response
+        print([b.text for b in resp.content if b.type == "text"])
+        break
+
+    # Execute each tool call against ModelKit
+    messages.append({"role": "assistant", "content": resp.content})
+    for tc in tool_calls:
+        inp = tc.input
+        if "prompt" in inp:
+            # Text task: prompt → text field
+            result = httpx.post("${url}/v1/predict",
+                json={"text": inp["prompt"], "top_k": inp.get("top_k", 5)},
+            ).json()
+        elif "image_bytes" in inp:
+            # Image task: base64 image
+            result = httpx.post("${url}/v1/predict",
+                json={"image_bytes": inp["image_bytes"], "top_k": inp.get("top_k", 5)},
+            ).json()
+        else:
+            result = {"error": f"Unknown tool input: {list(inp.keys())}"}
+
+        messages.append({
+            "role": "user",
+            "content": [{"type": "tool_result",
+                         "tool_use_id": tc.id,
+                         "content": json.dumps(result)}],
+        })`;
+
+  // REST — image upload
+  const el7 = document.getElementById('int-rest-image');
+  if (el7) el7.textContent = `# Image classification (file upload)
+# Single-model mode: model_id and task are optional
+curl -X POST ${url}/v1/predict/file \\
+  -F "file=@photo.jpg" \\
+  -F "top_k=5"
+
+# Multi-model mode: specify model_id or task to route
+curl -X POST ${url}/v1/predict/file \\
+  -F "file=@photo.jpg" \\
+  -F "top_k=5" \\
+  -F "model_id=facebook/convnext-tiny-224"`;
+
+  // REST — base64
+  const el8 = document.getElementById('int-rest-b64');
+  if (el8) el8.textContent = `# Image classification (base64 in JSON)
+curl -X POST ${url}/v1/predict \\
+  -H "Content-Type: application/json" \\
+  -d '{"image_bytes": "'$(base64 -w0 photo.jpg)'", "top_k": 5}'
+
+# Multi-model mode: add task or model_id query param
+curl -X POST "${url}/v1/predict?model_id=facebook/convnext-tiny-224" \\
+  -H "Content-Type: application/json" \\
+  -d '{"image_bytes": "'$(base64 -w0 photo.jpg)'", "top_k": 5}'`;
+
+  // REST — text
+  const el9 = document.getElementById('int-rest-text');
+  if (el9) el9.textContent = `# Text classification
+curl -X POST ${url}/v1/predict \\
+  -H "Content-Type: application/json" \\
+  -d '{"text": "This product is amazing!", "top_k": 3}'
+
+# Multi-model mode: add task hint for routing
+curl -X POST ${url}/v1/predict \\
+  -H "Content-Type: application/json" \\
+  -d '{"text": "This product is amazing!", "top_k": 3, "task": "text-classification"}'`;
+
+  // REST — Python
+  const el11 = document.getElementById('int-rest-python');
+  if (el11) el11.textContent = `import httpx
+
+# Image classification
+with open("photo.jpg", "rb") as f:
+    resp = httpx.post("${url}/v1/predict/file",
+        files={"file": ("photo.jpg", f, "image/jpeg")},
+        data={"top_k": "5"},
+    )
+print(resp.json())
+
+# Text classification
+resp = httpx.post("${url}/v1/predict",
+    json={"text": "Great product!", "top_k": 3},
+)
+print(resp.json())
+
+# Multi-model mode: specify model_id for routing
+resp = httpx.post("${url}/v1/predict",
+    params={"model_id": "ProsusAI/finbert"},
+    json={"text": "Revenue increased 20%", "top_k": 3},
+)
+print(resp.json())`;
+
+  // Skill file
+  const el12 = document.getElementById('int-skill-file');
+  if (el12) el12.textContent = `---
+description: Run inference on a local ModelKit server
+---
+
+# ModelKit Inference Skill
+
+ModelKit is running at ${url}
+
+## Available endpoints
+- \`POST ${url}/v1/predict/file\` — image inference (multipart upload)
+- \`POST ${url}/v1/predict\` — text/JSON inference
+- \`GET ${url}/v1/models\` — list loaded models
+
+## Usage pattern
+1. Check loaded models: \`curl ${url}/v1/models\`
+2. For images: \`curl -X POST ${url}/v1/predict/file -F "file=@image.jpg"\`
+3. For text: \`curl -X POST ${url}/v1/predict -d '{"text":"..."}'\`
+
+Always use the Bash tool to call these endpoints.`;
+
+  // Skill — Cursor / Windsurf rules
+  const elCursor = document.getElementById('int-skill-cursor');
+  if (elCursor) elCursor.textContent = `# ModelKit Inference Server
+
+A local ModelKit inference server is running at ${url}.
+
+## Endpoints
+- \`GET ${url}/v1/models\` — list loaded models
+- \`POST ${url}/v1/predict/file\` — image inference (multipart: file + top_k)
+- \`POST ${url}/v1/predict\` — text/JSON inference (body: {"text": "...", "top_k": 5} or {"image_bytes": "<base64>"})
+- \`GET ${url}/v1/health\` — server status
+
+## Rules
+- Always check \`/v1/models\` first to see what models are loaded.
+- For image tasks, prefer file upload via \`/v1/predict/file\`.
+- Use curl or httpx to call these endpoints.`;
+
+  // Skill — Generic system prompt
+  const elGeneric = document.getElementById('int-skill-generic');
+  if (elGeneric) elGeneric.textContent = `You have access to a local ModelKit inference server at ${url}.
+
+Available endpoints:
+- GET ${url}/v1/models — list loaded models and their tasks
+- POST ${url}/v1/predict/file — image inference (multipart form: file=@image.jpg, top_k=5)
+- POST ${url}/v1/predict — text inference (JSON body: {"text": "...", "top_k": 5})
+- POST ${url}/v1/predict — image via base64 (JSON body: {"image_bytes": "<base64>", "top_k": 5})
+
+When asked to classify an image or text, call the appropriate endpoint and return the results.
+Always check /v1/models first to confirm which models are loaded.`;
+
+  // ── Agent Frameworks ──
+
+  // LangChain
+  const elLc = document.getElementById('int-agent-langchain');
+  if (elLc) elLc.textContent = `import httpx
+from langchain_core.tools import tool
+
+@tool
+def classify_image(image_path: str, top_k: int = 5) -> str:
+    """Classify a local image file using ModelKit."""
+    with open(image_path, "rb") as f:
+        resp = httpx.post(
+            "${url}/v1/predict/file",
+            files={"file": (image_path, f)},
+            data={"top_k": str(top_k)},
+        )
+    return resp.json()
+
+@tool
+def classify_text(text: str, top_k: int = 5) -> str:
+    """Classify text using ModelKit."""
+    resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+    return resp.json()
+
+# Use with any LangChain agent
+from langchain_anthropic import ChatAnthropic
+
+llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+llm_with_tools = llm.bind_tools([classify_image, classify_text])
+result = llm_with_tools.invoke("What is in photo.jpg?")`;
+
+  // Semantic Kernel
+  const elSk = document.getElementById('int-agent-sk');
+  if (elSk) elSk.textContent = `import httpx
+from semantic_kernel.functions import kernel_function
+
+class ModelKitPlugin:
+    """ModelKit inference plugin for Semantic Kernel."""
+
+    @kernel_function(description="Classify a local image file")
+    def classify_image(self, image_path: str, top_k: int = 5) -> str:
+        with open(image_path, "rb") as f:
+            resp = httpx.post(
+                "${url}/v1/predict/file",
+                files={"file": (image_path, f)},
+                data={"top_k": str(top_k)},
+            )
+        return str(resp.json())
+
+    @kernel_function(description="Classify text")
+    def classify_text(self, text: str, top_k: int = 5) -> str:
+        resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+        return str(resp.json())
+
+# Register plugin
+import semantic_kernel as sk
+kernel = sk.Kernel()
+kernel.add_plugin(ModelKitPlugin(), plugin_name="modelkit")`;
+
+  // AutoGen
+  const elAg = document.getElementById('int-agent-autogen');
+  if (elAg) elAg.textContent = `import httpx
+from autogen import ConversableAgent
+
+def classify_image(image_path: str, top_k: int = 5) -> dict:
+    """Classify a local image file using ModelKit."""
+    with open(image_path, "rb") as f:
+        resp = httpx.post(
+            "${url}/v1/predict/file",
+            files={"file": (image_path, f)},
+            data={"top_k": str(top_k)},
+        )
+    return resp.json()
+
+assistant = ConversableAgent(
+    "assistant",
+    llm_config={"model": "claude-sonnet-4-20250514"},
+)
+
+# Register the tool for both calling and execution
+assistant.register_for_llm(description="Classify an image")(classify_image)
+assistant.register_for_execution()(classify_image)`;
+
+  // CrewAI
+  const elCr = document.getElementById('int-agent-crewai');
+  if (elCr) elCr.textContent = `import httpx
+from crewai.tools import BaseTool
+
+class ImageClassifierTool(BaseTool):
+    name: str = "Image Classifier"
+    description: str = "Classify a local image file using ModelKit"
+
+    def _run(self, image_path: str, top_k: int = 5) -> str:
+        with open(image_path, "rb") as f:
+            resp = httpx.post(
+                "${url}/v1/predict/file",
+                files={"file": (image_path, f)},
+                data={"top_k": str(top_k)},
+            )
+        return str(resp.json())
+
+class TextClassifierTool(BaseTool):
+    name: str = "Text Classifier"
+    description: str = "Classify text using ModelKit"
+
+    def _run(self, text: str, top_k: int = 5) -> str:
+        resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+        return str(resp.json())
+
+# Use in a CrewAI agent
+from crewai import Agent
+agent = Agent(
+    role="Analyst",
+    tools=[ImageClassifierTool(), TextClassifierTool()],
+)`;
+
+  // OpenAI Agents SDK
+  const elOa = document.getElementById('int-agent-openai');
+  if (elOa) elOa.textContent = `import httpx
+from agents import Agent, Runner, function_tool
+
+@function_tool
+def classify_image(image_path: str, top_k: int = 5) -> str:
+    """Classify a local image file using ModelKit."""
+    with open(image_path, "rb") as f:
+        resp = httpx.post(
+            "${url}/v1/predict/file",
+            files={"file": (image_path, f)},
+            data={"top_k": str(top_k)},
+        )
+    return str(resp.json())
+
+@function_tool
+def classify_text(text: str, top_k: int = 5) -> str:
+    """Classify text using ModelKit."""
+    resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
+    return str(resp.json())
+
+agent = Agent(
+    name="ModelKit Analyst",
+    instructions="You classify images and text using ModelKit.",
+    tools=[classify_image, classify_text],
+)
+
+result = Runner.run_sync(agent, "What is in photo.jpg?")
+print(result.final_output)`;
+
+}
+
+function copyCode(btn) {
+  const codeBlock = btn.previousElementSibling;
+  const text = codeBlock.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = original; }, 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+// ══════════════════════════════════════════════════
+// MCP
+// ══════════════════════════════════════════════════
+async function refreshMCP() {
+  const container = document.getElementById('mcpContainer');
+  container.innerHTML = '<div class="mcp-loading">Loading MCP schema…</div>';
+  try {
+    const r = await fetch(`${serverUrl}/v1/mcp-schema`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const err = await r.json();
+        if (err.detail) detail = err.detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    const d = await r.json();
+    renderMCP(d);
+  } catch (e) {
+    container.innerHTML = `<div class="mcp-error">Error: ${e.message}</div>`;
+  }
+}
+
+function renderMCP(data) {
+  const container = document.getElementById('mcpContainer');
+  const info = data.server_info || {};
+  const tools = data.tools || [];
+
+  let html = `
+    <div class="mcp-info">
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Server</span>
+        <span class="mcp-info-value">${escHtml(info.name || 'ModelKit')}</span>
+      </div>
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Version</span>
+        <span class="mcp-info-value">${escHtml(info.version || 'unknown')}</span>
+      </div>
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Model</span>
+        <span class="mcp-info-value">${escHtml((info.models || []).map(m => m.model_id).join(', ') || 'unknown')}</span>
+      </div>
+      <div class="mcp-info-row">
+        <span class="mcp-info-label">Task</span>
+        <span class="mcp-info-value">${escHtml((info.models || []).map(m => m.task).join(', ') || 'unknown')}</span>
+      </div>
+    </div>
+  `;
+
+  if (tools.length > 0) {
+    html += `<div class="mcp-section">
+      <div class="mcp-section-title">Tools (${tools.length})</div>`;
+
+    tools.forEach((tool, idx) => {
+      const toolJson = JSON.stringify(tool, null, 2);
+      html += `
+        <div style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;">
+          <div style="font-weight:600;color:var(--accent);margin-bottom:8px;font-family:monospace;font-size:12px">${escHtml(tool.name || 'unknown')}</div>
+          ${tool.description ? `<div style="font-size:11px;color:var(--text2);margin-bottom:10px">${escHtml(tool.description)}</div>` : ''}
+          <div class="mcp-code-block">${escHtml(toolJson)}</div>
+          <button class="mcp-copy-btn" onclick="copyMCPTool(${idx})">Copy Tool Definition</button>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
+  } else {
+    html += '<div style="color:var(--text2);font-size:12px">No tools available</div>';
+  }
+
+  html += `
+    <div class="mcp-section" style="margin-top:20px;">
+      <div class="mcp-section-title">Full Schema</div>
+      <div class="mcp-code-block">${escHtml(JSON.stringify(data, null, 2))}</div>
+      <button class="mcp-copy-btn" onclick="copyMCPSchema()">Copy Full Schema</button>
+    </div>
+  `;
+
+  container.innerHTML = html;
+  window._mcpData = data;
+}
+
+function copyMCPTool(idx) {
+  if (!window._mcpData || !window._mcpData.tools || !window._mcpData.tools[idx]) return;
+  const tool = window._mcpData.tools[idx];
+  const json = JSON.stringify(tool, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const toast = document.createElement('div');
+    toast.className = 'toast show';
+    toast.textContent = 'Tool definition copied!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+function copyMCPSchema() {
+  if (!window._mcpData) return;
+  const json = JSON.stringify(window._mcpData, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const toast = document.createElement('div');
+    toast.className = 'toast show';
+    toast.textContent = 'MCP schema copied!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }).catch(e => {
+    console.error('Copy failed:', e);
+  });
+}
+
+// Init CLI form
+renderCliForm('sys');
+
+// Init
+document.getElementById('serverUrl').value = serverUrl;
+connectServer().then(() => refreshModels());
+</script>
+</body>
+</html>

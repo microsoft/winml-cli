@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence  # noqa: TC003
 from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003
 
@@ -30,7 +31,7 @@ class ModelEntry:
 
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
-_VALID_PRIORITIES = {"P0", "P1", "P2"}
+_VALID_PRIORITIES = {"P0", "P1", "P2", "P3"}
 
 
 def load_registry(path: Path) -> list[ModelEntry]:
@@ -82,16 +83,17 @@ def filter_registry(
     entries: list[ModelEntry],
     *,
     task: str | None = None,
-    priority: str | None = None,
+    priority: str | Sequence[str] | None = None,
     model_type: str | None = None,
     group: str | None = None,
 ) -> list[ModelEntry]:
-    """Apply AND-combined filters."""
+    """Apply AND-combined filters. ``priority`` may be a single value or a sequence."""
     result = entries
     if task:
         result = [e for e in result if e.task == task]
     if priority:
-        result = [e for e in result if e.priority == priority]
+        priorities = {priority} if isinstance(priority, str) else set(priority)
+        result = [e for e in result if e.priority in priorities]
     if model_type:
         result = [e for e in result if e.model_type == model_type]
     if group:

@@ -395,7 +395,10 @@ class AnalysisResult:
                     continue
 
                 if action_item.optimization_options:
-                    optim_options.update(action_item.optimization_options)
+                    # Normalize kebab-case keys to snake_case (python_name)
+                    # so they match the capability system's python_name format.
+                    for key, value in action_item.optimization_options.items():
+                        optim_options[key.replace("-", "_")] = value
 
         # Create and return config from collected options
         return WinMLOptimizationConfig(**optim_options)
@@ -578,8 +581,9 @@ class ONNXStaticAnalyzer:
 
         # Load ONNX model
         try:
-            # Load without strict validation to allow custom attributes like hierarchy_tag
-            model_proto = onnx.load(str(model_file), load_external_data=True)
+            # Load without external data — static analysis only needs graph structure,
+            # shapes, and small embedded constants; not multi-GB weight tensors.
+            model_proto = onnx.load(str(model_file), load_external_data=False)
             # Skip onnx.checker.check_model() which rejects custom attributes
         except (OSError, FileNotFoundError) as e:
             raise RuntimeError(f"Failed to load ONNX model: {e}") from e
@@ -619,7 +623,7 @@ class ONNXStaticAnalyzer:
         Args:
             model_proto: ONNX ModelProto object
             ep: Target execution provider (e.g., "QNNExecutionProvider",
-                "OpenVINOExecutionProvider", "DirectMLExecutionProvider").
+                "OpenVINOExecutionProvider", "DmlExecutionProvider").
                 Also supports aliases: "qnn", "ov"/"openvino", "vitis"/"vitisai".
                 If None, analyzes all supported EPs.
             device: Target device type (e.g., "CPU", "GPU", "NPU").
@@ -652,6 +656,7 @@ class ONNXStaticAnalyzer:
         from .core.onnx_loader import ONNXLoader
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
+        from .utils.ep_utils import has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
         ep_normalized = normalize_ep_name(ep)
@@ -673,9 +678,16 @@ class ONNXStaticAnalyzer:
         else:
             eps_to_analyze = [ep_normalized]
 
-        # Use default device if not specified
-        device_to_use = device if device is not None else "NPU"
-        logger.info("Using device: %s", device_to_use)
+        # Resolve device — rule files are device-specific (CPU/GPU/NPU).
+        if device is not None and device.lower() == "auto":
+            from ..sysinfo import resolve_device
+
+            resolved, _ = resolve_device("auto")
+            device_to_use = resolved.upper()
+            logger.info("Device 'auto' resolved to: %s", device_to_use)
+        else:
+            device_to_use = device if device is not None else "NPU"
+            logger.info("Using device: %s", device_to_use)
 
         # Step 1: Create ONNXModel and extract patterns (once)
         logger.info("Loading model and extracting patterns...")
@@ -698,6 +710,21 @@ class ONNXStaticAnalyzer:
         information_list = {}
 
         for current_ep in eps_to_analyze:
+            # Skip EPs that have no rule data for the target device.
+            if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
+                if device_to_use:
+                    logger.warning(
+                        "No runtime check data for %s on %s — skipping op analysis.",
+                        current_ep,
+                        device_to_use,
+                    )
+                else:
+                    logger.warning(
+                        "No runtime check data for %s — skipping op analysis.",
+                        current_ep,
+                    )
+                continue
+
             logger.info("Checking runtime support for %s...", current_ep)
             if on_ep_start:
                 try:

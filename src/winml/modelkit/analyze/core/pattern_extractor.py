@@ -278,7 +278,7 @@ class PatternExtractor:
         logger.info("PatternMatcher found %d matches", len(pattern_matches))
 
         if not pattern_matches:
-            logger.warning("No pattern matches found by PatternMatcher")
+            logger.info("No pattern matches found by PatternMatcher")
             # Debug: try skeleton matching without validation
             skeleton_results = matcher.match_skeleton()
             logger.info(

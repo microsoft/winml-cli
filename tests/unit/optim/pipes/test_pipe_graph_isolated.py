@@ -63,7 +63,7 @@ Builder Coverage Analysis:
 
 Status Legend:
 - OK: Works on CPU
-- DML: DirectML-only (marked with pytest.mark.directml)
+- DML: Dml-only (marked with pytest.mark.dml)
 - SKIP: Pattern correct but cannot trigger in isolation (see SKIP_ISOLATED_ORT_NAMES)
 - CUDA: CUDA-only (marked with pytest.mark.cuda)
 - OK**: Requires specific opset version (opset_version=15 in BuilderConfig)
@@ -520,7 +520,7 @@ ISOLATED_TEST_CASES: list[IsolatedTestCase | pytest.param] = [
     make_isolated_test_case("MatMulAddFusion"),
     pytest.param(
         make_isolated_test_case("MatMulActivationFusion"),
-        marks=pytest.mark.skip(reason="MatMulActivationFusion requires DirectML EP"),
+        marks=pytest.mark.skip(reason="MatMulActivationFusion requires Dml EP"),
         id="MatMulActivationFusion",
     ),
     make_isolated_test_case("MatmulTransposeFusion"),

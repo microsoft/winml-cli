@@ -62,10 +62,10 @@ class TestWinMLSessionEPSpecific:
                 marks=pytest.mark.ep("openvino"),
             ),
             pytest.param(
-                "directml",
+                "dml",
                 "gpu",
                 "DmlExecutionProvider",
-                marks=pytest.mark.ep("directml"),
+                marks=pytest.mark.ep("dml"),
             ),
             pytest.param(
                 "cuda",
@@ -74,16 +74,10 @@ class TestWinMLSessionEPSpecific:
                 marks=pytest.mark.ep("cuda"),
             ),
             pytest.param(
-                "tensorrt",
-                "gpu",
-                "TensorrtExecutionProvider",
-                marks=pytest.mark.ep("tensorrt"),
-            ),
-            pytest.param(
-                "tensorrt_rtx",
+                "nv_tensorrt_rtx",
                 "gpu",
                 "NvTensorRTRTXExecutionProvider",
-                marks=pytest.mark.ep("tensorrt_rtx"),
+                marks=pytest.mark.ep("nv_tensorrt_rtx"),
             ),
             pytest.param(
                 "vitisai",
@@ -93,7 +87,7 @@ class TestWinMLSessionEPSpecific:
             ),
             pytest.param("rocm", "gpu", "ROCMExecutionProvider", marks=pytest.mark.ep("rocm")),
         ],
-        ids=["qnn", "openvino", "directml", "cuda", "tensorrt", "tensorrt_rtx", "vitisai", "rocm"],
+        ids=["qnn", "openvino", "dml", "cuda", "nv_tensorrt_rtx", "vitisai", "rocm"],
     )
     def test_ep_inference(
         self,
