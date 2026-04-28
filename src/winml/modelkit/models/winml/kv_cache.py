@@ -77,7 +77,13 @@ class WinMLCache(StaticCache, ABC):
     def __init__(self, config: PretrainedConfig, *args: Any, **kwargs: Any) -> None:
         super().__init__(config, *args, **kwargs)
         self.step: int = 0
-        self.num_layers: int = config.num_hidden_layers
+        # StaticCache.__init__ already built ``self.layers`` using
+        # ``config.get_text_config(decoder=True).num_hidden_layers``, which is
+        # the decoder's layer count (e.g., 6 for distilbart-cnn-12-6).
+        # Reading the outer ``config.num_hidden_layers`` would instead give the
+        # encoder's count (12 for distilbart), so we take len(self.layers) --
+        # correct for both symmetric and asymmetric encoder-decoder models.
+        self.num_layers: int = len(self.layers)
         #: New-token KV captured during ``update()``, keyed by layer index.
         #: Export wrappers read ``captured[i]`` to build ONNX present outputs.
         self.captured: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
@@ -201,9 +207,32 @@ class WinMLStaticCache(WinMLCache):
         layer_idx: int,
         cache_kwargs: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Capture new-token KV, then delegate to parent ``index_copy_``."""
+        """Capture new-token KV, then write via multi-dim ``index_put_`` (ScatterND).
+
+        Using full (b, h, pos) coord tuples forces the ONNX exporter to emit
+        ScatterND rather than ScatterElements (which ``index_copy_`` along a
+        single axis would produce).
+        """
+        import torch
+
         self.captured[layer_idx] = (key_states, value_states)
-        return super().update(key_states, value_states, layer_idx, cache_kwargs)
+        cache_position = cache_kwargs["cache_position"]
+
+        k_out = self.layers[layer_idx].keys
+        v_out = self.layers[layer_idx].values
+
+        bsz, n_heads, n_new, _ = key_states.shape
+        bi = torch.arange(bsz, device=k_out.device).view(bsz, 1, 1).expand(bsz, n_heads, n_new)
+        hi = (
+            torch.arange(n_heads, device=k_out.device)
+            .view(1, n_heads, 1)
+            .expand(bsz, n_heads, n_new)
+        )
+        pi = cache_position.view(1, 1, n_new).expand(bsz, n_heads, n_new)
+        k_out.index_put_((bi, hi, pi), key_states)
+        v_out.index_put_((bi, hi, pi), value_states)
+
+        return k_out, v_out
 
     def build_decoder_mask(self, max_len: int, num_new_tokens: int = 1) -> torch.Tensor:
         """Left-aligned: first ``step + num_new_tokens`` positions are 1."""
