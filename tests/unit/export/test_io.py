@@ -822,12 +822,12 @@ class TestQwenGenKVInputs:
     """Qwen3 generation dummy inputs use PastKeyValueInputGenerator."""
 
     def test_kv_shape_matches_prefill(self, qwen_config) -> None:
-        inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
+        inputs = generate_dummy_inputs("qwen3", "text2text-generation", qwen_config)
         kv = inputs["past_0_key"]
         assert kv.shape == (1, qwen_config.num_key_value_heads, 256, qwen_config.head_dim)
 
     def test_input_ids_single_token(self, qwen_config) -> None:
-        inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
+        inputs = generate_dummy_inputs("qwen3", "text2text-generation", qwen_config)
         assert inputs["input_ids"].shape == (1, 1)
 
 
