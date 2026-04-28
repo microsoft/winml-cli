@@ -472,25 +472,6 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
 
         return combinations
 
-    def derive_properties(self, properties: dict) -> dict:
-        """Derive ConvTranspose-specific properties used by rule matching."""
-        item = super().derive_properties(properties)
-
-        kernel_shape = item.get("attr_kernel_shape")
-        if kernel_shape is None:
-            # kernel_shape is optional in ONNX; infer from W when available.
-            w_shape = item.get("W_shape")
-            if isinstance(w_shape, tuple) and len(w_shape) >= 3:
-                kernel_shape = w_shape[2:]
-
-        strides = item.get("attr_strides")
-        if isinstance(kernel_shape, tuple) and isinstance(strides, tuple):
-            item["kernel_equals_stride"] = kernel_shape == strides
-        else:
-            item["kernel_equals_stride"] = None
-
-        return item
-
     def get_infinite_property_names(self) -> list[str]:
         """Get list of attribute names and input names that have infinite value sets.
 
@@ -502,8 +483,6 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
         # attr_output_shape and attr_output_padding are also infinite because their values
         # depend on input shapes. Use output_shape_is_none and output_padding_is_none
         # (derived in derive_properties) for rule matching instead.
-        # Keep attr_kernel_shape infinite to avoid over-specific exact-shape matching.
-        # Use derived property kernel_equals_stride for grouping of upsample-like patterns.
         return [
             "X_shape",
             "W_shape",

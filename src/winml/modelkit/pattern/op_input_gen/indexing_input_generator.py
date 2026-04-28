@@ -503,13 +503,8 @@ class ScatterNDInputGenerator(OpInputGenerator):
         indices_array = np.array(item["indices_value"])
         k = indices_array.shape[-1]  # Number of dimensions indexed
         q = len(indices_array.shape)  # indices rank
-        # Add finite bucket features for robust rule extraction.
-        # This avoids raw-value enumeration while still distinguishing key patterns.
         item["q_is_one"] = q == 1
-        item["q_is_two"] = q == 2
         item["k_is_one"] = k == 1
-        item["k_is_two"] = k == 2
-        item["k_is_three"] = k == 3
         item["k_is_dim_minus_one"] = k == (item["data_dim"] - 1)
         item["k_is_dim"] = k == item["data_dim"]
         return item
@@ -812,11 +807,6 @@ class SplitInputGenerator(OpInputGenerator):
         """
         item = properties.copy()
         item["input_dim"] = len(item["input_shape"])
-        item["input_dim_eq_4"] = item["input_dim"] == 4
-        item["input_dim_ge_5"] = item["input_dim"] >= 5
-        axis = item.get("attr_axis")
-        item["attr_axis_is_zero"] = axis == 0
-        item["attr_axis_is_minus_one"] = axis == -1
         # Handle both cases: explicit split input or num_outputs attribute
         if "split_value" in item and item["split_value"] is not None:
             split_array = np.array(item["split_value"])
