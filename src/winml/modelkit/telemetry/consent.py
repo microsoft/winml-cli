@@ -6,7 +6,7 @@
 r"""Consent decision for ModelKit telemetry.
 
 A first-run interactive prompt collects user consent (default: accept)
-and persists it to ``%USERPROFILE%\.modelkit\config.json``. This module
+and persists it to ``%USERPROFILE%\.winml\config.json``. This module
 owns: CI/CD detection, config-file read/write, and the prompt. There
 are **no** environment-variable overrides and **no** ``winml telemetry``
 subcommands - to change consent after first run, users edit the config
@@ -26,7 +26,7 @@ from typing import Literal
 # `USERPROFILE` is virtually always set on Windows, but can be missing in
 # minimal service accounts / containers. Fall back to the Windows-native
 # `HOMEDRIVE + HOMEPATH` pair so we never silently resolve to a
-# CWD-relative `.modelkit/config.json`.
+# CWD-relative `.winml/config.json`.
 def _resolve_user_home() -> str:
     profile = os.environ.get("USERPROFILE")
     if profile:
@@ -36,7 +36,7 @@ def _resolve_user_home() -> str:
     return drive + path  # empty string if neither is set
 
 
-_CONFIG_PATH: Path = Path(_resolve_user_home()) / ".modelkit" / "config.json"
+_CONFIG_PATH: Path = Path(_resolve_user_home()) / ".winml" / "config.json"
 
 # Consent notice version + text are a pair: bump the version whenever
 # _PROMPT_TEXT's scope materially changes (new data category, widened
@@ -188,7 +188,7 @@ def resolve_consent() -> Consent:
     interactive users see an accept-by-default prompt.
 
     To change a stored decision, users edit ``telemetry.consent`` in
-    ``%USERPROFILE%\.modelkit\config.json`` directly. There are no CLI
+    ``%USERPROFILE%\.winml\config.json`` directly. There are no CLI
     subcommands for this.
     """
     if _is_ci_environment():
