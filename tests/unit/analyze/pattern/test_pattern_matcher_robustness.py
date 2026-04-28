@@ -7,13 +7,12 @@
 from __future__ import annotations
 
 import numpy as np
-import onnx
-from onnx import TensorProto, helper, numpy_helper
+from onnx import ModelProto, TensorProto, helper, load, numpy_helper, save
 
 from winml.modelkit.pattern.base import PatternMatcher
 
 
-def _make_simple_model() -> onnx.ModelProto:
+def _make_simple_model() -> ModelProto:
     """Create a minimal valid ONNX model."""
     x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])
     y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])
@@ -67,7 +66,7 @@ class TestPatternMatcherExternalData:
         model.graph.initializer.append(w_tensor)
 
         model_path = tmp_path / "model.onnx"
-        onnx.save(
+        save(
             model,
             str(model_path),
             save_as_external_data=True,
@@ -76,7 +75,7 @@ class TestPatternMatcherExternalData:
         )
 
         # Reload without external data (simulates how analyzer loads)
-        model_no_ext = onnx.load(str(model_path), load_external_data=False)
+        model_no_ext = load(str(model_path), load_external_data=False)
 
         # Delete the external data file to simulate it being inaccessible
         (tmp_path / "model.onnx.data").unlink()
