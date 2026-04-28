@@ -14,7 +14,7 @@ parameters:
     default: true
   - name: modelTimeout
     type: number
-    default: 1800
+    default: 3600
 
 jobs:
   - job: Prepare_${{ parameters.agentSuffix }}
