@@ -115,7 +115,7 @@ class TestResilientRunner:
         runner = ResilientRunner()
         runner._shutdown_executor_two_phase(cancel_futures=True, graceful_timeout_sec=0.0)
 
-        assert executor.shutdown_calls == [(False, True)]
+        assert executor.shutdown_calls == [(False, True), (True, True)]
         assert worker.killed is True
-        assert worker.closed is True
+        assert worker.closed is False
         assert worker.join_calls == [runner._FORCED_KILL_JOIN_TIMEOUT_SEC]

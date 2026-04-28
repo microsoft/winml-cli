@@ -224,6 +224,37 @@ class TestSysCommand:
         assert "Available Execution Providers" not in result.output
 
 
+class TestDisabledCommands:
+    """Test that disabled commands (run, serve) are hidden and reject invocations."""
+
+    def test_run_not_in_help(self, runner: CliRunner) -> None:
+        """Disabled 'run' command must not appear in --help output."""
+        result = runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        # 'run' should not be listed as a command
+        command_lines = result.output.split("Commands:")[1] if "Commands:" in result.output else ""
+        assert "run" not in command_lines.split()
+
+    def test_serve_not_in_help(self, runner: CliRunner) -> None:
+        """Disabled 'serve' command must not appear in --help output."""
+        result = runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        command_lines = result.output.split("Commands:")[1] if "Commands:" in result.output else ""
+        assert "serve" not in command_lines.split()
+
+    def test_run_invocation_rejected(self, runner: CliRunner) -> None:
+        """Invoking 'winml run' must fail with a clear disabled message."""
+        result = runner.invoke(main, ["run", "--help"])
+        assert result.exit_code != 0
+        assert "disabled" in result.output.lower()
+
+    def test_serve_invocation_rejected(self, runner: CliRunner) -> None:
+        """Invoking 'winml serve' must fail with a clear disabled message."""
+        result = runner.invoke(main, ["serve", "--help"])
+        assert result.exit_code != 0
+        assert "disabled" in result.output.lower()
+
+
 class TestModuleExecution:
     """Test python -m winml.modelkit execution."""
 

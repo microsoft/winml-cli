@@ -194,25 +194,20 @@ class ResilientRunner:
         """Best-effort process join that never raises."""
         try:
             proc.join(timeout=timeout)
-        except Exception as e:
-            print(f"Warning: failed to join process during executor shutdown: {e}", file=sys.stderr)
+        except Exception:
+            # Intentionally suppress cleanup-time join errors to preserve
+            # resilient shutdown semantics ("never raises").
+            pass
 
     @staticmethod
     def _kill_process(proc: Any) -> None:
         """Best-effort process kill that never raises."""
         try:
             proc.kill()
-        except Exception as e:
-            # Keep cleanup non-fatal, but surface the failure for diagnostics.
-            print(f"Warning: failed to kill worker process: {e}", file=sys.stderr)
-
-    @staticmethod
-    def _close_process(proc: Any) -> None:
-        """Best-effort process close that never raises."""
-        try:
-            proc.close()
-        except Exception as ex:
-            print(f"Warning: failed to close process: {ex}", file=sys.stderr)
+        except Exception:
+            # Intentionally ignored: process may already be dead or handle invalid
+            # during teardown, and cleanup must remain best-effort/non-fatal.
+            pass
 
     def _shutdown_executor_two_phase(
         self,
@@ -227,8 +222,8 @@ class ResilientRunner:
         try:
             executor.shutdown(wait=False, cancel_futures=cancel_futures)
         except Exception as exc:
-            # Best-effort shutdown: keep cleanup flow non-raising, but surface failure.
-            print(f"Executor shutdown failed during cleanup: {exc}", file=sys.stderr)
+            # Best-effort shutdown: ignore failures here, but surface context for debugging.
+            print(f"[ResilientRunner] executor.shutdown failed: {exc}", file=sys.stderr)
 
         timeout = (
             self._GRACEFUL_SHUTDOWN_TIMEOUT_SEC
@@ -251,8 +246,16 @@ class ResilientRunner:
         for proc in survivors:
             self._join_process(proc, timeout=self._FORCED_KILL_JOIN_TIMEOUT_SEC)
 
-        for proc in lingering:
-            self._close_process(proc)
+        # Do not close multiprocessing.Process handles manually here. The
+        # ProcessPoolExecutor management thread may still call proc.join(), and
+        # prematurely closing handles can trigger WinError 6 on Windows.
+        try:
+            executor.shutdown(wait=True, cancel_futures=cancel_futures)
+        except Exception as exc:
+            print(
+                f"[ResilientRunner] executor.shutdown(wait=True) failed: {exc}",
+                file=sys.stderr,
+            )
 
     def run(self, fn: Callable[[Any, Any], Any] | None = None, *args: Any) -> dict[str, Any]:
         """Execute the function on a single input with automatic retry on failure.
