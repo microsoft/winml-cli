@@ -9,7 +9,7 @@ Persists envelopes one-per-line as ``base64(json(envelope))`` so a
 single corrupt line doesn't poison the rest. Multi-process safe via
 :class:`utils._ExclusiveFileLock`.
 
-Default location: ``%USERPROFILE%\.winml\telemetry\modelkit.json``.
+Default location: ``%USERPROFILE%\.winml\telemetry\modelkit.cache``.
 Override with the ``MODELKIT_TELEMETRY_CACHE_DIR`` env var (developer-
 facing only; not for end users).
 
@@ -38,7 +38,7 @@ from .utils import (
 )
 
 
-_CACHE_FILE_NAME = "modelkit.json"
+_CACHE_FILE_NAME = "modelkit.cache"
 
 
 def _cache_dir() -> Path | None:

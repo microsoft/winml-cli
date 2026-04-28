@@ -41,7 +41,7 @@ def _make_log_data(body: str, attrs: dict) -> ReadableLogRecord:
 
 @pytest.fixture
 def cache_path(tmp_path):
-    return tmp_path / "modelkit.json"
+    return tmp_path / "modelkit.cache"
 
 
 @pytest.fixture
@@ -160,7 +160,7 @@ def test_telemetry_disabled_clears_existing_cache(monkeypatch, tmp_path):
     from winml.modelkit.telemetry.telemetry import Telemetry
 
     monkeypatch.setenv("MODELKIT_TELEMETRY_CACHE_DIR", str(tmp_path))
-    cache_path = tmp_path / "modelkit.json"
+    cache_path = tmp_path / "modelkit.cache"
 
     # Seed a cache from a previous (enabled) session.
     cache_mod._PersistentCache().append([{"name": "stale", "iKey": "o:abc"}])

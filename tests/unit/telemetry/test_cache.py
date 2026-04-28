@@ -59,7 +59,7 @@ def test_cache_no_op_when_no_user_home(monkeypatch):
 
 @pytest.fixture
 def cache(tmp_path):
-    return _PersistentCache(path=tmp_path / "modelkit.json")
+    return _PersistentCache(path=tmp_path / "modelkit.cache")
 
 
 def test_append_then_drain_roundtrip(cache):
@@ -77,7 +77,7 @@ def test_drain_empty_when_file_missing(cache):
 
 
 def test_append_creates_parent_dir(tmp_path):
-    nested = tmp_path / "deep" / "nested" / "modelkit.json"
+    nested = tmp_path / "deep" / "nested" / "modelkit.cache"
     cache = _PersistentCache(path=nested)
     cache.append([{"a": 1}])
     assert nested.exists()
