@@ -129,4 +129,6 @@ class _PersistentCache:
                 if self._path.exists():
                     self._path.unlink()
         except Exception:
+            # Best-effort: a clear failure must not block disabled-init
+            # from completing. The cache will be retried on the next run.
             pass
