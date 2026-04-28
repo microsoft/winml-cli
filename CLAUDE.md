@@ -16,7 +16,7 @@ Run `uv run pytest tests/` after every implementation or test revision. Never as
 
 ### 4. Never Skip Failing Tests
 
-Investigate root cause and fix the underlying issue. Never use `pytest.mark.skip` or `xfail` to hide failures. Skips are only acceptable for hardware/EP requirements (CUDA, DirectML, AVX).
+Investigate root cause and fix the underlying issue. Never use `pytest.mark.skip` or `xfail` to hide failures. Skips are only acceptable for hardware/EP requirements (CUDA, Dml, AVX).
 
 ## Development Commands
 

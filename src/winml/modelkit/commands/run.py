@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
@@ -622,7 +623,11 @@ def run(
         return
 
     try:
-        engine.load(model, task=task, device=device, ep=ep)
+        # Redirect stdout → stderr during model load so that build-pipeline
+        # prints (from optimum, onnxruntime, etc.) don't contaminate
+        # structured output (--format json) or text output parsing.
+        with contextlib.redirect_stdout(sys.stderr):
+            engine.load(model, task=task, device=device, ep=ep)
     except (OSError, ValueError, RuntimeError) as exc:
         click.echo(f"Error loading model: {exc}", err=True)
         ctx.exit(3)

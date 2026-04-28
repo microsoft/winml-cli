@@ -38,10 +38,9 @@ from onnx import TensorProto, helper
 EP_NAME_MAP = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
-    "directml": "DmlExecutionProvider",
+    "dml": "DmlExecutionProvider",
     "cuda": "CUDAExecutionProvider",
-    "tensorrt": "TensorrtExecutionProvider",
-    "tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "coreml": "CoreMLExecutionProvider",
     "rocm": "ROCMExecutionProvider",
@@ -53,7 +52,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "ep(name): mark test to run only when specific EP is available "
-        "(qnn, openvino, directml, cuda, tensorrt, tensorrt_rtx, vitisai, coreml, rocm)",
+        "(qnn, openvino, dml, cuda, nv_tensorrt_rtx, vitisai, coreml, rocm)",
     )
 
 
