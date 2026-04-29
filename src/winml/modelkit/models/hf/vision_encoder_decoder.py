@@ -9,8 +9,8 @@
 - ``VisionDecoderWrapper`` — dispatcher; routes by ``config.decoder.model_type``
   to a family-specific wrapper in ``_INNER_DECODER_REGISTRY``.
 
-Pipeline task: ``image-to-text``.  Family wrappers (e.g., ``TocrDecoderWrapper``
-in ``tocr.py``) own the actual KV-cache export logic.
+Pipeline task: ``image-to-text``.  Family wrappers (e.g., ``TrocrDecoderWrapper``
+in ``trocr.py``) own the actual KV-cache export logic.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from transformers import VisionEncoderDecoderModel
 from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
-from .tocr import TocrDecoderIOConfig, TocrDecoderWrapper
+from .trocr import TrocrDecoderIOConfig, TrocrDecoderWrapper
 
 
 # =============================================================================
@@ -104,7 +104,7 @@ class VisionEncoderIOConfig(OnnxConfig):
 
 # Inner decoder ``model_type`` → (family wrapper, family IOConfig).
 _INNER_DECODER_REGISTRY: dict[str, tuple[type, type]] = {
-    "trocr": (TocrDecoderWrapper, TocrDecoderIOConfig),
+    "trocr": (TrocrDecoderWrapper, TrocrDecoderIOConfig),
 }
 
 

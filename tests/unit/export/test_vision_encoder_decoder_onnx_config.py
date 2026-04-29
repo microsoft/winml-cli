@@ -14,8 +14,8 @@ from __future__ import annotations
 import pytest
 from optimum.exporters.tasks import TasksManager
 
-import winml.modelkit.models  # noqa: F401 — triggers OnnxConfig registration
 from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
+from winml.modelkit.models import HF_MODEL_CLASS_MAPPING  # registers OnnxConfigs (side-effect)
 
 
 @pytest.fixture(scope="module")
@@ -44,6 +44,11 @@ def ved_config():
 
 
 class TestVEDRegistration:
+    def test_class_mapping(self) -> None:
+        """VED wrapper classes appear in the aggregated HF MODEL_CLASS_MAPPING."""
+        assert ("vision-encoder-decoder", "feature-extraction") in HF_MODEL_CLASS_MAPPING
+        assert ("vision-encoder-decoder", "text2text-generation") in HF_MODEL_CLASS_MAPPING
+
     def test_encoder_config_registered(self) -> None:
         c = TasksManager.get_exporter_config_constructor(
             exporter="onnx",

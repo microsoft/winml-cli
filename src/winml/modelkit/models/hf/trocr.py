@@ -5,7 +5,7 @@
 """TrOCR decoder export — vision-encoder-decoder with TrOCR inner causal-LM.
 
 Registered for ``("vision-encoder-decoder", "text2text-generation")``;
-the ``VisionDecoderWrapper`` dispatcher routes to ``TocrDecoderWrapper``
+the ``VisionDecoderWrapper`` dispatcher routes to ``TrocrDecoderWrapper``
 when ``config.decoder.model_type == "trocr"``.
 
 Models: microsoft/trocr-base-printed, microsoft/trocr-large-*, etc.
@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def _patched_tocr_learned_positional_embedding_forward(
+def _patched_trocr_learned_positional_embedding_forward(
     self,
     input_ids: torch.Tensor,
     past_key_values_length: Any = 0,
@@ -93,7 +93,7 @@ def _patched_tocr_learned_positional_embedding_forward(
     return nn.Embedding.forward(self, position_ids + self.offset)
 
 
-def _build_tocr_patching_specs() -> list[PatchingSpec]:
+def _build_trocr_patching_specs() -> list[PatchingSpec]:
     """Return PatchingSpec list for TrOCR, or [] if the target class is unavailable."""
     try:
         from transformers.models.trocr.modeling_trocr import TrOCRLearnedPositionalEmbedding
@@ -104,7 +104,7 @@ def _build_tocr_patching_specs() -> list[PatchingSpec]:
         PatchingSpec(
             o=TrOCRLearnedPositionalEmbedding,
             name="forward",
-            custom_op=_patched_tocr_learned_positional_embedding_forward,
+            custom_op=_patched_trocr_learned_positional_embedding_forward,
         ),
     ]
 
@@ -114,7 +114,7 @@ def _build_tocr_patching_specs() -> list[PatchingSpec]:
 # =============================================================================
 
 
-class TocrDecoderInputGenerator(EncoderDecoderInputGenerator):
+class TrocrDecoderInputGenerator(EncoderDecoderInputGenerator):
     """Dummy input generator for TrOCR decoder export."""
 
     def __init__(self, task: str, normalized_config: Any, **kwargs: Any) -> None:
@@ -123,7 +123,7 @@ class TocrDecoderInputGenerator(EncoderDecoderInputGenerator):
         self.d_model = normalized_config.encoder_hidden_size
 
 
-class _TocrDecoderNormalizedConfig(NormalizedConfig):
+class _TrocrDecoderNormalizedConfig(NormalizedConfig):
     """NormalizedConfig for TrOCR — nested ``decoder.*`` and ``encoder.*`` paths."""
 
     VOCAB_SIZE = "decoder.vocab_size"
@@ -131,25 +131,16 @@ class _TocrDecoderNormalizedConfig(NormalizedConfig):
     NUM_LAYERS = "decoder.decoder_layers"
     NUM_ATTENTION_HEADS = "decoder.decoder_attention_heads"
     MAX_CACHE_LEN = "decoder.max_position_embeddings"
+    ENCODER_HIDDEN_SIZE = "encoder.hidden_size"
+    IMAGE_SIZE = "encoder.image_size"
+    PATCH_SIZE = "encoder.patch_size"
 
     @property
     def head_dim(self) -> int:
         return self.hidden_size // self.num_attention_heads
 
-    @property
-    def encoder_hidden_size(self) -> int:
-        return self.config.encoder.hidden_size
 
-    @property
-    def image_size(self) -> int:
-        return self.config.encoder.image_size
-
-    @property
-    def patch_size(self) -> int:
-        return self.config.encoder.patch_size
-
-
-class TocrDecoderIOConfig(WinMLStaticCacheDecoderIOConfig):
+class TrocrDecoderIOConfig(WinMLStaticCacheDecoderIOConfig):
     """ONNX config for TrOCR decoder with static KV cache.
 
     Inputs:  decoder_input_ids, encoder_hidden_states, decoder_attention_mask,
@@ -157,12 +148,12 @@ class TocrDecoderIOConfig(WinMLStaticCacheDecoderIOConfig):
     Outputs: logits, present_{i}_key / present_{i}_value
     """
 
-    NORMALIZED_CONFIG_CLASS = _TocrDecoderNormalizedConfig
+    NORMALIZED_CONFIG_CLASS = _TrocrDecoderNormalizedConfig
     DUMMY_INPUT_GENERATOR_CLASSES = (
-        TocrDecoderInputGenerator,
+        TrocrDecoderInputGenerator,
         PastKeyValueInputGenerator,
     )
-    PATCHING_SPECS = _build_tocr_patching_specs()
+    PATCHING_SPECS = _build_trocr_patching_specs()
 
     @property
     def inputs(self) -> dict[str, dict[int, str]]:  # noqa: D102
@@ -191,11 +182,11 @@ class TocrDecoderIOConfig(WinMLStaticCacheDecoderIOConfig):
 # =============================================================================
 
 
-class TocrDecoderWrapper(WinMLDecoderWrapper):
+class TrocrDecoderWrapper(WinMLDecoderWrapper):
     """Static-KV-cache decoder export for TrOCR (VED with TrOCR inner causal-LM)."""
 
     _HF_MODEL_CLS = VisionEncoderDecoderModel
-    _IO_CONFIG_CLS = TocrDecoderIOConfig
+    _IO_CONFIG_CLS = TrocrDecoderIOConfig
 
     def _make_cache(self, inputs: dict[str, torch.Tensor]) -> Any:
         cache = super()._make_cache(inputs)
@@ -229,7 +220,7 @@ class TocrDecoderWrapper(WinMLDecoderWrapper):
 
 
 __all__ = [
-    "TocrDecoderIOConfig",
-    "TocrDecoderInputGenerator",
-    "TocrDecoderWrapper",
+    "TrocrDecoderIOConfig",
+    "TrocrDecoderInputGenerator",
+    "TrocrDecoderWrapper",
 ]

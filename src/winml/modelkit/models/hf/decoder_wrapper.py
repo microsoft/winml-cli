@@ -34,6 +34,7 @@ knowledge lives in one place.  A per-family subclass only has to:
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
@@ -47,8 +48,12 @@ if TYPE_CHECKING:
     from ..winml.kv_cache import WinMLCache
 
 
-class WinMLDecoderWrapper(nn.Module):
-    """Base class for static-KV-cache decoder export wrappers.
+class WinMLDecoderWrapper(nn.Module, ABC):
+    """Abstract base class for static-KV-cache decoder export wrappers.
+
+    Concrete subclasses must:
+    - Set ``_HF_MODEL_CLS`` and ``_IO_CONFIG_CLS`` class attributes.
+    - Implement ``_invoke_hf`` (the family-specific HF decoder call).
 
     Instance attributes (set by ``from_pretrained``):
         model         — the HF model, called by ``_invoke_hf``
@@ -116,9 +121,11 @@ class WinMLDecoderWrapper(nn.Module):
         """Alias the flat past-KV inputs onto a fresh ``WinMLCache``.
 
         Reads ONNX input names via ``self.onnx_config``'s semantic
-        accessors (``decoder_input_ids_name``, ``past_key_input_names``,
-        ``past_value_input_names``) so families that use non-default names
-        only need to override the accessors — no string formats here.
+        accessors (``past_key_input_names``, ``past_value_input_names``)
+        so families that use non-default names only need to override
+        those accessors — no string formats here.  All cache shape info
+        (batch, heads, max_cache_len, head_dim) is probed from the first
+        past-key tensor.
         """
         cfg = self.onnx_config
         # past_i_key/value layout: [batch, heads, max_cache_len, head_dim]
@@ -128,7 +135,7 @@ class WinMLDecoderWrapper(nn.Module):
         decoder_config = self.config.get_text_config(decoder=True)
         cache = self._CACHE_CLS(decoder_config, max_cache_len=sample_k.size(2))
         cache.early_initialization(
-            batch_size=inputs[cfg.decoder_input_ids_name].size(0),
+            batch_size=sample_k.size(0),
             num_heads=sample_k.size(1),
             head_dim=sample_k.size(3),
             dtype=sample_k.dtype,
@@ -143,11 +150,11 @@ class WinMLDecoderWrapper(nn.Module):
             cache.layers[i].values = inputs[value_name]
         return cache
 
+    @abstractmethod
     def _invoke_hf(
         self, cache: WinMLCache, inputs: dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """Call the HF decoder with ``past_key_values=<cache>``.  Returns logits."""
-        raise NotImplementedError
 
 
 class WinMLStaticCacheDecoderIOConfig(OnnxConfig):
@@ -155,17 +162,10 @@ class WinMLStaticCacheDecoderIOConfig(OnnxConfig):
 
     Subclasses declare their own ``inputs`` / ``outputs`` bodies (each
     family is free to pick its own ONNX input names).  Override these
-    accessors only if the family uses non-default names — for example a
-    decoder-only LM exporter that prefers ``input_ids`` over
-    ``decoder_input_ids``.
+    accessors only if the family uses non-default per-layer KV naming.
 
     Defaults match HuggingFace's encoder-decoder convention.
     """
-
-    @property
-    def decoder_input_ids_name(self) -> str:
-        """ONNX input name carrying the decoder's token IDs."""
-        return "decoder_input_ids"
 
     @property
     def past_key_input_names(self) -> list[str]:
