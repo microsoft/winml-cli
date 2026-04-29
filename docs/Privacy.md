@@ -104,7 +104,7 @@ Edit `%USERPROFILE%\.winml\config.json` directly:
 
 | Goal | Edit |
 |---|---|
-| Opt out | Set `telemetry.consent` to `"disabled"` (or delete the file). |
+| Opt out | Set `telemetry.consent` to `"disabled"`. |
 | Opt in | Set `telemetry.consent` to `"enabled"`. |
 | Re-show the prompt on next run | Delete the file, or remove the `telemetry.consent` field. |
 

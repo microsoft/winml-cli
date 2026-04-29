@@ -442,7 +442,7 @@ never send telemetry.
 
 **Control** — edit `%USERPROFILE%\.winml\config.json`:
 
-- Set `telemetry.consent` to `"disabled"` (or delete the file) to opt out
+- Set `telemetry.consent` to `"disabled"` to opt out
 - Set `telemetry.consent` to `"enabled"` to opt in
 - Delete the file to re-show the first-run prompt on the next run
 
