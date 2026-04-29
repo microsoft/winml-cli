@@ -25,6 +25,7 @@ from ...onnx import (
     infer_onnx_shapes,
     remove_optional_from_type_annotation,
 )
+from ...onnx.external_data import try_load_external_initializer_array
 from ...pattern.base import (
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
@@ -187,7 +188,7 @@ def _expand_snapshot_payload(
 
     base_opset = payload.get(SNAPSHOT_BASE_OPSET_KEY)
     if not isinstance(base_opset, int):
-        logger.warning(
+        logger.debug(
             "Delta snapshot %s in %s missing integer %s; applying delta on empty base.",
             file_name,
             zip_path,
@@ -199,7 +200,7 @@ def _expand_snapshot_payload(
     if visited is None:
         visited = set()
     if token in visited:
-        logger.warning(
+        logger.debug(
             "Detected cyclic snapshot chain while loading %s from %s; "
             "applying delta on empty base.",
             file_name,
@@ -215,7 +216,7 @@ def _expand_snapshot_payload(
 
     base_raw = _read_json_from_zip(base_zip_path, base_file_name)
     if base_raw is None:
-        logger.warning(
+        logger.debug(
             "Base snapshot %s not found in %s (from %s); applying delta on empty base.",
             base_file_name,
             base_zip_path,
@@ -336,7 +337,7 @@ class LazyDomainTables:
                     columns_file_name=base_columns_file_name,
                 )
             else:
-                logger.warning(
+                logger.debug(
                     "Delta table snapshot %s in %s missing integer %s; "
                     "base fallback disabled for this table.",
                     self._file_name,
@@ -462,7 +463,7 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
             if self._set_error_on_missing:
                 self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
                 self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
-                logger.warning(f"Negative rule file not found: {self._rule_file}")
+                logger.debug(f"Negative rule file not found: {self._rule_file}")
             else:
                 logger.debug(f"Negative rule file not found: {self._rule_file}")
             return
@@ -629,103 +630,6 @@ def _normalize_type_var_annotation(type_value: str) -> str:
         return SupportedONNXType.from_onnx_type(type_value).annotation
     except ValueError:
         return SupportedONNXType.normalize_annotation(type_value)
-
-
-# Query conditions are later normalized with make_hashable, which materializes
-# numpy arrays. Keep external initializer loading bounded until the broader
-# condition pipeline can stay lazy end-to-end.
-MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY = 1024 * 1024
-
-
-def _get_external_tensor_info(tensor: onnx.TensorProto) -> tuple[str | None, int, int | None]:
-    """Extract location, offset, and length metadata for an external tensor."""
-    info = {entry.key: entry.value for entry in tensor.external_data}
-    location = info.get("location")
-    offset = int(info.get("offset", "0"))
-    length = int(info["length"]) if "length" in info else None
-    return location, offset, length
-
-
-def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
-    """Convert a TensorProto dtype enum to a numpy dtype."""
-    try:
-        from onnx.helper import tensor_dtype_to_np_dtype as onnx_tensor_dtype_to_np_dtype
-    except ImportError:
-        from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
-
-        return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type])
-
-    return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
-
-
-def _try_load_external_initializer_array(
-    tensor: onnx.TensorProto,
-    model_path: str | Path | None,
-) -> np.ndarray | None:
-    """Load a small external initializer from disk for runtime-query conditions.
-
-    Returns None when the model path is unavailable, metadata is incomplete,
-    the sidecar file is missing, or the tensor is too large for the current
-    hash-based condition pipeline.
-    """
-    if tensor.data_location != onnx.TensorProto.EXTERNAL or model_path is None:
-        return None
-
-    location, offset, length = _get_external_tensor_info(tensor)
-    if location is None:
-        return None
-
-    model_path = Path(model_path)
-    data_path = Path(location)
-    if not data_path.is_absolute():
-        data_path = model_path.parent / data_path
-    if not data_path.exists():
-        return None
-
-    try:
-        np_dtype = _tensor_proto_dtype_to_np_dtype(tensor.data_type)
-        shape = tuple(tensor.dims)
-        numel = int(np.prod(shape)) if shape else 1
-        expected_bytes = numel * np_dtype.itemsize
-        if length is not None and length < expected_bytes:
-            logger.debug(
-                "External initializer %s length %s is smaller than expected %s",
-                tensor.name,
-                length,
-                expected_bytes,
-            )
-            return None
-        if expected_bytes > MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY:
-            logger.debug(
-                "Skipping external initializer %s for query conditions because %s bytes exceeds %s",
-                tensor.name,
-                expected_bytes,
-                MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY,
-            )
-            return None
-
-        with data_path.open("rb") as f:
-            f.seek(offset)
-            arr = np.fromfile(f, dtype=np_dtype, count=numel)
-
-        if arr.size != numel:
-            logger.debug(
-                "External initializer %s only yielded %s elements, expected %s",
-                tensor.name,
-                arr.size,
-                numel,
-            )
-            return None
-
-        return arr.reshape(shape)
-    except Exception as e:
-        logger.debug(
-            "Failed to read external initializer %s from %s: %s",
-            tensor.name,
-            data_path,
-            e,
-        )
-        return None
 
 
 def _get_pattern_type_var_conditions(
@@ -916,7 +820,7 @@ def get_query_conditions_for_node(
                 conditions[column_name] = None
                 conditions[f"{column_name}_is_none"] = True
             else:
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): required attribute '%s' missing and has no default",
                     node.op_type,
                     node.name,
@@ -1003,7 +907,7 @@ def get_query_conditions_for_node(
             if input_name in optional_input_names:
                 # Mark as optional/undefined - is_constant is True
                 # since the value is known (None/not provided)
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): input '%s' is optional"
                     " and not provided, setting value to None",
                     node.op_type,
@@ -1032,7 +936,7 @@ def get_query_conditions_for_node(
             # the relevant signal for whether bytes were loaded into this proto.
             external_arr = None
             if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
-                external_arr = _try_load_external_initializer_array(init, model_path)
+                external_arr = try_load_external_initializer_array(init, model_path)
 
                 if external_arr is not None:
                     update_conditions_(
@@ -1263,7 +1167,7 @@ class RuntimeCheckerQuery:
                 )
         except Exception as e:
             # If standard shape inference fails, use original model
-            logger.warning(f"Shape inference failed: {e}. Using original model.")
+            logger.debug(f"Shape inference failed: {e}. Using original model.")
             self.model_proto = model_proto
 
         self.ep_name = ep_name
