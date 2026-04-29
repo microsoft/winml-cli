@@ -260,10 +260,10 @@ def _build_modules(
     help="Skip quantization (overrides config)",
 )
 @click.option(
-    "--no-compile",
-    is_flag=True,
-    default=False,
-    help="Skip compilation (overrides config)",
+    "--no-compile/--compile",
+    "no_compile",
+    default=True,
+    help="Skip compilation (overrides config). Default: skip.",
 )
 @click.option(
     "--ep",
@@ -961,6 +961,8 @@ def _run_compile_stage(
             and Path(compile_result.output_path).resolve() != compiled_path.resolve()
         ):
             copy_onnx_model(compile_result.output_path, compiled_path)
+        if not compiled_path.exists():
+            raise RuntimeError(f"Compile reported success but output not found: {compiled_path}")
         current_path = compiled_path
         _compile_elapsed = time.monotonic() - t0
         sl.set_done(_compile_elapsed)
