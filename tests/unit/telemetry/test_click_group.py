@@ -227,6 +227,27 @@ def test_group_help_does_not_init_telemetry(enabled_telemetry):
     assert telemetry_mod._INSTANCE is None
 
 
+def test_group_version_does_not_init_telemetry(enabled_telemetry):
+    """``--version`` must short-circuit inside Click's parameter parsing
+    before any subcommand ``invoke`` runs, so the Telemetry singleton is
+    never built (mirrors ``--help``)."""
+
+    @click.group(cls=ActionGroup)
+    @click.version_option(version="1.2.3", prog_name="winml")
+    def cli():
+        pass
+
+    @cli.command()
+    def build():
+        click.echo("built")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "1.2.3" in result.output
+    assert telemetry_mod._INSTANCE is None
+
+
 def test_subcommand_help_does_not_emit(enabled_telemetry):
     @click.group(cls=ActionGroup)
     def cli():
