@@ -1,20 +1,20 @@
-erating test split:  10%|¨€         | 500/5000 [00:00<00:01, 4018.35 examples/s]
-Generating test split:  24%|¨€¨€¨…       | 1200/5000 [00:00<00:00, 5567.77 examples/s]
-Generating test split:  40%|¨€¨€¨€¨€      | 2000/5000 [00:00<00:00, 6395.61 examples/s]
-Generating test split:  58%|¨€¨€¨€¨€¨€¨‚    | 2900/5000 [00:00<00:00, 5632.43 examples/s]
-Generating test split:  78%|¨€¨€¨€¨€¨€¨€¨€¨‚  | 3900/5000 [00:00<00:00, 6740.13 examples/s]
-Generating test split:  98%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨‚| 4900/5000 [00:00<00:00, 7301.65 examples/s]
-Generating test split: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 5000/5000 [00:00<00:00, 6453.79 examples/s]
+nerating test split:  12%|¨€¨‡        | 600/5000 [00:00<00:01, 3920.04 examples/s]
+Generating test split:  28%|¨€¨€¨‚       | 1400/5000 [00:00<00:00, 5289.80 examples/s]
+Generating test split:  48%|¨€¨€¨€¨€¨‚     | 2400/5000 [00:00<00:00, 4105.18 examples/s]
+Generating test split:  60%|¨€¨€¨€¨€¨€¨€    | 3000/5000 [00:00<00:00, 3725.60 examples/s]
+Generating test split:  74%|¨€¨€¨€¨€¨€¨€¨€¨…  | 3700/5000 [00:00<00:00, 4207.04 examples/s]
+Generating test split:  92%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨‡| 4600/5000 [00:01<00:00, 4980.23 examples/s]
+Generating test split: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 5000/5000 [00:01<00:00, 4446.22 examples/s]
 
 Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
-Aligning the labels: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 10/10 [00:00<00:00, 137.93 examples/s]
+Aligning the labels: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 10/10 [00:00<00:00, 87.63 examples/s]
 
 Map:   0%|          | 0/10 [00:00<?, ? examples/s]
-Map:  70%|¨€¨€¨€¨€¨€¨€¨€   | 7/10 [00:00<00:00, 60.02 examples/s]
-Map: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 10/10 [00:00<00:00, 46.19 examples/s]
-[1;31m2026-04-29 03:59:58.1149382 [E:onnxruntime:, qnn_model_wrapper.cc:310 onnxruntime::qnn::QnnModelWrapper::ComposeQnnGraph] QNN.graphAddNode() failed for node `/swin/encoder/layers.0/blocks.0/Reshape_3_output_0` of type `Reshape` with error code 6007
+Map:  70%|¨€¨€¨€¨€¨€¨€¨€   | 7/10 [00:00<00:00, 55.20 examples/s]
+Map: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 10/10 [00:00<00:00, 36.63 examples/s]
+[1;31m2026-04-29 18:25:41.5735860 [E:onnxruntime:, qnn_model_wrapper.cc:310 onnxruntime::qnn::QnnModelWrapper::ComposeQnnGraph] QNN.graphAddNode() failed for node `/swin/encoder/layers.0/blocks.0/Reshape_3_output_0` of type `Reshape` with error code 6007
 [m
-[2026-04-29T03:59:58] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph.
-[1;31m2026-04-29 04:00:04.4602380 [E:onnxruntime:, qnn_model_wrapper.cc:310 onnxruntime::qnn::QnnModelWrapper::ComposeQnnGraph] QNN.graphAddNode() failed for node `/swin/encoder/layers.0/blocks.0/Reshape_3_output_0` of type `Reshape` with error code 6007
+[2026-04-29T18:25:41] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph.
+[1;31m2026-04-29 18:25:47.2105335 [E:onnxruntime:, qnn_model_wrapper.cc:310 onnxruntime::qnn::QnnModelWrapper::ComposeQnnGraph] QNN.graphAddNode() failed for node `/swin/encoder/layers.0/blocks.0/Reshape_3_output_0` of type `Reshape` with error code 6007
 [m
-[2026-04-29T04:00:04] ERROR: Compilation failed: Failed to compile for qnn | Context: device=qnn, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\microsoft_swin-large-patch4-window7-224\imgcls_21a2edbc79db702a_quantized.onnx, error=[ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph. | Suggestion: Check error details above
+[2026-04-29T18:25:47] ERROR: Compilation failed: Failed to compile for qnn | Context: device=qnn, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\microsoft_swin-large-patch4-window7-224\imgcls_21a2edbc79db702a_quantized.onnx, error=[ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph. | Suggestion: Check error details above
