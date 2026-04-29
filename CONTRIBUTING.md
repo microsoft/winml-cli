@@ -20,6 +20,10 @@ uv run pre-commit install
 
 This installs all dependencies and enables [pre-commit hooks](https://pre-commit.com/) that automatically check license headers, formatting (Ruff), trailing whitespace, and YAML syntax on every commit.
 
+### Runtime check rules
+
+When running ModelKit from a source tree (`uv run winml ...`), you need to populate the runtime check rule zips locally. See [`src/winml/modelkit/analyze/rules/runtime_check_rules/README.md`](./src/winml/modelkit/analyze/rules/runtime_check_rules/README.md) for setup options (GitHub release for external contributors, `gim-home` script for Microsoft internal, `MODELKIT_RULES_DIR` override).
+
 ## Coding conventions and standards
 
 ### Python code style
