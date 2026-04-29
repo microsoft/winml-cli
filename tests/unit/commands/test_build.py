@@ -797,24 +797,23 @@ class TestBuildNoOptimizeFlag:
 
 
 class TestRunCompileStageNoOutput:
-    """Test _run_compile_stage EP-context skipping and output validation."""
+    """Test _run_compile_stage output validation."""
 
     @patch("winml.modelkit.compiler.compile_onnx")
-    def test_dml_skips_compile_entirely(
+    def test_none_compile_config_skips_stage(
         self,
         mock_compile: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """EPs with enable_ep_context=False (DML, CPU) skip compile_onnx entirely."""
+        """compile=None skips compile_onnx entirely and returns current_path unchanged."""
         from winml.modelkit.commands.build import _run_compile_stage
-        from winml.modelkit.compiler.configs import WinMLCompileConfig
         from winml.modelkit.config import WinMLBuildConfig
 
         input_path = tmp_path / "quantized.onnx"
         input_path.write_bytes(b"dummy")
         compiled_path = tmp_path / "compiled.onnx"
 
-        config = WinMLBuildConfig(compile=WinMLCompileConfig.for_dml())
+        config = WinMLBuildConfig(compile=None)
         timings: list[tuple[str, float | None]] = []
 
         result = _run_compile_stage(

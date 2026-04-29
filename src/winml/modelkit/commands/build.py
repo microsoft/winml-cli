@@ -941,16 +941,10 @@ def _run_compile_stage(
     if config.compile is None:
         return current_path
 
-    # EPs that don't produce EPContext (e.g. DML, CPU) have nothing to compile
-    # offline — skip the stage so the pipeline carries forward the previous output.
-    ep_cfg = getattr(config.compile, "ep_config", None)
-    if ep_cfg is not None and not ep_cfg.enable_ep_context:
-        return current_path
-
     with StageLive("compile", console) as sl:
         _cp = ""
-        if ep_cfg is not None:
-            _cp = f" for {ep_cfg.provider.upper()}"
+        if hasattr(config.compile, "ep_config") and config.compile.ep_config:
+            _cp = f" for {config.compile.ep_config.provider.upper()}"
         sl.set_status(f"Compiling{_cp}...")
         t0 = time.monotonic()
         compile_result = compile_onnx(
