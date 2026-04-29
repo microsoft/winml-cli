@@ -1,0 +1,23 @@
+tion:
+
+Traceback (most recent call last):
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 314, in eval
+    result = evaluate(config)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 198, in evaluate
+    model = _load_model(config)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 167, in _load_model
+    return WinMLAutoModel.from_pretrained(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 405, in from_pretrained
+    result = build_hf_model(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\build\hf.py", line 331, in build_hf_model
+    compile_result = compile_onnx(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\compiler\compiler.py", line 200, in compile_onnx
+    return compiler.compile(model_path=model_path, output_path=output_path, config=config)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\compiler\compiler.py", line 127, in compile
+    context = stage.process(context)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\compiler\stages\compile.py", line 72, in process
+    winml_session.compile()
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\session\session.py", line 306, in compile
+    raise CompilationError(
+winml.modelkit.session.session.CompilationError: Failed to compile for qnn | Context: device=qnn, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\microsoft_swin-large-patch4-window7-224\imgcls_21a2edbc79db702a_quantized.onnx, error=[ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph. | Suggestion: Check error details above
+Error: Evaluation failed: Failed to compile for qnn | Context: device=qnn, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\microsoft_swin-large-patch4-window7-224\imgcls_21a2edbc79db702a_quantized.onnx, error=[ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph. | Suggestion: Check error details above

@@ -1,0 +1,37 @@
+{
+  "model_id": "deepset/roberta-base-squad2",
+  "task": "question-answering",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\deepset_roberta-base-squad2\\question-answering_w8a8_eval.json",
+  "metrics": {
+    "exact": 76.0,
+    "f1": 83.29486624486626,
+    "total": 100,
+    "HasAns_exact": 64.58333333333333,
+    "HasAns_f1": 79.78097134347135,
+    "HasAns_total": 48,
+    "NoAns_exact": 86.53846153846153,
+    "NoAns_f1": 86.53846153846153,
+    "NoAns_total": 52,
+    "best_exact": 76.0,
+    "best_exact_thresh": 0.8434032201766968,
+    "best_f1": 83.29486624486623,
+    "best_f1_thresh": 0.8434032201766968,
+    "total_time_in_seconds": 10.287427000002936,
+    "samples_per_second": 9.720603606710547,
+    "latency_in_seconds": 0.10287427000002936
+  }
+}

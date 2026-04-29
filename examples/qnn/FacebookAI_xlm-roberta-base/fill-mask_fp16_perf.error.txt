@@ -1,0 +1,16 @@
+43): Read timed out. (read timeout=10)"), '(Request ID: df89bedd-d726-4c8f-bcc0-f76815dafde2)')' thrown while requesting GET https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors
+[2026-04-28T21:34:36] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: df89bedd-d726-4c8f-bcc0-f76815dafde2)')' thrown while requesting GET https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors
+Retrying in 2s [Retry 2/5].
+[2026-04-28T21:34:36] WARNING: Retrying in 2s [Retry 2/5].
+Error while downloading from https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors: HTTPSConnectionPool(host='cas-bridge.xethub.hf.co', port=443): Read timed out.
+Trying to resume download...
+[2026-04-28T21:35:02] WARNING: Error while downloading from https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors: HTTPSConnectionPool(host='cas-bridge.xethub.hf.co', port=443): Read timed out.
+Trying to resume download...
+Error while downloading from https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors: HTTPSConnectionPool(host='cas-bridge.xethub.hf.co', port=443): Read timed out.
+Trying to resume download...
+[2026-04-28T21:35:52] WARNING: Error while downloading from https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors: HTTPSConnectionPool(host='cas-bridge.xethub.hf.co', port=443): Read timed out.
+Trying to resume download...
+Error while downloading from https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors: HTTPSConnectionPool(host='cas-bridge.xethub.hf.co', port=443): Read timed out.
+Max retries exceeded.
+[2026-04-28T21:36:09] WARNING: Error while downloading from https://huggingface.co/FacebookAI/xlm-roberta-base/resolve/main/model.safetensors: HTTPSConnectionPool(host='cas-bridge.xethub.hf.co', port=443): Read timed out.
+Max retries exceeded.

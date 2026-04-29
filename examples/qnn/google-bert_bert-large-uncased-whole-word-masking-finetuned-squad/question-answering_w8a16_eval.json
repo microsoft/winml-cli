@@ -1,0 +1,26 @@
+{
+  "model_id": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
+  "task": "question-answering",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad\\question-answering_w8a16_eval.json",
+  "metrics": {
+    "exact_match": 64.0,
+    "f1": 86.94940908764438,
+    "total_time_in_seconds": 9.779158899997128,
+    "samples_per_second": 10.225828317405638,
+    "latency_in_seconds": 0.09779158899997129
+  }
+}

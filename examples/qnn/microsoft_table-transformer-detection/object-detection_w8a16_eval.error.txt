@@ -1,0 +1,27 @@
+n
+    return _run_code(code, main_globals, None,
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.10.11-windows-x86_64-none\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\__main__.py", line 16, in <module>
+    main()
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\click\core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\click\core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\click\core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\click\core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\click\core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\click\decorators.py", line 34, in new_func
+    return f(get_current_context(), *args, **kwargs)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 219, in eval
+    result = subprocess.run(  # noqa: S603
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.10.11-windows-x86_64-none\lib\subprocess.py", line 505, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.10.11-windows-x86_64-none\lib\subprocess.py", line 1154, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+  File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.10.11-windows-x86_64-none\lib\subprocess.py", line 1546, in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+subprocess.TimeoutExpired: Command '['C:\\repo\\WinML-ModelKit\\.venv\\Scripts\\python.exe', 'scripts\\e2e_eval\\datasets\\build_pubtables1m_detection.py']' timed out after 300 seconds

@@ -1,0 +1,9 @@
+[2026-04-29T04:10:54] WARNING: unsupported broadcast between floor(floor(Pad_252_o0__d1/7)*floor(Pad_252_o0__d2/7)*floor(floor(Pad_252_o0__d0*Pad_252_o0__d3*floor(Pad_252_o0__d1/7 + Min(3, Pad_252_o0__d1)/7 - 3/7)*floor(Pad_252_o0__d2/7 + Min(3, Pad_252_o0__d2)/7 - 3/7)/192)/(floor(Pad_252_o0__d1/7)*floor(Pad_252_o0__d2/7)))) floor(Pad_252_o0__d0*Pad_252_o0__d3*floor(Pad_252_o0__d1/7 + Min(3, Pad_252_o0__d1)/7 - 3/7)*floor(Pad_252_o0__d2/7 + Min(3, Pad_252_o0__d2)/7 - 3/7)/192)
+[2026-04-29T04:12:52] WARNING: No runtime check data for QNNExecutionProvider on npu ¡ª skipping op analysis.
+[2026-04-29T04:13:29] WARNING: No runtime check data for QNNExecutionProvider on npu ¡ª skipping op analysis.
+[1;31m2026-04-29 04:15:36.8209437 [E:onnxruntime:, qnn_model_wrapper.cc:310 onnxruntime::qnn::QnnModelWrapper::ComposeQnnGraph] QNN.graphAddNode() failed for node `/swin/encoder/layers.0/blocks.0/Reshape_3_output_0` of type `Reshape` with error code 6007
+[m
+[2026-04-29T04:15:37] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph.
+[1;31m2026-04-29 04:15:42.6932525 [E:onnxruntime:, qnn_model_wrapper.cc:310 onnxruntime::qnn::QnnModelWrapper::ComposeQnnGraph] QNN.graphAddNode() failed for node `/swin/encoder/layers.0/blocks.0/Reshape_3_output_0` of type `Reshape` with error code 6007
+[m
+[2026-04-29T04:15:42] ERROR: Compilation failed: Failed to compile for qnn | Context: device=qnn, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\microsoft_swin-large-patch4-window7-224\imgcls_21a2edbc79db702a_quantized.onnx, error=[ONNXRuntimeError] : 1 : FAIL : qnn_model.cc:139 onnxruntime::qnn::QnnModel::ComposeGraph Failed to compose Qnn graph. | Suggestion: Check error details above

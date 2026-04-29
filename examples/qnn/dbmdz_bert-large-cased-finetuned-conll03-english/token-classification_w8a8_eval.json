@@ -1,0 +1,49 @@
+{
+  "model_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+  "task": "token-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_w8a8_eval.json",
+  "metrics": {
+    "LOC": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 62
+    },
+    "MISC": {
+      "precision": 0.96,
+      "recall": 1.0,
+      "f1": 0.9795918367346939,
+      "number": 24
+    },
+    "ORG": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 36
+    },
+    "PER": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 55
+    },
+    "overall_precision": 0.9943820224719101,
+    "overall_recall": 1.0,
+    "overall_f1": 0.9971830985915493,
+    "overall_accuracy": 0.883736120182887,
+    "total_time_in_seconds": 17.68510219999007,
+    "samples_per_second": 5.654476794601512,
+    "latency_in_seconds": 0.1768510219999007
+  }
+}

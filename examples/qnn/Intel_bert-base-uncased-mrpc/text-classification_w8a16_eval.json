@@ -1,0 +1,24 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "task": "text-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "mrpc",
+    "columns_mapping": {
+      "input_column": "sentence1",
+      "second_input_column": "sentence2"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\Intel_bert-base-uncased-mrpc\\text-classification_w8a16_eval.json",
+  "metrics": {
+    "accuracy": 0.82,
+    "total_time_in_seconds": 3.6916017000039574,
+    "samples_per_second": 27.088512826259887,
+    "latency_in_seconds": 0.036916017000039575
+  }
+}
