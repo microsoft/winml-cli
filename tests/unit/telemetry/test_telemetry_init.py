@@ -7,8 +7,9 @@ from winml.modelkit.telemetry import Telemetry
 from winml.modelkit.telemetry import consent as consent_mod
 
 
-# `_reset_singleton` (autouse), `isolated_config`, and `clean_env` are
-# provided by tests/unit/telemetry/conftest.py.
+# `_reset_telemetry_singleton` (autouse) comes from tests/conftest.py.
+# `isolated_config` and `clean_env` come from
+# tests/unit/telemetry/conftest.py.
 
 
 def test_empty_ikey_makes_telemetry_disabled(clean_env, isolated_config, monkeypatch):

@@ -8,8 +8,9 @@ from unittest.mock import MagicMock
 from winml.modelkit.telemetry import Telemetry
 
 
-# `_reset_singleton` (autouse), `enabled_telemetry`, `running_telemetry`
-# come from tests/unit/telemetry/conftest.py.
+# `_reset_telemetry_singleton` (autouse) comes from tests/conftest.py.
+# `enabled_telemetry` and `running_telemetry` come from
+# tests/unit/telemetry/conftest.py.
 
 
 def _with_mock_provider(t: Telemetry) -> MagicMock:
