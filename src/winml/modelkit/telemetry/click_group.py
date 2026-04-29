@@ -83,6 +83,15 @@ def _instrument(cmd: click.Command) -> click.Command:
             if exc.code not in (None, 0):
                 success = False
             raise
+        except click.exceptions.Exit as exc:
+            # ``ctx.exit(N)`` raises this; it inherits from RuntimeError
+            # so the Exception handler below would otherwise mis-fire
+            # ``log_error`` and emit a ``ModelKitError`` event for what
+            # is really a clean intentional exit. Mirror SystemExit:
+            # success reflects the exit code, no log_error.
+            if exc.exit_code != 0:
+                success = False
+            raise
         except Exception as exc:
             success = False
             telemetry.log_error(exc)

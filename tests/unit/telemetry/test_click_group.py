@@ -158,6 +158,41 @@ def test_systemexit_marks_success_by_exit_code(enabled_telemetry, exit_code, exp
     assert dict(action_record.attributes)["success"] is expected_success
 
 
+@pytest.mark.parametrize(
+    ("exit_code", "expected_success"),
+    [(1, False), (2, False), (0, True)],
+)
+def test_click_ctx_exit_marks_success_by_exit_code(enabled_telemetry, exit_code, expected_success):
+    """``ctx.exit(N)`` must behave like ``sys.exit(N)``: clean intentional
+    exit, success reflects the exit code, and no ``ModelKitError`` event.
+
+    ``click.exceptions.Exit`` inherits from ``RuntimeError`` (i.e. is an
+    ``Exception``), so without a dedicated handler it falls through to
+    the catch-all ``except Exception`` and gets logged as a Python crash.
+    """
+
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    @click.pass_context
+    def cmd(ctx):
+        ctx.exit(exit_code)
+
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["cmd"])
+    assert result.exit_code == exit_code
+
+    event_names = [str(c.args[0].body) for c in mock_logger.emit.call_args_list]
+    assert event_names == ["ModelKitHeartbeat", "ModelKitAction"]
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["success"] is expected_success
+
+
 def test_disabled_telemetry_emits_nothing(monkeypatch):
     """Empty iKey -> Telemetry disabled -> no emits, no crash."""
     monkeypatch.setattr("winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "")
