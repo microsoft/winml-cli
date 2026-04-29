@@ -45,6 +45,13 @@ console = Console()
     help="Input ONNX model file (required unless --list)",
 )
 @click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output file path (e.g., model_compiled.onnx)",
+)
+@click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
     default=None,
@@ -111,6 +118,7 @@ console = Console()
 def compile(
     ctx: click.Context,
     model: Path | None,
+    output: Path | None,
     output_dir: Path | None,
     device: str,
     ep: str | None,
@@ -218,12 +226,16 @@ def compile(
     console.print(f"[bold blue]Compiler:[/bold blue] {compiler}")
     if qnn_sdk_root:
         console.print(f"[bold blue]SDK root:[/bold blue] {qnn_sdk_root}")
-    if output_dir:
+    # Resolve output path: -o (file) takes precedence over --output-dir
+    resolved_output = output or output_dir
+    if output:
+        console.print(f"[bold blue]Output:[/bold blue] {output}")
+    elif output_dir:
         console.print(f"[bold blue]Output dir:[/bold blue] {output_dir}")
 
     try:
         console.print("\n[bold]Compiling model...[/bold]")
-        result = compile_onnx(model, output_path=output_dir, config=config)
+        result = compile_onnx(model, output_path=resolved_output, config=config)
 
         if result.success:
             if config.ep_config.enable_ep_context and not result.output_path:
