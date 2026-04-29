@@ -26,7 +26,7 @@ from pathlib import Path
 
 
 SOURCE_REPO = "gim-home/ModelKitArtifacts"
-SOURCE_PATH = "op_check_results/rules"
+SOURCE_PATH = "rules_zip"
 RULES_DIR = (
     Path(__file__).resolve().parent.parent
     / "src"
