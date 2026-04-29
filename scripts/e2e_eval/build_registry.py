@@ -32,33 +32,24 @@ def safe_print(text: str) -> None:
         print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
-NLP_TASKS = [
-    "text-classification",
-    "token-classification",
-    "question-answering",
-    "fill-mask",
-    "text-generation",
-    "feature-extraction",
-    "summarization",
-    "translation",
-    "zero-shot-classification",
-    "sentence-similarity",
-]
+HF_TASKS_URL = "https://huggingface.co/api/tasks"
 
-CV_TASKS = [
-    "image-classification",
-    "object-detection",
-    "image-segmentation",
-    "image-feature-extraction",
-    "zero-shot-image-classification",
-    "depth-estimation",
-    "image-to-text",
-    "visual-question-answering",
-    "document-question-answering",
-    "mask-generation",
-]
 
-ALL_TASKS = NLP_TASKS + CV_TASKS
+def fetch_all_tasks() -> list[str]:
+    """Fetch the list of pipeline tasks from the HuggingFace Hub API."""
+    try:
+        import requests
+    except ImportError:
+        safe_print("  ERROR: requests not installed (expected as a HF Hub dependency)")
+        return []
+
+    try:
+        resp = requests.get(HF_TASKS_URL, timeout=30)
+        resp.raise_for_status()
+        return sorted(resp.json().keys())
+    except Exception as exc:
+        safe_print(f"  ERROR fetching tasks from {HF_TASKS_URL}: {exc}")
+        return []
 
 
 def get_models_for_task(task: str, top_n: int) -> list[dict]:
@@ -136,12 +127,17 @@ def load_optimum_types() -> set[str]:
         return set()
 
 
-def load_p0_entries(p0_path: Path) -> list[dict]:
-    """Load P0 entries (hf_id + task + group) from P0 source JSON."""
-    with p0_path.open(encoding="utf-8") as f:
+def load_curated_entries(curated_path: Path) -> list[dict]:
+    """Load curated entries (hf_id + task + group + priority) from source JSON."""
+    with curated_path.open(encoding="utf-8") as f:
         entries = json.load(f)
     return [
-        {"hf_id": e["hf_id"], "task": e.get("task") or "", "group": e.get("group", "P0")}
+        {
+            "hf_id": e["hf_id"],
+            "task": e.get("task") or "",
+            "group": e.get("group", "P0"),
+            "priority": e.get("priority", "P0"),
+        }
         for e in entries
         if "hf_id" in e
     ]
@@ -191,31 +187,51 @@ def print_stats(registry_path: Path) -> None:
 
 
 def build_registry(
+    tasks: list[str],
     top_n: int = 10,
-    p0_models: set[str] | None = None,
-    p0_entries: list[dict] | None = None,
+    curated_models: set[str] | None = None,
+    curated_entries: list[dict] | None = None,
     optimum_types: set[str] | None = None,
+    existing_entries: list[dict] | None = None,
 ) -> list[dict]:
     """Build the registry by querying HF Hub for top models per task.
 
-    After HF query, explicitly merges ALL P0 entries to ensure none are missed
-    (P0 models may not appear in top-N results for their task).
+    Phase 1: HF top-N query per task.
+    Phase 1.5: preserve hf_ids from existing registry not in new top-N
+        (refreshed from HF, task = current pipeline_tag).
+    Phase 2: merge curated entries (group/priority applied verbatim).
+    Phase 3: assign per-task ``order`` field by downloads descending.
     """
     all_entries: list[dict] = []
     seen: set[tuple[str, str]] = set()
     entry_lookup: dict[tuple[str, str], dict] = {}
 
-    # Build lookups from P0 source
-    p0_group_lookup: dict[tuple[str, str], str] = {}
-    p0_model_group: dict[str, str] = {}
-    if p0_entries:
-        for p0 in p0_entries:
-            p0_group_lookup[(p0["hf_id"], p0["task"])] = p0["group"]
-            p0_model_group[p0["hf_id"]] = p0["group"]
+    # Build lookups from curated source
+    curated_group_lookup: dict[tuple[str, str], str] = {}
+    curated_model_group: dict[str, str] = {}
+    curated_priority_lookup: dict[tuple[str, str], str] = {}
+    curated_model_priority: dict[str, str] = {}
+    if curated_entries:
+        for c in curated_entries:
+            curated_group_lookup[(c["hf_id"], c["task"])] = c["group"]
+            curated_model_group[c["hf_id"]] = c["group"]
+            curated_priority_lookup[(c["hf_id"], c["task"])] = c["priority"]
+            curated_model_priority[c["hf_id"]] = c["priority"]
+
+    # Build (hf_id, task) lookup from the previous registry. Phase 1 inherits
+    # priority/group from this when re-picking a known entry, so labels are stable
+    # across runs. Curated still wins over this; this wins over the new-rule defaults.
+    existing_lookup_pt: dict[tuple[str, str], dict] = {}
+    if existing_entries:
+        for e in existing_entries:
+            hf = e.get("hf_id")
+            tk = e.get("task")
+            if hf and tk is not None:
+                existing_lookup_pt[(hf, tk)] = e
 
     # Phase 1: Query HF Hub for top models per task
     # Soft filter: prioritize Optimum-supported models, then fill remaining slots
-    for task in ALL_TASKS:
+    for task in tasks:
         safe_print(f"\n  Task: {task}")
         # Fetch extra candidates to allow Optimum-first selection
         candidates = get_models_for_task(task, top_n * 3)
@@ -253,17 +269,27 @@ def build_registry(
             if key in seen:
                 continue
 
-            is_p0 = p0_models and model_id in p0_models
-            if is_p0:
-                priority = "P0"
-                group = p0_group_lookup.get((model_id, task)) or p0_model_group.get(
+            is_optimum = bool(optimum_types and model_type in optimum_types)
+            is_curated = curated_models and model_id in curated_models
+            existing_pt = existing_lookup_pt.get(key)
+            if is_curated:
+                priority = curated_priority_lookup.get(
+                    (model_id, task)
+                ) or curated_model_priority.get(model_id, "P0")
+                group = curated_group_lookup.get((model_id, task)) or curated_model_group.get(
                     model_id, "Foundry Toolkit"
                 )
+            elif existing_pt and "priority" in existing_pt and "group" in existing_pt:
+                priority = existing_pt["priority"]
+                group = existing_pt["group"]
+            elif model_id.startswith("microsoft/"):
+                # New non-curated, non-existing Microsoft entry → P2.
+                priority = "P2"
+                group = "microsoft"
             else:
-                priority = "P1"
+                # New non-curated, non-existing, non-Microsoft entry → P3.
+                priority = "P3"
                 group = "Top200"
-
-            is_optimum = bool(optimum_types and model_type in optimum_types)
             # list_models() may not populate last_modified; fall back to per-model API
             last_modified = m.get("last_modified")
             if not last_modified:
@@ -287,14 +313,49 @@ def build_registry(
             dl = m["downloads"]
             safe_print(f"    [{priority}] {model_id} ({model_type}, {opt_tag}) - {dl} downloads")
 
-    # Phase 2: Merge ALL P0 entries that were not already found via HF query
-    # If an entry already exists from Phase 1, promote it to P0 with correct group.
-    if p0_entries:
-        safe_print("\n  Merging P0 models...")
-        for p0 in p0_entries:
-            model_id = p0["hf_id"]
-            task = p0["task"]
-            group = p0["group"]
+    # Phase 1.5: Preserve existing (hf_id, task) entries that Phase 1 did not re-add.
+    # All fields are kept verbatim; only ``downloads`` is refreshed so Phase 3 ranking
+    # reflects current popularity. Curated Phase 2 can still override group/priority later.
+    if existing_entries:
+        download_cache: dict[str, int] = {}
+        preserved_count = 0
+        for e in existing_entries:
+            hf_id = e.get("hf_id")
+            task = e.get("task", "")
+            if not hf_id:
+                continue
+            key = (hf_id, task)
+            if key in seen:
+                continue
+            if hf_id not in download_cache:
+                download_cache[hf_id] = get_model_metadata(hf_id).get("downloads", 0)
+            preserved_entry = dict(e)
+            preserved_entry["downloads"] = download_cache[hf_id]
+            if optimum_types:
+                model_type = preserved_entry.get("model_type")
+                preserved_entry["optimum_supported"] = bool(
+                    model_type and model_type in optimum_types
+                )
+            preserved_entry.pop("order", None)  # Phase 3 will reassign
+            seen.add(key)
+            entry_lookup[key] = preserved_entry
+            all_entries.append(preserved_entry)
+            preserved_count += 1
+        if preserved_count:
+            safe_print(
+                f"\n  Preserved {preserved_count} existing entries not in new top-N"
+                f" (downloads refreshed)"
+            )
+
+    # Phase 2: Merge ALL curated entries that were not already found via HF query.
+    # If an entry already exists from Phase 1, update it with curated group/priority.
+    if curated_entries:
+        safe_print("\n  Merging curated models...")
+        for c in curated_entries:
+            model_id = c["hf_id"]
+            task = c["task"]
+            group = c["group"]
+            priority = c["priority"]
 
             # Resolve empty task from HF pipeline_tag (requires API call)
             metadata: dict | None = None
@@ -308,15 +369,15 @@ def build_registry(
 
             key = (model_id, task)
             if key in seen:
-                # Promote existing entry to P0 with correct group
+                # Update existing entry with curated group/priority
                 existing = entry_lookup[key]
-                if existing["priority"] != "P0" or existing["group"] != group:
-                    existing["priority"] = "P0"
+                if existing["priority"] != priority or existing["group"] != group:
+                    existing["priority"] = priority
                     existing["group"] = group
-                    safe_print(f"    [P0] {model_id} / {task} — promoted (group={group})")
+                    safe_print(f"    [{priority}] {model_id} / {task} — updated (group={group})")
                 continue
 
-            # New P0 entry — fetch metadata if not already loaded
+            # New curated entry — fetch metadata if not already loaded
             if metadata is None:
                 metadata = get_model_metadata(model_id)
 
@@ -328,7 +389,7 @@ def build_registry(
                 "task": task,
                 "model_type": model_type,
                 "group": group,
-                "priority": "P0",
+                "priority": priority,
                 "downloads": metadata["downloads"],
                 "last_update_time": metadata["last_modified"],
                 "optimum_supported": is_optimum,
@@ -337,7 +398,18 @@ def build_registry(
             seen.add(key)
             entry_lookup[key] = entry
             all_entries.append(entry)
-            safe_print(f"    [P0] {model_id} / {task} ({model_type}) - merged from P0 source")
+            safe_print(
+                f"    [{priority}] {model_id} / {task} ({model_type}) - merged from curated source"
+            )
+
+    # Phase 3: Rank within each task by downloads (descending).
+    task_groups: dict[str, list[dict]] = {}
+    for e in all_entries:
+        task_groups.setdefault(e["task"], []).append(e)
+    for entries_in_task in task_groups.values():
+        entries_in_task.sort(key=lambda x: x.get("downloads", 0), reverse=True)
+        for idx, e in enumerate(entries_in_task, start=1):
+            e["order"] = idx
 
     return all_entries
 
@@ -394,7 +466,7 @@ def main() -> None:
         "-s",
         type=Path,
         default=Path(__file__).parent / "testsets" / "models_curated.json",
-        help="Curated model list for priority assignment (promoted to P0)",
+        help="Curated model list — group/priority fields are applied verbatim",
     )
     parser.add_argument(
         "--no-optimum-filter",
@@ -412,15 +484,15 @@ def main() -> None:
         print_stats(args.output)
         sys.exit(0)
 
-    # Load P0 models
-    p0_entries: list[dict] = []
-    p0_models: set[str] = set()
+    # Load curated models
+    curated_entries: list[dict] = []
+    curated_models: set[str] = set()
     if args.curated_source.exists():
-        p0_entries = load_p0_entries(args.curated_source)
-        p0_models = {e["hf_id"] for e in p0_entries}
+        curated_entries = load_curated_entries(args.curated_source)
+        curated_models = {e["hf_id"] for e in curated_entries}
         safe_print(
-            f"Loaded {len(p0_models)} P0 model IDs"
-            f" ({len(p0_entries)} entries) from {args.curated_source}"
+            f"Loaded {len(curated_models)} curated model IDs"
+            f" ({len(curated_entries)} entries) from {args.curated_source}"
         )
 
     # Load Optimum types via code
@@ -435,9 +507,35 @@ def main() -> None:
         else:
             safe_print("WARNING: Could not load Optimum types. Soft filter disabled.")
 
-    safe_print(f"Building registry: top {args.top_n} models per task, {len(ALL_TASKS)} tasks")
+    tasks = fetch_all_tasks()
+    if not tasks:
+        safe_print("ERROR: failed to fetch task list from HuggingFace Hub")
+        sys.exit(1)
+    safe_print(f"Loaded {len(tasks)} pipeline tasks from {HF_TASKS_URL}")
 
-    entries = build_registry(args.top_n, p0_models, p0_entries, optimum_types)
+    # Load existing registry (if present) — entries not in new top-N will be preserved
+    existing_entries: list[dict] = []
+    if args.output.exists():
+        try:
+            with args.output.open(encoding="utf-8") as f:
+                existing_entries = json.load(f)
+            safe_print(
+                f"Loaded {len(existing_entries)} existing entries from {args.output.name}"
+                " (non-top-N will be preserved)"
+            )
+        except Exception as exc:
+            safe_print(f"WARNING: could not load existing registry at {args.output}: {exc}")
+
+    safe_print(f"Building registry: top {args.top_n} models per task, {len(tasks)} tasks")
+
+    entries = build_registry(
+        tasks,
+        args.top_n,
+        curated_models,
+        curated_entries,
+        optimum_types,
+        existing_entries,
+    )
     entries.sort(key=lambda e: (e["hf_id"], e.get("task", "")))
 
     safe_print(f"\n{'=' * 60}")

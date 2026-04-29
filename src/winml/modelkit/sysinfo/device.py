@@ -41,8 +41,8 @@ _EP_DEVICE_MAP: dict[str, str] = {
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",
-    # Qualcomm
-    "QNNExecutionProvider": "npu",
+    # Qualcomm (QNN supports both NPU and GPU via Adreno backend)
+    "QNNExecutionProvider": "npu/gpu",
     # Microsoft
     "DmlExecutionProvider": "gpu",
     # Intel
@@ -51,11 +51,11 @@ _EP_DEVICE_MAP: dict[str, str] = {
     "CPUExecutionProvider": "cpu",
 }
 
-# Derived inverse mapping (excludes multi-device EPs like OpenVINO)
+# Derived inverse mapping (multi-device EPs are included in each device)
 _DEVICE_EP_MAP: dict[str, list[str]] = {}
 for _ep, _device in _EP_DEVICE_MAP.items():
-    if "/" not in _device:
-        _DEVICE_EP_MAP.setdefault(_device, []).append(_ep)
+    for _d in _device.split("/"):
+        _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
 # Valid explicit device values
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})

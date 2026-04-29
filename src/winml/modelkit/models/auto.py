@@ -192,6 +192,7 @@ class WinMLAutoModel:
                 config=None,
                 device=device,
                 session_options=session_options,
+                ep=ep,
             )
 
         # Resolve output directory
@@ -228,6 +229,7 @@ class WinMLAutoModel:
             config=None,  # No HF PretrainedConfig for bare ONNX builds
             device=device,
             session_options=session_options,
+            ep=ep,
         )
 
     @classmethod
@@ -425,6 +427,7 @@ class WinMLAutoModel:
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
+            ep=resolved_ep,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model

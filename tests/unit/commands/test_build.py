@@ -789,3 +789,118 @@ class TestBuildNoOptimizeFlag:
 
         extra = mock_build_api.call_args.kwargs["extra_kwargs"]
         assert "skip_optimize" not in extra
+
+
+# =============================================================================
+# _run_compile_stage UNIT TESTS
+# =============================================================================
+
+
+class TestRunCompileStageNoOutput:
+    """Test _run_compile_stage output validation."""
+
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_none_compile_config_skips_stage(
+        self,
+        mock_compile: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """compile=None skips compile_onnx entirely and returns current_path unchanged."""
+        from winml.modelkit.commands.build import _run_compile_stage
+        from winml.modelkit.config import WinMLBuildConfig
+
+        input_path = tmp_path / "quantized.onnx"
+        input_path.write_bytes(b"dummy")
+        compiled_path = tmp_path / "compiled.onnx"
+
+        config = WinMLBuildConfig(compile=None)
+        timings: list[tuple[str, float | None]] = []
+
+        result = _run_compile_stage(
+            config=config,
+            current_path=input_path,
+            compiled_path=compiled_path,
+            stage_timings=timings,
+        )
+
+        mock_compile.assert_not_called()
+        assert result == input_path
+
+    @patch("winml.modelkit.utils.console.get_onnx_graph_summary")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_raises_when_ep_context_expected_but_missing(
+        self,
+        mock_compile: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_graph_summary: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """When enable_ep_context=True and compile succeeds but file is absent, raise."""
+        from winml.modelkit.commands.build import _run_compile_stage
+        from winml.modelkit.compiler.configs import WinMLCompileConfig
+        from winml.modelkit.compiler.result import CompileResult
+        from winml.modelkit.config import WinMLBuildConfig
+
+        mock_compile.return_value = CompileResult(success=True, output_path=None)
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        input_path = tmp_path / "quantized.onnx"
+        input_path.write_bytes(b"dummy")
+        compiled_path = tmp_path / "compiled.onnx"  # Does NOT exist
+
+        config = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        timings: list[tuple[str, float | None]] = []
+
+        with pytest.raises(RuntimeError, match="output not found"):
+            _run_compile_stage(
+                config=config,
+                current_path=input_path,
+                compiled_path=compiled_path,
+                stage_timings=timings,
+            )
+
+    @patch("winml.modelkit.utils.console.get_onnx_graph_summary")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.compiler.compile_onnx")
+    @patch("winml.modelkit.onnx.external_data.copy_onnx_model")
+    def test_returns_compiled_path_when_file_exists(
+        self,
+        mock_copy: MagicMock,
+        mock_compile: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_graph_summary: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """When compile produces an output file, current_path should update."""
+        from winml.modelkit.commands.build import _run_compile_stage
+        from winml.modelkit.compiler.configs import WinMLCompileConfig
+        from winml.modelkit.compiler.result import CompileResult
+        from winml.modelkit.config import WinMLBuildConfig
+
+        input_path = tmp_path / "quantized.onnx"
+        input_path.write_bytes(b"dummy")
+        compiled_path = tmp_path / "compiled.onnx"
+        compiled_path.write_bytes(b"compiled_model")  # File EXISTS
+
+        mock_compile.return_value = CompileResult(
+            success=True,
+            output_path=str(compiled_path),
+        )
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+        mock_graph_summary.return_value = {"op_counts": {"EPContext": 1}}
+
+        config = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        timings: list[tuple[str, float | None]] = []
+
+        result = _run_compile_stage(
+            config=config,
+            current_path=input_path,
+            compiled_path=compiled_path,
+            stage_timings=timings,
+        )
+
+        # current_path should be updated to compiled_path
+        assert result == compiled_path

@@ -3,12 +3,8 @@ name: ModelKit CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '.pipelines/**'
   push:
     branches: [main]
-    paths-ignore:
-      - '.pipelines/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

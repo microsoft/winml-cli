@@ -677,7 +677,7 @@ def _run_winml_eval(
     timeout: int,
     ds_config: dict,
     model_dir: Path,
-    onnx_path: str | None = None,
+    onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
 ) -> dict:
     """Invoke winml eval for one model. Returns process result + parsed metric."""
@@ -686,17 +686,18 @@ def _run_winml_eval(
 
     # winml eval requires explicit device ('cpu'/'gpu'/'npu'); 'auto' is not accepted
     eval_device = "npu" if device == "auto" else device
-    if onnx_path:
+    if onnx_paths:
         args = [
             *WINML_CLI,
             "eval",
-            "-m",
-            onnx_path,
             "--model-id",
             entry.hf_id,
             "--device",
             eval_device,
         ]
+        # Single model uses {"": path}; composite uses {role: path, ...}.
+        for label, path in onnx_paths.items():
+            args += ["-m", f"{label}={path}" if label else path]
     else:
         args = [
             *WINML_CLI,
@@ -867,7 +868,7 @@ def _run_accuracy_phase(
     device: str,
     timeout: int,
     model_dir: Path,
-    onnx_path: str | None = None,
+    onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
 ) -> dict:
     """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
@@ -876,7 +877,7 @@ def _run_accuracy_phase(
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path, ep=ep)
+    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_paths, ep=ep)
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -1020,7 +1021,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--task", help="Filter by HF task")
-    parser.add_argument("--priority", choices=["P0", "P1", "P2"], help="Filter by priority")
+    parser.add_argument(
+        "--priority",
+        nargs="+",
+        choices=["P0", "P1", "P2", "P3"],
+        default=["P0", "P1", "P2"],
+        metavar="{P0,P1,P2,P3}",
+        help=(
+            "Filter by priority. Pass one or more, e.g. --priority P0 P1. "
+            "Default: P0 P1 P2 (P3 excluded from default runs)."
+        ),
+    )
     parser.add_argument("--model-type", help="Filter by model_type")
     parser.add_argument("--group", help="Filter by group")
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
@@ -1306,13 +1317,6 @@ def main() -> None:
                 ep=args.ep,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
-            # Composite models produce multiple ONNX paths; accuracy phase requires a
-            # single path and is not yet supported for composite models.
-            # TODO: composite model accuracy support
-            is_composite = len(onnx_paths) > 1
-            first_path = (
-                next(iter(onnx_paths.values()), None) if onnx_paths and not is_composite else None
-            )
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
@@ -1325,22 +1329,13 @@ def main() -> None:
                     perf_proc = fail_proc
                 if args.eval_type != "perf":
                     accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
-            elif is_composite and args.eval_type != "perf":
-                # Accuracy phase skipped for composite models (TODO: composite accuracy support)
-                safe_print(
-                    f"    [accuracy] Skipped for composite model {entry.hf_id} "
-                    "(multiple ONNX paths; composite accuracy evaluation not yet implemented)"
-                )
-                accuracy_result = {"skipped": True, "skip_reason": "composite_model_not_supported"}
-                if args.eval_type == "both":
-                    perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
             elif args.eval_type == "accuracy":
                 accuracy_result = _run_accuracy_phase(
                     entry,
                     args.device,
                     args.timeout,
                     model_dir,
-                    first_path,
+                    onnx_paths,
                     ep=args.ep,
                 )
             elif args.eval_type == "perf":
@@ -1356,7 +1351,7 @@ def main() -> None:
                         args.device,
                         args.timeout,
                         model_dir,
-                        first_path,
+                        onnx_paths,
                         ep=args.ep,
                     )
 
