@@ -430,6 +430,31 @@ Supported tasks include:
 
 ---
 
+## :lock: Data / Telemetry
+
+Official ModelKit releases can collect anonymous usage telemetry to
+help improve the product. Telemetry is classified as **Optional**. A
+one-time prompt on your first run asks for consent (default: accept —
+press Enter to enable, type `n` to decline).
+
+Dev installs (`pip install -e .` or running from a source checkout)
+never send telemetry.
+
+**Control** — edit `%USERPROFILE%\.winml\config.json`:
+
+- Set `telemetry.consent` to `"disabled"` (or delete the file) to opt out
+- Set `telemetry.consent` to `"enabled"` to opt in
+- Delete the file to re-show the first-run prompt on the next run
+
+Telemetry is automatically disabled in CI / non-TTY environments
+regardless of the stored decision.
+
+See [docs/Privacy.md](docs/Privacy.md) for the full list of what is and
+is not collected, event schemas, CI auto-disable behavior, and storage
+locations.
+
+---
+
 ## :handshake: Contributions and Feedback
 
 We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).
