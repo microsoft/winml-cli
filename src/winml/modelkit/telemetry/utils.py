@@ -25,6 +25,23 @@ from typing import Any
 _PACKAGE_ROOT = "winml/modelkit"
 
 
+def _resolve_user_home() -> str | None:
+    r"""Resolve the user home directory on Windows.
+
+    Prefers ``%USERPROFILE%`` (virtually always set on Windows). Falls
+    back to the Windows-native ``%HOMEDRIVE%%HOMEPATH%`` pair for stripped
+    service-account / container environments where ``USERPROFILE`` may be
+    missing. Returns ``None`` when neither is available — callers should
+    treat ``None`` as "no per-user persistence" and skip the operation
+    rather than silently resolve to a CWD-relative path.
+    """
+    profile = os.environ.get("USERPROFILE")
+    if profile:
+        return profile
+    combined = os.environ.get("HOMEDRIVE", "") + os.environ.get("HOMEPATH", "")
+    return combined or None
+
+
 def _trim_path(path: str) -> str:
     """Rewrite a path to a package-relative form (forward slashes).
 

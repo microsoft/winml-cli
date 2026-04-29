@@ -91,8 +91,73 @@ extends:
               - script: pip install --upgrade build twine packaging
                 displayName: 'Install build tools'
 
-              - script: python -m build --outdir "$(ob_outputDirectory)"
-                displayName: 'Build sdist and wheel'
+              # Build sdist BEFORE iKey injection so the source archive
+              # ships with the empty placeholder. The PyPI sdist must
+              # never carry the real iKey.
+              - script: python -m build --sdist --outdir "$(ob_outputDirectory)"
+                displayName: 'Build sdist (with empty iKey placeholder)'
+
+              - powershell: |
+                  $path = "$(Build.SourcesDirectory)\src\winml\modelkit\telemetry\constants.py"
+                  $key = $env:INSTRUMENTATION_KEY
+                  if (-not $key) { throw "INSTRUMENTATION_KEY env var is empty or missing" }
+                  $content = [System.IO.File]::ReadAllText($path)
+                  $placeholder = 'INSTRUMENTATION_KEY = ""'
+                  if (-not $content.Contains($placeholder)) { throw "placeholder not found in $path" }
+                  $newContent = $content.Replace($placeholder, "INSTRUMENTATION_KEY = ""$key""")
+                  [System.IO.File]::WriteAllText($path, $newContent)
+                  Write-Host "Injected iKey into $path"
+                env:
+                  INSTRUMENTATION_KEY: $(INSTRUMENTATION_KEY)
+                displayName: 'Inject InstrumentationKey into constants.py'
+
+              # Build wheel AFTER injection so the wheel carries the
+              # real iKey.
+              - script: python -m build --wheel --outdir "$(ob_outputDirectory)"
+                displayName: 'Build wheel (with injected iKey)'
+
+              # Verify the wheel carries the real iKey AND the sdist
+              # carries the empty placeholder. Reading constants.py out
+              # of each archive directly catches build-cache / ordering
+              # bugs that disk-only checks would miss.
+              - powershell: |
+                  Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+                  function Read-ConstantsFromArchive($archivePath) {
+                    $zip = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+                    try {
+                      $entry = $zip.Entries | Where-Object { $_.FullName -like "*telemetry/constants.py" } | Select-Object -First 1
+                      if (-not $entry) { throw "telemetry/constants.py not found in $archivePath" }
+                      $reader = [System.IO.StreamReader]::new($entry.Open())
+                      try { return $reader.ReadToEnd() } finally { $reader.Close() }
+                    } finally { $zip.Dispose() }
+                  }
+
+                  $wheel = Get-ChildItem "$(ob_outputDirectory)\*.whl" | Select-Object -First 1
+                  if (-not $wheel) { throw "no wheel found in $(ob_outputDirectory)" }
+                  $wheelContent = Read-ConstantsFromArchive $wheel.FullName
+                  if ($wheelContent -match 'INSTRUMENTATION_KEY\s*=\s*""') {
+                    throw "wheel contains empty INSTRUMENTATION_KEY placeholder - injection failed"
+                  }
+                  Write-Host "Wheel verified - constants.py has non-empty iKey"
+
+                  $sdist = Get-ChildItem "$(ob_outputDirectory)\*.tar.gz" | Select-Object -First 1
+                  if (-not $sdist) { throw "no sdist found in $(ob_outputDirectory)" }
+                  # tar.gz inside a zip-aware reader: open via SharpCompress would
+                  # add a dependency. Inspect by extracting via tar (Windows 10+
+                  # ships with tar.exe) and reading the file from disk.
+                  $sdistTemp = Join-Path "$(Agent.TempDirectory)" "sdist_verify"
+                  if (Test-Path $sdistTemp) { Remove-Item -Recurse -Force $sdistTemp }
+                  New-Item -ItemType Directory -Path $sdistTemp | Out-Null
+                  tar -xzf $sdist.FullName -C $sdistTemp
+                  $sdistConstants = Get-ChildItem -Path $sdistTemp -Recurse -Filter "constants.py" | Where-Object { $_.FullName -like "*telemetry*" } | Select-Object -First 1
+                  if (-not $sdistConstants) { throw "constants.py not found in sdist" }
+                  $sdistContent = Get-Content $sdistConstants.FullName -Raw
+                  if ($sdistContent -notmatch 'INSTRUMENTATION_KEY\s*=\s*""') {
+                    throw "sdist contains a non-empty iKey - sdist must ship clean"
+                  }
+                  Write-Host "Sdist verified - constants.py has empty placeholder"
+                displayName: 'Verify wheel has iKey, sdist does not'
 
               - script: twine check "$(ob_outputDirectory)\*.whl" "$(ob_outputDirectory)\*.tar.gz"
                 continueOnError: true
