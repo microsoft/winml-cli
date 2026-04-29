@@ -6,7 +6,7 @@
 
 Defines the common interface that all EP hardware monitors implement.
 Each subclass provides data collection for a specific execution provider
-(VitisAI, MIGraphX, TensorRT, etc.).
+(VitisAI, MIGraphX, NvTensorRTRTX, etc.).
 """
 
 from __future__ import annotations

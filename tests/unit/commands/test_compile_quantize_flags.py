@@ -41,15 +41,15 @@ class TestResolveCompileProvider:
         """ep takes priority over device mapping."""
         assert _resolve_compile_provider("npu", "migraphx") == "migraphx"
         assert _resolve_compile_provider("gpu", "vitisai") == "vitisai"
-        assert _resolve_compile_provider("cpu", "tensorrt") == "tensorrt"
+        assert _resolve_compile_provider("cpu", "nv_tensorrt_rtx") == "nv_tensorrt_rtx"
 
     def test_ep_is_lowercased(self):
         assert _resolve_compile_provider("gpu", "MIGraphX") == "migraphx"
-        assert _resolve_compile_provider("gpu", "TENSORRT") == "tensorrt"
+        assert _resolve_compile_provider("gpu", "NV_TENSORRT_RTX") == "nv_tensorrt_rtx"
 
     @pytest.mark.parametrize(
         "ep",
-        ["qnn", "dml", "migraphx", "tensorrt", "vitisai", "openvino", "cpu"],
+        ["qnn", "dml", "migraphx", "nv_tensorrt_rtx", "vitisai", "openvino", "cpu"],
     )
     def test_all_valid_eps(self, ep):
         """All valid EP names resolve correctly."""

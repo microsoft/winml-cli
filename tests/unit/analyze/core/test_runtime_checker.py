@@ -13,11 +13,15 @@ Tests verify:
 """
 
 import time
+from pathlib import Path
 
+import numpy as np
+import onnx
 import pytest
-from onnx import TensorProto, helper
 
 from winml.modelkit.analyze import ONNXModel, RuntimeChecker, RuntimeTestResult
+from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker_query_module
+from winml.modelkit.analyze.core.runtime_checker_query import RuntimeCheckerQuery
 from winml.modelkit.analyze.models.runtime_checks import (  # Testing internal implementation
     AlternativeType,
     PatternAlternative,
@@ -29,6 +33,10 @@ from winml.modelkit.pattern import (
     PatternType,
     SkeletonMatchResult,
 )
+
+
+TensorProto = onnx.TensorProto
+helper = onnx.helper
 
 
 @pytest.fixture
@@ -287,6 +295,95 @@ class TestRuntimeCheckerIntegration:
         assert isinstance(summary, dict)
         assert "op_runtime_check_result" in summary
         assert len(summary["op_runtime_check_result"]) == len(op_results)
+
+    def test_op_support_handles_graph_only_external_initializer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Graph-only external-data initializers survive the analyzer runtime-check path."""
+
+        weight = onnx.numpy_helper.from_array(np.zeros((2,), dtype=np.float32), name="weight")
+        weight.data_location = onnx.TensorProto.EXTERNAL
+        weight.ClearField("raw_data")
+        weight.external_data.add(key="location", value="weight.bin")
+
+        input_value_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [2])
+        output_value_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2])
+        add_node = helper.make_node("Add", ["weight", "input"], ["output"], name="add_node")
+        graph = helper.make_graph(
+            [add_node],
+            "external_initializer_graph",
+            [input_value_info],
+            [output_value_info],
+            initializer=[weight],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+        model_path = tmp_path / "external_initializer.onnx"
+        onnx.save(model, model_path)
+        graph_only_model = onnx.load(str(model_path), load_external_data=False)
+        onnx_model = ONNXModel.from_onnx_model(graph_only_model, str(model_path))
+
+        checker = RuntimeChecker(
+            ep="CPUExecutionProvider",
+            device="CPU",
+            model=onnx_model,
+        )
+        query = checker._get_query()
+
+        captured_calls: list[tuple[str, bytes, dict[str, np.ndarray]]] = []
+
+        class FakeRunner:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            def run(self, fn, *args):
+                return {"result": fn(*args), "stdout": "", "stderr": ""}
+
+        class FakeEPChecker:
+            def check_compile(self, model_bytes, input_feed):
+                captured_calls.append(("compile", model_bytes, input_feed))
+                return {"success": True}
+
+            def check_run(self, model_bytes, input_feed):
+                captured_calls.append(("run", model_bytes, input_feed))
+                return {"success": True}
+
+        monkeypatch.setattr(runtime_checker_query_module, "ResilientRunner", FakeRunner)
+
+        query.ep_neg_rules = {}
+        query.df_tables = {}
+        monkeypatch.setattr(RuntimeCheckerQuery, "_is_ep_available_locally", lambda self: True)
+        monkeypatch.setattr(
+            RuntimeCheckerQuery,
+            "_get_ep_checker",
+            lambda self: FakeEPChecker(),
+        )
+
+        results = checker.op_support(run_unknown_op=True)
+
+        assert len(results) == 1
+        assert results[0].pattern_id == "OP/ai.onnx/Add"
+        assert results[0].result.compile is True
+        assert results[0].result.run is True
+        assert results[0].result.no_data is False
+        assert [phase for phase, _, _ in captured_calls] == ["compile", "run"]
+
+        for _, model_bytes, input_feed in captured_calls:
+            assert set(input_feed) == {"weight", "input"}
+            assert input_feed["weight"].shape == (2,)
+            assert input_feed["weight"].dtype == np.float32
+            assert input_feed["input"].shape == (2,)
+
+            single_node_model = onnx.ModelProto()
+            single_node_model.ParseFromString(model_bytes)
+            assert {vi.name for vi in single_node_model.graph.input} == {"weight", "input"}
+            assert {init.name for init in single_node_model.graph.initializer} == set()
 
     def test_full_workflow_with_patterns(
         self, sample_pattern_match: PatternMatchResult, simple_onnx_model: ONNXModel

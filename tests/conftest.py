@@ -31,6 +31,41 @@ from onnx import TensorProto
 
 
 @pytest.fixture(autouse=True)
+def _reset_telemetry_singleton():
+    """Reset the Telemetry singleton between tests so each starts clean.
+
+    Lives in the top-level ``conftest.py`` (rather than one per telemetry
+    test package) so the singleton can never leak between tests, and so
+    the fixture is not duplicated. No-op for tests that never touch
+    Telemetry — ``_INSTANCE`` is ``None`` and the function returns
+    immediately.
+
+    Calls ``shutdown()`` on any pre-existing instance so a real
+    ``BatchLogRecordProcessor`` thread (created when a test exercises
+    the real LoggerProvider path) does not leak across tests.
+    """
+    from winml.modelkit.telemetry import telemetry as telemetry_mod
+
+    if telemetry_mod._INSTANCE is not None:
+        try:
+            telemetry_mod._INSTANCE.shutdown()
+        except Exception:
+            # Best-effort cleanup: a half-initialized singleton from a
+            # prior test must not block resetting state for this test.
+            pass
+    telemetry_mod._INSTANCE = None
+    yield
+    if telemetry_mod._INSTANCE is not None:
+        try:
+            telemetry_mod._INSTANCE.shutdown()
+        except Exception:
+            # Same rationale as above; teardown must always reach the
+            # _INSTANCE = None reset below.
+            pass
+    telemetry_mod._INSTANCE = None
+
+
+@pytest.fixture(autouse=True)
 def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock WinML EP initialization for non-e2e tests."""
     if "e2e" in {m.name for m in request.node.iter_markers()}:

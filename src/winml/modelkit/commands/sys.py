@@ -105,7 +105,6 @@ def _get_library_versions() -> dict[str, str | None]:
         "onnxruntime",
         "onnxruntime-windowsml",
         "onnxruntime-gpu",
-        "onnxruntime-directml",
         "onnxruntime-silicon",
     ]
     libraries["onnxruntime"] = None

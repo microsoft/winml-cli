@@ -148,7 +148,7 @@ class ONNXLoader:
             # FR-001: Load ONNX model from file
             try:
                 logger.info("Loading ONNX model from: %s", self._model_path)
-                model_proto = onnx.load(str(self._model_path))
+                model_proto = onnx.load(str(self._model_path), load_external_data=False)
             except Exception as e:
                 # FR-038: Provide clear error message
                 raise ONNXLoadError(

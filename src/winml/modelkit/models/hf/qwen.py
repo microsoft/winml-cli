@@ -11,8 +11,16 @@ generation sub-models.
 Export Strategy (split by task):
 - QwenDecoderWrapper + QwenPrefillIOConfig: ``feature-extraction`` task
   → prefill ONNX (input_ids [1, 64] → logits [1, 64, vocab] + KV [1, kv_heads, 64, head_dim])
-- QwenDecoderWrapper + QwenGenIOConfig: ``text-generation`` task
+- QwenDecoderWrapper + QwenGenIOConfig: ``text2text-generation`` task
   → generation ONNX (input_ids [1, 1] → logits [1, 1, vocab] + KV [1, kv_heads, 1, head_dim])
+
+The gen sub-model uses ``text2text-generation`` (not ``text-generation``) so
+its registry key does not collide with the composite model's user-facing task
+``("qwen3", "text-generation")``.  Without this split, ``WinMLAutoModel.from_pretrained``
+would treat the per-sub-component build as another composite request and recurse
+indefinitely.  ``MODEL_CLASS_MAPPING`` routes ``(qwen3, text2text-generation)`` to
+``QwenDecoderWrapper`` (which loads via ``AutoModelForCausalLM``), so Optimum's
+default seq2seq loader for this task is bypassed.
 
 Both tasks share the same wrapper class; OnnxConfig determines static shapes.
 The wrapper captures new-token KV directly as ONNX outputs, eliminating the
@@ -68,8 +76,10 @@ Task name constraints (Optimum compatibility):
   silently resolves to ``"text-generation"`` at lookup time.
 - ``"text-generation-with-past"`` requires the OnnxConfig to implement
   ``with_past`` support (raises ``ValueError`` otherwise).
-- We use ``"feature-extraction"`` (prefill) and ``"text-generation"`` (gen)
-  as they are standard tasks with no normalization surprises.
+- We use ``"feature-extraction"`` (prefill) and ``"text2text-generation"``
+  (gen) — both are standard Optimum tasks with no normalization surprises,
+  and neither collides with the composite registry key
+  ``("qwen3", "text-generation")``.
 
 Model: Qwen/Qwen3-0.6B, Qwen/Qwen3-1.7B, etc.
 
@@ -213,7 +223,7 @@ class QwenDecoderWrapper(nn.Module):
 # Sub-models must use GenericTask (raw ONNX outputs) — task-specific
 # wrappers like WinMLModelForFeatureExtraction would discard KV outputs.
 register_specialization("qwen3", "feature-extraction", "WinMLModelForGenericTask")
-register_specialization("qwen3", "text-generation", "WinMLModelForGenericTask")
+register_specialization("qwen3", "text2text-generation", "WinMLModelForGenericTask")
 
 
 # =============================================================================
@@ -272,9 +282,9 @@ class QwenPrefillIOConfig(OnnxConfig):
         return _qwen_io_outputs(self._normalized_config.num_layers)
 
 
-@register_onnx_overwrite("qwen3", "text-generation", library_name="transformers")
+@register_onnx_overwrite("qwen3", "text2text-generation", library_name="transformers")
 class QwenGenIOConfig(OnnxConfig):
-    """ONNX config for Qwen3 generation (text-generation task).
+    """ONNX config for Qwen3 generation (text2text-generation task).
 
     Inputs: input_ids [1, 1], attention_mask [1, 256], position_ids [1, 1],
             cache_position [1], past_{i}_key/value [1, 8, 256, 128]
@@ -315,7 +325,7 @@ QWEN_CONFIG = WinMLBuildConfig(
 
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("qwen3", "feature-extraction"): QwenDecoderWrapper,
-    ("qwen3", "text-generation"): QwenDecoderWrapper,
+    ("qwen3", "text2text-generation"): QwenDecoderWrapper,
 }
 
 # =============================================================================
@@ -333,7 +343,7 @@ class WinMLQwen3Model(WinMLDecoderOnlyModel):
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
         "decoder_prefill": "feature-extraction",
-        "decoder_gen": "text-generation",
+        "decoder_gen": "text2text-generation",
     }
 
     @classmethod

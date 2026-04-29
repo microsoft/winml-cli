@@ -1,0 +1,29 @@
+[
+  {"hf_id": "google/vit-base-patch16-224", "task": "image-classification", "model_type": "vit", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "microsoft/resnet-50", "task": "image-classification", "model_type": "resnet", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "google-bert/bert-base-multilingual-cased", "task": "feature-extraction", "model_type": "bert", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "google-bert/bert-base-multilingual-cased", "task": "masked-lm", "model_type": "bert", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "Intel/bert-base-uncased-mrpc", "task": "feature-extraction", "model_type": "bert", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "Intel/bert-base-uncased-mrpc", "task": "text-classification", "model_type": "bert", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch16", "task": "zero-shot-image-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch16", "task": "zero-shot-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch16", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch32", "task": "zero-shot-image-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch32", "task": "zero-shot-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "openai/clip-vit-base-patch32", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "task": "zero-shot-image-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "task": "zero-shot-classification", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+  {"hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "task": "feature-extraction", "model_type": "clip", "group": "Foundry Toolkit", "priority": "P0"},
+
+  {"hf_id": "facebook/convnext-tiny-224", "task": "image-classification", "model_type": "convnext", "group": "Benchmark", "priority": "P0"},
+  {"hf_id": "facebook/detr-resnet-50", "task": "object-detection", "model_type": "detr", "group": "Benchmark", "priority": "P0"},
+  {"hf_id": "facebook/detr-resnet-50", "task": "feature-extraction", "model_type": "detr", "group": "Benchmark", "priority": "P0"},
+  {"hf_id": "facebook/sam2.1-hiera-small", "task": "mask-generation", "model_type": "sam2_video", "group": "Benchmark", "priority": "P0"},
+  {"hf_id": "Salesforce/blip-image-captioning-base", "task": "image-to-text", "model_type": "blip", "group": "Benchmark", "priority": "P0"},
+  {"hf_id": "ai-forever/Real-ESRGAN", "task": "", "model_type": "unknown", "group": "Benchmark", "priority": "P0"},
+
+  {"hf_id": "microsoft/trocr-large-printed", "group": "ISV", "priority": "P1"},
+  {"hf_id": "microsoft/trocr-base-printed", "group": "ISV", "priority": "P1"},
+  {"hf_id": "naver-clova-ix/donut-base-finetuned-cord-v2", "group": "ISV", "priority": "P1"},
+  {"hf_id": "google/flan-t5-base", "group": "ISV", "priority": "P1"}
+]

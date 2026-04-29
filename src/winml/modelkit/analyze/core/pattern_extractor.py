@@ -251,7 +251,7 @@ class PatternExtractor:
 
         # Create PatternMatcher instance - may raise InvalidPatternMatcherModelError
         try:
-            matcher = PatternMatcher(model_proto)
+            matcher = PatternMatcher(model_proto, model_path=self._model.model_path)
         except InvalidPatternMatcherModelError as e:
             # Model is invalid for pattern matching (e.g., nodes with empty names)
             logger.warning("Model validation failed for pattern matching: %s", str(e))
@@ -278,7 +278,7 @@ class PatternExtractor:
         logger.info("PatternMatcher found %d matches", len(pattern_matches))
 
         if not pattern_matches:
-            logger.warning("No pattern matches found by PatternMatcher")
+            logger.info("No pattern matches found by PatternMatcher")
             # Debug: try skeleton matching without validation
             skeleton_results = matcher.match_skeleton()
             logger.info(
