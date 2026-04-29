@@ -797,41 +797,22 @@ class TestBuildNoOptimizeFlag:
 
 
 class TestRunCompileStageNoOutput:
-    """Test _run_compile_stage when compile produces no output file.
+    """Test _run_compile_stage EP-context skipping and output validation."""
 
-    Reproduces the DML/GPU bug (#396): compile succeeds with
-    enable_ep_context=False, producing no EPContext file.  Before the
-    fix, current_path was set to the non-existent compiled_path,
-    causing FileNotFoundError downstream.
-    """
-
-    @patch("winml.modelkit.utils.console.get_onnx_graph_summary")
-    @patch("winml.modelkit.utils.console.StageLive")
     @patch("winml.modelkit.compiler.compile_onnx")
-    def test_returns_current_path_when_compiled_missing(
+    def test_dml_skips_compile_entirely(
         self,
         mock_compile: MagicMock,
-        mock_stage_live: MagicMock,
-        mock_graph_summary: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """When compile produces no output file, current_path must stay unchanged."""
+        """EPs with enable_ep_context=False (DML, CPU) skip compile_onnx entirely."""
         from winml.modelkit.commands.build import _run_compile_stage
         from winml.modelkit.compiler.configs import WinMLCompileConfig
-        from winml.modelkit.compiler.result import CompileResult
         from winml.modelkit.config import WinMLBuildConfig
-
-        # Setup: compile "succeeds" but output_path is None (DML scenario)
-        mock_compile.return_value = CompileResult(
-            success=True,
-            output_path=None,  # No EPContext produced
-        )
-        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
-        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
 
         input_path = tmp_path / "quantized.onnx"
         input_path.write_bytes(b"dummy")
-        compiled_path = tmp_path / "compiled.onnx"  # Does NOT exist
+        compiled_path = tmp_path / "compiled.onnx"
 
         config = WinMLBuildConfig(compile=WinMLCompileConfig.for_dml())
         timings: list[tuple[str, float | None]] = []
@@ -843,9 +824,43 @@ class TestRunCompileStageNoOutput:
             stage_timings=timings,
         )
 
-        # current_path must stay at input_path, NOT compiled_path
+        mock_compile.assert_not_called()
         assert result == input_path
-        assert not compiled_path.exists()
+
+    @patch("winml.modelkit.utils.console.get_onnx_graph_summary")
+    @patch("winml.modelkit.utils.console.StageLive")
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_raises_when_ep_context_expected_but_missing(
+        self,
+        mock_compile: MagicMock,
+        mock_stage_live: MagicMock,
+        mock_graph_summary: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """When enable_ep_context=True and compile succeeds but file is absent, raise."""
+        from winml.modelkit.commands.build import _run_compile_stage
+        from winml.modelkit.compiler.configs import WinMLCompileConfig
+        from winml.modelkit.compiler.result import CompileResult
+        from winml.modelkit.config import WinMLBuildConfig
+
+        mock_compile.return_value = CompileResult(success=True, output_path=None)
+        mock_stage_live.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_stage_live.return_value.__exit__ = MagicMock(return_value=False)
+
+        input_path = tmp_path / "quantized.onnx"
+        input_path.write_bytes(b"dummy")
+        compiled_path = tmp_path / "compiled.onnx"  # Does NOT exist
+
+        config = WinMLBuildConfig(compile=WinMLCompileConfig.for_qnn())
+        timings: list[tuple[str, float | None]] = []
+
+        with pytest.raises(RuntimeError, match="output not found"):
+            _run_compile_stage(
+                config=config,
+                current_path=input_path,
+                compiled_path=compiled_path,
+                stage_timings=timings,
+            )
 
     @patch("winml.modelkit.utils.console.get_onnx_graph_summary")
     @patch("winml.modelkit.utils.console.StageLive")
