@@ -822,12 +822,12 @@ class TestQwenGenKVInputs:
     """Qwen3 generation dummy inputs use PastKeyValueInputGenerator."""
 
     def test_kv_shape_matches_prefill(self, qwen_config) -> None:
-        inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
+        inputs = generate_dummy_inputs("qwen3", "text2text-generation", qwen_config)
         kv = inputs["past_0_key"]
         assert kv.shape == (1, qwen_config.num_key_value_heads, 256, qwen_config.head_dim)
 
     def test_input_ids_single_token(self, qwen_config) -> None:
-        inputs = generate_dummy_inputs("qwen3", "text-generation", qwen_config)
+        inputs = generate_dummy_inputs("qwen3", "text2text-generation", qwen_config)
         assert inputs["input_ids"].shape == (1, 1)
 
 
@@ -961,3 +961,292 @@ class TestSlidingWindowCachePreparePrefillChunk:
         assert pad_len == 2
         assert padded_ids[0].tolist() == [0, 0, 10, 20]
         assert pos_ids[0].tolist() == [0, 0, 4, 5]
+
+
+# =============================================================================
+# WinMLStaticCache.update — multi-dim index_put_ writes correct positions
+# =============================================================================
+
+
+class TestWinMLStaticCacheUpdate:
+    """WinMLStaticCache.update writes new KV at the requested cache_position.
+
+    The PR replaced ``index_copy_`` with multi-dim ``index_put_`` so the ONNX
+    exporter emits ScatterND instead of ScatterElements.  These tests verify
+    the runtime semantics: the buffer slot at ``cache_position`` matches the
+    new KV, untouched slots stay zero, and ``captured`` is populated for the
+    ONNX present-output path.
+    """
+
+    def test_single_token_writes_at_cache_position(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(
+            WinMLStaticCache, num_layers=2, num_heads=2, max_cache_len=16, head_dim=4
+        )
+        key_states = torch.randn(1, 2, 1, 4)
+        value_states = torch.randn(1, 2, 1, 4)
+        cache_position = torch.tensor([5], dtype=torch.int64)
+
+        cache.update(
+            key_states, value_states, layer_idx=0, cache_kwargs={"cache_position": cache_position}
+        )
+
+        # Slot 5 holds the new KV for every (batch, head)
+        assert torch.allclose(cache.layers[0].keys[0, 0, 5], key_states[0, 0, 0])
+        assert torch.allclose(cache.layers[0].keys[0, 1, 5], key_states[0, 1, 0])
+        assert torch.allclose(cache.layers[0].values[0, 0, 5], value_states[0, 0, 0])
+
+    def test_other_positions_remain_zero(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache, num_heads=2, max_cache_len=16, head_dim=4)
+        key_states = torch.randn(1, 2, 1, 4)
+        value_states = torch.randn(1, 2, 1, 4)
+        cache_position = torch.tensor([5], dtype=torch.int64)
+
+        cache.update(
+            key_states, value_states, layer_idx=0, cache_kwargs={"cache_position": cache_position}
+        )
+
+        # Every slot != 5 must still be zero (cache was reset at construction)
+        zero_slots = [i for i in range(16) if i != 5]
+        for s in zero_slots:
+            assert torch.all(cache.layers[0].keys[0, :, s] == 0)
+            assert torch.all(cache.layers[0].values[0, :, s] == 0)
+
+    def test_multi_token_writes_at_each_position(self) -> None:
+        """Multi-token write (e.g. prefill chunk) lands at every listed position."""
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache, num_heads=2, max_cache_len=16, head_dim=4)
+        key_states = torch.randn(1, 2, 3, 4)  # 3 new tokens
+        value_states = torch.randn(1, 2, 3, 4)
+        cache_position = torch.tensor([3, 4, 5], dtype=torch.int64)
+
+        cache.update(
+            key_states, value_states, layer_idx=1, cache_kwargs={"cache_position": cache_position}
+        )
+
+        for i, pos in enumerate([3, 4, 5]):
+            assert torch.allclose(cache.layers[1].keys[0, 0, pos], key_states[0, 0, i])
+            assert torch.allclose(cache.layers[1].keys[0, 1, pos], key_states[0, 1, i])
+            assert torch.allclose(cache.layers[1].values[0, 0, pos], value_states[0, 0, i])
+
+    def test_captured_kv_for_onnx_present_output(self) -> None:
+        """``captured[layer_idx]`` holds the new-token KV (export reads this)."""
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        cache = _make_cache(WinMLStaticCache, num_heads=2, max_cache_len=16, head_dim=4)
+        key_states = torch.randn(1, 2, 1, 4)
+        value_states = torch.randn(1, 2, 1, 4)
+        cache.update(
+            key_states,
+            value_states,
+            layer_idx=0,
+            cache_kwargs={"cache_position": torch.tensor([0], dtype=torch.int64)},
+        )
+
+        captured_k, captured_v = cache.captured[0]
+        assert captured_k is key_states
+        assert captured_v is value_states
+
+
+# =============================================================================
+# WinMLCache.num_layers — asymmetric encoder-decoder fix
+# =============================================================================
+
+
+class TestWinMLCacheAsymmetricNumLayers:
+    """Distilbart-style fix: cache must use decoder_layers, not encoder_layers.
+
+    For ``BartConfig(encoder_layers=12, decoder_layers=6, ...)`` the outer
+    ``config.num_hidden_layers`` is 12 (encoder count), but HF's
+    ``StaticCache.__init__`` builds 6 layer buffers via
+    ``config.get_text_config(decoder=True).num_hidden_layers``.  Reading the
+    outer attribute caused ``WinMLCache.reset()`` to walk past the end of
+    ``self.layers`` and raise ``IndexError`` for distilbart-cnn-12-6.
+    """
+
+    @staticmethod
+    def _make_asymmetric_bart_config():
+        from transformers import BartConfig
+
+        return BartConfig(
+            d_model=32,
+            decoder_layers=6,
+            decoder_attention_heads=2,
+            encoder_layers=12,  # asymmetric
+            encoder_attention_heads=2,
+            vocab_size=100,
+            max_position_embeddings=16,
+        )
+
+    def test_num_layers_uses_decoder_count(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        config = self._make_asymmetric_bart_config()
+        # Sanity: outer config still reports the encoder count (12).
+        assert config.num_hidden_layers == 12
+
+        cache = WinMLStaticCache.create(config, [1, 2, 16, 16], torch.float32)
+
+        # Cache must follow the decoder count (6), matching HF StaticCache.layers.
+        assert cache.num_layers == 6
+        assert len(cache.layers) == 6
+
+    def test_reset_does_not_index_error(self) -> None:
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        config = self._make_asymmetric_bart_config()
+        cache = WinMLStaticCache.create(config, [1, 2, 16, 16], torch.float32)
+
+        # Pre-fix this raised IndexError because reset iterated 0..11 over a 6-layer list.
+        cache.reset()
+        assert cache.step == 0
+
+    def test_symmetric_unchanged(self) -> None:
+        """Symmetric encoder-decoder still gets the right layer count (regression guard)."""
+        from transformers import BartConfig
+
+        from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
+
+        config = BartConfig(
+            d_model=32,
+            decoder_layers=4,
+            decoder_attention_heads=2,
+            encoder_layers=4,
+            encoder_attention_heads=2,
+            vocab_size=100,
+            max_position_embeddings=16,
+        )
+        cache = WinMLStaticCache.create(config, [1, 2, 16, 16], torch.float32)
+        assert cache.num_layers == 4
+        assert len(cache.layers) == 4
+
+
+# =============================================================================
+# Marian / BART decoder dummy inputs use PastKeyValueInputGenerator
+# =============================================================================
+
+
+@pytest.fixture(scope="module")
+def marian_config():
+    """Synthetic MarianConfig — small dims, no network."""
+    from transformers import MarianConfig
+
+    return MarianConfig(
+        d_model=32,
+        decoder_layers=2,
+        decoder_attention_heads=2,
+        encoder_layers=2,
+        encoder_attention_heads=2,
+        vocab_size=100,
+        max_position_embeddings=16,
+    )
+
+
+@pytest.fixture(scope="module")
+def bart_config_symmetric():
+    """Synthetic symmetric BartConfig."""
+    from transformers import BartConfig
+
+    return BartConfig(
+        d_model=32,
+        decoder_layers=4,
+        decoder_attention_heads=2,
+        encoder_layers=4,
+        encoder_attention_heads=2,
+        vocab_size=100,
+        max_position_embeddings=16,
+    )
+
+
+@pytest.fixture(scope="module")
+def bart_config_asymmetric():
+    """Synthetic asymmetric BartConfig — distilbart-cnn-12-6 shape (encoder>decoder)."""
+    from transformers import BartConfig
+
+    return BartConfig(
+        d_model=32,
+        decoder_layers=6,
+        decoder_attention_heads=2,
+        encoder_layers=12,
+        encoder_attention_heads=2,
+        vocab_size=100,
+        max_position_embeddings=24,
+    )
+
+
+class TestMarianDecoderKVInputs:
+    """Marian decoder dummy inputs use PastKeyValueInputGenerator."""
+
+    def test_kv_input_names(self, marian_config) -> None:
+        inputs = generate_dummy_inputs("marian", "text2text-generation", marian_config)
+        for i in range(marian_config.decoder_layers):
+            assert f"past_{i}_key" in inputs
+            assert f"past_{i}_value" in inputs
+
+    def test_kv_shape(self, marian_config) -> None:
+        inputs = generate_dummy_inputs("marian", "text2text-generation", marian_config)
+        kv = inputs["past_0_key"]
+        head_dim = marian_config.d_model // marian_config.decoder_attention_heads
+        assert kv.shape == (
+            1,
+            marian_config.decoder_attention_heads,
+            marian_config.max_position_embeddings,
+            head_dim,
+        )
+
+    def test_decoder_attention_mask_matches_cache_len(self, marian_config) -> None:
+        inputs = generate_dummy_inputs("marian", "text2text-generation", marian_config)
+        assert inputs["decoder_attention_mask"].shape[1] == marian_config.max_position_embeddings
+
+    def test_all_kv_layers_present(self, marian_config) -> None:
+        inputs = generate_dummy_inputs("marian", "text2text-generation", marian_config)
+        kv_names = [n for n in inputs if n.startswith("past_")]
+        assert len(kv_names) == marian_config.decoder_layers * 2
+
+
+class TestBartDecoderKVInputs:
+    """BART decoder dummy inputs use PastKeyValueInputGenerator."""
+
+    def test_kv_input_names(self, bart_config_symmetric) -> None:
+        inputs = generate_dummy_inputs("bart", "text2text-generation", bart_config_symmetric)
+        for i in range(bart_config_symmetric.decoder_layers):
+            assert f"past_{i}_key" in inputs
+            assert f"past_{i}_value" in inputs
+
+    def test_kv_shape(self, bart_config_symmetric) -> None:
+        inputs = generate_dummy_inputs("bart", "text2text-generation", bart_config_symmetric)
+        kv = inputs["past_0_key"]
+        head_dim = bart_config_symmetric.d_model // bart_config_symmetric.decoder_attention_heads
+        assert kv.shape == (
+            1,
+            bart_config_symmetric.decoder_attention_heads,
+            bart_config_symmetric.max_position_embeddings,
+            head_dim,
+        )
+
+    def test_decoder_attention_mask_matches_cache_len(self, bart_config_symmetric) -> None:
+        inputs = generate_dummy_inputs("bart", "text2text-generation", bart_config_symmetric)
+        assert (
+            inputs["decoder_attention_mask"].shape[1]
+            == bart_config_symmetric.max_position_embeddings
+        )
+
+    def test_asymmetric_uses_decoder_layers_not_encoder(self, bart_config_asymmetric) -> None:
+        """Distilbart-style asymmetric config — KV layer count must follow ``decoder_layers``.
+
+        Pre-fix, ``_BartDecoderNormalizedConfig.num_layers`` (then via
+        ``NormalizedConfig.with_args(num_layers="decoder_layers")``) was already
+        correct here.  This test pins the contract so any future refactor of
+        the NormalizedConfig keeps reading ``decoder_layers`` (not the outer
+        ``num_hidden_layers``, which on BART is the encoder count).
+        """
+        inputs = generate_dummy_inputs("bart", "text2text-generation", bart_config_asymmetric)
+        kv_names = [n for n in inputs if n.startswith("past_")]
+        # decoder_layers=6 → 12 KV tensors, NOT encoder_layers=12 → 24
+        assert len(kv_names) == bart_config_asymmetric.decoder_layers * 2
+        assert "past_5_key" in inputs
+        assert "past_6_key" not in inputs

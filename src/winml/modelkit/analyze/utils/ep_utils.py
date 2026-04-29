@@ -54,11 +54,68 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     if "openvino" in ep_lower or "intel" in ep_lower:
         return IHVType.INTEL
 
-    # VitisAI / AMD / ACE (AMD)
-    if "amd" in ep_lower or "quark" in ep_lower or "vitis" in ep_lower or "ace" in ep_lower:
+    # VitisAI / MIGraphX / AMD / ACE (AMD)
+    amd_keywords = ("amd", "quark", "vitis", "ace", "migraphx")
+    if any(kw in ep_lower for kw in amd_keywords):
         return IHVType.AMD
 
     raise ValueError(
         f"Unknown execution provider: {ep_name}. "
         "Supported: QNNExecutionProvider, OpenVINOExecutionProvider, VitisAIExecutionProvider"
     )
+
+
+def get_devices_with_rule_data(ep_name: str) -> list[str]:
+    """Return all devices supported by an EP.
+
+    First probes rule zip search directories for files matching
+    ``{ep_name}_{device}_*.zip``.  If no rule data is found, falls
+    back to the EP→device mapping from :func:`sysinfo.get_ep_device_map`.
+
+    Args:
+        ep_name: Full execution provider name (e.g., ``"QNNExecutionProvider"``).
+
+    Returns:
+        List of device strings (e.g., ``["NPU", "GPU"]``), empty if
+        the EP is completely unknown.
+    """
+    from ...sysinfo.device import get_ep_device_map
+
+    # Priority order: NPU > GPU > CPU (first match used as default device)
+    known_devices = {d.upper() for v in get_ep_device_map().values() for d in v.split("/") if d}
+    priority = ["NPU", "GPU", "CPU"]
+    probe_order = [d for d in priority if d in known_devices]
+    # Append any devices not in the priority list
+    probe_order.extend(d for d in sorted(known_devices) if d not in priority)
+
+    devices = [d for d in probe_order if has_rule_data_for_ep(ep_name, d)]
+    if devices:
+        return devices
+    # Fallback: derive from the authoritative EP→device mapping
+    device_str = get_ep_device_map().get(ep_name, "")
+    return [d.upper() for d in device_str.split("/") if d]
+
+
+def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
+    """Check whether runtime check rule data exists for a given EP and device.
+
+    Probes the rule zip search directories for any zip file matching the
+    naming convention ``{ep_name}_{device}_*.zip``.  This is a fast
+    filesystem check — no zip contents are read.
+
+    Args:
+        ep_name: Full execution provider name (e.g., ``"QNNExecutionProvider"``).
+        device: Device type (e.g., ``"NPU"``, ``"GPU"``, ``"CPU"``).
+
+    Returns:
+        ``True`` if at least one rule zip exists for this EP + device pair.
+    """
+    from .rule_loader import get_runtime_rules_search_dirs
+
+    prefix = f"{ep_name}_{device.upper()}_"
+    for search_dir in get_runtime_rules_search_dirs():
+        if not search_dir.is_dir():
+            continue
+        if any(search_dir.glob(f"{prefix}*.zip")):
+            return True
+    return False

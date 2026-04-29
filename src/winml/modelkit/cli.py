@@ -27,12 +27,19 @@ from pathlib import Path
 import click
 
 from . import __version__
+from .telemetry import ActionGroup
+from .telemetry import telemetry as _telemetry_mod
 from .utils.logging import configure_logging
 
 
 logger = logging.getLogger(__name__)
 
 _COMMANDS_DIR = Path(__file__).parent / "commands"
+
+# Commands that are temporarily disabled from the CLI surface.
+# The modules remain on disk so tests and internal imports still work;
+# they simply do not appear in ``winml --help`` or accept user invocations.
+_DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
 
 
 def _parse_click_help(path: Path) -> str:
@@ -55,23 +62,36 @@ def _parse_click_help(path: Path) -> str:
     return ""
 
 
-class LazyGroup(click.Group):
+class LazyGroup(ActionGroup):
     """Click group that defers command module imports until invoked.
 
     Instead of importing every command module at startup, this group reads
     command names from the filesystem and only imports a module when the
     user actually invokes that command. Help text is extracted via AST
     parsing (no module execution).
+
+    Extends :class:`ActionGroup` so every resolved subcommand is also
+    auto-instrumented with ModelKit telemetry.
     """
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         """Return command names from filesystem — no module imports."""
         if not _COMMANDS_DIR.exists():
             return []
-        return sorted(p.stem for p in _COMMANDS_DIR.glob("*.py") if not p.name.startswith("_"))
+        return sorted(
+            p.stem
+            for p in _COMMANDS_DIR.glob("*.py")
+            if not p.name.startswith("_") and p.stem not in _DISABLED_COMMANDS
+        )
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         """Import command module only when the command is actually invoked."""
+        if cmd_name in _DISABLED_COMMANDS:
+            ctx.fail(
+                f"'winml {cmd_name}' is currently disabled. "
+                f"Use 'winml eval' for model evaluation instead."
+            )
+
         try:
             module = import_module(
                 f".commands.{cmd_name}",
@@ -151,6 +171,24 @@ def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
     ctx.obj["debug"] = debug or verbose >= 2
     ctx.obj["verbosity"] = verbose
     ctx.obj["quiet"] = quiet
+
+    ctx.call_on_close(_shutdown_telemetry)
+
+
+def _shutdown_telemetry() -> None:
+    # Only flush if a subcommand actually materialized the singleton.
+    # Calling `get_or_init()` here unconditionally would build a fresh
+    # Telemetry on the way out — which can trigger first-run consent
+    # resolution during process shutdown if the iKey is non-empty.
+    instance = _telemetry_mod._INSTANCE
+    if instance is None:
+        return
+    try:
+        instance.shutdown()
+    except Exception:
+        # Telemetry shutdown must never affect the CLI exit code; swallow
+        # any error from a half-initialized singleton or transport flush.
+        pass
 
 
 if __name__ == "__main__":

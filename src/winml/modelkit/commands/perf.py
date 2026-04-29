@@ -920,7 +920,7 @@ def _run_onnx_benchmark(
     """
     from ..session import WinMLSession
 
-    session = WinMLSession(onnx_path=onnx_path, device=device)
+    session = WinMLSession(onnx_path=onnx_path, device=device, ep=config.ep)
 
     # Generate random inputs from session's I/O config
     io_cfg = session.io_config
@@ -1059,7 +1059,7 @@ def _run_onnx_benchmark(
     type=str,
     default=None,
     help="Force specific execution provider "
-    "(qnn, dml, migraphx, tensorrt, vitisai, openvino, cpu). "
+    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
     "Overrides device-to-provider mapping.",
 )
 @click.option(

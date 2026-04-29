@@ -47,16 +47,24 @@ __all__ = [
 ]
 
 
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "is_compiled_onnx": (".detection", "is_compiled_onnx"),
+    "is_quantized_onnx": (".detection", "is_quantized_onnx"),
+}
+
+
 def __getattr__(name: str):
     """Lazy-load detection module to avoid circular import with compiler."""
-    if name in ("is_compiled_onnx", "is_quantized_onnx"):
-        from .detection import is_compiled_onnx, is_quantized_onnx
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
 
-        globals()["is_compiled_onnx"] = is_compiled_onnx
-        globals()["is_quantized_onnx"] = is_quantized_onnx
-        return globals()[name]
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
-    return __all__
+    return list(set(list(globals()) + __all__))

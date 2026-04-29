@@ -223,10 +223,15 @@ class CompileStage(BaseStage):
             context.add_warning("EPContext model not found in work directory")
             return
 
-        # Determine final output filename using original model name
-        original_stem = context.model_path.stem
-        final_ctx_name = f"{original_stem}_{device}_ctx.onnx"
-        final_ctx_path = output_dir / final_ctx_name
+        # Determine final output filename
+        # If user specified a file path (has .onnx suffix), use it as-is
+        user_output = context.config.get("output_path")
+        if user_output and Path(user_output).suffix:
+            final_ctx_path = Path(user_output)
+        else:
+            original_stem = context.model_path.stem
+            final_ctx_name = f"{original_stem}_{device}_ctx.onnx"
+            final_ctx_path = output_dir / final_ctx_name
 
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -245,7 +250,8 @@ class CompileStage(BaseStage):
         final_bin_name = None
         for f in src_ctx_path.parent.iterdir():
             if f.name.startswith(src_ctx_path.stem) and f.suffix == ".bin":
-                final_bin_name = f"{original_stem}_{device}_ctx{f.name[len(src_ctx_path.stem) :]}"
+                bin_suffix = f.name[len(src_ctx_path.stem) :]
+                final_bin_name = f"{final_ctx_path.stem}{bin_suffix}"
                 final_bin_path = output_dir / final_bin_name
                 if f != final_bin_path:
                     shutil.copy2(f, final_bin_path)

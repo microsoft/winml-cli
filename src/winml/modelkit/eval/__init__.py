@@ -21,11 +21,13 @@ from .metrics.mean_average_precision import MAPMetric
 from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
 from .metrics.pseudo_perplexity import PseudoPerplexityMetric
 from .metrics.spearman_correlation import SpearmanCorrelationMetric
+from .metrics.top_k_accuracy import TopKAccuracyMetric
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
 from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
+from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
 
 __all__ = [
@@ -37,6 +39,7 @@ __all__ = [
     "MeanIoUMetric",
     "PseudoPerplexityMetric",
     "SpearmanCorrelationMetric",
+    "TopKAccuracyMetric",
     "WinMLEvaluationConfig",
     "WinMLEvaluator",
     "WinMLFeatureExtractionEvaluator",
@@ -48,5 +51,6 @@ __all__ = [
     "WinMLTextClassificationEvaluator",
     "WinMLTokenClassificationEvaluator",
     "WinMLZeroShotClassificationEvaluator",
+    "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
 ]

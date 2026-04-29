@@ -47,6 +47,7 @@ dependencies = [
   "rich>=14",
   "scikit-learn>=1.7",
   "scipy>=1.15,<1.16",
+  "sentencepiece>=0.2.1",
   "seqeval>=1.2.2",
   "snakemd>=2",
   "timm>=1.0.22",
@@ -380,8 +381,8 @@ markers = [
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
   "cuda: marks tests requiring CUDA runtime",
-  "directml: marks tests for DirectML backend",
-  "tensorrt: marks tests for TensorRT backend",
+  "dml: marks tests for Dml backend",
+  "nv_tensorrt_rtx: marks tests for NvTensorRTRTX backend",
   "vitisai: marks tests for AMD Vitis AI backend",
   "training: marks tests requiring training-specific ORT features",
 ]

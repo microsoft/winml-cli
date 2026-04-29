@@ -20,18 +20,87 @@ logger = logging.getLogger(__name__)
 #: Use ``os.pathsep`` (`;` on Windows, `:` on Unix) to separate multiple paths.
 MODELKIT_RULES_DIR_ENV = "MODELKIT_RULES_DIR"
 
+# Directory containing this module file. Relative env-var entries are resolved from here.
+_RULE_LOADER_DIR: Path = Path(__file__).resolve().parent
+
 # Default runtime_check_rules directory (relative to the analyze package).
 _DEFAULT_RUNTIME_RULES_DIR: Path = (
     Path(__file__).resolve().parent.parent / "rules" / "runtime_check_rules"
 )
+
+# Track directories already auto-checked in this process to avoid repeated scans/expands.
+_EXPAND_CHECKED_DIRS: set[str] = set()
+
+
+def _resolve_env_rules_dir_entry(entry: str) -> Path:
+    """Resolve a MODELKIT_RULES_DIR entry into an absolute directory path.
+
+    Absolute paths are used directly. Relative paths are interpreted relative
+    to this module file's directory.
+    """
+    entry_path = Path(entry).expanduser()
+    if entry_path.is_absolute():
+        return entry_path.resolve()
+    return (_RULE_LOADER_DIR / entry_path).resolve()
+
+
+def _has_non_temp_zip_files(rules_dir: Path, glob_pattern: str = "*.zip") -> bool:
+    """Return whether the directory contains at least one non-temp zip."""
+    return any(
+        path.is_file() and ".materialized." not in path.name
+        for path in rules_dir.glob(glob_pattern)
+    )
+
+
+def _ensure_rules_dir_expanded_once(rules_dir: Path) -> None:
+    """Auto-expand rule zips once if marker is missing.
+
+    Behavior:
+      1. Skip when directory does not exist.
+      2. Skip when marker file already exists.
+      3. If directory has zip files and marker is missing, run in-place expand.
+    """
+    resolved_dir = rules_dir.resolve()
+    dir_key = str(resolved_dir).casefold()
+    if dir_key in _EXPAND_CHECKED_DIRS:
+        return
+
+    _EXPAND_CHECKED_DIRS.add(dir_key)
+
+    if not resolved_dir.exists() or not resolved_dir.is_dir():
+        return
+
+    try:
+        from .rule_expander import EXPANDED_MARKER_FILE, expand_rules_zip_dir
+
+        marker_path = resolved_dir / EXPANDED_MARKER_FILE
+        if marker_path.exists():
+            return
+
+        if not _has_non_temp_zip_files(resolved_dir):
+            return
+
+        logger.info(
+            "!!! [RULES INIT] One-time runtime rules initialization is required for %s; "
+            "initializing now (may take up to 30 minutes).",
+            resolved_dir,
+        )
+        expand_rules_zip_dir(resolved_dir)
+    except Exception:
+        logger.exception(
+            "Failed to auto-expand runtime rule zips in %s; "
+            "please check the zip files and expand manually if needed.",
+            resolved_dir,
+        )
 
 
 def get_runtime_rules_search_dirs() -> list[Path]:
     """Return ordered list of directories to search for runtime check rule zips.
 
     The search order is:
-      1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
-         (separated by ``os.pathsep``).
+        1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
+            (separated by ``os.pathsep``). Absolute paths are used directly;
+            relative paths are resolved relative to this module file directory.
       2. Default embedded directory (``src/winml/modelkit/analyze/rules/runtime_check_rules/``)
 
     Returns:
@@ -43,7 +112,7 @@ def get_runtime_rules_search_dirs() -> list[Path]:
         for entry in env_val.split(os.pathsep):
             entry = entry.strip()
             if entry:
-                dirs.append(Path(entry).resolve())
+                dirs.append(_resolve_env_rules_dir_entry(entry))
     dirs.append(_DEFAULT_RUNTIME_RULES_DIR)
     return dirs
 
@@ -62,6 +131,8 @@ def resolve_rule_zip_path(zip_filename: str) -> Path:
         Resolved ``Path`` to the zip file.
     """
     for search_dir in get_runtime_rules_search_dirs():
+        # Disabled by default: one-time rules initialization can be expensive.
+        # _ensure_rules_dir_expanded_once(search_dir)
         candidate = search_dir / zip_filename
         if candidate.exists():
             return candidate
