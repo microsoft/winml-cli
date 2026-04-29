@@ -260,10 +260,10 @@ def _build_modules(
     help="Skip quantization (overrides config)",
 )
 @click.option(
-    "--no-compile",
-    is_flag=True,
-    default=False,
-    help="Skip compilation (overrides config)",
+    "--no-compile/--compile",
+    "no_compile",
+    default=True,
+    help="Skip compilation (overrides config). Default: skip.",
 )
 @click.option(
     "--ep",
