@@ -181,7 +181,7 @@ class DocConstraintChecker:
             logger.debug(f"Failed to map {node.op_type}: {description}")
             return None, description
         except Exception as e:
-            logger.warning(f"Error mapping {node.op_type}: {e}")
+            logger.debug(f"Error mapping {node.op_type}: {e}")
             return None, str(e)
 
     def get_op_constraints(self, op_type: str) -> pd.DataFrame | None:
@@ -291,7 +291,7 @@ class DocConstraintChecker:
         # Get the checker function
         checker_func = self.CHECKER_FUNCTIONS.get(checker_name)
         if checker_func is None:
-            logger.warning(f"Unknown checker function: {checker_name}")
+            logger.debug(f"Unknown checker function: {checker_name}")
             return False, f"Unknown checker function: {checker_name}"
 
         # Get the tensor to check
@@ -365,7 +365,7 @@ class DocConstraintChecker:
                     pattern_match=pattern_match,
                 )
             # Operator truly not in DB or unsupported
-            logger.warning(f"Mapping failed for {op_type}: {error_desc}")
+            logger.debug(f"Mapping failed for {op_type}: {error_desc}")
             return PatternRuntime(
                 pattern_id=pattern_match.pattern.pattern_id,
                 result=RuntimeTestResult(
@@ -402,7 +402,7 @@ class DocConstraintChecker:
 
         if matching_rows.empty:
             actual_dtype = self._get_node_actual_dtype(node)
-            logger.warning(
+            logger.debug(
                 f"No constraints found for operator "
                 f"'{target_op}' with dtype category "
                 f"'{dtype_category}' (actual dtype: "

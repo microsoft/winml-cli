@@ -16,9 +16,9 @@ from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker
 from winml.modelkit.analyze.core.runtime_checker_query import (
     RuntimeCheckerQuery,
     _build_table_filter_conditions,
-    _try_load_external_initializer_array,
     get_query_conditions_for_node,
     node_to_pattern_match,
+    try_load_external_initializer_array,
 )
 from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError
 from winml.modelkit.analyze.utils.model_utils import DUMMY_FLOAT
@@ -210,7 +210,7 @@ class TestGetQueryConditionsForNode:
         )
         graph_only_model = onnx.load(str(model_path), load_external_data=False)
 
-        loaded = _try_load_external_initializer_array(
+        loaded = try_load_external_initializer_array(
             graph_only_model.graph.initializer[0],
             model_path,
         )
