@@ -920,7 +920,7 @@ def _run_onnx_benchmark(
     """
     from ..session import WinMLSession
 
-    session = WinMLSession(onnx_path=onnx_path, device=device)
+    session = WinMLSession(onnx_path=onnx_path, device=device, ep=config.ep)
 
     # Generate random inputs from session's I/O config
     io_cfg = session.io_config

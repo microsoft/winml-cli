@@ -287,10 +287,16 @@ class WinMLSession:
                     logger.warning("ModelCompiler failed, using original: %s", e)
 
         try:
-            # Create InferenceSession
+            # Create InferenceSession.
+            # EP is either configured via add_provider_for_devices (WinML EP
+            # registry, e.g. QNN) or left to ORT's device policy (fallback).
+            # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
             with _suppress_native_output(compile_log):
-                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+                session = ort.InferenceSession(
+                    str(model_path),
+                    sess_options=sess_options,
+                )
 
             # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()
@@ -415,14 +421,20 @@ class WinMLSession:
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
 
-        When ``self._ep`` is set, uses ``add_provider_for_devices`` to
-        explicitly bind a specific EP (e.g., MIGraphX, NvTensorRTRTX). Otherwise
-        falls back to policy-based selection via DEVICE_POLICY_MAP.
+        When ``self._ep`` is set (and not ``"cpu"``), uses
+        ``add_provider_for_devices`` to explicitly bind that EP.
+        ``"cpu"`` falls through to policy-based selection so ORT handles
+        CPU-only inference without any EP registration.
+        When ``self._ep`` is not set, queries ``get_ep_devices()`` to
+        discover an available EP for the target device type. Falls back to
+        policy-based selection only as a last resort.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
         """
         # Explicit EP targeting: create fresh opts to avoid double-registration
+        # Don't filter by device type — trust the user's --ep choice
+        # (e.g., QNN reports as NPU in get_ep_devices but can target GPU)
         if self._ep and self._ep != "cpu":
             target_name = self._EP_NAME_MAP.get(self._ep)
             if target_name:
@@ -430,19 +442,24 @@ class WinMLSession:
                 if matched:
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
-                    logger.info(
-                        "Explicit EP: %s (%s)",
-                        self._ep,
-                        target_name,
-                    )
+                    logger.info("Explicit EP: %s (%s)", self._ep, target_name)
                     return opts
                 logger.warning(
-                    "EP '%s' (%s) not found in available devices; falling back to policy",
+                    "EP '%s' (%s) not found in available devices",
                     self._ep,
                     target_name,
                 )
 
-        # Policy-based selection (default path)
+        # No explicit EP — discover available EP for this device type
+        if not self._ep and device.lower() != "cpu":
+            matched = self._find_ep_for_device(device)
+            if matched:
+                opts = ort.SessionOptions()
+                opts.add_provider_for_devices([matched], self._provider_options)
+                logger.info("Discovered EP for %s: %s", device, matched.ep_name)
+                return opts
+
+        # Policy-based selection (last resort)
         opts = self._session_options
         policy = DEVICE_POLICY_MAP.get(
             device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
@@ -453,13 +470,42 @@ class WinMLSession:
 
     @staticmethod
     def _find_ep_device(ep_name: str) -> Any:
-        """Find an OrtEpDevice matching the given EP name.
+        """Find the first OrtEpDevice matching the given EP name.
+
+        Args:
+            ep_name: Full EP name (e.g., "DmlExecutionProvider").
 
         Returns:
-            The first matching OrtEpDevice, or None if not found.
+            The matching OrtEpDevice, or None if not found.
         """
         for ep_dev in ort.get_ep_devices():
             if ep_dev.ep_name == ep_name:
+                return ep_dev
+        return None
+
+    @staticmethod
+    def _find_ep_for_device(device: str) -> Any:
+        """Find the first available OrtEpDevice for the given device type.
+
+        Queries ``ort.get_ep_devices()`` and returns the first EP whose
+        hardware device type matches (e.g., device="gpu" matches GPU EPs).
+
+        Note: Selection order is determined by the ORT EP registry, which is
+        not part of any documented contract. On systems where multiple EPs
+        match the same device type (e.g., QNN and DML both appear as GPU),
+        the result is registry-order dependent. When a specific EP is
+        required, use ``self._ep`` to bypass this discovery path entirely.
+
+        Returns:
+            The matching OrtEpDevice, or None if not found.
+        """
+        from ..utils.constants import DEVICE_TO_DEVICE_TYPE
+
+        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
+        if device_type is None:
+            return None
+        for ep_dev in ort.get_ep_devices():
+            if ep_dev.device.type == device_type:
                 return ep_dev
         return None
 

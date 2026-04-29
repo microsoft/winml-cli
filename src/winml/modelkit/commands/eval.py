@@ -24,8 +24,15 @@ logger = logging.getLogger(__name__)
     "-m",
     "--model",
     type=str,
-    default=None,
-    help="Path to .onnx model file or HuggingFace model ID.",
+    multiple=True,
+    default=(),
+    help=(
+        "Model to evaluate. Accepts three forms: "
+        "(1) HuggingFace model ID, e.g. `-m <hf_model_id>`. "
+        "(2) ONNX file path, e.g. `-m model.onnx` (requires --model-id). "
+        "(3) Composite / split-encoder model as repeated role=path pairs, "
+        "e.g. `-m image-encoder=vision.onnx -m text-encoder=text.onnx`."
+    ),
 )
 @click.option(
     "--model-id",
@@ -122,7 +129,7 @@ logger = logging.getLogger(__name__)
 @click.pass_context
 def eval(
     ctx: click.Context,
-    model: str | None,
+    model: tuple[str, ...],
     model_id: str | None,
     dataset_path: str,
     dataset_name: str | None,
@@ -184,29 +191,10 @@ def eval(
         _print_schema(task, cls.schema_info())
         return
 
-    if model is None and model_id is None:
-        raise click.UsageError(
-            "A model is required. Provide -m with a HuggingFace model ID or path to an .onnx file."
-        )
-
-    # Detect: -m as HF model ID (not an ONNX file) -> treat as model_id
-    model_path = None
-    if model is not None:
-        p = Path(model)
-        if p.suffix.lower() == ".onnx":
-            if not p.exists():
-                raise click.BadParameter(
-                    f"ONNX file not found: {model}",
-                    param_hint="-m/--model",
-                )
-            model_path = model
-            if model_id is None:
-                raise click.UsageError(
-                    "When using an ONNX file, --model-id is required "
-                    "for preprocessor and config resolution."
-                )
-        else:
-            model_id = model_id or model
+    model_path, model_id = _resolve_model_path(
+        model=model,
+        model_id=model_id,
+    )
 
     # Parse column mappings from --column key=value pairs
     columns_mapping: dict[str, str] = {}
@@ -268,6 +256,74 @@ def eval(
     except Exception as e:
         logger.exception("Evaluation failed")
         raise click.ClickException(f"Evaluation failed: {e}") from e
+
+
+def _resolve_model_path(
+    *,
+    model: tuple[str, ...],
+    model_id: str | None,
+) -> tuple[str | dict[str, str] | None, str | None]:
+    """Turn repeated -m values + --model-id into (model_path, model_id)."""
+    if not model:
+        if model_id is not None:
+            return None, model_id
+        raise click.UsageError(
+            "A model is required. Provide -m with a HuggingFace model ID, "
+            "a path to an .onnx file, or role=path pairs for composite models."
+        )
+
+    role_assigned = [v for v in model if "=" in v]
+    plain = [v for v in model if "=" not in v]
+
+    if role_assigned and plain:
+        raise click.UsageError(
+            "Cannot mix plain `-m <value>` and `-m role=path` forms. "
+            "Use `role=path` consistently for composite models."
+        )
+
+    if role_assigned:
+        if model_id is None:
+            raise click.UsageError(
+                "--model-id is required when using composite `-m role=path` options."
+            )
+        sub_model_paths: dict[str, str] = {}
+        for v in role_assigned:
+            role, _, path = v.partition("=")
+            role, path = role.strip(), path.strip()
+            if not role or not path:
+                raise click.BadParameter(
+                    f"Invalid role=path: {v!r}. Both role and path are required.",
+                    param_hint="-m/--model",
+                )
+            if role in sub_model_paths:
+                raise click.BadParameter(
+                    f"Duplicate role {role!r} in -m options.", param_hint="-m/--model",
+                )
+            if not Path(path).exists():
+                raise click.BadParameter(
+                    f"ONNX file not found: {path}", param_hint="-m/--model",
+                )
+            sub_model_paths[role] = path
+        return sub_model_paths, model_id
+
+    if len(plain) > 1:
+        raise click.UsageError(
+            "Multiple -m values require `role=path` syntax for composite models."
+        )
+
+    value = plain[0]
+    if Path(value).suffix.lower() == ".onnx":
+        if not Path(value).exists():
+            raise click.BadParameter(
+                f"ONNX file not found: {value}", param_hint="-m/--model",
+            )
+        if model_id is None:
+            raise click.UsageError(
+                "When using an ONNX file, --model-id is required "
+                "for preprocessor and config resolution."
+            )
+        return value, model_id
+    return None, model_id or value
 
 
 def _json_default(obj: object) -> object:
