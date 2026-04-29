@@ -23,7 +23,6 @@ from typing import Any
 
 import numpy as np
 import onnx
-from onnx import external_data_helper
 
 from .persistence import load_onnx, save_onnx
 
@@ -48,13 +47,9 @@ def _get_external_tensor_info(tensor: onnx.TensorProto) -> tuple[str | None, int
 def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
     """Convert a TensorProto dtype enum to a numpy dtype."""
     try:
-        from onnx.helper import tensor_dtype_to_np_dtype as onnx_tensor_dtype_to_np_dtype
+        return np.dtype(onnx.helper.tensor_dtype_to_np_dtype(tensor_type))
     except ImportError:
-        from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
-
-        return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type])
-
-    return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
+        return np.dtype(onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[tensor_type])
 
 
 def try_load_external_initializer_array(
@@ -141,10 +136,10 @@ def get_external_data_files(model_path: str | Path) -> list[str]:
     """
     file_names: set[str] = set()
     model = load_onnx(model_path, load_weights=False, validate=False)
-    for tensor in external_data_helper._get_all_tensors(model):
-        if external_data_helper.uses_external_data(tensor):
+    for tensor in onnx.external_data_helper._get_all_tensors(model):
+        if onnx.external_data_helper.uses_external_data(tensor):
             file_names.add(
-                external_data_helper.ExternalDataInfo(tensor).location,
+                onnx.external_data_helper.ExternalDataInfo(tensor).location,
             )
     return sorted(file_names)
 
