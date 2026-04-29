@@ -177,6 +177,7 @@ from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
 from ..onnx import ONNXDomain, SupportedONNXType, check_onnx_model, infer_onnx_shapes
+from ..onnx.external_data import try_load_external_initializer_array
 from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 from .op_input_gen.op_input_gen import OpInputGenerator
@@ -1332,13 +1333,6 @@ class PatternMatcher:
             if not initializer.name:
                 continue
             if initializer.data_location == onnx.TensorProto.EXTERNAL and not initializer.raw_data:
-                # External data not loaded — try resolving the sidecar file lazily
-                # via the runtime-checker query helper. Lazy import avoids the
-                # circular dependency between pattern.base and analyze.core.
-                from ..analyze.core.runtime_checker_query import (
-                    try_load_external_initializer_array,
-                )
-
                 external_arr = try_load_external_initializer_array(initializer, self.model_path)
                 if external_arr is not None:
                     self.tensor_values[initializer.name] = external_arr
