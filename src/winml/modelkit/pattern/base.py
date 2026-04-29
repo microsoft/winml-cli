@@ -1332,17 +1332,11 @@ class PatternMatcher:
             if not initializer.name:
                 continue
             if initializer.data_location == onnx.TensorProto.EXTERNAL and not initializer.raw_data:
-                # External data not loaded — try resolving the sidecar file lazily
-                # via the runtime-checker query helper. Lazy import avoids the
-                # circular dependency between pattern.base and analyze.core.
-                from ..analyze.core.runtime_checker_query import (
-                    try_load_external_initializer_array,
-                )
-
-                external_arr = try_load_external_initializer_array(initializer, self.model_path)
-                if external_arr is not None:
-                    self.tensor_values[initializer.name] = external_arr
-                else:
+                try:
+                    if self.model_path is not None:
+                        onnx.load_external_data_for_tensor(initializer, str(self.model_path.parent))
+                    self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
+                except Exception:
                     # Pattern matching still works via graph topology; only
                     # value-based constraint checks will be skipped for this tensor.
                     logger.debug(
