@@ -288,22 +288,14 @@ class WinMLSession:
 
         try:
             # Create InferenceSession.
-            # Prefer _build_session_options (uses add_provider_for_devices which
-            # works with WinML EP registry for non-built-in EPs like QNN).
-            # Only fall back to providers= strings when _build_session_options
-            # returned policy-based options (identity check).
+            # EP is either configured via add_provider_for_devices (WinML EP
+            # registry, e.g. QNN) or left to ORT's device policy (fallback).
+            # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
-            if sess_options is self._session_options:
-                # Policy fallback — use providers= for built-in EPs (e.g., DML)
-                providers = self._resolve_providers(target_device)
-            else:
-                # EP configured via add_provider_for_devices — don't override
-                providers = None
             with _suppress_native_output(compile_log):
                 session = ort.InferenceSession(
                     str(model_path),
                     sess_options=sess_options,
-                    providers=providers,
                 )
 
             # Log which providers were selected by ORT (based on policy)
@@ -516,24 +508,6 @@ class WinMLSession:
         for ep_dev in ort.get_ep_devices():
             if ep_dev.device.type == device_type:
                 return ep_dev
-        return None
-
-    def _resolve_providers(self, device: str) -> list[str] | None:
-        """Resolve explicit provider list for InferenceSession.
-
-        Uses self._ep if set, otherwise queries ``get_ep_devices()`` for the
-        target device type. Returns None for CPU (let ORT use default).
-        """
-        if self._ep and self._ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(self._ep)
-            if target_name:
-                return [target_name, "CPUExecutionProvider"]
-
-        if device.lower() != "cpu":
-            matched = self._find_ep_for_device(device)
-            if matched:
-                return [matched.ep_name, "CPUExecutionProvider"]
-
         return None
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
