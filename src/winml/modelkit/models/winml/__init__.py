@@ -197,6 +197,7 @@ from .kv_cache import (
 )
 from .object_detection import WinMLModelForObjectDetection
 from .sequence_classification import WinMLModelForSequenceClassification
+from .zero_shot_image_classification import WinMLModelForZeroShotImageClassification
 
 
 __all__ = [
@@ -215,6 +216,7 @@ __all__ = [
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",
+    "WinMLModelForZeroShotImageClassification",
     "WinMLPreTrainedModel",
     "WinMLSlidingWindowCache",
     "WinMLStaticCache",
