@@ -473,6 +473,95 @@ class TestCompileStageFinalizeOutput:
         assert len(context.warnings) == 1
         assert "EPContext model not found" in context.warnings[0]
 
+    def test_finalize_output_respects_user_file_path(self, tmp_path):
+        """Test that -o file path is used as the final output filename.
+
+        Before the fix, _finalize_output always generated
+        '{original_stem}_{device}_ctx.onnx', ignoring the user-specified
+        output path.
+        """
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        # User wants: output/compiled.onnx (not output/mymodel_qnn_ctx.onnx)
+        user_output = output_dir / "compiled.onnx"
+
+        # Create EPContext in work_dir
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        create_epcontext_onnx(ctx_path, "model_to_compile_qnn_ctx.bin", embed_mode=1)
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(user_output),
+            },
+            work_dir=work_dir,
+        )
+
+        stage = CompileStage()
+        stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
+
+        # Should use the user-specified filename, not the auto-generated one
+        assert context.output_path == user_output
+        assert user_output.exists()
+        # The auto-generated name should NOT exist
+        auto_name = output_dir / "mymodel_qnn_ctx.onnx"
+        assert not auto_name.exists()
+
+    def test_finalize_output_bin_uses_user_stem(self, tmp_path):
+        """Test that .bin companion file uses the user-specified stem.
+
+        Before the fix, .bin was always named '{original_stem}_{device}_ctx.bin'
+        even when the user specified a custom output filename.
+        """
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        work_dir = tmp_path / "work"
+        output_dir = tmp_path / "output"
+        work_dir.mkdir()
+        output_dir.mkdir()
+
+        original_model_path = tmp_path / "mymodel.onnx"
+        create_simple_model(original_model_path)
+
+        user_output = output_dir / "compiled.onnx"
+
+        # Create EPContext with external bin (embed_mode=0)
+        ctx_path = work_dir / "model_to_compile_qnn_ctx.onnx"
+        old_bin_name = "model_to_compile_qnn_ctx.bin"
+        create_epcontext_onnx(ctx_path, old_bin_name, embed_mode=0)
+
+        # Create the bin file
+        (work_dir / old_bin_name).write_bytes(b"fake binary")
+
+        context = CompileContext(
+            model_path=original_model_path,
+            config={
+                "execution_provider": "qnn",
+                "output_path": str(user_output),
+            },
+            work_dir=work_dir,
+        )
+
+        stage = CompileStage()
+        stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
+
+        # Bin should use the user-specified stem: "compiled.bin"
+        expected_bin = output_dir / "compiled.bin"
+        assert expected_bin.exists(), (
+            f"Expected {expected_bin}, found: {list(output_dir.iterdir())}"
+        )
+        # The old auto-generated name should NOT exist
+        assert not (output_dir / "mymodel_qnn_ctx.bin").exists()
+
 
 class TestCompilerPipeline:
     """Test Compiler class pipeline configuration."""

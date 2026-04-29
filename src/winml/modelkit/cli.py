@@ -27,6 +27,8 @@ from pathlib import Path
 import click
 
 from . import __version__
+from .telemetry import ActionGroup
+from .telemetry import telemetry as _telemetry_mod
 from .utils.logging import configure_logging
 
 
@@ -60,13 +62,16 @@ def _parse_click_help(path: Path) -> str:
     return ""
 
 
-class LazyGroup(click.Group):
+class LazyGroup(ActionGroup):
     """Click group that defers command module imports until invoked.
 
     Instead of importing every command module at startup, this group reads
     command names from the filesystem and only imports a module when the
     user actually invokes that command. Help text is extracted via AST
     parsing (no module execution).
+
+    Extends :class:`ActionGroup` so every resolved subcommand is also
+    auto-instrumented with ModelKit telemetry.
     """
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -166,6 +171,24 @@ def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
     ctx.obj["debug"] = debug or verbose >= 2
     ctx.obj["verbosity"] = verbose
     ctx.obj["quiet"] = quiet
+
+    ctx.call_on_close(_shutdown_telemetry)
+
+
+def _shutdown_telemetry() -> None:
+    # Only flush if a subcommand actually materialized the singleton.
+    # Calling `get_or_init()` here unconditionally would build a fresh
+    # Telemetry on the way out — which can trigger first-run consent
+    # resolution during process shutdown if the iKey is non-empty.
+    instance = _telemetry_mod._INSTANCE
+    if instance is None:
+        return
+    try:
+        instance.shutdown()
+    except Exception:
+        # Telemetry shutdown must never affect the CLI exit code; swallow
+        # any error from a half-initialized singleton or transport flush.
+        pass
 
 
 if __name__ == "__main__":
