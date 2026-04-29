@@ -6,9 +6,23 @@ The zip files are **not tracked by git**. They are hosted in a separate repo.
 
 ## Setup
 
-### Option 1: Download script (recommended)
+### Option 1: Download from the latest GitHub release (for external contributors)
 
-Requires [GitHub CLI](https://cli.github.com) (`gh`) with an account that has access to `gim-home`.
+Rule zips are published as individual assets on the **latest** [WinML-ModelKit release](https://github.com/microsoft/WinML-ModelKit/releases/latest). No special access required — this is the recommended path for external contributors who do not have `gim-home` org membership.
+
+Each asset is named `{EP}_{Device}_{Domain}_opset{N}.zip` (for example, `QNNExecutionProvider_NPU_ai.onnx_opset17.zip`). Download only the combinations you need and place them in this directory.
+
+To download all assets from the latest release with [GitHub CLI](https://cli.github.com):
+
+```bash
+gh release download --repo microsoft/WinML-ModelKit --pattern '*.zip' --dir src/winml/modelkit/analyze/rules/runtime_check_rules
+```
+
+`gh release download` defaults to the latest release. Pin to a specific tag with `--tag <version>` (for example, `--tag v0.0.1`) if you need a reproducible snapshot.
+
+### Option 2: Download script (Microsoft internal)
+
+For Microsoft developers with access to the `gim-home` org. Requires [GitHub CLI](https://cli.github.com) (`gh`) authenticated with such an account.
 
 ```bash
 uv run python scripts/download_rules.py --account <your_gim-home_account>
@@ -18,11 +32,11 @@ The script uses the specified `gh` account's token to authenticate, does a spars
 
 Use `--force` to re-download all files even if they already exist locally.
 
-### Option 2: Manual copy
+### Option 3: Manual copy (Microsoft internal)
 
 Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/op_check_results/rules/`](https://github.com/gim-home/ModelKitArtifacts/tree/main/op_check_results/rules) into this directory.
 
-### Option 3: Use external rules directory via environment variable
+### Option 4: Use external rules directory via environment variable
 
 Set `MODELKIT_RULES_DIR` to one or more directories containing runtime rule zip files.
 
@@ -33,7 +47,7 @@ Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` 
 
 Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
 
-### Option 4: Expand rule zips via CLI command
+### Option 5: Expand rule zips via CLI command
 
 You can materialize delta snapshots to full payloads in-place with:
 
