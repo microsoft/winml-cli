@@ -1317,12 +1317,6 @@ def main() -> None:
                 ep=args.ep,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
-            # Composite models produce multiple ONNX paths. Accuracy evaluation for
-            # composite models is supported for zero-shot-image-classification (CLIP/SigLIP);
-            # other composite tasks are not yet supported.
-            # TODO: expand composite accuracy support to other tasks (T5 summarization, etc.)
-            is_composite = len(onnx_paths) > 1
-            composite_accuracy_supported = entry.task == "zero-shot-image-classification"
 
             if not build_result["success"]:
                 # Build failed — synthesize failed result for downstream phases
@@ -1335,15 +1329,6 @@ def main() -> None:
                     perf_proc = fail_proc
                 if args.eval_type != "perf":
                     accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
-            elif is_composite and not composite_accuracy_supported and args.eval_type != "perf":
-                # Accuracy phase skipped for composite models (TODO: composite accuracy support)
-                safe_print(
-                    f"    [accuracy] Skipped for composite model {entry.hf_id} "
-                    "(multiple ONNX paths; composite accuracy evaluation not yet implemented)"
-                )
-                accuracy_result = {"skipped": True, "skip_reason": "composite_model_not_supported"}
-                if args.eval_type == "both":
-                    perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
             elif args.eval_type == "accuracy":
                 accuracy_result = _run_accuracy_phase(
                     entry,
