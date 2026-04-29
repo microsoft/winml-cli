@@ -74,6 +74,15 @@ def _instrument(cmd: click.Command) -> click.Command:
         success = True
         try:
             return original_invoke(ctx)
+        except SystemExit as exc:
+            # SystemExit inherits from BaseException, not Exception, so
+            # `sys.exit(1)` would otherwise slip past the Exception
+            # handler and be reported as a success in the finally block.
+            # Treat any non-zero code as failure but don't log a Python
+            # exception — the command exited intentionally.
+            if exc.code not in (None, 0):
+                success = False
+            raise
         except Exception as exc:
             success = False
             telemetry.log_error(exc)

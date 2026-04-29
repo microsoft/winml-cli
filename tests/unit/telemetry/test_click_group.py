@@ -9,14 +9,15 @@ auto-instruments every registered subcommand with ModelKit telemetry."""
 from unittest.mock import MagicMock
 
 import click
+import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.telemetry import ActionGroup, Telemetry
 from winml.modelkit.telemetry import telemetry as telemetry_mod
 
 
-# `_reset_singleton` (autouse) and `enabled_telemetry` come from
-# tests/unit/telemetry/conftest.py.
+# `_reset_telemetry_singleton` (autouse) comes from tests/conftest.py.
+# `enabled_telemetry` comes from tests/unit/telemetry/conftest.py.
 
 
 def _with_mock_logger(t: Telemetry) -> MagicMock:
@@ -118,6 +119,43 @@ def test_exception_emits_error_and_action_failure(enabled_telemetry):
 
     action_record = mock_logger.emit.call_args_list[2].args[0]
     assert dict(action_record.attributes)["success"] is False
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "expected_success"),
+    [(1, False), (2, False), (0, True)],
+)
+def test_systemexit_marks_success_by_exit_code(enabled_telemetry, exit_code, expected_success):
+    """``SystemExit`` is recorded as failure only for non-zero codes.
+
+    Regression: ``SystemExit`` inherits from ``BaseException``, not
+    ``Exception``, so it slips past ``except Exception`` and the finally
+    block would otherwise always emit ``success=True`` — masking
+    ``sys.exit(1)`` paths in commands like ``analyze``.
+    """
+
+    @click.group(cls=ActionGroup)
+    def cli():
+        pass
+
+    @cli.command()
+    def cmd():
+        import sys
+
+        sys.exit(exit_code)
+
+    telemetry = Telemetry.get_or_init()
+    mock_logger = _with_mock_logger(telemetry)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["cmd"])
+    assert result.exit_code == exit_code
+
+    # No ModelKitError — SystemExit is an intentional exit, not a crash.
+    event_names = [str(c.args[0].body) for c in mock_logger.emit.call_args_list]
+    assert event_names == ["ModelKitHeartbeat", "ModelKitAction"]
+    action_record = mock_logger.emit.call_args_list[1].args[0]
+    assert dict(action_record.attributes)["success"] is expected_success
 
 
 def test_disabled_telemetry_emits_nothing(monkeypatch):
