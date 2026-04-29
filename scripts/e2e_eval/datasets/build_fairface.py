@@ -95,16 +95,11 @@ def build_dataset(output_dir: Path) -> None:
     print("Done.")
 
 
-_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "winml" / "eval_datasets" / "build_fairface"
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build fairface validation dataset")
-    parser.add_argument("--output", type=Path, default=None, help="Output directory (default: ~/.cache/winml/eval_datasets/build_fairface)")
+    parser.add_argument("--output", type=Path, required=True, help="Output directory")
     args = parser.parse_args()
-    output_dir = args.output or _DEFAULT_CACHE_DIR
-    build_dataset(output_dir)
-    print(output_dir)
+    build_dataset(args.output)
 
 
 if __name__ == "__main__":
