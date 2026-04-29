@@ -134,6 +134,89 @@ class TestCompileCommand:
         assert config.ep_config.compiler == "qairt"
         assert config.ep_config.qnn_sdk_root == sdk_root
 
+    def test_compile_help_shows_output_option(self, runner: CliRunner) -> None:
+        """Test compile --help shows -o/--output option."""
+        result = runner.invoke(main, ["compile", "--help"])
+        assert result.exit_code == 0
+        assert "--output" in result.output or "-o" in result.output
+
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_compile_output_passes_file_path(
+        self,
+        mock_compile_onnx: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test -o passes a file path to compile_onnx as output_path.
+
+        Before the fix, -o was not a recognized option and Click raised an error.
+        """
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+        output_file = tmp_path / "compiled.onnx"
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = output_file
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_onnx.return_value = mock_result
+
+        result = runner.invoke(
+            main,
+            [
+                "compile",
+                "-m",
+                str(model_path),
+                "-o",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert mock_compile_onnx.called
+        # output_path should be the file path, not a directory
+        call_kwargs = mock_compile_onnx.call_args.kwargs
+        assert call_kwargs["output_path"] == output_file
+
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_compile_output_takes_precedence_over_output_dir(
+        self,
+        mock_compile_onnx: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test -o takes precedence over --output-dir when both are given."""
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+        output_file = tmp_path / "compiled.onnx"
+        output_dir = tmp_path / "some_dir"
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = output_file
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_onnx.return_value = mock_result
+
+        result = runner.invoke(
+            main,
+            [
+                "compile",
+                "-m",
+                str(model_path),
+                "-o",
+                str(output_file),
+                "--output-dir",
+                str(output_dir),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        # -o should win over --output-dir
+        call_kwargs = mock_compile_onnx.call_args.kwargs
+        assert call_kwargs["output_path"] == output_file
+
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""
         import onnx

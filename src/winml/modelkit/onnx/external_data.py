@@ -19,13 +19,112 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
+import numpy as np
+import onnx
 from onnx import external_data_helper
 
 from .persistence import load_onnx, save_onnx
 
 
 logger = logging.getLogger(__name__)
+
+
+# Pattern matching and runtime-query helpers later materialize numpy arrays.
+# Keep external initializer loading bounded until those pipelines stay lazy.
+MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY = 1024 * 1024
+
+
+def _get_external_tensor_info(tensor: onnx.TensorProto) -> tuple[str | None, int, int | None]:
+    """Extract location, offset, and length metadata for an external tensor."""
+    info = {entry.key: entry.value for entry in tensor.external_data}
+    location = info.get("location")
+    offset = int(info.get("offset", "0"))
+    length = int(info["length"]) if "length" in info else None
+    return location, offset, length
+
+
+def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
+    """Convert a TensorProto dtype enum to a numpy dtype."""
+    try:
+        from onnx.helper import tensor_dtype_to_np_dtype as onnx_tensor_dtype_to_np_dtype
+    except ImportError:
+        from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
+
+        return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type])
+
+    return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
+
+
+def try_load_external_initializer_array(
+    tensor: onnx.TensorProto,
+    model_path: str | Path | None,
+) -> np.ndarray | None:
+    """Load a small external initializer from disk.
+
+    Returns None when the model path is unavailable, metadata is incomplete,
+    the sidecar file is missing, or the tensor is too large for the current
+    value-materialization pipeline.
+    """
+    if tensor.data_location != onnx.TensorProto.EXTERNAL or model_path is None:
+        return None
+
+    location, offset, length = _get_external_tensor_info(tensor)
+    if location is None:
+        return None
+
+    model_path = Path(model_path)
+    data_path = Path(location)
+    if not data_path.is_absolute():
+        data_path = model_path.parent / data_path
+    if not data_path.exists():
+        return None
+
+    try:
+        np_dtype = _tensor_proto_dtype_to_np_dtype(tensor.data_type)
+        shape = tuple(tensor.dims)
+        numel = int(np.prod(shape)) if shape else 1
+        expected_bytes = numel * np_dtype.itemsize
+        if length is not None and length < expected_bytes:
+            logger.debug(
+                "External initializer %s length %s is smaller than expected %s",
+                tensor.name,
+                length,
+                expected_bytes,
+            )
+            return None
+        if expected_bytes > MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY:
+            logger.debug(
+                "Skipping external initializer %s because %s bytes exceeds %s",
+                tensor.name,
+                expected_bytes,
+                MAX_EXTERNAL_INITIALIZER_BYTES_FOR_QUERY,
+            )
+            return None
+
+        with data_path.open("rb") as f:
+            f.seek(offset)
+            arr = np.fromfile(f, dtype=np_dtype, count=numel)
+
+        if arr.size != numel:
+            logger.debug(
+                "External initializer %s only yielded %s elements, expected %s",
+                tensor.name,
+                arr.size,
+                numel,
+            )
+            return None
+
+        return arr.reshape(shape)
+    except Exception as e:
+        logger.debug(
+            "Failed to read external initializer %s from %s: %s",
+            tensor.name,
+            data_path,
+            e,
+        )
+        return None
 
 
 def get_external_data_files(model_path: str | Path) -> list[str]:
@@ -95,12 +194,16 @@ def copy_onnx_model(
 
     logger.debug(
         "Copied ONNX model with external data: %s -> %s (%d data files)",
-        src.name, dst.name, len(external_files),
+        src.name,
+        dst.name,
+        len(external_files),
     )
 
 
 def _copy_single_external(
-    src: Path, dst: Path, data_filename: str,
+    src: Path,
+    dst: Path,
+    data_filename: str,
 ) -> None:
     """Copy model with a single external data file efficiently.
 
@@ -132,6 +235,7 @@ def _copy_single_external(
     # has_existing_external check would force re-externalization on a
     # graph-only model (no loaded weights), corrupting the output.
     import onnx
+
     onnx.save_model(model, str(dst))
 
 

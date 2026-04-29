@@ -5,11 +5,12 @@
 
 """ModelKit telemetry - OneCollector-backed CLI usage and error reporting.
 
-Public surface consists of :class:`Telemetry` only. The ``ActionGroup``
-auto-wrap (Phase 3) will be re-exported here as well when it lands.
+Public surface: :class:`Telemetry` (the singleton) and :class:`ActionGroup`
+(the Click group subclass that auto-instruments registered subcommands).
 """
 
+from .click_group import ActionGroup
 from .telemetry import Telemetry
 
 
-__all__ = ["Telemetry"]
+__all__ = ["ActionGroup", "Telemetry"]
