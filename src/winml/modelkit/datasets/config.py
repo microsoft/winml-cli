@@ -25,6 +25,11 @@ class DatasetConfig:
         columns_mapping: Column name overrides as key=value pairs.
             If empty, consumer uses its own defaults.
         streaming: Whether to stream dataset (avoids full download).
+        build_script: Path to a Python script that builds the dataset locally.
+            When set alongside ``path``, the script is invoked with
+            ``--output <path>`` before the dataset is loaded.
+        label_mapping_file: Path to a JSON file with label mapping.
+            Resolved into ``label_mapping`` at eval time.
     """
 
     path: str | None = None
@@ -36,6 +41,8 @@ class DatasetConfig:
     columns_mapping: dict[str, str] = field(default_factory=dict)
     label_mapping: dict[str, int] | None = None
     streaming: bool = False
+    build_script: str | None = None
+    label_mapping_file: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -55,4 +62,8 @@ class DatasetConfig:
             result["label_mapping"] = self.label_mapping
         if self.streaming:
             result["streaming"] = self.streaming
+        if self.build_script is not None:
+            result["build_script"] = self.build_script
+        if self.label_mapping_file is not None:
+            result["label_mapping_file"] = self.label_mapping_file
         return result

@@ -16,7 +16,8 @@ Configuration Hierarchy:
     ├── export: WinMLExportConfig       # from modelkit/export/config.py
     ├── optim: WinMLOptimizationConfig  # from modelkit/optim/config.py
     ├── quant: WinMLQuantizationConfig  # from modelkit/quant/config.py
-    └── compile: WinMLCompileConfig     # from modelkit/compiler/configs.py
+    ├── compile: WinMLCompileConfig     # from modelkit/compiler/configs.py
+    └── eval: WinMLEvaluationConfig     # from modelkit/eval/config.py
 
 Design Principles (P1 FUNDAMENTAL):
 - CALLS existing APIs from loader/, export/, models/hf/
@@ -97,6 +98,7 @@ class WinMLBuildConfig:
         optim: Optimization configuration
         quant: Quantization configuration
         compile: Compilation configuration
+        eval: Evaluation configuration
 
     Example:
         from winml.modelkit.config import WinMLBuildConfig
@@ -127,7 +129,7 @@ class WinMLBuildConfig:
     optim: WinMLOptimizationConfig = field(default_factory=WinMLOptimizationConfig)
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
-    eval_option: WinMLEvaluationConfig | None = None
+    eval: WinMLEvaluationConfig | None = None
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> WinMLBuildConfig:
@@ -136,7 +138,7 @@ class WinMLBuildConfig:
         export_data = config_dict.get("export", {})
         quant_data = config_dict.get("quant")
         compile_data = config_dict.get("compile")
-        eval_option_data = config_dict.get("eval_option")
+        eval_data = config_dict.get("eval")
         return cls(
             loader=WinMLLoaderConfig.from_dict(loader_data),
             export=(WinMLExportConfig.from_dict(export_data) if export_data is not None else None),
@@ -147,9 +149,9 @@ class WinMLBuildConfig:
             compile=(
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
-            eval_option=(
-                WinMLEvaluationConfig.from_dict(eval_option_data)
-                if eval_option_data is not None
+            eval=(
+                WinMLEvaluationConfig.from_dict(eval_data)
+                if eval_data is not None
                 else None
             ),
         )
@@ -166,8 +168,8 @@ class WinMLBuildConfig:
         loader_dict = self.loader.to_dict()
         if loader_dict:
             result["loader"] = loader_dict
-        if self.eval_option is not None:
-            result["eval_option"] = self.eval_option.to_dict()
+        if self.eval is not None:
+            result["eval"] = self.eval.to_dict()
         return result
 
     def validate(self) -> None:

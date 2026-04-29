@@ -59,8 +59,6 @@ class WinMLEvaluationConfig:
     device: str = "cpu"
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = None
-    dataset_script: str | None = None
-    label_mapping_file: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -75,10 +73,6 @@ class WinMLEvaluationConfig:
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
-        if self.dataset_script is not None:
-            result["dataset_script"] = self.dataset_script
-        if self.label_mapping_file is not None:
-            result["label_mapping_file"] = self.label_mapping_file
         return result
 
     @classmethod
@@ -94,6 +88,8 @@ class WinMLEvaluationConfig:
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
             streaming=ds_data.get("streaming", False),
+            build_script=ds_data.get("build_script"),
+            label_mapping_file=ds_data.get("label_mapping_file"),
         )
         return cls(
             model_id=data.get("model_id"),
@@ -102,6 +98,4 @@ class WinMLEvaluationConfig:
             device=data.get("device", "cpu"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
-            dataset_script=data.get("dataset_script"),
-            label_mapping_file=data.get("label_mapping_file"),
         )

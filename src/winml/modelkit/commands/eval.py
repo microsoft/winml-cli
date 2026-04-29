@@ -175,159 +175,245 @@ def eval(
     if verbose or (ctx.obj and ctx.obj.get("debug")):
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
-    # Apply build config defaults (CLI explicit options take precedence)
+    from ..eval import WinMLEvaluationConfig, evaluate
+
+    # ── 1. Build config: CLI > config file eval > quant/loader > defaults ──
+    cfg = WinMLEvaluationConfig()
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
-            task = build_cfg.loader.task
-        if build_cfg.quant:
-            if not cli_utils.is_cli_provided(ctx, "samples"):
-                samples = build_cfg.quant.samples
-            if not cli_utils.is_cli_provided(ctx, "dataset_name"):
-                dataset_name = build_cfg.quant.dataset_name
-        # Apply eval_option from config (CLI options take precedence)
-        if build_cfg.eval_option:
-            eo = build_cfg.eval_option
-            if not cli_utils.is_cli_provided(ctx, "dataset_path") and eo.dataset.path:
-                dataset_path = eo.dataset.path
-            if not cli_utils.is_cli_provided(ctx, "dataset_name") and eo.dataset.name:
-                dataset_name = eo.dataset.name
-            if not cli_utils.is_cli_provided(ctx, "split"):
-                split = eo.dataset.split
-            if not cli_utils.is_cli_provided(ctx, "samples"):
-                samples = eo.dataset.samples
-            if not column and eo.dataset.columns_mapping:
-                column = tuple(f"{k}={v}" for k, v in eo.dataset.columns_mapping.items())
-            if label_mapping is None and eo.label_mapping_file:
-                label_mapping = Path(eo.label_mapping_file)
-            if dataset_script is None and eo.dataset_script:
-                dataset_script = eo.dataset_script
-
-    # Run dataset_script if provided (requires --trust-remote-code)
-    if dataset_script:
-        if not trust_remote_code:
-            raise click.UsageError(
-                "--trust-remote-code is required to execute a dataset script."
-            )
-        import subprocess
-        import sys
-
-        script_path = Path(dataset_script)
-        if not script_path.exists():
-            raise click.BadParameter(f"Dataset script not found: {script_path}")
-        logger.info("Building dataset via %s ...", script_path.name)
-        result = subprocess.run(  # noqa: S603
-            [sys.executable, str(script_path)],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            raise click.ClickException(
-                f"Dataset script failed: {result.stderr.strip()[-200:]}"
-            )
-        # Use the last line of stdout as dataset path (earlier lines are log messages)
-        stdout = result.stdout.strip()
-        script_output = stdout.splitlines()[-1].strip() if stdout else ""
-        if script_output:
-            dataset_path = script_output
+        cfg = _merge_from_config_file(cfg, config_file)
+    cfg = _merge_cli_overrides(cfg, ctx, column, label_mapping)
 
     if show_schema:
         from ..eval import WinMLEvaluator
         from ..eval.evaluate import _EVALUATOR_REGISTRY
 
-        if task is None:
+        if cfg.task is None:
             raise click.UsageError(
                 "--schema requires --task. Example: winml eval --schema --task object-detection"
             )
-        cls = _EVALUATOR_REGISTRY.get(task, WinMLEvaluator)
-        _print_schema(task, cls.schema_info())
+        cls = _EVALUATOR_REGISTRY.get(cfg.task, WinMLEvaluator)
+        _print_schema(cfg.task, cls.schema_info())
         return
 
-    if model is None and model_id is None:
-        raise click.UsageError(
-            "A model is required. Provide -m with a HuggingFace model ID or path to an .onnx file."
-        )
+    # ── 2. Resolve in place ──
+    _resolve_model(cfg, model)
+    _resolve_device(cfg)
+    _resolve_label_mapping(cfg)
+    _run_dataset_script(cfg, trust_remote_code)
 
-    # Detect: -m as HF model ID (not an ONNX file) -> treat as model_id
-    model_path = None
-    if model is not None:
-        p = Path(model)
+    logger.debug("Effective eval config: %s", cfg.to_dict())
+
+    # ── 3. Evaluate ──
+    try:
+        result = evaluate(cfg)
+        _write_and_display(result, cfg.output_path)
+    except Exception as e:
+        logger.exception("Evaluation failed")
+        raise click.ClickException(f"Evaluation failed: {e}") from e
+
+
+# ── CLI-to-config field mappings ──
+# Adding a new option only requires one entry here; both config-file and CLI
+# paths pick it up automatically via merge_config.
+_CLI_TO_CONFIG: dict[str, str] = {
+    "model_id": "model_id",
+    "task": "task",
+    "device": "device",
+}
+
+_CLI_TO_DATASET: dict[str, str] = {
+    "dataset_path": "path",
+    "dataset_name": "name",
+    "split": "split",
+    "samples": "samples",
+    "shuffle": "shuffle",
+    "streaming": "streaming",
+    "dataset_script": "build_script",
+}
+
+
+def _merge_from_config_file(
+    cfg: object,
+    config_file: Path,
+) -> object:
+    """Merge eval-relevant values from a build config file into *cfg*.
+
+    Reads the raw JSON so that only fields explicitly present in the file
+    are applied (avoids overriding with dataclass defaults).
+
+    Precedence (lowest → highest): quant/loader fields → eval section.
+    """
+    from ..utils.config_utils import merge_config
+
+    raw = json.loads(config_file.read_text())
+
+    # Loader task as lowest-priority fallback
+    loader_data = raw.get("loader", {})
+    if "task" in loader_data:
+        cfg.task = loader_data["task"]
+
+    # Quant fields as fallback (only explicitly-set values)
+    quant_data = raw.get("quant", {})
+    quant_overrides: dict = {}
+    if "samples" in quant_data:
+        quant_overrides.setdefault("dataset", {})["samples"] = quant_data["samples"]
+    if "dataset_name" in quant_data:
+        quant_overrides.setdefault("dataset", {})["name"] = quant_data["dataset_name"]
+    if quant_overrides:
+        cfg = merge_config(cfg, quant_overrides)
+
+    # Eval section overrides quant/loader
+    eval_data = raw.get("eval")
+    if eval_data:
+        cfg = merge_config(cfg, eval_data)
+
+    return cfg
+
+
+def _merge_cli_overrides(
+    cfg: object,
+    ctx: click.Context,
+    column: tuple[str, ...],
+    label_mapping: Path | None,
+) -> object:
+    """Overlay CLI-provided values onto *cfg* (highest priority).
+
+    Only values the user explicitly passed on the command line are applied.
+    Full precedence chain (lowest → highest):
+        dataclass defaults → quant/loader → config file eval → CLI
+    """
+    from ..utils.config_utils import merge_config
+
+    overrides: dict = {}
+    ds_overrides: dict = {}
+
+    for cli_name, cfg_name in _CLI_TO_CONFIG.items():
+        if cli_utils.is_cli_provided(ctx, cli_name):
+            overrides[cfg_name] = ctx.params[cli_name]
+
+    for cli_name, cfg_name in _CLI_TO_DATASET.items():
+        if cli_utils.is_cli_provided(ctx, cli_name):
+            ds_overrides[cfg_name] = ctx.params[cli_name]
+
+    # --column is multiple=True; non-empty tuple means user provided it
+    if column:
+        columns_mapping: dict[str, str] = {}
+        for c in column:
+            if "=" not in c:
+                raise click.BadParameter(
+                    f"Invalid column format: '{c}'. Use key=value.",
+                    param_hint="--column",
+                )
+            k, v = c.split("=", 1)
+            columns_mapping[k] = v
+        ds_overrides["columns_mapping"] = columns_mapping
+
+    if label_mapping is not None:
+        ds_overrides["label_mapping_file"] = str(label_mapping)
+
+    if cli_utils.is_cli_provided(ctx, "output"):
+        overrides["output_path"] = ctx.params["output"]
+
+    if ds_overrides:
+        overrides["dataset"] = ds_overrides
+
+    if overrides:
+        cfg = merge_config(cfg, overrides)
+
+    return cfg
+
+
+def _resolve_model(cfg: object, model_arg: str | None) -> None:
+    """Resolve ``-m`` into ``model_id`` / ``model_path`` on *cfg* in place."""
+    if model_arg is not None:
+        p = Path(model_arg)
         if p.suffix.lower() == ".onnx":
             if not p.exists():
                 raise click.BadParameter(
-                    f"ONNX file not found: {model}",
+                    f"ONNX file not found: {model_arg}",
                     param_hint="-m/--model",
                 )
-            model_path = model
-            if model_id is None:
+            cfg.model_path = model_arg
+            if cfg.model_id is None:
                 raise click.UsageError(
                     "When using an ONNX file, --model-id is required "
                     "for preprocessor and config resolution."
                 )
         else:
-            model_id = model_id or model
+            cfg.model_id = cfg.model_id or model_arg
 
-    # Parse column mappings from --column key=value pairs
-    columns_mapping: dict[str, str] = {}
-    for c in column:
-        if "=" not in c:
-            raise click.BadParameter(
-                f"Invalid column format: '{c}'. Use key=value.",
-                param_hint="--column",
-            )
-        k, v = c.split("=", 1)
-        columns_mapping[k] = v
+    if cfg.model_id is None and cfg.model_path is None:
+        raise click.UsageError(
+            "A model is required. Provide -m with a HuggingFace model ID or path to an .onnx file."
+        )
 
-    # Parse label mapping from JSON file
-    parsed_label_mapping = None
-    if label_mapping:
-        with Path(label_mapping).open() as f:
-            parsed_label_mapping = json.load(f)
 
-    from ..datasets import DatasetConfig
-    from ..eval import WinMLEvaluationConfig, evaluate
+def _resolve_device(cfg: object) -> None:
+    """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
     from ..sysinfo import resolve_device
 
-    resolved_device, _ = resolve_device(device)
+    resolved, _ = resolve_device(cfg.device)
+    cfg.device = resolved
 
-    ds_config = DatasetConfig(
-        path=dataset_path,
-        name=dataset_name,
-        split=split,
-        samples=samples,
-        shuffle=shuffle,
-        columns_mapping=columns_mapping,
-        label_mapping=parsed_label_mapping,
-        streaming=streaming,
+
+def _resolve_label_mapping(cfg: object) -> None:
+    """Load label-mapping JSON file (if any) into ``cfg.dataset.label_mapping``."""
+    if cfg.dataset.label_mapping_file:
+        with Path(cfg.dataset.label_mapping_file).open() as f:
+            cfg.dataset.label_mapping = json.load(f)
+
+
+def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
+    """Run the dataset build script referenced by *cfg*, if any.
+
+    The script is invoked with ``--output <dataset.path>`` so the built
+    dataset lands at the path already configured in the config file.
+    """
+    if not cfg.dataset.build_script:
+        return
+
+    if not trust_remote_code:
+        raise click.UsageError(
+            "--trust-remote-code is required to execute a dataset script."
+        )
+
+    import subprocess
+    import sys
+
+    script_path = Path(cfg.dataset.build_script)
+    if not script_path.exists():
+        raise click.BadParameter(f"Dataset script not found: {script_path}")
+
+    cmd = [sys.executable, str(script_path)]
+    if cfg.dataset.path:
+        cmd += ["--output", str(Path(cfg.dataset.path).expanduser())]
+
+    logger.info("Building dataset via %s ...", script_path.name)
+    result = subprocess.run(  # noqa: S603
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
+    if result.returncode != 0:
+        raise click.ClickException(
+            f"Dataset script failed (exit {result.returncode}): "
+            f"{result.stderr.strip()[-200:] or '(no stderr)'}"
+        )
 
-    config = WinMLEvaluationConfig(
-        model_path=model_path,
-        model_id=model_id,
-        task=task,
-        device=resolved_device,
-        dataset=ds_config,
-        output_path=output,
-    )
 
-    try:
-        result = evaluate(config)
+def _write_and_display(result: object, output_path: Path | None) -> None:
+    """Display evaluation results and optionally save to JSON."""
+    from rich.console import Console
 
-        from rich.console import Console
+    console = Console()
+    display_eval_report(result, console)
 
-        console = Console()
-        display_eval_report(result, console)
-
-        if output is not None:
-            output.parent.mkdir(parents=True, exist_ok=True)
-            with output.open("w") as f:
-                json.dump(result.to_dict(), f, indent=2, default=_json_default)
-            console.print(f"[green]Results saved to:[/green] {output}")
-
-    except Exception as e:
-        logger.exception("Evaluation failed")
-        raise click.ClickException(f"Evaluation failed: {e}") from e
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w") as f:
+            json.dump(result.to_dict(), f, indent=2, default=_json_default)
+        console.print(f"[green]Results saved to:[/green] {output_path}")
 
 
 def _json_default(obj: object) -> object:
