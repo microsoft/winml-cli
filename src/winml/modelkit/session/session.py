@@ -421,11 +421,13 @@ class WinMLSession:
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
 
-        When ``self._ep`` is set, uses ``add_provider_for_devices`` to
-        explicitly bind a specific EP (e.g., MIGraphX, NvTensorRTRTX).
-        When not set, queries ``get_ep_devices()`` to discover available
-        EPs for the target device type. Falls back to policy-based
-        selection only as a last resort.
+        When ``self._ep`` is set (and not ``"cpu"``), uses
+        ``add_provider_for_devices`` to explicitly bind that EP.
+        ``"cpu"`` falls through to policy-based selection so ORT handles
+        CPU-only inference without any EP registration.
+        When ``self._ep`` is not set, queries ``get_ep_devices()`` to
+        discover an available EP for the target device type. Falls back to
+        policy-based selection only as a last resort.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
@@ -467,27 +469,18 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(ep_name: str, device: str | None = None) -> Any:
-        """Find an OrtEpDevice matching EP name and hardware device type.
+    def _find_ep_device(ep_name: str) -> Any:
+        """Find the first OrtEpDevice matching the given EP name.
 
         Args:
             ep_name: Full EP name (e.g., "DmlExecutionProvider").
-            device: Target device string ("gpu", "npu", "cpu"). When provided,
-                also matches on OrtHardwareDeviceType so the correct physical
-                device is selected (e.g., discrete GPU vs integrated).
 
         Returns:
             The matching OrtEpDevice, or None if not found.
         """
-        from ..utils.constants import DEVICE_TO_DEVICE_TYPE
-
-        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper()) if device else None
         for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name != ep_name:
-                continue
-            if device_type is not None and ep_dev.device.type != device_type:
-                continue
-            return ep_dev
+            if ep_dev.ep_name == ep_name:
+                return ep_dev
         return None
 
     @staticmethod
@@ -496,6 +489,12 @@ class WinMLSession:
 
         Queries ``ort.get_ep_devices()`` and returns the first EP whose
         hardware device type matches (e.g., device="gpu" matches GPU EPs).
+
+        Note: Selection order is determined by the ORT EP registry, which is
+        not part of any documented contract. On systems where multiple EPs
+        match the same device type (e.g., QNN and DML both appear as GPU),
+        the result is registry-order dependent. When a specific EP is
+        required, use ``self._ep`` to bypass this discovery path entirely.
 
         Returns:
             The matching OrtEpDevice, or None if not found.
