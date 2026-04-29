@@ -20,9 +20,9 @@ uv run pre-commit install
 
 This installs all dependencies and enables [pre-commit hooks](https://pre-commit.com/) that automatically check license headers, formatting (Ruff), trailing whitespace, and YAML syntax on every commit.
 
-### Runtime check rules (for `analyze` development)
+### Runtime check rules
 
-If you are working on the analyzer (`winml analyze`, `src/winml/modelkit/analyze/`), you need to populate the runtime check rule zips locally. Without them, the analyzer logs a warning and treats affected operators as unknown — analysis results are incomplete but commands do not crash.
+When running ModelKit from a source tree (`uv run winml ...`), you need to populate the runtime check rule zips locally.
 
 External contributors (without `gim-home` org access) should download the rule zips from the **latest** [WinML-ModelKit release](https://github.com/microsoft/WinML-ModelKit/releases/latest) into `src/winml/modelkit/analyze/rules/runtime_check_rules/`:
 
@@ -30,7 +30,7 @@ External contributors (without `gim-home` org access) should download the rule z
 gh release download --repo microsoft/WinML-ModelKit --pattern '*.zip' --dir src/winml/modelkit/analyze/rules/runtime_check_rules
 ```
 
-Each asset is named `{EP}_{Device}_{Domain}_opset{N}.zip`; download only the combinations relevant to your work.
+Each asset is named `{EP}_{Device}_{Domain}_opset{N}.zip`. The command above pulls all of them; pick a subset if you only need specific EP/device/opset combinations.
 
 For all setup options (including the internal `gim-home` download script and the `MODELKIT_RULES_DIR` override), see [`src/winml/modelkit/analyze/rules/runtime_check_rules/README.md`](./src/winml/modelkit/analyze/rules/runtime_check_rules/README.md).
 

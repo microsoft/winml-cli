@@ -8,7 +8,7 @@ The zip files are **not tracked by git**. They are hosted in a separate repo.
 
 ### Option 1: Download from the latest GitHub release (for external contributors)
 
-Rule zips are published as individual assets on the **latest** [WinML-ModelKit release](https://github.com/microsoft/WinML-ModelKit/releases/latest). No special access required — this is the recommended path for external contributors who do not have `gim-home` org membership.
+Rule zips are published as individual assets on the **latest** [WinML-ModelKit release](https://github.com/microsoft/WinML-ModelKit/releases/latest). No special access required.
 
 Each asset is named `{EP}_{Device}_{Domain}_opset{N}.zip` (for example, `QNNExecutionProvider_NPU_ai.onnx_opset17.zip`). Download only the combinations you need and place them in this directory.
 
