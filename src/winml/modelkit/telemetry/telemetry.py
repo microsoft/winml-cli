@@ -58,6 +58,21 @@ def _filter_allowlist(event_name: str, attrs: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in attrs.items() if k in allowed}
 
 
+def _clear_cache_quietly() -> None:
+    """Best-effort delete the persistent cache.
+
+    Called when telemetry init resolves to disabled (empty iKey, consent
+    declined, or init crashed) so a disabled session never resends events
+    the user has since opted out of.
+    """
+    try:
+        from ._cache import _PersistentCache
+
+        _PersistentCache().clear()
+    except Exception:
+        _LOGGER.debug("cache clear failed", exc_info=True)
+
+
 class Telemetry:
     """Process-wide telemetry singleton. Use :meth:`get_or_init` to access.
 
@@ -103,8 +118,10 @@ class Telemetry:
         """
         try:
             if not constants.INSTRUMENTATION_KEY:
+                _clear_cache_quietly()
                 return
             if consent_mod.resolve_consent() != "enabled":
+                _clear_cache_quietly()
                 return
             # Import lazily so tests that never reach this branch don't
             # pay the OTel SDK import cost.
@@ -122,6 +139,7 @@ class Telemetry:
             self._logger = None
             self._provider = None
             self._disabled = True
+            _clear_cache_quietly()
 
     def _build_resource(self):
         from opentelemetry.sdk.resources import Resource
