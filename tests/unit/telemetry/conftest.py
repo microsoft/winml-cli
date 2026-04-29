@@ -3,40 +3,16 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Shared fixtures for the telemetry unit test package."""
+"""Shared fixtures for the telemetry unit test package.
+
+Singleton reset (autouse) lives in :mod:`tests.conftest` so it covers
+every test package, not just this one.
+"""
 
 import pytest
 
 from winml.modelkit.telemetry import Telemetry
 from winml.modelkit.telemetry import consent as consent_mod
-from winml.modelkit.telemetry import telemetry as telemetry_mod
-
-
-@pytest.fixture(autouse=True)
-def _reset_singleton():
-    """Reset the Telemetry singleton between tests so each one starts clean.
-
-    Calls ``shutdown()`` on any pre-existing instance so a real
-    ``BatchLogRecordProcessor`` thread (created when a test exercises the
-    real LoggerProvider path) does not leak across tests.
-    """
-    if telemetry_mod._INSTANCE is not None:
-        try:
-            telemetry_mod._INSTANCE.shutdown()
-        except Exception:
-            # Best-effort cleanup: a half-initialized singleton from a
-            # prior test must not block resetting state for this test.
-            pass
-    telemetry_mod._INSTANCE = None
-    yield
-    if telemetry_mod._INSTANCE is not None:
-        try:
-            telemetry_mod._INSTANCE.shutdown()
-        except Exception:
-            # Same rationale as above; teardown must always reach the
-            # _INSTANCE = None reset below.
-            pass
-    telemetry_mod._INSTANCE = None
 
 
 @pytest.fixture

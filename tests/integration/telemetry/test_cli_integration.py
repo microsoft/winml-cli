@@ -12,8 +12,7 @@ from winml.modelkit.telemetry import ActionGroup
 from winml.modelkit.telemetry import telemetry as telemetry_mod
 
 
-# `_reset_singleton` (autouse) comes from
-# tests/integration/telemetry/conftest.py.
+# `_reset_telemetry_singleton` (autouse) comes from tests/conftest.py.
 
 
 def test_top_level_help_works():
