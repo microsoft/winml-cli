@@ -372,6 +372,12 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
     if not cfg.dataset.build_script:
         return
 
+    if not cfg.dataset.path:
+        raise click.UsageError(
+            "dataset.path is required when dataset.build_script is set. "
+            "The path tells the script where to write the built dataset."
+        )
+
     if not trust_remote_code:
         raise click.UsageError(
             "--trust-remote-code is required to execute a dataset script."
@@ -384,9 +390,8 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
     if not script_path.exists():
         raise click.BadParameter(f"Dataset script not found: {script_path}")
 
-    cmd = [sys.executable, str(script_path)]
-    if cfg.dataset.path:
-        cmd += ["--output", str(Path(cfg.dataset.path).expanduser())]
+    cmd = [sys.executable, str(script_path),
+           "--output", str(Path(cfg.dataset.path).expanduser())]
 
     logger.info("Building dataset via %s ...", script_path.name)
     result = subprocess.run(  # noqa: S603
