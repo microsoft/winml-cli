@@ -46,7 +46,7 @@ def get_metric_value(model_dir: Path, task: str, precision: str, kind: str) -> s
             mean = lat.get("mean")
             sps = tp.get("samples_per_sec")
             if mean is not None and sps is not None:
-                return f"{mean:.2f}ms / {sps:.1f} sps"
+                return f"{mean:.2f}ms, {sps:.1f}sps"
             if mean is not None:
                 return f"{mean:.2f}ms"
             return "PASS"
