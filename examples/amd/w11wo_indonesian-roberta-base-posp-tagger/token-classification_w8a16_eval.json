@@ -1,0 +1,169 @@
+{
+  "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
+  "task": "token-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "C:\\Users\\shzhen\\.cache\\winml\\eval_datasets\\build_indonlu_posp",
+    "columns_mapping": {
+      "label_column": "pos_tags"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\w11wo_indonesian-roberta-base-posp-tagger\\token-classification_w8a16_eval.json",
+  "metrics": {
+    "ADJ": {
+      "precision": 0.8292682926829268,
+      "recall": 0.4594594594594595,
+      "f1": 0.591304347826087,
+      "number": 74
+    },
+    "ADK": {
+      "precision": 1.0,
+      "recall": 0.775,
+      "f1": 0.8732394366197184,
+      "number": 40
+    },
+    "ADV": {
+      "precision": 0.9714285714285714,
+      "recall": 0.5862068965517241,
+      "f1": 0.7311827956989247,
+      "number": 58
+    },
+    "ART": {
+      "precision": 0.875,
+      "recall": 1.0,
+      "f1": 0.9333333333333333,
+      "number": 35
+    },
+    "CCN": {
+      "precision": 1.0,
+      "recall": 0.9565217391304348,
+      "f1": 0.9777777777777777,
+      "number": 46
+    },
+    "CSN": {
+      "precision": 0.9,
+      "recall": 0.21951219512195122,
+      "f1": 0.3529411764705882,
+      "number": 41
+    },
+    "KUA": {
+      "precision": 1.0,
+      "recall": 0.5454545454545454,
+      "f1": 0.7058823529411764,
+      "number": 11
+    },
+    "NEG": {
+      "precision": 1.0,
+      "recall": 0.8461538461538461,
+      "f1": 0.9166666666666666,
+      "number": 13
+    },
+    "NNO": {
+      "precision": 0.6688206785137318,
+      "recall": 0.7472924187725631,
+      "f1": 0.7058823529411764,
+      "number": 554
+    },
+    "NNP": {
+      "precision": 0.46998722860791825,
+      "recall": 0.8034934497816594,
+      "f1": 0.5930701047542305,
+      "number": 458
+    },
+    "NUM": {
+      "precision": 0.948051948051948,
+      "recall": 0.73,
+      "f1": 0.824858757062147,
+      "number": 100
+    },
+    "PAR": {
+      "precision": 1.0,
+      "recall": 0.2857142857142857,
+      "f1": 0.4444444444444445,
+      "number": 7
+    },
+    "PPO": {
+      "precision": 0.9586206896551724,
+      "recall": 0.6984924623115578,
+      "f1": 0.8081395348837209,
+      "number": 199
+    },
+    "PRI": {
+      "precision": 1.0,
+      "recall": 0.5,
+      "f1": 0.6666666666666666,
+      "number": 2
+    },
+    "PRK": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 1
+    },
+    "PRN": {
+      "precision": 1.0,
+      "recall": 0.8181818181818182,
+      "f1": 0.9,
+      "number": 33
+    },
+    "PRR": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 46
+    },
+    "SYM": {
+      "precision": 0.9843260188087775,
+      "recall": 0.8579234972677595,
+      "f1": 0.9167883211678832,
+      "number": 366
+    },
+    "UNS": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "number": 2
+    },
+    "VBE": {
+      "precision": 0.75,
+      "recall": 1.0,
+      "f1": 0.8571428571428571,
+      "number": 3
+    },
+    "VBI": {
+      "precision": 0.8125,
+      "recall": 0.17333333333333334,
+      "f1": 0.2857142857142857,
+      "number": 75
+    },
+    "VBL": {
+      "precision": 1.0,
+      "recall": 0.8888888888888888,
+      "f1": 0.9411764705882353,
+      "number": 9
+    },
+    "VBP": {
+      "precision": 1.0,
+      "recall": 0.2535211267605634,
+      "f1": 0.40449438202247184,
+      "number": 71
+    },
+    "VBT": {
+      "precision": 0.967741935483871,
+      "recall": 0.5825242718446602,
+      "f1": 0.7272727272727272,
+      "number": 103
+    },
+    "overall_precision": 0.7204942479761397,
+    "overall_recall": 0.7204942479761397,
+    "overall_f1": 0.7204942479761397,
+    "overall_accuracy": 0.7204942479761397,
+    "total_time_in_seconds": 13.874471899995115,
+    "samples_per_second": 7.20748153304741,
+    "latency_in_seconds": 0.13874471899995114
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "model_id": "microsoft/rad-dino",
+  "task": "image-feature-extraction",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 582,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Ewakaa/pneumonia_classification_chest_xray"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\microsoft_rad-dino\\image-feature-extraction_fp16_eval.json",
+  "metrics": {
+    "knn_top1_accuracy": 82.4742,
+    "knn_top5_accuracy": 99.6564
+  }
+}
