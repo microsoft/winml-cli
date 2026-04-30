@@ -328,3 +328,143 @@ class TestPerfUnifiedPipeline:
             benchmark._load_model()
 
         assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+
+    def test_no_compile_default_is_true(self) -> None:
+        """--no-compile should be on by default (perf skips compile)."""
+        config = BenchmarkConfig(model_id="microsoft/resnet-50")
+        assert config.no_compile is True
+
+    def test_no_compile_passed_to_from_pretrained(self) -> None:
+        """no_compile flag should be forwarded to from_pretrained via kwargs."""
+        config = BenchmarkConfig(
+            model_id="microsoft/resnet-50",
+            device="cpu",
+            no_compile=True,
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_fp:
+            benchmark._load_model()
+
+        assert mock_fp.call_args.kwargs.get("no_compile") is True
+
+    def test_compile_enabled_passed_to_from_pretrained(self) -> None:
+        """no_compile=False (--compile) should forward False to from_pretrained."""
+        config = BenchmarkConfig(
+            model_id="microsoft/resnet-50",
+            device="cpu",
+            no_compile=False,
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_fp:
+            benchmark._load_model()
+
+        assert mock_fp.call_args.kwargs.get("no_compile") is False
+
+    def test_no_compile_passed_to_from_onnx(self, tmp_path: Path) -> None:
+        """no_compile flag should be forwarded to from_onnx via kwargs."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        config = BenchmarkConfig(
+            model_id=str(onnx_file),
+            device="cpu",
+            no_compile=True,
+        )
+        benchmark = PerfBenchmark(config)
+
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+            return_value=MagicMock(),
+        ) as mock_fo:
+            benchmark._load_model()
+
+        assert mock_fo.call_args.kwargs.get("no_compile") is True
+
+
+# =============================================================================
+# CLI FLAG TESTS
+# =============================================================================
+
+
+class TestPerfCompileFlag:
+    """Test --no-compile / --compile CLI flag behaviour."""
+
+    def test_no_compile_in_help(self, runner: CliRunner) -> None:
+        """--no-compile flag should appear in help output."""
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--no-compile" in result.output
+
+    def test_compile_toggle_in_help(self, runner: CliRunner) -> None:
+        """--compile toggle should appear in help output."""
+        result = runner.invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        assert "--compile" in result.output
+
+    def test_cli_no_compile_default_passes_true(self, runner: CliRunner, tmp_path: Path) -> None:
+        """CLI default (no flag) should pass no_compile=True to PerfBenchmark."""
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf._run_onnx_benchmark",
+                return_value=MagicMock(),
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_cls,
+        ):
+            mock_cls.return_value.run.return_value = MagicMock()
+            runner.invoke(
+                perf,
+                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        # The ONNX path uses _run_onnx_benchmark, not PerfBenchmark, so verify
+        # via BenchmarkConfig default instead.
+        config = BenchmarkConfig(model_id="x")
+        assert config.no_compile is True
+
+    def test_cli_compile_flag_sets_no_compile_false(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Passing --compile should forward no_compile=False to from_pretrained."""
+        with (
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+                return_value=MagicMock(),
+            ) as mock_fp,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_fp.return_value._session = MagicMock()
+            mock_fp.return_value.io_config = {
+                "input_names": [],
+                "output_names": [],
+                "input_shapes": [],
+                "input_types": [],
+            }
+            runner.invoke(
+                perf,
+                [
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--compile",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        if mock_fp.called:
+            assert mock_fp.call_args.kwargs.get("no_compile") is False

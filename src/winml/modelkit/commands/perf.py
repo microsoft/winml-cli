@@ -76,6 +76,7 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
     monitor: bool = False
@@ -344,6 +345,7 @@ class PerfBenchmark:
             "use_cache": use_cache,
             "force_rebuild": force_rebuild,
             "shape_config": self.config.shape_config,
+            "no_compile": self.config.no_compile,
         }
 
         if is_onnx:
@@ -500,6 +502,7 @@ def _perf_modules(
     warmup: int,
     batch_size: int,
     no_quantize: bool,
+    no_compile: bool,
     output: Path | None,
     verbose: bool,
     console: Console,
@@ -519,6 +522,7 @@ def _perf_modules(
         warmup: Number of warmup iterations.
         batch_size: Batch size for input generation.
         no_quantize: If True, skip quantization and compilation.
+        no_compile: If True, skip EP compilation (no EPContext generation).
         output: Output JSON path, or None for auto-generated path.
         verbose: If True, log exceptions at DEBUG level.
         console: Rich console for output.
@@ -582,6 +586,8 @@ def _perf_modules(
         # Skip quant/compile for faster iteration when requested
         if no_quantize:
             cfg.quant = None
+            cfg.compile = None
+        elif no_compile:
             cfg.compile = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1090,6 +1096,12 @@ def _run_onnx_benchmark(
     help="Skip quantization during model build",
 )
 @click.option(
+    "--no-compile/--compile",
+    "no_compile",
+    default=True,
+    help="Skip EP compilation during model build (no EPContext generation). Default: skip.",
+)
+@click.option(
     "--rebuild",
     is_flag=True,
     default=False,
@@ -1151,6 +1163,7 @@ def perf(
     batch_size: int,
     shape_config_path: Path | None,
     no_quantize: bool,
+    no_compile: bool,
     rebuild: bool,
     ignore_cache: bool,
     module_class: str | None,
@@ -1246,6 +1259,7 @@ def perf(
             warmup=warmup,
             batch_size=batch_size,
             no_quantize=no_quantize,
+            no_compile=no_compile,
             output=output,
             verbose=verbose,
             console=console,
@@ -1288,6 +1302,7 @@ def perf(
         batch_size=batch_size,
         output_path=output,
         no_quantize=no_quantize,
+        no_compile=no_compile,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         monitor=monitor,

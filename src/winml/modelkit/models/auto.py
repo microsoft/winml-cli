@@ -363,6 +363,11 @@ class WinMLAutoModel:
             ep=kwargs.get("ep"),
         )
 
+        # Apply stage overrides AFTER policy resolution (policy runs inside
+        # generate_hf_build_config and would overwrite compile/quant otherwise).
+        if kwargs.get("no_compile"):
+            build_config.compile = None
+
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
 
@@ -427,7 +432,7 @@ class WinMLAutoModel:
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
-            ep=resolved_ep,
+            ep=kwargs.get("ep"),  # user's explicit --ep only; device policy handles the rest
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model
