@@ -19,12 +19,14 @@ from .evaluate import EvalResult, evaluate, get_evaluator_class
 
 
 if TYPE_CHECKING:
+    from .depth_estimation_evaluator import WinMLDepthEstimationEvaluator
     from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
     from .fill_mask_evaluator import WinMLFillMaskEvaluator
     from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
     from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
     from .image_to_text_evaluator import WinMLImageToTextEvaluator
     from .metrics.classification import ClassificationMetric
+    from .metrics.depth import DepthMetric
     from .metrics.knn_accuracy import KNNAccuracyMetric
     from .metrics.mean_average_precision import MAPMetric
     from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
@@ -41,6 +43,8 @@ if TYPE_CHECKING:
 
 _LAZY_ATTRS: dict[str, str] = {
     # Evaluators
+    "WinMLDepthEstimationEvaluator":
+        ".depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
     "WinMLFeatureExtractionEvaluator":
         ".feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
     "WinMLFillMaskEvaluator":
@@ -66,6 +70,8 @@ _LAZY_ATTRS: dict[str, str] = {
     # Metrics (defer numpy / scipy / torch / torchmetrics until first use)
     "ClassificationMetric":
         ".metrics.classification:ClassificationMetric",
+    "DepthMetric":
+        ".metrics.depth:DepthMetric",
     "IGNORE_INDEX":
         ".metrics.mean_iou:IGNORE_INDEX",
     "KNNAccuracyMetric":
@@ -104,6 +110,7 @@ __all__ = [
     "IGNORE_INDEX",
     "ClassificationMetric",
     "DatasetConfig",
+    "DepthMetric",
     "EvalResult",
     "KNNAccuracyMetric",
     "MAPMetric",
@@ -111,6 +118,7 @@ __all__ = [
     "PseudoPerplexityMetric",
     "SpearmanCorrelationMetric",
     "TopKAccuracyMetric",
+    "WinMLDepthEstimationEvaluator",
     "WinMLEvaluationConfig",
     "WinMLEvaluator",
     "WinMLFeatureExtractionEvaluator",
@@ -125,5 +133,4 @@ __all__ = [
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
-    "get_evaluator_class",
 ]

@@ -57,6 +57,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
     "zero-shot-image-classification":
         "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
+    "depth-estimation":
+        "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator",
 }
 
 
@@ -154,6 +156,21 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "columns_mapping": {
             "input_column": "img",
             "label_column": "fine_label",
+        },
+    },
+    "depth-estimation": {
+        "path": "sayakpaul/nyu_depth_v2",
+        "split": "validation",
+        # Loaded via the parquet-mirror revision so the dataset works without
+        # the legacy `nyu_depth_v2.py` loader script.
+        "revision": "refs/convert/parquet",
+        "columns_mapping": {
+            "input_column": "image",
+            "depth_column": "depth_map",
+            # NYU indoor convention; override per dataset (e.g. KITTI: 80).
+            "align": "median",
+            "min_depth": "1e-3",
+            "max_depth": "10.0",
         },
     },
 }

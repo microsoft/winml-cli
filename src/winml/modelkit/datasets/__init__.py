@@ -46,6 +46,7 @@ TASK_DATASET_MAPPING = {
     "fill-mask": TextDataset,
     "zero-shot-classification": TextDataset,
     "image-segmentation": ImageSegmentationDataset,
+    "depth-estimation": ImageDataset,
     "random": RandomDataset,
     # Add more task types as needed
 }
