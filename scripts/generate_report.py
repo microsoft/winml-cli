@@ -41,29 +41,29 @@ def get_metric_value(model_dir: Path, task: str, precision: str, kind: str) -> s
     try:
         data = json.loads(path.read_text())
         if kind == "perf":
-            for key in ["avg_latency_ms", "latency_ms", "avg_inference_time_ms"]:
-                if key in data:
-                    return f"{data[key]:.1f}ms"
-            if "results" in data and isinstance(data["results"], dict):
-                for key in ["avg_latency_ms", "latency_ms"]:
-                    if key in data["results"]:
-                        return f"{data['results'][key]:.1f}ms"
+            lat = data.get("latency_ms", {})
+            tp = data.get("throughput", {})
+            mean = lat.get("mean")
+            sps = tp.get("samples_per_sec")
+            if mean is not None and sps is not None:
+                return f"{mean:.2f}ms / {sps:.1f} sps"
+            if mean is not None:
+                return f"{mean:.2f}ms"
             return "PASS"
         else:
             metrics = data.get("metrics", {})
-            for key in ["accuracy", "overall_accuracy", "f1", "overall_f1",
-                         "exact", "mean_iou", "cosine_similarity",
-                         "pseudo_perplexity"]:
-                if key in metrics:
-                    v = metrics[key]
-                    return f"{v:.4f}" if isinstance(v, float) else str(v)
+            # Collect all non-timing metrics
+            skip = {"total_time_in_seconds", "samples_per_second", "latency_in_seconds"}
+            parts = []
             for k, v in metrics.items():
-                if isinstance(v, (int, float)) and k not in (
-                    "total_time_in_seconds", "samples_per_second",
-                    "latency_in_seconds",
-                ):
-                    return f"{v:.4f}" if isinstance(v, float) else str(v)
-            return "PASS"
+                if k in skip:
+                    continue
+                if isinstance(v, float):
+                    parts.append(f"{k}={v:.4f}")
+                elif isinstance(v, (int, str)):
+                    parts.append(f"{k}={v}")
+                # Skip dicts (per-class metrics) for brevity
+            return " ".join(parts) if parts else "PASS"
     except Exception:
         return "PASS"
 
