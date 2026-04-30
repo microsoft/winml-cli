@@ -257,6 +257,24 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
             "Please specify model_class explicitly."
         )
 
+    # [3a] Per-model-type default task override.
+    # Some model families (e.g., SAM/SAM2) have an architecture class whose
+    # default TasksManager mapping ("feature-extraction") differs from the
+    # canonical export target ("mask-generation"). Honor MODEL_TASK_DEFAULTS
+    # to bias auto-detection toward the right export configuration.
+    from ..models.hf import MODEL_TASK_DEFAULTS
+
+    model_type_normalized = model_type.lower().replace("_", "-")
+    default_task = MODEL_TASK_DEFAULTS.get(model_type_normalized)
+    if default_task is not None and default_task != task:
+        logger.info(
+            "Overriding auto-detected task %r with model-type default %r for %s",
+            task,
+            default_task,
+            model_type_normalized,
+        )
+        task = default_task
+
     # [4] Check specializations first (CLIP, SAM2, etc.) - highest priority
     model_class = _get_custom_model_class(model_type, task)
     if model_class:

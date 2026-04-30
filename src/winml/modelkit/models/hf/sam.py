@@ -360,11 +360,12 @@ class SAMMaskGeneration(torch.nn.Module):
 # (model_type, task) -> HuggingFace model class
 #
 # Why SAM2 needs class mapping:
-# TasksManager detects "feature-extraction" by default for Sam2VideoModel.
-# We override to Sam2VisionEncoder for encoder-only export (loads parent
-# Sam2VideoModel and extracts vision_encoder to get correct weights).
-# "image-feature-extraction" routes perf pipeline to ImageDataset.
-# Users wanting the full model use --task image-segmentation.
+# TasksManager detects "feature-extraction" by default for Sam2VideoModel,
+# but the typical SAM/SAM2 export target is the mask-generation decoder
+# wrapper (see MODEL_TASK_DEFAULTS below). We also keep encoder-only entries
+# so users can opt in via --task feature-extraction / image-feature-extraction
+# (the latter routes perf pipeline to ImageDataset). Users wanting the full
+# encoder+decoder monolith use --task image-segmentation.
 
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("sam", "mask-generation"): SAMMaskGeneration,
@@ -376,6 +377,16 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("sam2-video", "feature-extraction"): Sam2VisionEncoder,
     ("sam2-video", "image-feature-extraction"): Sam2VisionEncoder,
     ("sam2-video", "mask-generation"): SAM2MaskGeneration,
+}
+
+# Per-model-type default task override applied during auto-detection when
+# the user does not pass --task. TasksManager.infer_task_from_model() returns
+# "feature-extraction" for Sam2Model / SamModel, but the canonical export
+# target for these architectures is the mask-generation decoder wrapper.
+MODEL_TASK_DEFAULTS: dict[str, str] = {
+    "sam": "mask-generation",
+    "sam2": "mask-generation",
+    "sam2-video": "mask-generation",
 }
 
 
@@ -1023,6 +1034,8 @@ class SamMaskGenerationIOConfig(OnnxConfig):
 
 
 __all__ = [
+    "MODEL_CLASS_MAPPING",
+    "MODEL_TASK_DEFAULTS",
     "SAM2MaskGeneration",
     "SAMMaskGeneration",
     "Sam2IOConfig",

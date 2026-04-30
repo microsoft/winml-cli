@@ -29,6 +29,7 @@ from .hf import MODEL_BUILD_CONFIGS
 # HuggingFace model class mappings (aggregated from hf/ subpackage)
 # Importing triggers ONNX config registration with Optimum's TasksManager
 from .hf import MODEL_CLASS_MAPPING as HF_MODEL_CLASS_MAPPING
+from .hf import MODEL_TASK_DEFAULTS as HF_MODEL_TASK_DEFAULTS
 
 # Re-export from winml/ subpackage (WinML inference class mappings)
 # These have no circular dependencies with loader/
@@ -79,6 +80,7 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "HF_MODEL_CLASS_MAPPING",
+    "HF_MODEL_TASK_DEFAULTS",
     "MODEL_BUILD_CONFIGS",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",

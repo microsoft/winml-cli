@@ -55,6 +55,7 @@ from .qwen import QwenPrefillIOConfig as _QwenPrefillIOConfig
 from .roberta import ROBERTA_FAMILY_CONFIG
 from .roberta import RobertaIOConfig as _RobertaIOConfig  # triggers registration
 from .sam import MODEL_CLASS_MAPPING as _SAM2_CLASS_MAPPING
+from .sam import MODEL_TASK_DEFAULTS as _SAM2_TASK_DEFAULTS
 from .segformer import MODEL_CLASS_MAPPING as _SEGFORMER_CLASS_MAPPING
 from .segformer import SegformerIOConfig as _SegformerIOConfig  # triggers registration
 from .siglip import MODEL_CLASS_MAPPING as _SIGLIP_CLASS_MAPPING
@@ -80,6 +81,15 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     **_SEGFORMER_CLASS_MAPPING,
     **_SIGLIP_CLASS_MAPPING,
     **_T5_CLASS_MAPPING,
+}
+
+# Aggregated per-model-type default task overrides:
+#   model_type -> preferred task
+# Applied during auto-detection (when --task is not provided) to override
+# TasksManager.infer_task_from_model() when the canonical export target for a
+# model family differs from what the architecture class implies.
+MODEL_TASK_DEFAULTS: dict[str, str] = {
+    **_SAM2_TASK_DEFAULTS,
 }
 
 # Registry: model_type -> WinMLBuildConfig
@@ -109,4 +119,5 @@ MODEL_BUILD_CONFIGS = {
 __all__ = [
     "MODEL_BUILD_CONFIGS",
     "MODEL_CLASS_MAPPING",
+    "MODEL_TASK_DEFAULTS",
 ]
