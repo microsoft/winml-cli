@@ -65,7 +65,7 @@ class TestUnifiedPatternConfig:
 
         alt = alternatives[0]
         assert isinstance(alt, PatternAlternative)
-        assert alt.pattern_to_id == "SUBGRAPH/GeluPattern"
+        assert alt.pattern_to_id == "SUBGRAPH/SingleGeluPattern"
         assert alt.pattern_class == "SingleGeluPattern"
         assert alt.module == "winml.modelkit.pattern.gelu_patterns"
         assert alt.priority == 1
@@ -88,9 +88,36 @@ class TestUnifiedPatternConfig:
 
         # Verify the alternative
         alt = alternatives[0]
-        assert alt.pattern_to_id == "SUBGRAPH/GeluPattern"
+        assert alt.pattern_to_id == "SUBGRAPH/SingleGeluPattern"
         assert alt.pattern_class == "SingleGeluPattern"
         assert alt.module == "winml.modelkit.pattern.gelu_patterns"
+
+    def test_gemm_alternatives_have_distinct_pattern_to_id(self):
+        """Test that GemmPattern alternatives use distinct pattern_to_id values.
+
+        Before the fix, all alternatives had pattern_to_id == "SUBGRAPH/GemmPattern"
+        (same as the source), causing information engine lookup failures.
+        """
+        config = UnifiedPatternConfig()
+        patterns = config.get_skeleton_patterns()
+
+        matmuladd_pattern = next(
+            (p for p in patterns if p.__class__.__name__ == "MatMulAddPattern"), None
+        )
+        assert matmuladd_pattern is not None, "MatMulAddPattern not found"
+
+        alternatives = config.get_alternatives(matmuladd_pattern)
+        assert len(alternatives) == 4
+
+        # Each alternative should have a unique pattern_to_id matching its class
+        expected_ids = {
+            "SUBGRAPH/ReshapeGemmReshapePattern",
+            "SUBGRAPH/Conv2DInplaceLinear4DPattern",
+            "SUBGRAPH/Conv2DInplaceLinear3DPattern",
+            "SUBGRAPH/Conv2DInplaceLinear2DPattern",
+        }
+        actual_ids = {alt.pattern_to_id for alt in alternatives}
+        assert actual_ids == expected_ids
 
     def test_alternatives_sorted_by_priority(self):
         """Test that alternatives are sorted by priority (highest first)."""
@@ -152,7 +179,7 @@ class TestUnifiedPatternConfig:
         assert isinstance(alt, PatternAlternative)
 
         # Verify the new fields are present
-        assert alt.pattern_to_id == "SUBGRAPH/GeluPattern"
+        assert alt.pattern_to_id == "SUBGRAPH/SingleGeluPattern"
         assert alt.pattern_class == "SingleGeluPattern"
         assert alt.module == "winml.modelkit.pattern.gelu_patterns"
         assert alt.priority == 1
