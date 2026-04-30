@@ -15,6 +15,7 @@ from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
 from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
+from .metrics.classification import ClassificationMetric
 from .metrics.knn_accuracy import KNNAccuracyMetric
 from .metrics.mean_average_precision import MAPMetric
 from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
@@ -25,11 +26,13 @@ from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
 from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
 
 __all__ = [
     "IGNORE_INDEX",
+    "ClassificationMetric",
     "EvalResult",
     "KNNAccuracyMetric",
     "MAPMetric",
@@ -47,6 +50,7 @@ __all__ = [
     "WinMLQuestionAnsweringEvaluator",
     "WinMLTextClassificationEvaluator",
     "WinMLTokenClassificationEvaluator",
+    "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
 ]
