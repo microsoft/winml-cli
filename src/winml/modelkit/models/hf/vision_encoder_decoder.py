@@ -178,6 +178,44 @@ def _patched_trocr_learned_positional_embedding_forward(
     return nn.Embedding.forward(self, position_ids + self.offset)
 
 
+def _patched_trocr_sinusoidal_positional_embedding_forward(
+    self,
+    input_ids: torch.Tensor,
+    past_key_values_length: int = 0,
+) -> torch.Tensor:
+    """Patched ``TrOCRSinusoidalPositionalEmbedding.forward``.
+
+    Stock HF derives ``position_ids`` via ``cumsum(input_ids != pad)``
+    plus a tensor add of ``past_key_values_length`` — both of which trace
+    as dynamic Cast/Add ops the analyzer can't lower.  We instead read
+    the absolute seq pos from the ``position_id`` attribute (same
+    side-channel the learned-embedding patch uses), shift by HF's
+    standard ``padding_idx + 1`` offset, and look up the frozen sin/cos
+    table directly.
+
+    Falls back to stock HF behavior when ``position_id`` is unset.
+    """
+    abs_pos = getattr(self, "position_id", None)
+    if abs_pos is not None:
+        if abs_pos.dim() == 1:
+            abs_pos = abs_pos.unsqueeze(0)
+        position_ids = (abs_pos + self.padding_idx + 1).long()
+        weights = self.weights.to(self._float_tensor)
+        return weights.index_select(0, position_ids.view(-1)).view(
+            position_ids.size(0), position_ids.size(1), -1
+        ).detach()
+    # Fallback: bit-identical to stock HF behavior.
+    bsz, seq_len = input_ids.size()
+    position_ids = self.create_position_ids_from_input_ids(
+        input_ids, self.padding_idx, past_key_values_length
+    ).to(input_ids.device)
+    max_pos = self.padding_idx + 1 + seq_len
+    if self.weights is None or max_pos > self.weights.size(0):
+        self.weights = self.get_embedding(max_pos, self.embedding_dim, self.padding_idx)
+    self.weights = self.weights.to(self._float_tensor)
+    return self.weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach()
+
+
 def _build_ved_patching_specs() -> list[PatchingSpec]:
     """Aggregate class-targeted patches for VED inner decoders.
 
@@ -186,15 +224,25 @@ def _build_ved_patching_specs() -> list[PatchingSpec]:
     """
     specs: list[PatchingSpec] = []
     try:
-        from transformers.models.trocr.modeling_trocr import TrOCRLearnedPositionalEmbedding
+        from transformers.models.trocr.modeling_trocr import (
+            TrOCRLearnedPositionalEmbedding,
+            TrOCRSinusoidalPositionalEmbedding,
+        )
     except ImportError:
-        logger.debug("TrOCRLearnedPositionalEmbedding not found; learned-embedding patch skipped.")
+        logger.debug("TrOCR positional-embedding classes not found; patches skipped.")
     else:
         specs.append(
             PatchingSpec(
                 o=TrOCRLearnedPositionalEmbedding,
                 name="forward",
                 custom_op=_patched_trocr_learned_positional_embedding_forward,
+            )
+        )
+        specs.append(
+            PatchingSpec(
+                o=TrOCRSinusoidalPositionalEmbedding,
+                name="forward",
+                custom_op=_patched_trocr_sinusoidal_positional_embedding_forward,
             )
         )
     return specs
