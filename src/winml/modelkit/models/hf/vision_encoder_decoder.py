@@ -283,7 +283,10 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):
 
     @property
     def num_layers(self) -> int:
-        return self._dec.num_layers
+        # Not every model family defines ``decoder_layers`` on
+        # ``config.decoder``; fall back to Optimum's NormalizedConfig.
+        decoder_layers = getattr(self.config.decoder, "decoder_layers", None)
+        return decoder_layers if decoder_layers is not None else self._dec.num_layers
 
     @property
     def num_attention_heads(self) -> int:
@@ -308,12 +311,41 @@ class _VedDecoderNormalizedConfig(NormalizedConfig):
         return cah if cah is not None else self._enc.hidden_size
 
     @property
-    def image_size(self) -> int:
+    def image_size(self) -> int | list[int]:
+        # Some model types ship a scalar (square input);
+        # others ship a ``[H, W]`` list.
         return self.config.encoder.image_size
 
     @property
     def patch_size(self) -> int:
         return self.config.encoder.patch_size
+
+    @property
+    def encoder_seq_length(self) -> int:
+        """Output sequence length of the vision encoder.
+
+        Handles both ``image_size`` shapes:
+
+        - Scalar (square ViT-style input): ``(image_size / patch_size)**2``
+          patch tokens plus one CLS-style token.
+        - ``[H, W]`` list (hierarchical Swin-style input): the patch grid
+          ``(H / patch_size) * (W / patch_size)`` divided by
+          ``2**(2*(N-1))`` where ``N = len(depths)`` is the number of
+          stages — each of the ``N-1`` stage transitions halves
+          spatial resolution.  No CLS token.
+        """
+        enc = self.config.encoder
+        patch_size = enc.patch_size
+        image_size = enc.image_size
+
+        # Scalar image_size: square ViT-style encoder.
+        if not isinstance(image_size, (list, tuple)):
+            return (image_size // patch_size) ** 2 + 1
+
+        # [H, W] image_size: hierarchical Swin-style encoder.
+        h, w = image_size[0], image_size[1]
+        shrink = 2 ** (len(enc.depths) - 1)
+        return (h // patch_size // shrink) * (w // patch_size // shrink)
 
 
 class VedDecoderInputGenerator(EncoderDecoderInputGenerator):
@@ -321,12 +353,7 @@ class VedDecoderInputGenerator(EncoderDecoderInputGenerator):
 
     def __init__(self, task: str, normalized_config: Any, **kwargs: Any) -> None:
         super().__init__(task, normalized_config, **kwargs)
-        # ViT/DeiT/Beit-style enc_seq: (image_size/patch_size)**2 + 1 (CLS).
-        # Other vision encoders (Swin) will need extension via the normalized
-        # config's encoder geometry properties.
-        self.enc_seq = (
-            normalized_config.image_size // normalized_config.patch_size
-        ) ** 2 + 1
+        self.enc_seq = normalized_config.encoder_seq_length
         # ``encoder_hidden_states`` last dim is the cross-attn K/V input dim.
         self.d_model = normalized_config.encoder_hidden_size
 

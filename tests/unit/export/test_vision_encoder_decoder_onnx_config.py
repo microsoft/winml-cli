@@ -128,3 +128,106 @@ class TestVEDDecoderIO:
         expected = (1, dc.num_attention_heads, dc.max_position_embeddings, expected_head_dim)
         assert tuple(inputs["past_0_key"].shape) == expected
         assert tuple(inputs["past_0_value"].shape) == expected
+
+
+@pytest.fixture(scope="module")
+def swin_mbart_ved_config():
+    """Donut/Nougat-style config: Swin (HxW image_size) encoder + MBart decoder.
+
+    MBart's ``num_hidden_layers`` aliases the encoder side (12) while
+    ``decoder_layers`` is the authoritative decoder count (4) — this
+    asymmetry is what the ``num_layers`` fallback logic addresses.
+    """
+    from transformers import MBartConfig, VisionEncoderDecoderConfig
+    from transformers.models.donut.configuration_donut_swin import DonutSwinConfig
+
+    encoder = DonutSwinConfig(
+        image_size=[64, 32],          # rectangular HxW
+        patch_size=4,
+        num_channels=3,
+        embed_dim=16,
+        depths=[2, 2, 2, 2],          # 4 stages → shrink = 2**3 = 8
+        num_heads=[1, 2, 4, 8],
+        window_size=4,
+    )
+    decoder = MBartConfig(
+        vocab_size=100,
+        d_model=64,
+        encoder_layers=12,            # mbart's encoder side (irrelevant for VED)
+        decoder_layers=4,             # the authoritative decoder count
+        encoder_attention_heads=2,
+        decoder_attention_heads=2,
+        max_position_embeddings=32,
+    )
+    return VisionEncoderDecoderConfig.from_encoder_decoder_configs(encoder, decoder)
+
+
+class TestVedDecoderNormalizedConfig:
+    """Targeted tests for ``_VedDecoderNormalizedConfig`` dispatch logic.
+
+    Covers two pieces of dispatch:
+    - ``num_layers``: prefer ``decoder.decoder_layers`` when present,
+      else fall back to Optimum's per-family ``num_layers``.
+    - ``encoder_seq_length``: scalar (square ViT) vs ``[H, W]``
+      (hierarchical Swin) image_size.
+    """
+
+    def test_num_layers_prefers_decoder_layers_for_bart_family(self, swin_mbart_ved_config) -> None:
+        """MBart exposes both ``decoder_layers`` (4) and ``num_hidden_layers``
+        (=encoder_layers, 12).  We must pick the former."""
+        from winml.modelkit.models.hf.vision_encoder_decoder import _VedDecoderNormalizedConfig
+
+        nc = _VedDecoderNormalizedConfig(swin_mbart_ved_config)
+        # Sanity-check the asymmetry our override is meant to handle.
+        assert swin_mbart_ved_config.decoder.decoder_layers == 4
+        assert swin_mbart_ved_config.decoder.num_hidden_layers == 12
+        # The override picks decoder_layers, not num_hidden_layers.
+        assert nc.num_layers == 4
+
+    def test_num_layers_falls_back_to_optimum_when_no_decoder_layers(self) -> None:
+        """Non-BART decoder (BERT) has no ``decoder_layers`` field at all;
+        the override must fall back to Optimum's NormalizedConfig.num_layers,
+        which for BERT reads ``num_hidden_layers``.
+        """
+        from transformers import BertConfig, VisionEncoderDecoderConfig, ViTConfig
+
+        from winml.modelkit.models.hf.vision_encoder_decoder import _VedDecoderNormalizedConfig
+
+        encoder = ViTConfig(
+            image_size=32, patch_size=8, num_channels=3,
+            hidden_size=64, num_hidden_layers=2, num_attention_heads=2,
+        )
+        decoder = BertConfig(
+            vocab_size=100, hidden_size=64, num_hidden_layers=3,
+            num_attention_heads=2, intermediate_size=128,
+            max_position_embeddings=32, is_decoder=True,
+        )
+        cfg = VisionEncoderDecoderConfig.from_encoder_decoder_configs(encoder, decoder)
+        # Sanity: BertConfig has no ``decoder_layers`` attribute.
+        assert not hasattr(cfg.decoder, "decoder_layers")
+        nc = _VedDecoderNormalizedConfig(cfg)
+        # Falls back to Optimum's BertNormalizedConfig.num_layers = num_hidden_layers.
+        assert nc.num_layers == 3
+
+    def test_encoder_seq_length_scalar_image_size(self, ved_config) -> None:
+        """Scalar image_size: ``(image_size / patch_size)**2 + 1`` (CLS token)."""
+        from winml.modelkit.models.hf.vision_encoder_decoder import _VedDecoderNormalizedConfig
+
+        nc = _VedDecoderNormalizedConfig(ved_config)
+        ec = ved_config.encoder
+        assert nc.encoder_seq_length == (ec.image_size // ec.patch_size) ** 2 + 1
+
+    def test_encoder_seq_length_hxw_image_size_with_depths(self, swin_mbart_ved_config) -> None:
+        """``[H, W]`` image_size + ``depths``: hierarchical Swin formula
+        without CLS token.  shrink = 2**(N-1) per spatial dim.
+        """
+        from winml.modelkit.models.hf.vision_encoder_decoder import _VedDecoderNormalizedConfig
+
+        nc = _VedDecoderNormalizedConfig(swin_mbart_ved_config)
+        ec = swin_mbart_ved_config.encoder
+        h, w = ec.image_size  # [64, 32]
+        shrink = 2 ** (len(ec.depths) - 1)  # 8
+        expected = (h // ec.patch_size // shrink) * (w // ec.patch_size // shrink)
+        assert nc.encoder_seq_length == expected
+        # Sanity: must NOT add the +1 CLS token for hierarchical encoders.
+        assert nc.encoder_seq_length != expected + 1

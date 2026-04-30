@@ -110,8 +110,14 @@ class WinMLVEDImageToText(_ImageToTextBase):
 
     def __init__(self, sub_models: dict[str, Any], config: PretrainedConfig) -> None:
         super().__init__(sub_models, config)
-        # WinMLCache reads config.num_hidden_layers; VED nests it under decoder.
-        self.config.num_hidden_layers = config.decoder.num_hidden_layers
+        # HF ``StaticCache.__init__`` reads
+        # ``config.get_text_config(decoder=True).num_hidden_layers``
+        # (= ``config.decoder.num_hidden_layers`` for VED) to size the
+        # cache layers.  Not every family defines ``decoder_layers`` on
+        # ``config.decoder``; fall back to ``num_hidden_layers``.
+        decoder_layers = getattr(config.decoder, "decoder_layers", None)
+        if decoder_layers is not None:
+            self.config.decoder.num_hidden_layers = decoder_layers
 
     def _build_gen_kwargs(self) -> dict[str, Any]:
         dc = self.config.decoder
