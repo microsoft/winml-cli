@@ -166,7 +166,7 @@ def _is_onnx_file(model_input: str) -> bool:
 @click.option(
     "--no-compile",
     is_flag=True,
-    default=False,
+    default=True,
     help="Exclude compilation from generated config (sets compile=None)",
 )
 @click.option(
