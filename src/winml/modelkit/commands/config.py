@@ -164,10 +164,10 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Exclude quantization from generated config (sets quant=None)",
 )
 @click.option(
-    "--no-compile",
-    is_flag=True,
+    "--no-compile/--compile",
+    "no_compile",
     default=True,
-    help="Exclude compilation from generated config (sets compile=None)",
+    help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
 @click.option(
     "--trust-remote-code",
