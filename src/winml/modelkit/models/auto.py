@@ -326,14 +326,7 @@ class WinMLAutoModel:
             else:
                 _model_type = None
 
-            _composite_cls = (
-                COMPOSITE_MODEL_REGISTRY.get((_model_type, task))
-                if _model_type is not None else None
-            )
-            if (
-                _composite_cls is not None
-                and _composite_cls.get_sub_model_config(_hf_cfg) is not None
-            ):
+            if _model_type is not None and (_model_type, task) in COMPOSITE_MODEL_REGISTRY:
                 from .winml.composite_model import WinMLCompositeModel
 
                 return WinMLCompositeModel.from_pretrained(

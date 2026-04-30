@@ -108,22 +108,6 @@ class WinMLBlipImageToText(_ImageToTextBase):
 class WinMLVEDImageToText(_ImageToTextBase):
     """Vision-encoder-decoder image-to-text inference model (TrOCR, Donut, ...)."""
 
-    @classmethod
-    def get_sub_model_config(
-        cls, hf_config: PretrainedConfig | None = None
-    ) -> dict[str, str] | None:
-        """Split-build only when the inner decoder family is supported.
-
-        Non-supported inner decoders (e.g. ``bert`` for manga-ocr, ``gpt2``
-        for vit-gpt2-image-captioning) fall through to monolithic build.
-        """
-        from ..hf.vision_encoder_decoder import _INNER_DECODER_REGISTRY
-
-        decoder = getattr(hf_config, "decoder", None)
-        if decoder is not None and decoder.model_type in _INNER_DECODER_REGISTRY:
-            return super().get_sub_model_config(hf_config)
-        return None
-
     def __init__(self, sub_models: dict[str, Any], config: PretrainedConfig) -> None:
         super().__init__(sub_models, config)
         # WinMLCache reads config.num_hidden_layers; VED nests it under decoder.
