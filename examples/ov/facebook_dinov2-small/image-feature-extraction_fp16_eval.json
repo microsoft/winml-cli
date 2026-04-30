@@ -1,0 +1,17 @@
+{
+  "model_id": "facebook/dinov2-small",
+  "task": "image-feature-extraction",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\ov\\facebook_dinov2-small\\image-feature-extraction_fp16_eval.json",
+  "metrics": {
+    "knn_top1_accuracy": 85.5,
+    "knn_top5_accuracy": 96.8
+  }
+}
