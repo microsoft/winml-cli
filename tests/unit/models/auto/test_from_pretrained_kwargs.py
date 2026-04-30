@@ -14,7 +14,11 @@ Covers two fixes:
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import MagicMock, patch
+
+from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
+from winml.modelkit.config import WinMLBuildConfig
 
 
 # ---------------------------------------------------------------------------
@@ -31,9 +35,6 @@ _BUILD_HF_MODEL = "winml.modelkit.build.build_hf_model"
 
 def _make_build_config(compile_provider: str | None = "qnn"):
     """Return a minimal WinMLBuildConfig with controllable compile field."""
-    from winml.modelkit.compiler.configs import EPConfig, WinMLCompileConfig
-    from winml.modelkit.config import WinMLBuildConfig
-
     cfg = WinMLBuildConfig()
     cfg.compile = (
         WinMLCompileConfig(ep_config=EPConfig(provider=compile_provider))
@@ -52,7 +53,7 @@ def _mock_winml_class():
 
 
 def _base_patches(build_cfg, build_side_effect=None, winml_class=None):
-    """Return a list of context managers that stub out the heavy internals."""
+    """Return a list of patch context managers for from_pretrained internals."""
     if winml_class is None:
         winml_class = _mock_winml_class()
     return [
@@ -96,17 +97,10 @@ class TestFromPretrainedEpFix:
 
         build_cfg = _make_build_config(compile_provider="qnn")
         mock_winml_class = _mock_winml_class()
-        patches = _base_patches(build_cfg, winml_class=mock_winml_class)
 
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-        ):
+        with contextlib.ExitStack() as stack:
+            for p in _base_patches(build_cfg, winml_class=mock_winml_class):
+                stack.enter_context(p)
             WinMLAutoModel.from_pretrained("some/model", **extra_kwargs)
 
         return mock_winml_class.call_args.kwargs.get("ep")
@@ -153,17 +147,9 @@ class TestFromPretrainedNoCompile:
             captured["compile"] = kwargs["config"].compile
             return MagicMock(final_onnx_path="model.onnx")
 
-        patches = _base_patches(build_cfg, build_side_effect=fake_build)
-
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-        ):
+        with contextlib.ExitStack() as stack:
+            for p in _base_patches(build_cfg, build_side_effect=fake_build):
+                stack.enter_context(p)
             WinMLAutoModel.from_pretrained("some/model", **extra_kwargs)
 
         return captured.get("compile")

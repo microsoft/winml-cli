@@ -410,30 +410,30 @@ class TestPerfCompileFlag:
         assert "--compile" in result.output
 
     def test_cli_no_compile_default_passes_true(self, runner: CliRunner, tmp_path: Path) -> None:
-        """CLI default (no flag) should pass no_compile=True to PerfBenchmark."""
-        onnx_file = tmp_path / "model.onnx"
-        onnx_file.write_bytes(b"fake onnx")
-
+        """CLI default (no flag) should pass no_compile=True to from_pretrained."""
         with (
             patch(
-                "winml.modelkit.commands.perf._run_onnx_benchmark",
+                "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
                 return_value=MagicMock(),
-            ),
+            ) as mock_fp,
             patch("winml.modelkit.commands.perf.display_console_report"),
             patch("winml.modelkit.commands.perf.write_json_report"),
-            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_cls,
         ):
-            mock_cls.return_value.run.return_value = MagicMock()
+            mock_fp.return_value._session = MagicMock()
+            mock_fp.return_value.io_config = {
+                "input_names": [],
+                "output_names": [],
+                "input_shapes": [],
+                "input_types": [],
+            }
             runner.invoke(
                 perf,
-                ["-m", str(onnx_file), "-o", str(tmp_path / "out.json")],
+                ["-m", "microsoft/resnet-50", "-o", str(tmp_path / "out.json")],
                 obj={},
             )
 
-        # The ONNX path uses _run_onnx_benchmark, not PerfBenchmark, so verify
-        # via BenchmarkConfig default instead.
-        config = BenchmarkConfig(model_id="x")
-        assert config.no_compile is True
+        mock_fp.assert_called_once()
+        assert mock_fp.call_args.kwargs.get("no_compile") is True
 
     def test_cli_compile_flag_sets_no_compile_false(
         self, runner: CliRunner, tmp_path: Path
@@ -466,5 +466,5 @@ class TestPerfCompileFlag:
                 obj={},
             )
 
-        if mock_fp.called:
-            assert mock_fp.call_args.kwargs.get("no_compile") is False
+        mock_fp.assert_called_once()
+        assert mock_fp.call_args.kwargs.get("no_compile") is False
