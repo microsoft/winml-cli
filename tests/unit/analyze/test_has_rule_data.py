@@ -53,6 +53,7 @@ class TestInferIHVFromEPName:
         assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
         assert infer_ihv_from_ep_name("OPENVINOEXECUTIONPROVIDER") == IHVType.INTEL
         assert infer_ihv_from_ep_name("vitisaiexecutionprovider") == IHVType.AMD
+        assert infer_ihv_from_ep_name("nvtensorrtxexecutionprovider") == IHVType.NVIDIA
 
     def test_unknown_ep_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown execution provider"):
@@ -68,10 +69,11 @@ class TestInferIHVFromEPName:
         with pytest.raises(ValueError, match="Unknown execution provider"):
             infer_ihv_from_ep_name("DmlExecutionProvider")
 
-    def test_nvidia_ep_raises(self) -> None:
-        """NvTensorRTRTXExecutionProvider has no IHV mapping — should raise."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
+    def test_nvidia_ep_maps_to_nvidia(self) -> None:
+        """NvTensorRTRTXExecutionProvider should map to IHVType.NVIDIA."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
 
 
 class TestHasRuleDataForEP:

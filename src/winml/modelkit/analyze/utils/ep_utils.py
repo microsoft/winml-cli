@@ -28,7 +28,7 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         ep_name: Execution Provider name (e.g., QNNExecutionProvider, OpenVINOExecutionProvider)
 
     Returns:
-        IHVType: Inferred IHV type (QC, INTEL, or AMD)
+        IHVType: Inferred IHV type (QC, INTEL, AMD, or NVIDIA)
 
     Raises:
         ValueError: If EP name is not recognized
@@ -40,6 +40,8 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         <IHVType.INTEL: 'INTEL'>
         >>> infer_ihv_from_ep_name("VitisAIExecutionProvider")
         <IHVType.AMD: 'AMD'>
+        >>> infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
+        <IHVType.NVIDIA: 'NVIDIA'>
         >>> infer_ihv_from_ep_name("unknown")
         ValueError: Unknown execution provider...
     """
@@ -60,9 +62,15 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     if any(kw in ep_lower for kw in amd_keywords):
         return IHVType.AMD
 
+    # NVIDIA / TensorRT RTX
+    nvidia_keywords = ("nvidia", "nvtensorrt", "tensorrt", "rtx")
+    if any(kw in ep_lower for kw in nvidia_keywords):
+        return IHVType.NVIDIA
+
     raise ValueError(
         f"Unknown execution provider: {ep_name}. "
-        "Supported: QNNExecutionProvider, OpenVINOExecutionProvider, VitisAIExecutionProvider"
+        "Supported: QNNExecutionProvider, OpenVINOExecutionProvider, "
+        "VitisAIExecutionProvider, NvTensorRTRTXExecutionProvider"
     )
 
 

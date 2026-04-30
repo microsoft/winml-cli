@@ -168,6 +168,7 @@ class RuleLoader:
                 "QC": "qc",
                 "Intel": "intel",
                 "AMD": "amd",
+                "NVIDIA": "nvidia",
             }
 
             # Find files matching the prefix pattern (e.g., qc_*.json)

@@ -549,6 +549,7 @@ def get_query_conditions_for_node(
     domain: ONNXDomain,
     input_to_dq: dict[str, QDQTypeInfo],
     output_to_q: dict[str, QDQTypeInfo],
+    model_base_dir: str | None = None,
     dynamic_axis_strict_mode: bool = False,
 ) -> tuple[dict[str, Any], list[str], bool]:
     """Extract query conditions for runtime checking of an ONNX node.
@@ -562,6 +563,8 @@ def get_query_conditions_for_node(
         domain: ONNX domain of the node.
         input_to_dq: Maps DQ output name -> QDQTypeInfo (for nodes consuming DQ outputs).
         output_to_q: Maps Q input name -> QDQTypeInfo (for nodes producing Q inputs).
+        model_base_dir: Directory of the source ONNX model for resolving
+            external tensor data.
         dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
             for matching against first_axis test data. If True, preserves exact indices.
 
@@ -679,6 +682,30 @@ def get_query_conditions_for_node(
             # Always set value, even if None
             cond[f"{input_name}_value"] = value
 
+    def _tensor_to_array_with_fallback(tensor: onnx.TensorProto) -> np.ndarray:
+        try:
+            return numpy_helper.to_array(tensor, base_dir=model_base_dir or "")
+        except Exception as exc:
+            if tensor.data_location != onnx.TensorProto.EXTERNAL:
+                raise
+
+            try:
+                np_dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type)
+            except Exception:
+                np_dtype = np.float32
+
+            shape = tuple(int(d) for d in tensor.dims)
+            logger.warning(
+                "External tensor data for '%s' could not be loaded from '%s': %s. "
+                "Using zeros fallback with shape=%s dtype=%s.",
+                tensor.name or "<unnamed>",
+                model_base_dir or ".",
+                exc,
+                shape,
+                np_dtype,
+            )
+            return np.zeros(shape, dtype=np_dtype)
+
     if variadic_input_name is not None:
         # Calculate number of variadic inputs
         # variadic_input_name is NOT included in input_names, so we need:
@@ -723,7 +750,7 @@ def get_query_conditions_for_node(
 
         if inp_name in initializers:
             init = initializers[inp_name]
-            arr = numpy_helper.to_array(init)
+            arr = _tensor_to_array_with_fallback(init)
             update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
@@ -739,7 +766,7 @@ def get_query_conditions_for_node(
         elif inp_name in constants:
             # Handle Constant node inputs
             const_tensor = constants[inp_name]
-            arr = numpy_helper.to_array(const_tensor)
+            arr = _tensor_to_array_with_fallback(const_tensor)
             update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
@@ -898,6 +925,7 @@ class RuntimeCheckerQuery:
         model_proto: onnx.ModelProto,
         ep_name: str,
         device_type: str,
+        model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
     ) -> None:
         """Initialize runtime checker query.
@@ -906,10 +934,13 @@ class RuntimeCheckerQuery:
             model_proto: ONNX model proto
             ep_name: Execution provider name
             device_type: Device type (e.g., "CPU", "GPU", "NPU")
+            model_path: Optional source ONNX model path used to resolve
+                external tensor data.
             dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
         """
+        self.model_base_dir = str(Path(model_path).resolve().parent) if model_path else None
         self.dynamic_axis_strict_mode = dynamic_axis_strict_mode
         # Try shape inference: standard ONNX first, then symbolic (onnxruntime)
         try:
@@ -1105,7 +1136,23 @@ class RuntimeCheckerQuery:
             if not inp_name:
                 continue
             if inp_name in self.initializers:
-                graph_initializers.append(self.initializers[inp_name])
+                init = self.initializers[inp_name]
+                # External-data initializers may not have accessible sidecar files
+                # in graph-only model scenarios; expose them as runtime inputs.
+                if init.data_location == onnx.TensorProto.EXTERNAL:
+                    vi = self.valueinfo.get(inp_name)
+                    if vi is not None:
+                        graph_inputs.append(vi)
+                    else:
+                        graph_inputs.append(
+                            onnx.helper.make_tensor_value_info(
+                                inp_name,
+                                init.data_type,
+                                list(init.dims),
+                            )
+                        )
+                else:
+                    graph_initializers.append(init)
             elif inp_name in self.constants:
                 # Convert Constant node output to initializer
                 graph_initializers.append(self.constants[inp_name])
@@ -1182,8 +1229,23 @@ class RuntimeCheckerQuery:
         for inp_name in node.input:
             if not inp_name:
                 continue
-            # Skip initializers and constants - they are embedded in the model
-            if inp_name in self.initializers or inp_name in self.constants:
+            # Skip regular initializers/constants - they are embedded in the model.
+            # External-data initializers are modeled as runtime inputs.
+            if inp_name in self.initializers:
+                init = self.initializers[inp_name]
+                if init.data_location != onnx.TensorProto.EXTERNAL:
+                    continue
+
+                try:
+                    np_dtype = onnx.helper.tensor_dtype_to_np_dtype(init.data_type)
+                except Exception:
+                    np_dtype = np.float32
+
+                shape = tuple(int(d) for d in init.dims)
+                input_feed[inp_name] = np.zeros(shape, dtype=np_dtype)
+                continue
+
+            if inp_name in self.constants:
                 continue
 
             vi = self.valueinfo.get(inp_name)
@@ -2037,6 +2099,7 @@ class RuntimeCheckerQuery:
                 op_domain,
                 self.input_to_dq_type,
                 self.output_to_q_type,
+                model_base_dir=self.model_base_dir,
                 dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
             )
         except (
