@@ -807,6 +807,18 @@ class SplitInputGenerator(OpInputGenerator):
         """
         item = properties.copy()
         item["input_dim"] = len(item["input_shape"])
+
+        # Preserve raw-axis semantics as finite booleans so rule conditions can
+        # distinguish axis=0 from axis<0 cases without matching exact axis values.
+        axis = item.get("attr_axis")
+        if axis is None:
+            item["axis_is_negative"] = None
+            item["axis_is_zero"] = None
+        else:
+            axis_int = int(axis)
+            item["axis_is_negative"] = axis_int < 0
+            item["axis_is_zero"] = axis_int == 0
+
         # Handle both cases: explicit split input or num_outputs attribute
         if "split_value" in item and item["split_value"] is not None:
             split_array = np.array(item["split_value"])
