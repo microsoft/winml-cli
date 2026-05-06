@@ -11,10 +11,10 @@ into Information objects.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import TYPE_CHECKING, ClassVar
 
+from ...utils.timing_utils import make_timing_logger
 from .constant_folding_validator import ConstantFoldingValidator
 from .dynamic_input_validator import DynamicInputValidator
 from .pattern_matching_validator import PatternMatchingValidator
@@ -29,24 +29,7 @@ if TYPE_CHECKING:
     from .base import ModelValidator
 
 logger = logging.getLogger(__name__)
-
-_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-
-
-def _log_timing(event: str, **fields: object) -> None:
-    """Emit structured timing logs when timing mode is enabled."""
-    if not _TIMING_LOG_ENABLED:
-        return
-    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
-    if parts:
-        logger.info("[timing] %s %s", event, " ".join(parts))
-    else:
-        logger.info("[timing] %s", event)
+_log_timing = make_timing_logger(logger)
 
 
 class ModelValidatorManager:
@@ -174,7 +157,7 @@ class ModelValidatorManager:
                     has_issue=bool(info),
                     total_ms=validator_ms,
                 )
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 validator_ms = int((time.perf_counter() - validator_start) * 1000)
                 failed_validators += 1
                 logger.exception(

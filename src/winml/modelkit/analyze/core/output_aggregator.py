@@ -10,7 +10,6 @@ Implements FR-026-031 (Output assembly and structure).
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import TYPE_CHECKING
 
@@ -22,27 +21,11 @@ if TYPE_CHECKING:
 from ..models.output import AnalysisOutput, EPSupport, ModelStats
 from ..models.support_level import SupportLevel
 from ..utils import infer_ihv_from_ep_name
+from ..utils.timing_utils import make_timing_logger
 
 
 logger = logging.getLogger(__name__)
-
-_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-
-
-def _log_timing(event: str, **fields: object) -> None:
-    """Emit structured timing logs when timing mode is enabled."""
-    if not _TIMING_LOG_ENABLED:
-        return
-    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
-    if parts:
-        logger.info("[timing] %s %s", event, " ".join(parts))
-    else:
-        logger.info("[timing] %s", event)
+_log_timing = make_timing_logger(logger)
 
 
 class OutputAggregator:

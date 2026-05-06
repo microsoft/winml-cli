@@ -10,7 +10,6 @@ Implements FR-003 (Extract patterns), FR-011 (Pattern detection), FR-004 (Subgra
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import TYPE_CHECKING, TypedDict
 
@@ -18,6 +17,7 @@ from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
 from ...pattern.config import UnifiedPatternConfig
 from ..models.onnx_model import ONNXModel
 from ..models.output import extract_model_stats
+from ..utils.timing_utils import make_timing_logger
 
 
 if TYPE_CHECKING:
@@ -40,24 +40,7 @@ class PatternSummary(TypedDict):
 HTPMetadata = dict[str, dict[str, str] | dict[str, object]]
 
 logger = logging.getLogger(__name__)
-
-_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-
-
-def _log_timing(event: str, **fields: object) -> None:
-    """Emit structured timing logs when timing mode is enabled."""
-    if not _TIMING_LOG_ENABLED:
-        return
-    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
-    if parts:
-        logger.info("[timing] %s %s", event, " ".join(parts))
-    else:
-        logger.info("[timing] %s", event)
+_log_timing = make_timing_logger(logger)
 
 
 class PatternExtractor:

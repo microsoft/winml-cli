@@ -57,21 +57,18 @@ from ..utils.model_utils import (
     shape_and_dtype_from_valueinfo,
 )
 from ..utils.rule_loader import resolve_rule_parquet_path
+from ..utils.timing_utils import make_timing_logger
 from .node_checkers.base import NodeChecker
 from .node_checkers.registry import NodeCheckerRegistry
 
 
 logger = logging.getLogger(__name__)
 
+_log_timing = make_timing_logger(logger)
+
 _LOG_COLOR_LIGHT_CYAN = "\033[96m"
 _LOG_COLOR_GREEN = "\033[92m"
 _LOG_COLOR_RESET = "\033[0m"
-_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
 
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
@@ -82,18 +79,6 @@ if TYPE_CHECKING:
 def _elapsed_ms(start_time: float) -> int:
     """Return elapsed milliseconds from `start_time` to now."""
     return int((time.perf_counter() - start_time) * 1000)
-
-
-def _log_timing(event: str, **fields: Any) -> None:
-    """Emit structured timing logs when timing mode is enabled."""
-    if not _TIMING_LOG_ENABLED:
-        return
-
-    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
-    if parts:
-        logger.info("[timing] %s %s", event, " ".join(parts))
-    else:
-        logger.info("[timing] %s", event)
 
 
 def query_table_exact_match(df: pd.DataFrame, query: dict[str, Any]) -> pd.DataFrame:
@@ -647,7 +632,10 @@ def get_query_conditions_for_node(
     #     f"({len(node.input)}) than expected ({len(input_names)})"
     # )
 
-    def _compute_dynamic_axes(shape: tuple | None, is_constant: bool) -> tuple[int, ...]:
+    def _compute_dynamic_axes(
+        shape: tuple[Any, ...] | list[Any] | None,
+        is_constant: bool,
+    ) -> tuple[int, ...]:
         """Compute dynamic axis indices from a shape.
 
         Constant inputs are always fixed shape. For non-constant inputs,
@@ -670,8 +658,8 @@ def get_query_conditions_for_node(
         input_name: str,
         is_variadic: bool,
         is_constant: bool,
-        shape: tuple | None = None,
-        value: tuple | None = None,
+        shape: tuple[Any, ...] | list[Any] | None = None,
+        value: Any | None = None,
     ):
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
@@ -750,7 +738,7 @@ def get_query_conditions_for_node(
             if input_name in optional_input_names:
                 # Mark as optional/undefined - is_constant is True
                 # since the value is known (None/not provided)
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): input '%s' is optional"
                     " and not provided, setting value to None",
                     node.op_type,
@@ -983,18 +971,24 @@ class RuntimeCheckerQuery:
         self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
         self.model_base_dir = str(Path(self.model_path).parent) if self.model_path else None
         self.dynamic_axis_strict_mode = dynamic_axis_strict_mode
+
+        inferred_model: onnx.ModelProto = model_proto
         # Try shape inference: standard ONNX first, then symbolic (onnxruntime)
         try:
             # Standard ONNX shape inference — uses temp file for models
             # with external data (avoids silent empty-graph result).
-            self.model_proto = infer_onnx_shapes(model_proto)
+            standard_inferred = infer_onnx_shapes(model_proto)
+            if standard_inferred is not None:
+                inferred_model = standard_inferred
 
             # Then try to enhance with symbolic shape inference
             # if available which supports Microsoft domain
             try:
                 from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 
-                self.model_proto = SymbolicShapeInference.infer_shapes(self.model_proto)
+                symbolic_inferred = SymbolicShapeInference.infer_shapes(inferred_model)
+                if symbolic_inferred is not None:
+                    inferred_model = symbolic_inferred
             except Exception as e:
                 # If symbolic shape inference fails, continue with standard inference result
                 logger.debug(
@@ -1004,8 +998,9 @@ class RuntimeCheckerQuery:
                 )
         except Exception as e:
             # If standard shape inference fails, use original model
-            logger.warning(f"Shape inference failed: {e}. Using original model.")
-            self.model_proto = model_proto
+            logger.debug(f"Shape inference failed: {e}. Using original model.")
+
+        self.model_proto: onnx.ModelProto = inferred_model
 
         self.ep_name = ep_name
         self.device_type = device_type
@@ -2258,6 +2253,7 @@ class RuntimeCheckerQuery:
                         f"found in database and has no "
                         f"matched nodes to check"
                     ),
+                    debug_details=None,
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
@@ -2274,6 +2270,7 @@ class RuntimeCheckerQuery:
                     run=False,
                     no_data=True,
                     reason=f"Pattern '{pattern_name}' has no nodes to check",
+                    debug_details=None,
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
@@ -2312,6 +2309,7 @@ class RuntimeCheckerQuery:
                         f"{len(node_results)} operators "
                         f"supported"
                     ),
+                    debug_details=None,
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
@@ -2330,6 +2328,7 @@ class RuntimeCheckerQuery:
                         f"{', '.join(no_data_nodes[:3])}"
                         f"{'...' if len(no_data_nodes) > 3 else ''}"
                     ),
+                    debug_details=None,
                 ),
                 alternatives=self.alternatives,
                 pattern_match=pattern_match,
@@ -2346,6 +2345,7 @@ class RuntimeCheckerQuery:
                 run=all_run,
                 no_data=False,
                 reason=f"Pattern '{pattern_name}' has unsupported operators: {failure_summary}",
+                debug_details=None,
             ),
             alternatives=self.alternatives,
             pattern_match=pattern_match,

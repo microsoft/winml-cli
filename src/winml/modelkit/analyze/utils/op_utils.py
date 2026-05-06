@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 """Utility functions for operator check result management."""
 
+import csv
 import hashlib
 import json
 import math
@@ -15,6 +16,45 @@ import onnx
 from google.protobuf import json_format
 
 from ...pattern.op_input_gen import normalize_constraint_dict
+
+
+def load_case_indices_from_conflict_file(conflict_file: str | Path) -> list[str]:
+    """Load case_index values from the 2nd CSV column of a conflict file.
+
+    The expected layout is compatible with conflict CSVs where column 1 is
+    groupid and column 2 is case_index.
+    """
+    conflict_path = Path(conflict_file).expanduser()
+    if not conflict_path.is_absolute():
+        raise ValueError("--conflict_file must be an absolute path")
+    if not conflict_path.exists():
+        raise FileNotFoundError(f"Conflict file not found: {conflict_path}")
+
+    case_indices: list[str] = []
+    with conflict_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        for row_idx, row in enumerate(reader, start=1):
+            if not row:
+                continue
+            if len(row) < 2:
+                raise ValueError(
+                    f"Conflict file row {row_idx} has fewer than 2 columns: {conflict_path}"
+                )
+
+            case_value = str(row[1]).strip()
+            if not case_value:
+                continue
+
+            # Skip header row like: groupid,case_index,...
+            if row_idx == 1 and case_value.lower() == "case_index":
+                continue
+
+            case_indices.append(case_value)
+
+    case_indices = list(dict.fromkeys(case_indices))
+    if not case_indices:
+        raise ValueError(f"No case_index values found in conflict file: {conflict_path}")
+    return case_indices
 
 
 def compute_case_signature(case: dict, *, namespace: str) -> str:

@@ -12,7 +12,6 @@ Public API:
 from __future__ import annotations
 
 import logging
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +21,7 @@ from ..optim.config import WinMLOptimizationConfig
 from ..utils.constants import normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
+from .utils.timing_utils import make_timing_logger
 
 
 if TYPE_CHECKING:
@@ -59,24 +59,7 @@ class LintResult:
 
 
 logger = logging.getLogger(__name__)
-
-_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-
-
-def _log_timing(event: str, **fields: object) -> None:
-    """Emit structured timing logs when timing mode is enabled."""
-    if not _TIMING_LOG_ENABLED:
-        return
-    parts = [f"{k}={v}" for k, v in fields.items() if v is not None]
-    if parts:
-        logger.info("[timing] %s %s", event, " ".join(parts))
-    else:
-        logger.info("[timing] %s", event)
+_log_timing = make_timing_logger(logger)
 
 
 class AnalysisResult:

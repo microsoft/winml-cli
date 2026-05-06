@@ -15,7 +15,6 @@ Usage:
         python -m winml.modelkit.analyze.pattern.check_patterns --all_patterns
 """
 
-import csv
 from pathlib import Path
 from typing import Any
 
@@ -31,49 +30,10 @@ from ...pattern.base import (
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker
-from ..utils import CheckResultWriter
+from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 
 
 winml.register_execution_providers(ort=True)
-
-
-def _load_case_indices_from_conflict_file(conflict_file: str | Path) -> list[str]:
-    """Load case_index values from the 2nd CSV column of a conflict file.
-
-    The expected layout is compatible with conflict CSVs where column 1 is
-    groupid and column 2 is case_index.
-    """
-    conflict_path = Path(conflict_file).expanduser()
-    if not conflict_path.is_absolute():
-        raise ValueError("--conflict_file must be an absolute path")
-    if not conflict_path.exists():
-        raise FileNotFoundError(f"Conflict file not found: {conflict_path}")
-
-    case_indices: list[str] = []
-    with conflict_path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.reader(f)
-        for row_idx, row in enumerate(reader, start=1):
-            if not row:
-                continue
-            if len(row) < 2:
-                raise ValueError(
-                    f"Conflict file row {row_idx} has fewer than 2 columns: {conflict_path}"
-                )
-
-            case_value = str(row[1]).strip()
-            if not case_value:
-                continue
-
-            # Skip header row like: groupid,case_index,...
-            if row_idx == 1 and case_value.lower() == "case_index":
-                continue
-
-            case_indices.append(case_value)
-
-    case_indices = list(dict.fromkeys(case_indices))
-    if not case_indices:
-        raise ValueError(f"No case_index values found in conflict file: {conflict_path}")
-    return case_indices
 
 
 def check_patterns(
@@ -123,7 +83,7 @@ def check_patterns(
     if conflict_file is not None:
         if case_index is not None:
             raise ValueError("--case_index and --conflict_file cannot be used together")
-        case_index = _load_case_indices_from_conflict_file(conflict_file)
+        case_index = load_case_indices_from_conflict_file(conflict_file)
         print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
 
     sys_info = SysInfo().to_dict()
