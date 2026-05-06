@@ -14,7 +14,7 @@ parameters:
     default: true
   - name: modelTimeout
     type: number
-    default: 1800
+    default: 3600
   - name: singleHfModel
     type: string
     default: 'auto'

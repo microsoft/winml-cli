@@ -111,7 +111,11 @@ class WinMLCompileConfig:
         }
         factory = factories.get(provider)
         if factory:
-            return factory()
+            config = factory()
+            # EPs that don't produce EPContext have no offline compile step
+            if not config.ep_config.enable_ep_context:
+                return None
+            return config
         # Generic fallback for unknown/custom providers
         return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
 

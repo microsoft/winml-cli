@@ -65,6 +65,7 @@ _TASK_HF_METRIC_KEY: dict[str, str] = {
     "sentence-similarity": "cosine_spearman",
     "image-feature-extraction": "knn_top1_accuracy",
     "fill-mask": "pseudo_perplexity",
+    "zero-shot-image-classification": "top1_accuracy",
 }
 
 
