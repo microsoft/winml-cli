@@ -4,7 +4,12 @@
 # --------------------------------------------------------------------------
 """Download runtime check rule zips from gim-home/ModelKitArtifacts.
 
-Requires gh CLI with an account that has access to gim-home org.
+For Microsoft internal use only. Requires gh CLI authenticated with an account
+that has access to the gim-home org.
+
+External contributors should instead download rule zips from the latest
+WinML-ModelKit GitHub release; see
+src/winml/modelkit/analyze/rules/runtime_check_rules/README.md.
 
 Usage:
     uv run python scripts/download_rules.py --account <account>
@@ -21,7 +26,7 @@ from pathlib import Path
 
 
 SOURCE_REPO = "gim-home/ModelKitArtifacts"
-SOURCE_PATH = "op_check_results/rules"
+SOURCE_PATH = "rules_zip"
 RULES_DIR = (
     Path(__file__).resolve().parent.parent
     / "src"
@@ -41,7 +46,12 @@ def _get_clone_url(account: str | None = None) -> str:
             "ERROR: gh account is required.\n"
             "Specify via --account or GH_ACCOUNT env var:\n"
             "  uv run python scripts/download_rules.py --account <account>\n"
-            "  GH_ACCOUNT=<account> uv run python scripts/download_rules.py",
+            "  GH_ACCOUNT=<account> uv run python scripts/download_rules.py\n"
+            "\n"
+            "This script is for Microsoft internal use (gim-home org access required).\n"
+            "External contributors: download rule zips from the latest GitHub release:\n"
+            "  gh release download --repo microsoft/WinML-ModelKit --pattern '*.zip' \\\n"
+            "    --dir src/winml/modelkit/analyze/rules/runtime_check_rules",
             file=sys.stderr,
         )
         sys.exit(1)

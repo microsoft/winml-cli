@@ -25,6 +25,23 @@ from typing import Any
 _PACKAGE_ROOT = "winml/modelkit"
 
 
+def _resolve_user_home() -> str | None:
+    r"""Resolve the user home directory on Windows.
+
+    Prefers ``%USERPROFILE%`` (virtually always set on Windows). Falls
+    back to the Windows-native ``%HOMEDRIVE%%HOMEPATH%`` pair for stripped
+    service-account / container environments where ``USERPROFILE`` may be
+    missing. Returns ``None`` when neither is available — callers should
+    treat ``None`` as "no per-user persistence" and skip the operation
+    rather than silently resolve to a CWD-relative path.
+    """
+    profile = os.environ.get("USERPROFILE")
+    if profile:
+        return profile
+    combined = os.environ.get("HOMEDRIVE", "") + os.environ.get("HOMEPATH", "")
+    return combined or None
+
+
 def _trim_path(path: str) -> str:
     """Rewrite a path to a package-relative form (forward slashes).
 
@@ -96,24 +113,26 @@ _MESSAGE_CAP = 200
 
 
 def _format_exception_message(message: str | None) -> str:
-    """Run the scrubbing pipeline: path trim -> length cap -> PII scrub.
+    """Run the scrubbing pipeline: path trim -> PII scrub -> length cap.
 
-    Path trim is a token-level operation that only rewrites absolute paths
-    found in the message. Length cap truncates to ``_MESSAGE_CAP`` chars
-    with a trailing ``…`` marker. PII scrub replaces matching patterns
-    with ``<scrubbed>``.
+    Scrub runs *before* the length cap so PII straddling the cap boundary
+    is still recognized by the regexes. Capping first would split a token
+    or email mid-string and leak the surviving prefix (e.g. ``alice@exa…``
+    leaves ``alice`` exposed because the cropped fragment no longer
+    matches the email pattern).
     """
     if not message:
         return ""
     # Trim absolute paths token-by-token (keeps surrounding text intact).
     tokens = [_trim_path(tok) if _looks_like_path(tok) else tok for tok in message.split(" ")]
     result = " ".join(tokens)
-    # Length cap first (so PII runs on a bounded string; also prevents huge
-    # messages from dominating the regex cost).
+    # Scrub PII first so the cap can't split a sensitive token.
+    result = _scrub_pii(result)
+    # Cap last - bounds final size even if scrub expanded the string
+    # (each match becomes the 11-char ``<scrubbed>`` placeholder).
     if len(result) > _MESSAGE_CAP:
         result = result[: _MESSAGE_CAP - 1] + "…"
-    # PII scrub last (so truncation won't reveal partial PII).
-    return _scrub_pii(result)
+    return result
 
 
 def _looks_like_path(token: str) -> bool:

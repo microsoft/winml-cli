@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import requests
 from opentelemetry.sdk._logs.export import LogRecordExporter, LogRecordExportResult
 
+from .._cache import _PersistentCache
 from .serialization import _build_envelope, _serialize_batch
 
 
@@ -30,7 +31,12 @@ _HTTP_TIMEOUT = 10.0
 class OneCollectorLogExporter(LogRecordExporter):
     """Post Common Schema 4.0 event envelopes to the OneCollector endpoint."""
 
-    def __init__(self, ikey: str, endpoint: str) -> None:
+    def __init__(
+        self,
+        ikey: str,
+        endpoint: str,
+        cache: _PersistentCache | None = None,
+    ) -> None:
         # Fail loudly rather than silently POST ``{"iKey": ""}`` to the
         # endpoint. In dev installs ``constants.INSTRUMENTATION_KEY`` is
         # empty; the Telemetry singleton guards against that, and this
@@ -42,6 +48,10 @@ class OneCollectorLogExporter(LogRecordExporter):
             raise ValueError("endpoint must be non-empty")
         self._ikey = ikey
         self._endpoint = endpoint
+        self._cache = cache if cache is not None else _PersistentCache()
+        # First export() flushes the cache before sending the new batch;
+        # subsequent exports go straight through.
+        self._cache_flushed = False
         # _shutdown is read on the BatchLogRecordProcessor export thread and
         # written on the shutdown thread; bool assignment is atomic under the
         # CPython GIL, so no lock is needed.
@@ -63,20 +73,43 @@ class OneCollectorLogExporter(LogRecordExporter):
     def export(self, batch: Sequence[ReadableLogRecord]) -> LogRecordExportResult:
         """Serialize *batch* and POST to the configured OneCollector endpoint.
 
-        Retries are **not** implemented at this layer; the upstream
-        ``BatchLogRecordProcessor`` re-queues batches for which ``export``
-        returns ``FAILURE``.
+        Recovers any envelopes cached from prior failed runs on the first
+        call. Persists the current batch to the cache on POST failure so
+        the next process can retry — :class:`BatchLogRecordProcessor` only
+        re-queues in memory and loses the queue on process exit.
         """
         if self._shutdown or not batch:
             return LogRecordExportResult.SUCCESS
 
         try:
             envelopes = [self._to_envelope(ld) for ld in batch]
-            body = _serialize_batch(envelopes)
         except Exception:
             _LOGGER.debug("telemetry serialization failed", exc_info=True)
             return LogRecordExportResult.FAILURE
 
+        # First-call cache flush: try to send anything left over from a
+        # previous run. Best-effort, single shot — don't loop if the
+        # backend is still down.
+        if not self._cache_flushed:
+            self._cache_flushed = True
+            cached = self._cache.drain()
+            if cached and not self._post_envelopes(cached):
+                self._cache.append(cached)
+
+        if not self._post_envelopes(envelopes):
+            self._cache.append(envelopes)
+            return LogRecordExportResult.FAILURE
+        return LogRecordExportResult.SUCCESS
+
+    def _post_envelopes(self, envelopes: list[dict]) -> bool:
+        """POST a list of envelopes; return True on 2xx, False otherwise."""
+        if not envelopes:
+            return True
+        try:
+            body = _serialize_batch(envelopes)
+        except Exception:
+            _LOGGER.debug("telemetry serialization failed", exc_info=True)
+            return False
         try:
             response = self._session.post(
                 self._endpoint,
@@ -85,12 +118,11 @@ class OneCollectorLogExporter(LogRecordExporter):
             )
         except (requests.ConnectionError, requests.Timeout):
             _LOGGER.debug("telemetry network failure", exc_info=True)
-            return LogRecordExportResult.FAILURE
-
+            return False
         if 200 <= response.status_code < 300:
-            return LogRecordExportResult.SUCCESS
+            return True
         _LOGGER.debug("telemetry backend returned %s", response.status_code)
-        return LogRecordExportResult.FAILURE
+        return False
 
     def force_flush(self, timeout_millis: int = 30_000) -> bool:
         """No-op: all exports are synchronous."""

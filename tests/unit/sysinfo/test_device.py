@@ -23,7 +23,7 @@ class TestGetAvailableDevices:
     """Tests for _get_available_devices()."""
 
     def test_with_npu_and_gpu(self) -> None:
-        """When NPU and GPU are present, returns ["npu", "gpu", "cpu"]."""
+        """When NPU and GPU are present, returns ("npu", "gpu", "cpu")."""
         mock_npu = MagicMock()
         mock_gpu = MagicMock()
 
@@ -39,10 +39,10 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["npu", "gpu", "cpu"]
+        assert devices == ("npu", "gpu", "cpu")
 
     def test_no_npu_with_gpu(self) -> None:
-        """When no NPU but GPU present, returns ["gpu", "cpu"]."""
+        """When no NPU but GPU present, returns ("gpu", "cpu")."""
         mock_gpu = MagicMock()
 
         with (
@@ -57,10 +57,10 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["gpu", "cpu"]
+        assert devices == ("gpu", "cpu")
 
     def test_no_npu_no_gpu(self) -> None:
-        """When no NPU and no GPU, returns ["cpu"]."""
+        """When no NPU and no GPU, returns ("cpu",)."""
         with (
             patch(
                 "winml.modelkit.sysinfo.hardware.NPU.get_all",
@@ -73,10 +73,10 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["cpu"]
+        assert devices == ("cpu",)
 
     def test_cpu_always_present(self) -> None:
-        """CPU is always in the result list, even if detection fails."""
+        """CPU is always in the result, even if detection fails."""
         with (
             patch(
                 "winml.modelkit.sysinfo.hardware.NPU.get_all",
@@ -90,7 +90,7 @@ class TestGetAvailableDevices:
             devices = _get_available_devices()
 
         assert "cpu" in devices
-        assert devices == ["cpu"]
+        assert devices == ("cpu",)
 
     def test_npu_detection_failure_falls_through(self) -> None:
         """If NPU detection raises, GPU and CPU still appear."""
@@ -108,7 +108,7 @@ class TestGetAvailableDevices:
         ):
             devices = _get_available_devices()
 
-        assert devices == ["gpu", "cpu"]
+        assert devices == ("gpu", "cpu")
         assert "npu" not in devices
 
 
@@ -136,10 +136,13 @@ class TestMappingConstants:
         for ep, device in _EP_DEVICE_MAP.items():
             assert device == device.lower(), f"{ep} maps to non-lowercase '{device}'"
 
-    def test_device_ep_map_excludes_openvino(self) -> None:
-        """_DEVICE_EP_MAP should not contain OpenVINO entries."""
-        all_eps = [ep for eps in _DEVICE_EP_MAP.values() for ep in eps]
-        assert "OpenVINOExecutionProvider" not in all_eps
+    def test_device_ep_map_includes_multi_device_eps(self) -> None:
+        """Multi-device EPs (QNN, OpenVINO) should appear in each device."""
+        assert "QNNExecutionProvider" in _DEVICE_EP_MAP["npu"]
+        assert "QNNExecutionProvider" in _DEVICE_EP_MAP["gpu"]
+        assert "OpenVINOExecutionProvider" in _DEVICE_EP_MAP["npu"]
+        assert "OpenVINOExecutionProvider" in _DEVICE_EP_MAP["gpu"]
+        assert "OpenVINOExecutionProvider" in _DEVICE_EP_MAP["cpu"]
 
     def test_device_ep_map_derived_from_ep_device_map(self) -> None:
         """_DEVICE_EP_MAP should be consistent with _EP_DEVICE_MAP."""
@@ -148,7 +151,7 @@ class TestMappingConstants:
                 assert ep in _EP_DEVICE_MAP, (
                     f"EP '{ep}' in _DEVICE_EP_MAP but not in _EP_DEVICE_MAP"
                 )
-                assert _EP_DEVICE_MAP[ep] == device
+                assert device in _EP_DEVICE_MAP[ep].split("/")
 
     def test_nv_tensorrt_rtx_is_gpu_ep(self) -> None:
         """NvTensorRTRTXExecutionProvider should map to gpu."""
