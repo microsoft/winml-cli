@@ -26,6 +26,7 @@ Note:
 """
 
 from .config import WinMLLoaderConfig, resolve_loader_config
+from .onnx_hub import is_hf_onnx_path, resolve_hf_onnx_path
 from .task import (
     HF_TASK_DEFAULTS,
     get_supported_tasks,
@@ -40,9 +41,11 @@ __all__ = [
     "WinMLLoaderConfig",
     "get_supported_tasks",
     "get_task_abbrev",
+    "is_hf_onnx_path",
     "load_hf_model",
     "normalize_task",
     "resolve_hf_model_class",
+    "resolve_hf_onnx_path",
     "resolve_loader_config",
     "resolve_task_and_model_class",
 ]

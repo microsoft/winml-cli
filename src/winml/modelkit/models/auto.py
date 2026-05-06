@@ -290,6 +290,13 @@ class WinMLAutoModel:
         model_id = str(model_id_or_path)  # Ensure string for Path inputs
         logger.info("Loading WinML model from: %s", model_id)
 
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx path thereafter.
+        from ..loader import is_hf_onnx_path, resolve_hf_onnx_path
+
+        if is_hf_onnx_path(model_id):
+            model_id = str(resolve_hf_onnx_path(model_id))
+
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
         # =====================================================================
