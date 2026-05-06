@@ -193,6 +193,7 @@ def build_registry(
     curated_entries: list[dict] | None = None,
     optimum_types: set[str] | None = None,
     existing_entries: list[dict] | None = None,
+    acc_keys: set[tuple[str, str]] | None = None,
 ) -> list[dict]:
     """Build the registry by querying HF Hub for top models per task.
 
@@ -231,7 +232,9 @@ def build_registry(
 
     # Phase 1: Query HF Hub for top models per task
     # Soft filter: prioritize Optimum-supported models, then fill remaining slots
-    for task in tasks:
+    if top_n == 0:
+        safe_print("\n  top_n=0 — skipping HF top-N queries")
+    for task in (tasks if top_n > 0 else []):
         safe_print(f"\n  Task: {task}")
         # Fetch extra candidates to allow Optimum-first selection
         candidates = get_models_for_task(task, top_n * 3)
@@ -285,7 +288,7 @@ def build_registry(
             elif model_id.startswith("microsoft/"):
                 # New non-curated, non-existing Microsoft entry → P2.
                 priority = "P2"
-                group = "microsoft"
+                group = "Top200"
             else:
                 # New non-curated, non-existing, non-Microsoft entry → P3.
                 priority = "P3"
@@ -327,10 +330,11 @@ def build_registry(
             key = (hf_id, task)
             if key in seen:
                 continue
-            if hf_id not in download_cache:
-                download_cache[hf_id] = get_model_metadata(hf_id).get("downloads", 0)
             preserved_entry = dict(e)
-            preserved_entry["downloads"] = download_cache[hf_id]
+            if top_n > 0:
+                if hf_id not in download_cache:
+                    download_cache[hf_id] = get_model_metadata(hf_id).get("downloads", 0)
+                preserved_entry["downloads"] = download_cache[hf_id]
             if optimum_types:
                 model_type = preserved_entry.get("model_type")
                 preserved_entry["optimum_supported"] = bool(
@@ -342,9 +346,10 @@ def build_registry(
             all_entries.append(preserved_entry)
             preserved_count += 1
         if preserved_count:
+            refresh_note = "downloads refreshed" if top_n > 0 else "downloads kept as-is"
             safe_print(
                 f"\n  Preserved {preserved_count} existing entries not in new top-N"
-                f" (downloads refreshed)"
+                f" ({refresh_note})"
             )
 
     # Phase 2: Merge ALL curated entries that were not already found via HF query.
@@ -410,6 +415,15 @@ def build_registry(
         entries_in_task.sort(key=lambda x: x.get("downloads", 0), reverse=True)
         for idx, e in enumerate(entries_in_task, start=1):
             e["order"] = idx
+
+    # Phase 4: Sync the "acc" tag on every entry from models_with_acc lookup.
+    # Other tags are preserved as-is.
+    for e in all_entries:
+        key = (e["hf_id"], e.get("task", ""))
+        tags = [t for t in e.get("tags", []) if t != "acc"]
+        if acc_keys and key in acc_keys:
+            tags.append("acc")
+        e["tags"] = tags
 
     return all_entries
 
@@ -513,6 +527,18 @@ def main() -> None:
         sys.exit(1)
     safe_print(f"Loaded {len(tasks)} pipeline tasks from {HF_TASKS_URL}")
 
+    # Load models_with_acc.json to build the acc tag lookup
+    acc_keys: set[tuple[str, str]] = set()
+    acc_source = Path(__file__).parent / "testsets" / "models_with_acc.json"
+    if acc_source.exists():
+        try:
+            with acc_source.open(encoding="utf-8") as f:
+                acc_entries = json.load(f)
+            acc_keys = {(e["hf_id"], e.get("task", "")) for e in acc_entries if "hf_id" in e}
+            safe_print(f"Loaded {len(acc_keys)} acc entries from {acc_source.name}")
+        except Exception as exc:
+            safe_print(f"WARNING: could not load {acc_source.name}: {exc}")
+
     # Load existing registry (if present) — entries not in new top-N will be preserved
     existing_entries: list[dict] = []
     if args.output.exists():
@@ -535,6 +561,7 @@ def main() -> None:
         curated_entries,
         optimum_types,
         existing_entries,
+        acc_keys,
     )
     entries.sort(key=lambda e: (e["hf_id"], e.get("task", "")))
 
