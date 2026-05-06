@@ -432,27 +432,29 @@ class WinMLSession:
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
         """
-        # Explicit EP targeting: create fresh opts to avoid double-registration
-        # Don't filter by device type — trust the user's --ep choice
-        # (e.g., QNN reports as NPU in get_ep_devices but can target GPU)
+        # Explicit EP targeting: create fresh opts to avoid double-registration.
+        # When device is also specified (non-"auto"), narrow by both EP name
+        # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
+        # instead of the first QNN ep_device (which may report as NPU).
         if self._ep and self._ep != "cpu":
             target_name = self._EP_NAME_MAP.get(self._ep)
             if target_name:
-                matched = self._find_ep_device(target_name)
+                matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
                     logger.info("Explicit EP: %s (%s)", self._ep, target_name)
                     return opts
                 logger.warning(
-                    "EP '%s' (%s) not found in available devices",
+                    "EP '%s' (%s) not found for device '%s'",
                     self._ep,
                     target_name,
+                    device,
                 )
 
         # No explicit EP — discover available EP for this device type
         if not self._ep and device.lower() != "cpu":
-            matched = self._find_ep_for_device(device)
+            matched = self._find_ep_device(device=device)
             if matched:
                 opts = ort.SessionOptions()
                 opts.add_provider_for_devices([matched], self._provider_options)
@@ -469,44 +471,41 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(ep_name: str) -> Any:
-        """Find the first OrtEpDevice matching the given EP name.
+    def _find_ep_device(
+        ep_name: str | None = None,
+        device: str | None = None,
+    ) -> Any:
+        """Find the first OrtEpDevice matching the given filters.
 
-        Args:
-            ep_name: Full EP name (e.g., "DmlExecutionProvider").
-
-        Returns:
-            The matching OrtEpDevice, or None if not found.
-        """
-        for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == ep_name:
-                return ep_dev
-        return None
-
-    @staticmethod
-    def _find_ep_for_device(device: str) -> Any:
-        """Find the first available OrtEpDevice for the given device type.
-
-        Queries ``ort.get_ep_devices()`` and returns the first EP whose
-        hardware device type matches (e.g., device="gpu" matches GPU EPs).
+        Filters are AND'd: when both ``ep_name`` and ``device`` are set, the
+        returned ep_device must satisfy both. When only one is set, only that
+        filter applies. Unknown device strings (including ``"auto"``) act as
+        a no-op device filter.
 
         Note: Selection order is determined by the ORT EP registry, which is
         not part of any documented contract. On systems where multiple EPs
         match the same device type (e.g., QNN and DML both appear as GPU),
-        the result is registry-order dependent. When a specific EP is
-        required, use ``self._ep`` to bypass this discovery path entirely.
+        a device-only query returns the first one in registry order. Pass
+        ``ep_name`` to disambiguate.
+
+        Args:
+            ep_name: Full EP name (e.g., "DmlExecutionProvider"), or None
+                to skip EP-name filtering.
+            device: Device policy ("cpu", "gpu", "npu"), or None to skip
+                device filtering.
 
         Returns:
             The matching OrtEpDevice, or None if not found.
         """
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
-        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
-        if device_type is None:
-            return None
+        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper()) if device else None
         for ep_dev in ort.get_ep_devices():
-            if ep_dev.device.type == device_type:
-                return ep_dev
+            if ep_name and ep_dev.ep_name != ep_name:
+                continue
+            if device_type is not None and ep_dev.device.type != device_type:
+                continue
+            return ep_dev
         return None
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
