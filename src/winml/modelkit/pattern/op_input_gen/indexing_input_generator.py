@@ -504,6 +504,7 @@ class ScatterNDInputGenerator(OpInputGenerator):
         k = indices_array.shape[-1]  # Number of dimensions indexed
         q = len(indices_array.shape)  # indices rank
         item["q_is_one"] = q == 1
+        item["k_is_two"] = k == 2
         item["k_is_one"] = k == 1
         item["k_is_dim_minus_one"] = k == (item["data_dim"] - 1)
         item["k_is_dim"] = k == item["data_dim"]

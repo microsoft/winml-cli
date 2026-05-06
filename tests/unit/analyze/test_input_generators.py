@@ -359,6 +359,87 @@ class TestSplitDerivedProperties:
         assert has_axis_positive_nonzero_case
 
 
+class TestScatterNDDerivedProperties:
+    """Regression tests for ScatterND derive_properties coverage."""
+
+    @pytest.fixture()
+    def scatternd_generator_opset18(self):
+        """Create a ScatterND generator for current ONNX opset behavior."""
+        domain = ONNXDomain.AI_ONNX
+        schema = domain.get_op_schema("ScatterND", 18)
+        generator_class = get_runtime_checker_op("ScatterND")
+        return generator_class(schema)
+
+    def test_scatternd_k_is_two_is_derived(self, scatternd_generator_opset18):
+        """k_is_two should distinguish k=2 from other non-edge k values."""
+        data_shape = (2, 2, 2, 2, 2, 3)
+
+        result_q1_k2 = scatternd_generator_opset18.derive_properties(
+            {
+                "data_shape": data_shape,
+                "indices_value": np.array([0, 1], dtype=np.int64),
+                "updates_shape": data_shape[2:],
+            }
+        )
+        result_q1_k3 = scatternd_generator_opset18.derive_properties(
+            {
+                "data_shape": data_shape,
+                "indices_value": np.array([0, 1, 0], dtype=np.int64),
+                "updates_shape": data_shape[3:],
+            }
+        )
+        result_q2_k2 = scatternd_generator_opset18.derive_properties(
+            {
+                "data_shape": data_shape,
+                "indices_value": np.array([[0, 1], [1, 0]], dtype=np.int64),
+                "updates_shape": (2,) + data_shape[2:],
+            }
+        )
+
+        assert result_q1_k2["q_is_one"] is True
+        assert result_q1_k2["k_is_two"] is True
+        assert result_q1_k2["k_is_one"] is False
+        assert result_q1_k2["k_is_dim_minus_one"] is False
+        assert result_q1_k2["k_is_dim"] is False
+
+        assert result_q1_k3["q_is_one"] is True
+        assert result_q1_k3["k_is_two"] is False
+
+        assert result_q2_k2["q_is_one"] is False
+        assert result_q2_k2["k_is_two"] is True
+
+    def test_scatternd_generated_cases_cover_k_is_two_states(self, scatternd_generator_opset18):
+        """Generated ScatterND combinations should cover k_is_two True/False states."""
+        combinations = scatternd_generator_opset18.get_input_and_infinite_attribute_combinations()
+
+        k_is_two_states = set()
+        has_dim6_q1_k2 = False
+        has_dim6_q1_k3 = False
+        for comb in combinations:
+            data_constraint = comb.get("data")
+            indices_constraint = comb.get("indices")
+            if data_constraint is None or indices_constraint is None:
+                continue
+
+            data_shape = tuple(data_constraint.shape)
+            indices_shape = tuple(np.array(indices_constraint.value).shape)
+            if len(indices_shape) == 0:
+                continue
+
+            q = len(indices_shape)
+            k = indices_shape[-1]
+            k_is_two_states.add(k == 2)
+
+            if len(data_shape) == 6 and q == 1 and k == 2:
+                has_dim6_q1_k2 = True
+            if len(data_shape) == 6 and q == 1 and k == 3:
+                has_dim6_q1_k3 = True
+
+        assert k_is_two_states == {False, True}
+        assert has_dim6_q1_k2
+        assert has_dim6_q1_k3
+
+
 class TestConvTransposeDerivedProperties:
     """Regression tests for ConvTranspose derive_properties coverage."""
 
