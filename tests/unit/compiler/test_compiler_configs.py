@@ -299,15 +299,19 @@ class TestForProvider:
         "provider,expect_provider",
         [
             (None, None),
+            # EPs that produce EPContext → compile config returned
             ("qnn", "qnn"),
-            ("dml", "dml"),
-            ("cuda", "cuda"),
-            ("nv_tensorrt_rtx", "nv_tensorrt_rtx"),
             ("openvino", "openvino"),
-            ("vitisai", "vitisai"),
-            ("migraphx", "migraphx"),
-            ("cpu", "cpu"),
-            ("custom_ep", "custom_ep"),  # generic fallback
+            # EPs with enable_ep_context=False → no offline compile step → None
+            ("dml", None),
+            ("cpu", None),
+            ("cuda", None),
+            ("nv_tensorrt_rtx", None),
+            ("vitisai", None),
+            ("migraphx", None),
+            # Unknown/custom EPs use the generic fallback (enable_ep_context=False
+            # in the fallback does NOT apply the None rule — only known factories do)
+            ("custom_ep", "custom_ep"),
         ],
     )
     def test_for_provider(
@@ -322,6 +326,17 @@ class TestForProvider:
         else:
             assert result is not None
             assert result.ep_config.provider == expect_provider
+
+    @pytest.mark.parametrize(
+        "factory_name",
+        ["for_dml", "for_cpu", "for_cuda", "for_vitisai", "for_migraphx", "for_nv_tensorrt_rtx"],
+    )
+    def test_direct_factory_still_works(self, factory_name: str) -> None:
+        """Low-level for_* factories are still callable directly even though
+        for_provider() returns None for these EPs."""
+        config = getattr(WinMLCompileConfig, factory_name)()
+        assert config is not None
+        assert config.ep_config.enable_ep_context is False
 
     def test_for_provider_custom_ep_no_context(self):
         """Custom EP fallback disables EP context."""

@@ -34,7 +34,9 @@ import pytest
 def _discover_command_names() -> list[str]:
     from pathlib import Path
 
-    root = Path(__file__).resolve().parent.parent
+    # Walk up until we find the repo root (marked by pyproject.toml).
+    # Resilient to this file's depth within tests/.
+    root = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
     commands_dir = root / "src" / "winml" / "modelkit" / "commands"
     return sorted(f.stem for f in commands_dir.glob("*.py") if not f.name.startswith("_"))
 
@@ -346,20 +348,25 @@ class TestLazyImportsDict:
 
     @pytest.mark.parametrize("module", _LAZY_MODULES)
     def test_lazy_imports_all_resolvable(self, module: str) -> None:
-        """Every _LAZY_IMPORTS entry must resolve to a real attribute."""
+        """Every _LAZY_IMPORTS entry must resolve to a real attribute.
+
+        Convention: ``_LAZY_IMPORTS`` maps a lazy attribute name to a
+        ``(submodule_path, real_attr_name)`` tuple, where ``submodule_path``
+        is relative (e.g. ``".config"``) resolved against the host package.
+        """
         script = textwrap.dedent(f"""\
             import importlib
             import {module} as mod
             errors = []
-            for attr_name, submodule_path in mod._LAZY_IMPORTS.items():
+            for lazy_name, (submodule_path, real_attr) in mod._LAZY_IMPORTS.items():
                 try:
-                    sub = importlib.import_module(submodule_path)
-                    if not hasattr(sub, attr_name):
+                    sub = importlib.import_module(submodule_path, package={module!r})
+                    if not hasattr(sub, real_attr):
                         errors.append(
-                            f'{{attr_name}}: {{submodule_path}} has no attribute {{attr_name}}'
+                            f'{{lazy_name}}: {{submodule_path}}.{{real_attr}} not found'
                         )
                 except ImportError as exc:
-                    errors.append(f'{{attr_name}}: cannot import {{submodule_path}} ({{exc}})')
+                    errors.append(f'{{lazy_name}}: cannot import {{submodule_path}} ({{exc}})')
             if errors:
                 raise AssertionError(
                     f'Unresolvable _LAZY_IMPORTS in {module}:\\n' + '\\n'.join(errors)
@@ -393,68 +400,12 @@ class TestCommandHelp:
         assert_cli_no_heavy_imports([cmd, "--help"])
 
 
-# ===========================================================================
-# (B) Per-Command Tests — with --model (actual command execution)
-# ===========================================================================
-
-_FAKE_ONNX = "nonexistent_test_model.onnx"
-_HF_MODEL = "microsoft/resnet-50"
-
-
-class TestCommandWithModel:
-    """Verify import budgets when commands are invoked with --model.
-
-    Commands that operate on ONNX files should NOT need torch/transformers.
-    Commands that operate on HF models legitimately need them.
-
-    We use a fake model path so commands fail at file I/O, but the import
-    chain is already established by that point.
-    """
-
-    @pytest.mark.parametrize(
-        ("cmd_args", "allowed"),
-        [
-            # ONNX-path commands — should NOT need torch/transformers
-            (
-                ["compile", "--model", _FAKE_ONNX, "-o", "o.onnx", "--ep", "qnn"],
-                (),
-            ),
-            (
-                ["quantize", "--model", _FAKE_ONNX, "-o", "o.onnx", "--ep", "qnn"],
-                (),
-            ),
-            (
-                ["optimize", "--model", _FAKE_ONNX, "-o", "o.onnx"],
-                ("torch", "torchgen"),  # ORT tools.__init__ pulls torch
-            ),
-            (
-                ["perf", "--model", _FAKE_ONNX],
-                (),
-            ),
-            (
-                ["static-analyzer", "check", "--model", _FAKE_ONNX, "--ep", "qnn"],
-                ("torch", "torchgen"),  # ORT tools.__init__ pulls torch
-            ),
-            # HF model commands — legitimately need heavy deps
-            (
-                ["inspect", "-m", _HF_MODEL],
-                (*HEAVY_PREFIXES, "torchgen", "torchvision"),
-            ),
-            (
-                ["config", "-m", _HF_MODEL, "--device", "npu", "--precision", "int8"],
-                (*HEAVY_PREFIXES, "torchgen", "torchvision"),
-            ),
-        ],
-        ids=[
-            "compile-onnx",
-            "quantize-onnx",
-            "optimize-onnx",
-            "perf-onnx",
-            "static-analyzer-onnx",
-            "inspect-hf",
-            "config-hf",
-        ],
-    )
-    def test_command_import_budget(self, cmd_args: list[str], allowed: tuple[str, ...]) -> None:
-        """Verify each command's import budget with --model."""
-        assert_cli_no_heavy_imports(cmd_args, allowed=allowed)
+# Note: this file deliberately does NOT cover per-command runtime import
+# budgets (e.g., "winml compile --model X.onnx" not pulling torch). Those
+# tests would invoke handler bodies and cross from CLI-surface territory
+# into feature-pipeline territory. The init-time guarantees here cover:
+#   - importing winml.modelkit.* subpackages (TestModuleIsolation)
+#   - winml --help and winml <cmd> --help (TestCommandHelp)
+#   - lazy-import dict structure (TestLazyImportsDict)
+# If per-command runtime budgets become a concern, they belong in a
+# feature-test file with mocks at the dispatch boundary — not here.

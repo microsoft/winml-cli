@@ -7,13 +7,13 @@
 
 from __future__ import annotations
 
-import os
-import threading
-from dataclasses import dataclass
 import logging
-from pathlib import Path
+import os
 import sys
+import threading
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -28,6 +28,7 @@ from ...onnx import (
     infer_onnx_shapes,
     remove_optional_from_type_annotation,
 )
+from ...onnx.external_data import try_load_external_initializer_array
 from ...pattern.base import (
     get_pattern_input_generator,
 )
@@ -49,8 +50,8 @@ from ..utils.model_utils import (
     dtype_from_tensorproto_enum,
     encode_rule_condition_value_for_parquet,
     get_attribute_proto_value,
-    get_op_since_version,
     get_op_input_properties,
+    get_op_since_version,
     make_hashable,
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
@@ -549,6 +550,7 @@ def get_query_conditions_for_node(
     domain: ONNXDomain,
     input_to_dq: dict[str, QDQTypeInfo],
     output_to_q: dict[str, QDQTypeInfo],
+    model_path: str | Path | None = None,
     model_base_dir: str | None = None,
     dynamic_axis_strict_mode: bool = False,
 ) -> tuple[dict[str, Any], list[str], bool]:
@@ -563,8 +565,10 @@ def get_query_conditions_for_node(
         domain: ONNX domain of the node.
         input_to_dq: Maps DQ output name -> QDQTypeInfo (for nodes consuming DQ outputs).
         output_to_q: Maps Q input name -> QDQTypeInfo (for nodes producing Q inputs).
-        model_base_dir: Directory of the source ONNX model for resolving
-            external tensor data.
+        model_path: Optional path to the source ONNX model. Used to resolve
+            external tensor sidecar files.
+        model_base_dir: Backward-compatible directory hint for resolving
+            external tensor data when model_path is unavailable.
         dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
             for matching against first_axis test data. If True, preserves exact indices.
 
@@ -579,6 +583,18 @@ def get_query_conditions_for_node(
     input_names, variadic_input_name, attribute_names, type_annotations = get_op_input_properties(
         schema
     )
+
+    resolved_model_path: Path | None = None
+    resolved_model_base_dir: str | None = None
+    if model_path is not None:
+        resolved_model_path = Path(model_path).resolve(strict=False)
+        resolved_model_base_dir = str(resolved_model_path.parent)
+    elif model_base_dir is not None:
+        resolved_base = Path(model_base_dir).resolve(strict=False)
+        resolved_model_base_dir = str(resolved_base)
+        # Build a synthetic model path so helper logic can resolve sidecar files
+        # relative to the provided base directory.
+        resolved_model_path = resolved_base / "__model__.onnx"
 
     # Build set of optional input names from schema
     optional_input_names = {
@@ -684,10 +700,15 @@ def get_query_conditions_for_node(
 
     def _tensor_to_array_with_fallback(tensor: onnx.TensorProto) -> np.ndarray:
         try:
-            return numpy_helper.to_array(tensor, base_dir=model_base_dir or "")
+            return numpy_helper.to_array(tensor, base_dir=resolved_model_base_dir or "")
         except Exception as exc:
             if tensor.data_location != onnx.TensorProto.EXTERNAL:
                 raise
+
+            # Try bounded external-data loading first when we have model directory context.
+            external_arr = try_load_external_initializer_array(tensor, resolved_model_path)
+            if external_arr is not None:
+                return external_arr
 
             try:
                 np_dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor.data_type)
@@ -699,7 +720,7 @@ def get_query_conditions_for_node(
                 "External tensor data for '%s' could not be loaded from '%s': %s. "
                 "Using zeros fallback with shape=%s dtype=%s.",
                 tensor.name or "<unnamed>",
-                model_base_dir or ".",
+                resolved_model_base_dir or ".",
                 exc,
                 shape,
                 np_dtype,
@@ -750,8 +771,27 @@ def get_query_conditions_for_node(
 
         if inp_name in initializers:
             init = initializers[inp_name]
-            arr = _tensor_to_array_with_fallback(init)
-            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
+
+            # External data initializers may be graph-only stubs without payload.
+            # Keep shape information, but do not mark them constant unless sidecar
+            # data can be materialized.
+            if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
+                external_arr = try_load_external_initializer_array(init, resolved_model_path)
+                if external_arr is not None:
+                    update_conditions_(
+                        conditions,
+                        input_name,
+                        is_variadic,
+                        True,
+                        external_arr.shape,
+                        external_arr,
+                    )
+                else:
+                    shape = tuple(init.dims) if init.dims is not None else None
+                    update_conditions_(conditions, input_name, is_variadic, False, shape, None)
+            else:
+                arr = _tensor_to_array_with_fallback(init)
+                update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for initializers
@@ -940,7 +980,8 @@ class RuntimeCheckerQuery:
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
         """
-        self.model_base_dir = str(Path(model_path).resolve().parent) if model_path else None
+        self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
+        self.model_base_dir = str(Path(self.model_path).parent) if self.model_path else None
         self.dynamic_axis_strict_mode = dynamic_axis_strict_mode
         # Try shape inference: standard ONNX first, then symbolic (onnxruntime)
         try:
@@ -1785,7 +1826,10 @@ class RuntimeCheckerQuery:
 
         matched_row = None
         row_lookup_start = time.perf_counter()
-        row_position = _lookup_row_position_in_condition_tree(condition_tree, parquet_filter_conditions)
+        row_position = _lookup_row_position_in_condition_tree(
+            condition_tree,
+            parquet_filter_conditions,
+        )
         tree_hit = row_position is not None
         if row_position is not None:
             matched_row = table_df.iloc[row_position]
@@ -2099,7 +2143,7 @@ class RuntimeCheckerQuery:
                 op_domain,
                 self.input_to_dq_type,
                 self.output_to_q_type,
-                model_base_dir=self.model_base_dir,
+                model_path=self.model_path,
                 dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
             )
         except (

@@ -78,14 +78,13 @@ def _configure() -> None:
     for _cat in (FutureWarning, DeprecationWarning, UserWarning):
         warnings.filterwarnings("ignore", category=_cat, module=r"torch\..*")
 
-    # TracerWarning (from torch.jit, inherits Warning not UserWarning)
-    # fires during ONNX export tracing — safe to suppress in both torch and transformers
-    try:
-        from torch.jit import TracerWarning
-
-        warnings.filterwarnings("ignore", category=TracerWarning)
-    except ImportError:
-        pass  # torch not installed
+    # NOTE: TracerWarning (from torch.jit) is intentionally NOT filtered here.
+    # Importing torch.jit at startup would pull all of torch (~1.7s) into
+    # `winml --help` and violate the CLI import budget (tests/cli/test_import_time.py).
+    # During ONNX export, build.py already wraps the export call in
+    # `warnings.catch_warnings()` + `filterwarnings("ignore")`, which is strictly
+    # broader than a TracerWarning-only filter. Direct callers of export_pytorch()
+    # that want the same suppression can apply it locally at the call site.
 
     # Diffusers
     warnings.filterwarnings(

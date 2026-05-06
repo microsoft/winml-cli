@@ -316,7 +316,7 @@ class PatternExtractor:
         # Create PatternMatcher instance - may raise InvalidPatternMatcherModelError
         try:
             matcher_init_start = time.perf_counter()
-            matcher = PatternMatcher(model_proto)
+            matcher = PatternMatcher(model_proto, model_path=self._model.model_path)
             matcher_init_ms = int((time.perf_counter() - matcher_init_start) * 1000)
         except InvalidPatternMatcherModelError as e:
             # Model is invalid for pattern matching (e.g., nodes with empty names)
