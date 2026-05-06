@@ -658,7 +658,9 @@ def _build_op_rule_dataframe(
         try:
             row = input_generator.derive_properties(row)
         except NotImplementedError:
-            pass
+            # Some OpInputGenerator implementations do not provide derived
+            # properties; keep the base row unchanged in that case.
+            row = row
         return row
 
     rows = [get_row(item) for item in check_results]
