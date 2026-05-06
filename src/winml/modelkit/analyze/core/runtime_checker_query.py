@@ -371,6 +371,20 @@ def _build_table_filter_conditions(
     return filter_conditions
 
 
+def _build_query_signature(
+    column_names: list[str],
+    filter_conditions: dict[str, Any],
+) -> tuple[Any, ...]:
+    """Build query signature for result cache key.
+
+    The signature must reflect only the columns used by the actual table filter.
+    Columns omitted from ``filter_conditions`` (for example infinite properties)
+    are intentionally excluded to avoid KeyError and keep cache keys aligned with
+    query behavior.
+    """
+    return tuple(filter_conditions[col] for col in column_names if col in filter_conditions)
+
+
 def _normalize_table_path(path_like: str | Path) -> str:
     """Normalize table path for debug output.
 
@@ -1797,7 +1811,11 @@ class RuntimeCheckerQuery:
             k: encode_rule_condition_value_for_parquet(v)
             for k, v in table_filter_conditions.items()
         }
-        query_signature = tuple(parquet_filter_conditions[col] for col in op_columns)
+        # Defensive code: with the latest result_processor pipeline, parquet condition
+        # columns are already filtered to exclude infinite properties, so every
+        # op_column should normally be present here. We still build the signature
+        # from available keys only to avoid KeyError if mixed/legacy artifacts appear.
+        query_signature = _build_query_signature(op_columns, parquet_filter_conditions)
         build_filter_ms = _elapsed_ms(build_filter_start)
 
         cache_key = (node.op_type, op_domain.value, op_since_version, is_qdq, query_signature)
