@@ -13,6 +13,7 @@ Tests verify:
 - _collect_qdq_types functionality via RuntimeCheckerQuery
 """
 
+import numpy as np
 import pytest
 from onnx import TensorProto, helper
 
@@ -361,6 +362,56 @@ class TestCollectQDQTypes:
         # DQ output from initializer should be detected
         assert "dq_out" in query.input_to_dq_type
         assert isinstance(query.input_to_dq_type["dq_out"], QDQTypeInfo)
+
+    def test_runtime_test_model_preserves_qdq_context(self) -> None:
+        """QDQ local fallback models keep the adjacent DQ and Q nodes."""
+        query = RuntimeCheckerQuery(
+            model_proto=self._make_qdq_model(),
+            ep_name="QNNExecutionProvider",
+            device_type="NPU",
+        )
+        relu_node = next(node for node in query.model_proto.graph.node if node.name == "relu_node")
+
+        runtime_test_model = query._build_runtime_test_model(
+            relu_node,
+            ONNXDomain.AI_ONNX,
+            17,
+            include_adjacent_qdq=True,
+        )
+
+        assert [node.op_type for node in runtime_test_model.graph.node] == [
+            "DequantizeLinear",
+            "Relu",
+            "QuantizeLinear",
+        ]
+        assert [graph_input.name for graph_input in runtime_test_model.graph.input] == ["x"]
+        assert [graph_output.name for graph_output in runtime_test_model.graph.output] == ["y"]
+        assert {initializer.name for initializer in runtime_test_model.graph.initializer} == {
+            "dq_scale",
+            "q_scale",
+            "zp",
+        }
+
+    def test_runtime_test_model_inputs_use_quantized_graph_input(self) -> None:
+        """Local QDQ fallback feeds the extracted model's graph inputs, not the inner op input."""
+        query = RuntimeCheckerQuery(
+            model_proto=self._make_qdq_model(),
+            ep_name="QNNExecutionProvider",
+            device_type="NPU",
+        )
+        relu_node = next(node for node in query.model_proto.graph.node if node.name == "relu_node")
+
+        runtime_test_model = query._build_runtime_test_model(
+            relu_node,
+            ONNXDomain.AI_ONNX,
+            17,
+            include_adjacent_qdq=True,
+        )
+        input_feed = query._generate_model_inputs(runtime_test_model)
+
+        assert list(input_feed) == ["x"]
+        assert input_feed["x"].shape == (1, 3, 4, 4)
+        assert input_feed["x"].dtype == np.int8
 
 
 class TestIterShouldQDQCombinations:

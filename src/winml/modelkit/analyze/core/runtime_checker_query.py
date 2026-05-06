@@ -1160,6 +1160,214 @@ class RuntimeCheckerQuery:
             )
         return self._ep_checker
 
+    @staticmethod
+    def _clone_node_proto(node: onnx.NodeProto) -> onnx.NodeProto:
+        """Clone a node proto so extracted test models do not reuse graph objects."""
+        cloned = onnx.NodeProto()
+        cloned.CopyFrom(node)
+        return cloned
+
+    def _find_producer_node(self, tensor_name: str) -> onnx.NodeProto | None:
+        """Return the node that produces a tensor, if any."""
+        if not tensor_name:
+            return None
+
+        for candidate in self.model_proto.graph.node:
+            if tensor_name in candidate.output:
+                return candidate
+        return None
+
+    def _find_consumer_nodes(self, tensor_name: str) -> list[onnx.NodeProto]:
+        """Return nodes that consume a tensor."""
+        if not tensor_name:
+            return []
+
+        return [
+            candidate for candidate in self.model_proto.graph.node if tensor_name in candidate.input
+        ]
+
+    def _build_opset_imports(
+        self,
+        nodes: list[onnx.NodeProto],
+        fallback_op_domain: ONNXDomain,
+        fallback_opset_version: int,
+    ) -> list[onnx.OperatorSetIdProto]:
+        """Build opset imports for an extracted runtime-test model."""
+        opset_imports: list[onnx.OperatorSetIdProto] = []
+        added_domains: set[str] = set()
+        saw_non_default_domain = False
+
+        def add_domain(domain_str: str, version: int) -> None:
+            canonical_domain = "" if domain_str in {"", ONNXDomain.AI_ONNX.value} else domain_str
+            if canonical_domain in added_domains:
+                return
+
+            added_domains.add(canonical_domain)
+            effective_version = max(version, 7) if canonical_domain == "" else version
+            opset_imports.append(onnx.helper.make_opsetid(canonical_domain, effective_version))
+
+        for included_node in nodes:
+            raw_domain = included_node.domain or ""
+            try:
+                node_domain = ONNXDomain.from_str(raw_domain)
+                add_domain(node_domain.schema_domain, self.opset_versions.get(node_domain, 1))
+                saw_non_default_domain = saw_non_default_domain or node_domain != ONNXDomain.AI_ONNX
+            except ValueError:
+                add_domain(raw_domain, 1)
+                saw_non_default_domain = saw_non_default_domain or bool(raw_domain)
+
+        if not opset_imports:
+            add_domain(fallback_op_domain.schema_domain, fallback_opset_version)
+            saw_non_default_domain = fallback_op_domain != ONNXDomain.AI_ONNX
+
+        if saw_non_default_domain and "" not in added_domains:
+            default_opset = self.opset_versions.get(ONNXDomain.AI_ONNX, 17)
+            add_domain("", default_opset)
+
+        return opset_imports
+
+    def _build_runtime_test_model(
+        self,
+        node: onnx.NodeProto,
+        op_domain: ONNXDomain,
+        opset_version: int,
+        include_adjacent_qdq: bool = False,
+    ) -> onnx.ModelProto:
+        """Build the model used for local EP fallback and failed-node artifacts.
+
+        For QDQ operators, include adjacent DequantizeLinear/QuantizeLinear nodes
+        so local runtime checks preserve the quantized context around the target op.
+        """
+        if not include_adjacent_qdq:
+            return self._build_single_node_model(node, op_domain, opset_version)
+
+        graph_inputs: list[onnx.ValueInfoProto] = []
+        graph_initializers: list[onnx.TensorProto] = []
+        graph_outputs: list[onnx.ValueInfoProto] = []
+        pre_nodes: list[onnx.NodeProto] = []
+        post_nodes: list[onnx.NodeProto] = []
+        seen_inputs: set[str] = set()
+        seen_initializers: set[str] = set()
+        seen_outputs: set[str] = set()
+        seen_pre_nodes: set[str] = set()
+        seen_post_nodes: set[str] = set()
+
+        def add_graph_source(name: str) -> None:
+            if not name:
+                return
+
+            if name in self.initializers:
+                init = self.initializers[name]
+                if init.data_location == onnx.TensorProto.EXTERNAL:
+                    if name in seen_inputs:
+                        return
+
+                    vi = self.valueinfo.get(name)
+                    if vi is not None:
+                        graph_inputs.append(vi)
+                    else:
+                        graph_inputs.append(
+                            onnx.helper.make_tensor_value_info(
+                                name,
+                                init.data_type,
+                                list(init.dims),
+                            )
+                        )
+                    seen_inputs.add(name)
+                else:
+                    if name not in seen_initializers:
+                        graph_initializers.append(init)
+                        seen_initializers.add(name)
+                return
+
+            if name in self.constants:
+                if name not in seen_initializers:
+                    graph_initializers.append(self.constants[name])
+                    seen_initializers.add(name)
+                return
+
+            vi = self.valueinfo.get(name)
+            if vi is None:
+                raise ValueError(f"Tensor '{name}' not found in valueinfo or initializers")
+            if name not in seen_inputs:
+                graph_inputs.append(vi)
+                seen_inputs.add(name)
+
+        def add_graph_output(name: str) -> None:
+            if not name or name in seen_outputs:
+                return
+
+            vi = self.valueinfo.get(name)
+            if vi is not None:
+                graph_outputs.append(vi)
+            else:
+                graph_outputs.append(
+                    onnx.helper.make_tensor_value_info(name, onnx.TensorProto.UNDEFINED, None)
+                )
+            seen_outputs.add(name)
+
+        for inp_name in node.input:
+            if not inp_name:
+                continue
+
+            producer = self._find_producer_node(inp_name)
+            if producer is not None and producer.op_type == "DequantizeLinear":
+                producer_key = producer.name or "|".join(producer.output)
+                if producer_key not in seen_pre_nodes:
+                    pre_nodes.append(self._clone_node_proto(producer))
+                    seen_pre_nodes.add(producer_key)
+                for producer_input in producer.input:
+                    add_graph_source(producer_input)
+                continue
+
+            add_graph_source(inp_name)
+
+        for out_name in node.output:
+            if not out_name:
+                continue
+
+            quantize_consumers = [
+                consumer
+                for consumer in self._find_consumer_nodes(out_name)
+                if consumer.op_type == "QuantizeLinear"
+                and consumer.input
+                and consumer.input[0] == out_name
+            ]
+            if quantize_consumers:
+                for consumer in quantize_consumers:
+                    consumer_key = consumer.name or "|".join(consumer.output)
+                    if consumer_key not in seen_post_nodes:
+                        post_nodes.append(self._clone_node_proto(consumer))
+                        seen_post_nodes.add(consumer_key)
+                    for consumer_input in consumer.input[1:]:
+                        add_graph_source(consumer_input)
+                    for consumer_output in consumer.output:
+                        add_graph_output(consumer_output)
+                continue
+
+            add_graph_output(out_name)
+
+        nodes = [*pre_nodes, self._clone_node_proto(node), *post_nodes]
+        graph = onnx.helper.make_graph(
+            nodes,
+            f"runtime_test_{node.op_type}",
+            graph_inputs,
+            graph_outputs,
+            initializer=graph_initializers,
+        )
+
+        model = onnx.helper.make_model(
+            graph,
+            opset_imports=self._build_opset_imports(nodes, op_domain, opset_version),
+        )
+
+        try:
+            model = infer_onnx_shapes(model)
+        except Exception as e:
+            logger.debug("Shape inference failed for runtime-test model: %s", e)
+
+        return model
+
     def _build_single_node_model(
         self, node: onnx.NodeProto, op_domain: ONNXDomain, opset_version: int
     ) -> onnx.ModelProto:
@@ -1257,6 +1465,33 @@ class RuntimeCheckerQuery:
 
         return model
 
+    def _generate_model_inputs(self, model: onnx.ModelProto) -> dict[str, np.ndarray]:
+        """Generate dummy input data for a runtime-test model."""
+        input_feed: dict[str, np.ndarray] = {}
+        default_dim_size = 2  # Replace dynamic/unknown dims with this size
+        initializer_names = {initializer.name for initializer in model.graph.initializer}
+
+        for graph_input in model.graph.input:
+            if graph_input.name in initializer_names:
+                continue
+
+            shape, dtype_str = shape_and_dtype_from_valueinfo(graph_input)
+            if dtype_str is None:
+                raise ValueError(f"Input '{graph_input.name}' has no dtype information")
+
+            np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
+
+            if shape is None:
+                concrete_shape = (default_dim_size,)
+            else:
+                concrete_shape = tuple(
+                    dim if isinstance(dim, int) and dim > 0 else default_dim_size for dim in shape
+                )
+
+            input_feed[graph_input.name] = np.zeros(concrete_shape, dtype=np_dtype)
+
+        return input_feed
+
     def _generate_node_inputs(self, node: onnx.NodeProto) -> dict[str, np.ndarray]:
         """Generate dummy input data for a single-node model.
 
@@ -1336,12 +1571,13 @@ class RuntimeCheckerQuery:
         pattern_match: PatternMatchResult,
         node_tags: list[NodeTag],
         fallback_reason: str,
+        include_adjacent_qdq: bool = False,
         save_node_types: set[str] | None = None,
         conditions: Any | None = None,
     ) -> PatternRuntime | None:
         """Attempt to compile and run a node locally when rules are not found.
 
-        If the local machine supports the target EP, builds a single-node model
+        If the local machine supports the target EP, builds a runtime-test model
         and runs compile/run checks using EPChecker.
 
         Args:
@@ -1377,11 +1613,16 @@ class RuntimeCheckerQuery:
             )
 
         try:
-            model = self._build_single_node_model(node, op_domain, opset_version)
-            input_feed = self._generate_node_inputs(node)
+            model = self._build_runtime_test_model(
+                node,
+                op_domain,
+                opset_version,
+                include_adjacent_qdq=include_adjacent_qdq,
+            )
+            input_feed = self._generate_model_inputs(model)
         except Exception as e:
-            logger.warning(
-                "Failed to build single-node model for local EP check on %s (%s): %s",
+            logger.debug(
+                "Failed to build runtime-test model for local EP check on %s (%s): %s",
                 node.name,
                 node.op_type,
                 e,
@@ -1607,6 +1848,7 @@ class RuntimeCheckerQuery:
         opset_version: int,
         result: RuntimeTestResult,
         cache_key: Any,
+        include_adjacent_qdq: bool = False,
         save_node_types: set[str] | None = None,
     ) -> None:
         """Save unsupported or partial node models without re-running result computation."""
@@ -1619,7 +1861,12 @@ class RuntimeCheckerQuery:
         if not (is_unsupported or is_partial):
             return
 
-        node_model = self._build_single_node_model(node, op_domain, opset_version)
+        node_model = self._build_runtime_test_model(
+            node,
+            op_domain,
+            opset_version,
+            include_adjacent_qdq=include_adjacent_qdq,
+        )
         self._save_failed_node(
             node,
             node_model,
@@ -1754,6 +2001,7 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     "rules_not_found",
+                    include_adjacent_qdq=is_qdq,
                     conditions=None,
                     save_node_types=save_node_types,
                 )
@@ -1890,6 +2138,7 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     "properties_not_found",
+                    include_adjacent_qdq=is_qdq,
                     conditions=cache_key,
                     save_node_types=save_node_types,
                 )
@@ -1963,6 +2212,7 @@ class RuntimeCheckerQuery:
             opset_version,
             result,
             cache_key,
+            include_adjacent_qdq=is_qdq,
             save_node_types=save_node_types,
         )
         maybe_save_ms = _elapsed_ms(maybe_save_start)
