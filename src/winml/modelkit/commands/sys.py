@@ -97,7 +97,7 @@ def _get_library_versions() -> dict[str, str | None]:
     for lib in lib_names:
         try:
             libraries[lib] = version(lib)
-        except PackageNotFoundError:  # noqa: PERF203
+        except PackageNotFoundError:
             libraries[lib] = None
 
     # onnxruntime has multiple distribution variants

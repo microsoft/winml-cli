@@ -1,0 +1,500 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+"""Unit tests for the ep_path EP discovery module.
+
+Covers:
+    - PyPiSource.resolve(): present/missing distribution.
+    - FilesystemSource.resolve(): env-var gating, required marker,
+      glob patterns, multiple EPs in one root.
+    - WinMlCatalogSource.resolve(): graceful no-yield when the
+      WinAppSDK ML Python binding is not installed.
+    - WINML_EP_PATH env-var override parsing.
+    - discover_eps(): first-hit-wins precedence, extra_sources
+      override, dedup, error tolerance.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest  # noqa: TC002 — used as runtime fixture-arg type and reset across tests
+
+from winml.modelkit.ep_path import (
+    EP_DLL_NAMES,
+    EP_NAME_ALIASES,
+    EP_PATH,
+    EpSource,
+    FilesystemSource,
+    PyPiSource,
+    WinMlCatalogSource,
+    _parse_winml_ep_path,
+    _qnn_arch_resolver,
+    canonicalize_ep_name,
+    discover_eps,
+)
+
+
+# ---------------------------------------------------------------------------
+# Module-level public API.
+# ---------------------------------------------------------------------------
+
+
+class TestPublicAPI:
+    """Confirm the public module surface is intact."""
+
+    def test_ep_dll_names_has_five_eps(self) -> None:
+        assert set(EP_DLL_NAMES) == {
+            "OpenVINOExecutionProvider",
+            "QNNExecutionProvider",
+            "VitisAIExecutionProvider",
+            "MIGraphXExecutionProvider",
+            "NvTensorRtRtxExecutionProvider",
+        }
+
+    def test_ep_dll_names_uses_camelcase_for_nvidia(self) -> None:
+        # The canonical key follows MS Learn (camelCase). NVIDIA's
+        # PascalCase 'NvTensorRTRTX...' is the alias, not the canonical.
+        assert "NvTensorRtRtxExecutionProvider" in EP_DLL_NAMES
+        assert "NvTensorRTRTXExecutionProvider" not in EP_DLL_NAMES
+
+    def test_ep_path_is_a_list(self) -> None:
+        assert isinstance(EP_PATH, list)
+        for entry in EP_PATH:
+            assert isinstance(entry, (PyPiSource, FilesystemSource, WinMlCatalogSource))
+
+    def test_ep_source_union_includes_all_three(self) -> None:
+        # EpSource is the runtime tagged union.
+        assert PyPiSource is not None
+        assert FilesystemSource is not None
+        assert WinMlCatalogSource is not None
+        # Spot check that EpSource is a Union/UnionType.
+        for cls in (PyPiSource, FilesystemSource, WinMlCatalogSource):
+            assert cls in EpSource.__args__
+
+
+# ---------------------------------------------------------------------------
+# QNN arch resolver.
+# ---------------------------------------------------------------------------
+
+
+class TestQnnArchResolver:
+    """The arch resolver substitutes ``{arch}`` per host architecture."""
+
+    def test_substitutes_arch_token(self) -> None:
+        out = _qnn_arch_resolver("libs/{arch}/foo.dll")
+        # On all hosts, the result must be one of the two known values.
+        assert out in ("libs/amd64/foo.dll", "libs/arm64ec/foo.dll")
+
+    def test_passthrough_when_no_token(self) -> None:
+        # ``str.format`` with no placeholders returns the same string.
+        assert _qnn_arch_resolver("foo.dll") == "foo.dll"
+
+
+# ---------------------------------------------------------------------------
+# PyPiSource.
+# ---------------------------------------------------------------------------
+
+
+class TestPyPiSource:
+    """PyPiSource resolves via importlib.metadata against the live env."""
+
+    def test_resolves_installed_distribution(self) -> None:
+        # ``onnxruntime-ep-openvino`` is in pyproject.toml deps and
+        # installed in the venv used to run the test suite.
+        source = PyPiSource(
+            distribution="onnxruntime-ep-openvino",
+            relative_dll=(
+                "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"
+            ),
+            eps=("OpenVINOExecutionProvider",),
+        )
+        results = list(source.resolve())
+        assert len(results) == 1
+        ep_name, path = results[0]
+        assert ep_name == "OpenVINOExecutionProvider"
+        assert path.is_file(), f"Expected {path} to exist"
+        assert path.name == "onnxruntime_providers_openvino_plugin.dll"
+
+    def test_yields_nothing_for_missing_distribution(self) -> None:
+        source = PyPiSource(
+            distribution="this-distribution-does-not-exist-xyz",
+            relative_dll="ignored.dll",
+            eps=("FakeEP",),
+        )
+        assert list(source.resolve()) == []
+
+    def test_arch_resolver_is_invoked(self) -> None:
+        # The QNN entry uses an arch_resolver; verify it's actually
+        # called by checking the resolved path includes a known arch
+        # directory.
+        source = PyPiSource(
+            distribution="onnxruntime-qnn",
+            relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll",
+            eps=("QNNExecutionProvider",),
+            arch_resolver=_qnn_arch_resolver,
+        )
+        results = list(source.resolve())
+        # Whether the file exists depends on the host arch + wheel
+        # contents. Either we got a valid path, or we got nothing
+        # (the arch's libs subdir was missing). What we DO require:
+        # if a path is yielded, it must NOT contain the unsubstituted
+        # token.
+        for _ep, path in results:
+            assert "{arch}" not in str(path)
+
+    def test_yields_nothing_when_dll_missing_from_distribution(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = PyPiSource(
+            distribution="onnxruntime-ep-openvino",
+            relative_dll="onnxruntime_ep_openvino/this_file_does_not_exist.dll",
+            eps=("OpenVINOExecutionProvider",),
+        )
+        assert list(source.resolve()) == []
+
+
+# ---------------------------------------------------------------------------
+# FilesystemSource.
+# ---------------------------------------------------------------------------
+
+
+def _touch(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"")
+    return path
+
+
+class TestFilesystemSource:
+    """FilesystemSource scans a directory for plugin DLLs."""
+
+    def test_resolves_single_dll_in_root(self, tmp_path: Path) -> None:
+        dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
+        source = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={"VitisAIExecutionProvider": dll.name},
+        )
+        results = list(source.resolve())
+        assert len(results) == 1
+        ep_name, path = results[0]
+        assert ep_name == "VitisAIExecutionProvider"
+        assert path == dll.resolve()
+
+    def test_yields_nothing_when_root_missing(self, tmp_path: Path) -> None:
+        source = FilesystemSource(
+            root=tmp_path / "does-not-exist",
+            dll_patterns={"VitisAIExecutionProvider": "any.dll"},
+        )
+        assert list(source.resolve()) == []
+
+    def test_env_var_unset_yields_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FAKE_INSTALLATION_PATH", raising=False)
+        source = FilesystemSource(
+            root=Path("deployment"),
+            env_var="FAKE_INSTALLATION_PATH",
+            dll_patterns={"VitisAIExecutionProvider": "vitisai.dll"},
+        )
+        assert list(source.resolve()) == []
+
+    def test_env_var_resolves_relative_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Mimic a Ryzen AI install layout:
+        # %FAKE_INSTALLATION_PATH%/deployment/onnxruntime_providers_vitisai.dll
+        deployment = tmp_path / "deployment"
+        dll = _touch(deployment / "onnxruntime_providers_vitisai.dll")
+        marker = _touch(deployment / "onnxruntime_providers_shared.dll")
+        monkeypatch.setenv("FAKE_INSTALLATION_PATH", str(tmp_path))
+
+        source = FilesystemSource(
+            root=Path("deployment"),
+            env_var="FAKE_INSTALLATION_PATH",
+            dll_patterns={"VitisAIExecutionProvider": dll.name},
+            required_marker=marker.name,
+        )
+        results = list(source.resolve())
+        assert results == [("VitisAIExecutionProvider", dll.resolve())]
+
+    def test_required_marker_missing_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        deployment = tmp_path / "deployment"
+        _touch(deployment / "onnxruntime_providers_vitisai.dll")
+        monkeypatch.setenv("FAKE_INSTALLATION_PATH", str(tmp_path))
+
+        source = FilesystemSource(
+            root=Path("deployment"),
+            env_var="FAKE_INSTALLATION_PATH",
+            dll_patterns={"VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll"},
+            required_marker="onnxruntime_providers_shared.dll",
+        )
+        assert list(source.resolve()) == []
+
+    def test_multiple_eps_in_one_root(self, tmp_path: Path) -> None:
+        dll_a = _touch(tmp_path / "onnxruntime_providers_openvino_plugin.dll")
+        dll_b = _touch(tmp_path / "onnxruntime_providers_qnn.dll")
+        source = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={
+                "OpenVINOExecutionProvider": dll_a.name,
+                "QNNExecutionProvider": dll_b.name,
+            },
+        )
+        results = dict(source.resolve())
+        assert results == {
+            "OpenVINOExecutionProvider": dll_a.resolve(),
+            "QNNExecutionProvider": dll_b.resolve(),
+        }
+
+    def test_glob_pattern_matches(self, tmp_path: Path) -> None:
+        dll = _touch(tmp_path / "subdir" / "onnxruntime_providers_qnn.dll")
+        source = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={"QNNExecutionProvider": "*/onnxruntime_providers_qnn.dll"},
+        )
+        results = list(source.resolve())
+        assert results == [("QNNExecutionProvider", dll.resolve())]
+
+
+# ---------------------------------------------------------------------------
+# WinMlCatalogSource stub.
+# ---------------------------------------------------------------------------
+
+
+class TestWinMlCatalogSourceBindingMissing:
+    """When the optional WinAppSDK ML binding is absent, resolve() yields nothing.
+
+    Detailed behavior (mocked binding shape, atexit registration, etc.)
+    is covered in ``test_winml_catalog_source.py``.
+    """
+
+    def test_resolve_yields_nothing_without_binding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The CI venv has no ``wasdk-*`` extras installed, so the lazy
+        # import inside ``_get_catalog`` raises ImportError and the
+        # source yields nothing silently. We reset the singleton state
+        # so the test exercises the import path freshly.
+        from winml.modelkit import ep_path as _ep
+
+        monkeypatch.setattr(_ep, "_catalog_singleton", None)
+        monkeypatch.setattr(_ep, "_catalog_init_attempted", False)
+        monkeypatch.setattr(_ep, "_catalog_init_failed", False)
+
+        source = WinMlCatalogSource(
+            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
+        )
+        # ``resolve()`` is a generator; we have to iterate to trigger.
+        assert list(source.resolve()) == []
+
+
+# ---------------------------------------------------------------------------
+# WINML_EP_PATH env var override.
+# ---------------------------------------------------------------------------
+
+
+class TestWinmlEpPathOverride:
+    """Parsing the WINML_EP_PATH env var into FilesystemSource entries."""
+
+    def test_unset_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        assert _parse_winml_ep_path() == []
+
+    def test_empty_string_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WINML_EP_PATH", "")
+        assert _parse_winml_ep_path() == []
+
+    def test_single_entry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("WINML_EP_PATH", str(tmp_path))
+        sources = _parse_winml_ep_path()
+        assert len(sources) == 1
+        assert isinstance(sources[0], FilesystemSource)
+        assert sources[0].root == tmp_path
+        # All known EPs should be in the dll_patterns.
+        assert set(sources[0].dll_patterns.keys()) == set(EP_DLL_NAMES.keys())
+
+    def test_multi_entry_separator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        # The parser uses ``;`` on Windows and ``os.pathsep`` elsewhere.
+        # Either way ``;`` is interpreted as a separator on Windows; we
+        # construct a value with the OS-native separator so the test is
+        # cross-platform.
+        import os
+
+        sep = ";" if os.name == "nt" else os.pathsep
+        monkeypatch.setenv("WINML_EP_PATH", f"{a}{sep}{b}")
+        sources = _parse_winml_ep_path()
+        assert len(sources) == 2
+        roots = [s.root for s in sources if isinstance(s, FilesystemSource)]
+        assert a in roots
+        assert b in roots
+
+    def test_winml_ep_path_finds_dll(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # End-to-end: drop a synthetic plugin DLL in a directory, set
+        # WINML_EP_PATH to that directory, confirm discover_eps finds it.
+        dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
+        monkeypatch.setenv("WINML_EP_PATH", str(tmp_path))
+        # Use extra_sources=[] to ensure we exercise the env-var path
+        # without colliding with whatever the default EP_PATH resolves
+        # for VitisAI (which is gated by RYZEN_AI_INSTALLATION_PATH and
+        # therefore inactive on a CI machine).
+        monkeypatch.delenv("RYZEN_AI_INSTALLATION_PATH", raising=False)
+        resolved = discover_eps()
+        assert "VitisAIExecutionProvider" in resolved
+        path, _src = resolved["VitisAIExecutionProvider"]
+        assert path == dll.resolve()
+
+
+# ---------------------------------------------------------------------------
+# discover_eps precedence + dedup + error tolerance.
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverEps:
+    """The walk algorithm: first-hit-wins, dedup, no-fail-on-source-error."""
+
+    def test_extra_sources_override_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Build an extra source that "claims" OpenVINOExecutionProvider
+        # with a synthetic DLL. It should beat the PyPI-resolved real one.
+        fake_dll = _touch(tmp_path / "fake_openvino.dll")
+        extra = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={"OpenVINOExecutionProvider": fake_dll.name},
+        )
+        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        resolved = discover_eps(extra_sources=[extra])
+        assert "OpenVINOExecutionProvider" in resolved
+        path, source = resolved["OpenVINOExecutionProvider"]
+        assert path == fake_dll.resolve()
+        assert source is extra
+
+    def test_first_hit_wins_among_extra_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        a = _touch(tmp_path / "a" / "vitisai.dll")
+        b = _touch(tmp_path / "b" / "vitisai.dll")
+        first = FilesystemSource(
+            root=a.parent,
+            dll_patterns={"VitisAIExecutionProvider": a.name},
+        )
+        second = FilesystemSource(
+            root=b.parent,
+            dll_patterns={"VitisAIExecutionProvider": b.name},
+        )
+        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        resolved = discover_eps(extra_sources=[first, second])
+        assert resolved["VitisAIExecutionProvider"][0] == a.resolve()
+
+    def test_winml_catalog_source_does_not_abort_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # On a CI machine without the WinAppSDK binding, resolve() on a
+        # WinMlCatalogSource yields nothing and discover_eps continues
+        # to subsequent sources.
+        from winml.modelkit import ep_path as _ep
+
+        monkeypatch.setattr(_ep, "_catalog_singleton", None)
+        monkeypatch.setattr(_ep, "_catalog_init_attempted", False)
+        monkeypatch.setattr(_ep, "_catalog_init_failed", False)
+
+        fake_dll = _touch(tmp_path / "fake_qnn.dll")
+        catalog = WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
+        good = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={"QNNExecutionProvider": fake_dll.name},
+        )
+        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        resolved = discover_eps(extra_sources=[catalog, good])
+        assert resolved["QNNExecutionProvider"][0] == fake_dll.resolve()
+
+    def test_resolve_returns_path_and_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_dll = _touch(tmp_path / "fake.dll")
+        src = FilesystemSource(
+            root=tmp_path,
+            dll_patterns={"QNNExecutionProvider": fake_dll.name},
+        )
+        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        resolved = discover_eps(extra_sources=[src])
+        assert resolved["QNNExecutionProvider"] == (fake_dll.resolve(), src)
+
+    def test_alias_spellings_dedup_to_canonical_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Two sources both yield the same EP under different alias
+        # spellings (PascalCase vs camelCase). The dedup logic must
+        # canonicalize the keys and apply first-hit-wins, so the result
+        # contains exactly one entry under the canonical (camelCase) key.
+        first_dll = _touch(tmp_path / "first" / "trt.dll")
+        second_dll = _touch(tmp_path / "second" / "trt.dll")
+        # The first source uses the PascalCase alias.
+        first = FilesystemSource(
+            root=first_dll.parent,
+            dll_patterns={"NvTensorRTRTXExecutionProvider": first_dll.name},
+        )
+        # The second uses the canonical camelCase form.
+        second = FilesystemSource(
+            root=second_dll.parent,
+            dll_patterns={"NvTensorRtRtxExecutionProvider": second_dll.name},
+        )
+        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        resolved = discover_eps(extra_sources=[first, second])
+        # Exactly one entry, keyed by the canonical name.
+        nv_keys = [k for k in resolved if k.lower() == "nvtensorrtrtxexecutionprovider"]
+        assert nv_keys == ["NvTensorRtRtxExecutionProvider"]
+        # First hit wins, so the path is the first source's DLL.
+        path, _src = resolved["NvTensorRtRtxExecutionProvider"]
+        assert path == first_dll.resolve()
+
+
+# ---------------------------------------------------------------------------
+# EP-name alias canonicalization helper.
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalizeEpName:
+    """canonicalize_ep_name normalizes alias spellings to canonical form."""
+
+    def test_known_alias_normalizes(self) -> None:
+        # NVIDIA's PascalCase docs alias normalizes to the WinML
+        # EP-Catalog camelCase canonical name.
+        assert (
+            canonicalize_ep_name("NvTensorRTRTXExecutionProvider")
+            == "NvTensorRtRtxExecutionProvider"
+        )
+
+    def test_canonical_name_is_identity(self) -> None:
+        # The canonical name itself is in the alias table's value set
+        # but not its key set; identity is the correct behavior.
+        assert (
+            canonicalize_ep_name("NvTensorRtRtxExecutionProvider")
+            == "NvTensorRtRtxExecutionProvider"
+        )
+
+    def test_unknown_name_passes_through(self) -> None:
+        # Defensive default: unknown names (typos, future EPs) are NOT
+        # silently rewritten or rejected — they flow through to ORT for
+        # diagnosis.
+        assert canonicalize_ep_name("UnknownProvider") == "UnknownProvider"
+
+    def test_alias_table_values_are_canonical(self) -> None:
+        # Every value in the alias table should be a fixed point (it
+        # itself canonicalizes to itself), otherwise we would have a
+        # chain of aliases.
+        for canonical in EP_NAME_ALIASES.values():
+            assert canonicalize_ep_name(canonical) == canonical

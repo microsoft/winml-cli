@@ -21,7 +21,7 @@ from .ep_monitor import EPMonitor
 
 
 if TYPE_CHECKING:
-    from typing_extensions import Self
+    from typing import Self
 
 
 logger = logging.getLogger(__name__)

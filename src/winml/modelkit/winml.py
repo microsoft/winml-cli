@@ -4,52 +4,81 @@
 # --------------------------------------------------------------------------
 """Plugin-style ONNX Runtime execution provider registration.
 
-Resolves EP plugin DLLs from their pip-installed distribution packages
-(``onnxruntime-ep-openvino``, ``onnxruntime-qnn``, ...) and registers them
-with ONNX Runtime via ``register_execution_provider_library()`` (added in
-ORT 1.24). Built-in EPs (CPU, DML in 1.24+) are registered automatically
-by ORT and are not listed here.
+Discovers EP plugin DLLs via the unified :mod:`winml.modelkit.ep_path`
+discovery layer and registers them with ONNX Runtime via
+``register_execution_provider_library()`` (added in ORT 1.24). Built-in
+EPs (CPU, DML in 1.24+) are registered automatically by ORT and are not
+listed here.
+
+The legacy ``EP_PLUGIN_REGISTRY`` dict and ``resolve_plugin_dll()``
+function are kept as backwards-compatibility shims that delegate to the
+new ``ep_path`` module. They will be removed once no internal callers
+remain (see ``docs/ep-path-design.md`` migration plan, step 5).
 """
 from __future__ import annotations
 
-import platform
+import logging
 import sys
-from importlib import metadata
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 
-def _qnn_arch_dir() -> str:
-    """Return the QNN libs subdirectory matching the current architecture."""
-    return "arm64ec" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from .ep_path import (
+    EP_DLL_NAMES,
+    EP_PATH,
+    EpSource,
+    FilesystemSource,
+    PyPiSource,
+    WinMlCatalogSource,
+    discover_eps,
+)
 
 
-# EP name -> (PyPI distribution, relative DLL path under site-packages).
-EP_PLUGIN_REGISTRY: dict[str, tuple[str, str]] = {
-    "OpenVINOExecutionProvider": (
-        "onnxruntime-ep-openvino",
-        "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll",
-    ),
-    "QNNExecutionProvider": (
-        "onnxruntime-qnn",
-        f"onnxruntime_qnn/libs/{_qnn_arch_dir()}/onnxruntime_providers_qnn.dll",
-    ),
-}
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compat shims.
+# ---------------------------------------------------------------------------
+# The two PyPI-only entries we historically advertised. Kept as a frozen
+# view of ``EP_PATH``'s ``PyPiSource`` rows so callers that still iterate
+# this dict (none in-tree at time of writing) keep working. New code
+# should use ``EP_PATH`` and ``discover_eps()`` instead.
+def _legacy_ep_plugin_registry() -> dict[str, tuple[str, str]]:
+    out: dict[str, tuple[str, str]] = {}
+    for source in EP_PATH:
+        if not isinstance(source, PyPiSource):
+            continue
+        rel = source.relative_dll
+        if source.arch_resolver is not None:
+            rel = source.arch_resolver(rel)
+        for ep_name in source.eps:
+            out.setdefault(ep_name, (source.distribution, rel))
+    return out
+
+
+EP_PLUGIN_REGISTRY: dict[str, tuple[str, str]] = _legacy_ep_plugin_registry()
 
 
 def resolve_plugin_dll(ep_name: str) -> Path | None:
-    """Resolve the absolute DLL path for a plugin EP, or None if unavailable."""
-    entry = EP_PLUGIN_REGISTRY.get(ep_name)
+    """Resolve the absolute DLL path for a plugin EP, or None if unavailable.
+
+    Backwards-compat shim. Walks ``EP_PATH`` via :func:`discover_eps` and
+    returns the first absolute path resolved for ``ep_name``, or ``None``.
+    """
+    resolved = discover_eps()
+    entry = resolved.get(ep_name)
     if entry is None:
         return None
-    pkg, rel = entry
-    try:
-        dist = metadata.distribution(pkg)
-    except metadata.PackageNotFoundError:
-        return None
-    path = Path(str(dist.locate_file(rel)))
+    path, _source = entry
     return path if path.exists() else None
 
+
+# ---------------------------------------------------------------------------
+# WinML singleton.
+# ---------------------------------------------------------------------------
 
 _winml_instance: WinML | None = None
 
@@ -68,16 +97,20 @@ class WinML:
         return _winml_instance
 
     def __init__(self) -> None:
-        """Initialize WinML execution provider catalog from installed plugin packages."""
+        """Initialize WinML execution provider catalog from ``EP_PATH``."""
         if self._initialized:
             return
         self._initialized = True
 
-        self._ep_paths: dict[str, str] = {}
-        for ep_name in EP_PLUGIN_REGISTRY:
-            path = resolve_plugin_dll(ep_name)
-            if path is not None:
-                self._ep_paths[ep_name] = str(path)
+        # Walk EP_PATH (plus WINML_EP_PATH env var entries, if any) and
+        # capture (ep_name -> abs path) for every discovered plugin.
+        self._resolved: dict[str, tuple[Path, EpSource]] = discover_eps()
+        # Preserve the legacy attribute name and shape so any external
+        # caller that introspects the singleton sees the same dict it
+        # used to. Only the abs path is exposed (not the source).
+        self._ep_paths: dict[str, str] = {
+            name: str(path) for name, (path, _) in self._resolved.items()
+        }
 
         self._registered_eps: dict[str, list[str]] = {
             "onnxruntime": [],
@@ -85,17 +118,32 @@ class WinML:
         }
 
     def register_execution_providers(
-        self, ort: bool = True, ort_genai: bool = False
+        self,
+        ort: bool = True,
+        ort_genai: bool = False,
+        extra_sources: list[EpSource] | None = None,
     ) -> dict[str, list[str]]:
         """Register WinML execution providers for ONNX Runtime modules.
 
         Args:
             ort: Whether to register for ONNX Runtime.
             ort_genai: Whether to register for ONNX Runtime GenAI.
+            extra_sources: Optional list of additional ``EpSource`` entries
+                to consult before the default ``EP_PATH``. Useful for
+                tests and embedded apps. Has highest precedence.
 
         Returns:
             Dictionary of registered execution provider names by module.
         """
+        # When extra_sources are supplied, refresh the resolved set so
+        # the override takes precedence. Otherwise reuse the cached set
+        # captured at __init__ to preserve singleton semantics.
+        if extra_sources:
+            resolved = discover_eps(extra_sources=extra_sources)
+            ep_paths = {name: str(path) for name, (path, _) in resolved.items()}
+        else:
+            ep_paths = self._ep_paths
+
         modules = []
         if ort:
             import onnxruntime
@@ -105,7 +153,7 @@ class WinML:
             import onnxruntime_genai  # type: ignore[import-not-found]
 
             modules.append(onnxruntime_genai)
-        for name, path in self._ep_paths.items():
+        for name, path in ep_paths.items():
             for module in modules:
                 if name not in self._registered_eps[module.__name__]:
                     try:
@@ -119,18 +167,26 @@ class WinML:
         return self._registered_eps
 
 
-def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> dict[str, list[str]]:
-    """Register WinML execution providers for ONNX Runtime and ONNX Runtime GenAI.
+def register_execution_providers(
+    ort: bool = True,
+    ort_genai: bool = False,
+    extra_sources: list[EpSource] | None = None,
+) -> dict[str, list[str]]:
+    """Register WinML execution providers for ONNX Runtime and ORT GenAI.
 
     Args:
         ort (bool): Whether to register for ONNX Runtime.
         ort_genai (bool): Whether to register for ONNX Runtime GenAI.
+        extra_sources: Optional list of additional ``EpSource`` entries
+            with highest precedence. Defaults to ``None`` (no extras).
 
     Returns:
-        dict[str, list[str]]: Dictionary of registered execution provider names
-        by module.
+        dict[str, list[str]]: Dictionary of registered execution provider
+        names by module.
     """
-    return WinML().register_execution_providers(ort=ort, ort_genai=ort_genai)
+    return WinML().register_execution_providers(
+        ort=ort, ort_genai=ort_genai, extra_sources=extra_sources
+    )
 
 
 def add_ep_for_device(
@@ -157,11 +213,33 @@ def add_ep_for_device(
     """
     import onnxruntime as ort
 
+    from .ep_path import canonicalize_ep_name
+
+    # Canonicalize alias spellings (e.g. PascalCase
+    # ``NvTensorRTRTXExecutionProvider``) so the case-sensitive ``==``
+    # below matches whichever spelling ORT registered the EP under.
+    target_ep_name = canonicalize_ep_name(ep_name)
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
-        if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
+        device_ep_name = canonicalize_ep_name(ep_device.ep_name)
+        if device_ep_name == target_ep_name and ep_device.device.type == device_type:
             print(f"Adding {ep_name} for {device_type}")
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options
             )
             break
+
+
+__all__ = [
+    "EP_DLL_NAMES",
+    "EP_PATH",
+    "EP_PLUGIN_REGISTRY",
+    "EpSource",
+    "FilesystemSource",
+    "PyPiSource",
+    "WinML",
+    "WinMlCatalogSource",
+    "add_ep_for_device",
+    "register_execution_providers",
+    "resolve_plugin_dll",
+]

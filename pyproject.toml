@@ -84,6 +84,10 @@ optional-dependencies.openvino = [
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=2.1,<2.2",
 ]
+optional-dependencies.winml-catalog = [
+  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
+]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
 urls.Homepage = "https://github.com/microsoft/ModelKit"

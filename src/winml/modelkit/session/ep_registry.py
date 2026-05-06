@@ -4,8 +4,8 @@
 # --------------------------------------------------------------------------
 """Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
-Discovers plugin EPs from installed PyPI packages (``onnxruntime-ep-openvino``,
-``onnxruntime-qnn``, ...) and registers them with ONNX Runtime via
+Discovers plugin EPs via the unified :mod:`winml.modelkit.ep_path`
+discovery layer and registers them with ONNX Runtime via
 ``register_execution_provider_library()`` (ORT 1.24+).
 """
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from ..winml import EP_PLUGIN_REGISTRY, resolve_plugin_dll
+from ..ep_path import EpSource, discover_eps
 
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,9 @@ _winml_ep_registry: WinMLEPRegistry | None = None
 class WinMLEPRegistry:
     """Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
-    Discovers plugin EPs from installed PyPI packages and registers
-    them with ONNX Runtime.
+    Discovers plugin EPs via :func:`winml.modelkit.ep_path.discover_eps`
+    (which walks the ``EP_PATH`` list and the ``WINML_EP_PATH`` env-var
+    override) and registers them with ONNX Runtime.
 
     Usage:
         registry = WinMLEPRegistry.get_instance()
@@ -44,21 +45,19 @@ class WinMLEPRegistry:
         return _winml_ep_registry
 
     def __init__(self) -> None:
-        """Discover plugin EPs from installed packages."""
+        """Discover plugin EPs from EP_PATH."""
         if self._initialized:
             return
         self._initialized = True
 
         self._ep_paths: dict[str, str] = {}
+        self._ep_sources: dict[str, EpSource] = {}
         self._registered_eps: list[str] = []
 
-        for ep_name in EP_PLUGIN_REGISTRY:
-            path = resolve_plugin_dll(ep_name)
-            if path is not None:
-                self._ep_paths[ep_name] = str(path)
-                logger.debug("Found EP: %s at %s", ep_name, path)
-            else:
-                logger.debug("EP %s skipped: package not installed", ep_name)
+        for ep_name, (path, source) in discover_eps().items():
+            self._ep_paths[ep_name] = str(path)
+            self._ep_sources[ep_name] = source
+            logger.debug("Found EP: %s at %s (from %r)", ep_name, path, source)
 
     def register_to_ort(self) -> list[str]:
         """Register discovered EPs with ONNX Runtime.

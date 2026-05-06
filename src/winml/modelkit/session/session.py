@@ -455,11 +455,18 @@ class WinMLSession:
     def _find_ep_device(ep_name: str) -> Any:
         """Find an OrtEpDevice matching the given EP name.
 
+        EP name aliases (e.g. NVIDIA's PascalCase ``NvTensorRTRTX...``
+        vs WinML's camelCase ``NvTensorRtRtx...``) are canonicalized on
+        both sides of the comparison so either spelling matches.
+
         Returns:
             The first matching OrtEpDevice, or None if not found.
         """
+        from ..ep_path import canonicalize_ep_name
+
+        target = canonicalize_ep_name(ep_name)
         for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == ep_name:
+            if canonicalize_ep_name(ep_dev.ep_name) == target:
                 return ep_dev
         return None
 

@@ -18,7 +18,7 @@ import json
 import logging
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -89,7 +89,7 @@ class BenchmarkResult:
 
     # Benchmark config
     config: BenchmarkConfig
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     # Model info
     input_names: list[str] = field(default_factory=list)
