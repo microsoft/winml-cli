@@ -85,18 +85,19 @@ class TestTasksManagerFallback:
 
 
 class TestModelTaskDefaultsOverride:
-    """Tests for MODEL_TASK_DEFAULTS auto-detection override.
+    """Tests for per-model-type default-task auto-detection override.
 
     Some model families (e.g., SAM/SAM2) have an architecture class whose
     default TasksManager mapping ("feature-extraction") differs from the
-    canonical export target ("mask-generation"). MODEL_TASK_DEFAULTS biases
+    canonical export target ("mask-generation"). The default is encoded as a
+    MODEL_CLASS_MAPPING[(model_type, None)] sentinel entry that biases
     auto-detection toward the right export configuration when --task is
     not provided.
     """
 
     def test_sam2_video_defaults_to_mask_generation(self):
         """Sam2Model on sam2_video config auto-detects to mask-generation."""
-        # Trigger HF model registrations (loads MODEL_TASK_DEFAULTS for SAM)
+        # Trigger HF model registrations (loads SAM sentinel entries)
         import winml.modelkit.models.hf  # noqa: F401
         from winml.modelkit.models.hf.sam import SAM2MaskGeneration
 
@@ -124,7 +125,7 @@ class TestModelTaskDefaultsOverride:
         assert resolved_class is SAMMaskGeneration
 
     def test_model_type_underscore_normalized(self):
-        """sam2_video (underscore) matches sam2-video (hyphen) in MODEL_TASK_DEFAULTS."""
+        """sam2_video (underscore) matches sam2-video (hyphen) in MODEL_CLASS_MAPPING."""
         import winml.modelkit.models.hf  # noqa: F401
 
         config = MagicMock()
@@ -135,7 +136,7 @@ class TestModelTaskDefaultsOverride:
         assert task == "mask-generation"
 
     def test_no_override_for_unrelated_model(self):
-        """Models without MODEL_TASK_DEFAULTS entry keep TasksManager-inferred task."""
+        """Models without a (model_type, None) sentinel keep TasksManager-inferred task."""
         from transformers import ResNetForImageClassification
 
         config = MagicMock()
