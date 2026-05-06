@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.12,<3.13"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
@@ -35,7 +35,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
-  "onnxruntime-windowsml>=1.23.2,<1.24.0",
+  "onnxruntime-windowsml>=1.24.5",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -58,8 +58,8 @@ dependencies = [
   "torchvision>=0.24",
   "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
+  "wasdk-microsoft-windows-ai-machinelearning>=1.8.260209005",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.260317003",
   "winrt-runtime>=3.2.1",
   "winrt-windows-foundation>=3.2.1",
   "winrt-windows-foundation-collections>=3.2.1",
