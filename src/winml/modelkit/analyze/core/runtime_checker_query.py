@@ -1802,7 +1802,7 @@ class RuntimeCheckerQuery:
             )
             input_feed = self._generate_model_inputs(model)
         except Exception as e:
-            logger.warning(
+            logger.debug(
                 "Failed to build runtime-test model for local EP check on %s (%s): %s",
                 node.name,
                 node.op_type,
