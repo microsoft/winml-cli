@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,7 @@ from ...onnx import (
     infer_onnx_shapes,
     remove_optional_from_type_annotation,
 )
+from ...onnx.external_data import try_load_external_initializer_array
 from ...pattern.base import (
     get_pattern_input_generator,
     get_registered_pattern_input_generators,
@@ -66,6 +68,14 @@ if TYPE_CHECKING:
 # Centralized key for attaching debug details to error/info payloads
 EG_RULE_DEBUG_DETAILS_KEY = "__debug_details"
 EG_RULE_ERROR_KEY = "__error"
+
+# Snapshot metadata keys used by runtime-check rule artifacts.
+SNAPSHOT_TYPE_KEY = "__snapshot_type__"
+SNAPSHOT_TYPE_DELTA = "delta_v1"
+SNAPSHOT_BASE_OPSET_KEY = "__base_opset__"
+SNAPSHOT_CURRENT_OPSET_KEY = "__current_opset__"
+SNAPSHOT_CHANGED_KEY = "__changed__"
+SNAPSHOT_DELETED_KEY = "__deleted__"
 
 
 class _PseudoNode:
@@ -116,6 +126,108 @@ def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _replace_opset_token(name: str, new_opset: int) -> str:
+    """Replace the first `_opset<digits>` token in a file name."""
+    return re.sub(r"_opset\d+", f"_opset{new_opset}", name, count=1)
+
+
+def _read_json_from_zip(zip_path: Path, file_name: str) -> dict[str, Any] | None:
+    """Read a JSON object from zip entry, returning None if not found/readable."""
+    if not zip_path.exists():
+        return None
+
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            if file_name not in zf.namelist():
+                return None
+            raw = json.loads(zf.read(file_name).decode("utf-8"))
+    except Exception as e:
+        logger.debug("Failed to read %s from %s: %s", file_name, zip_path, e)
+        return None
+
+    if not isinstance(raw, dict):
+        logger.debug("Unexpected non-dict payload in %s from %s", file_name, zip_path)
+        return None
+    return raw
+
+
+def _apply_snapshot_delta(
+    base_payload: dict[str, Any], delta_payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Apply changed/deleted entries from delta payload onto base payload."""
+    merged = dict(base_payload)
+    changed = delta_payload.get(SNAPSHOT_CHANGED_KEY, {})
+    if isinstance(changed, dict):
+        merged.update(changed)
+
+    deleted = delta_payload.get(SNAPSHOT_DELETED_KEY, [])
+    if isinstance(deleted, list):
+        for key in deleted:
+            if isinstance(key, str):
+                merged.pop(key, None)
+
+    return merged
+
+
+def _expand_snapshot_payload(
+    payload: dict[str, Any],
+    zip_path: Path,
+    file_name: str,
+    visited: set[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Expand a snapshot payload to full materialized data.
+
+    Full snapshots are returned as-is.
+    Delta snapshots are recursively applied on top of their base opset snapshot.
+    """
+    snapshot_type = payload.get(SNAPSHOT_TYPE_KEY)
+    if snapshot_type != SNAPSHOT_TYPE_DELTA:
+        return payload
+
+    base_opset = payload.get(SNAPSHOT_BASE_OPSET_KEY)
+    if not isinstance(base_opset, int):
+        logger.debug(
+            "Delta snapshot %s in %s missing integer %s; applying delta on empty base.",
+            file_name,
+            zip_path,
+            SNAPSHOT_BASE_OPSET_KEY,
+        )
+        return _apply_snapshot_delta({}, payload)
+
+    token = (str(zip_path), file_name)
+    if visited is None:
+        visited = set()
+    if token in visited:
+        logger.debug(
+            "Detected cyclic snapshot chain while loading %s from %s; "
+            "applying delta on empty base.",
+            file_name,
+            zip_path,
+        )
+        return _apply_snapshot_delta({}, payload)
+
+    visited.add(token)
+
+    base_file_name = _replace_opset_token(file_name, base_opset)
+    base_zip_name = _replace_opset_token(zip_path.name, base_opset)
+    base_zip_path = resolve_rule_zip_path(base_zip_name)
+
+    base_raw = _read_json_from_zip(base_zip_path, base_file_name)
+    if base_raw is None:
+        logger.debug(
+            "Base snapshot %s not found in %s (from %s); applying delta on empty base.",
+            base_file_name,
+            base_zip_path,
+            file_name,
+        )
+        return _apply_snapshot_delta({}, payload)
+
+    base_full = _expand_snapshot_payload(base_raw, base_zip_path, base_file_name, visited)
+    return _apply_snapshot_delta(base_full, payload)
+
+
 def _load_table_columns_file(zip_path: Path, columns_file_name: str | None) -> dict[str, list[str]]:
     """Load per-op table column metadata from a runtime-rules zip file.
 
@@ -126,21 +238,11 @@ def _load_table_columns_file(zip_path: Path, columns_file_name: str | None) -> d
     if not columns_file_name or not zip_path.exists():
         return {}
 
-    try:
-        import zipfile
-
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            if columns_file_name not in zf.namelist():
-                return {}
-            raw_columns = json.loads(zf.read(columns_file_name).decode("utf-8"))
-    except Exception as e:
-        logger.debug(
-            "Failed to load column file %s from %s: %s",
-            columns_file_name,
-            zip_path,
-            e,
-        )
+    raw_columns = _read_json_from_zip(zip_path, columns_file_name)
+    if raw_columns is None:
         return {}
+
+    raw_columns = _expand_snapshot_payload(raw_columns, zip_path, columns_file_name)
 
     if not isinstance(raw_columns, dict):
         return {}
@@ -178,6 +280,8 @@ class LazyDomainTables:
             for op_name, columns in (preloaded_columns or {}).items()
         }
         self._loaded_tables: dict[str, pd.DataFrame] = {}
+        self._base_tables: LazyDomainTables | None = None
+        self._deleted_keys: set[str] = set()
         self._loaded: bool = False
         self._columns_loaded: bool = bool(self._raw_columns) or self._columns_file_name is None
 
@@ -193,7 +297,6 @@ class LazyDomainTables:
         if self._loaded:
             return
         self._loaded = True
-        import zipfile
 
         if not self._zip_path.exists():
             logger.warning(
@@ -203,23 +306,61 @@ class LazyDomainTables:
                 self._zip_path,
             )
             return
-        try:
-            with zipfile.ZipFile(self._zip_path, "r") as zf:
-                if self._file_name in zf.namelist():
-                    self._raw_data = json.loads(zf.read(self._file_name).decode("utf-8"))
-                else:
-                    logger.debug(f"Table file not found in zip: {self._file_name}")
-        except Exception as e:
-            logger.debug(f"Failed to load table file {self._file_name}: {e}")
+
+        raw_table_payload = _read_json_from_zip(self._zip_path, self._file_name)
+        if raw_table_payload is None:
+            logger.debug(f"Table file not found in zip: {self._file_name}")
+            return
+
+        if raw_table_payload.get(SNAPSHOT_TYPE_KEY) == SNAPSHOT_TYPE_DELTA:
+            changed = raw_table_payload.get(SNAPSHOT_CHANGED_KEY, {})
+            deleted = raw_table_payload.get(SNAPSHOT_DELETED_KEY, [])
+            self._raw_data = changed if isinstance(changed, dict) else {}
+            if isinstance(deleted, list):
+                self._deleted_keys = {key for key in deleted if isinstance(key, str)}
+            else:
+                self._deleted_keys = set()
+
+            base_opset = raw_table_payload.get(SNAPSHOT_BASE_OPSET_KEY)
+            if isinstance(base_opset, int):
+                base_file_name = _replace_opset_token(self._file_name, base_opset)
+                base_zip_name = _replace_opset_token(self._zip_path.name, base_opset)
+                base_zip_path = resolve_rule_zip_path(base_zip_name)
+                base_columns_file_name = (
+                    _replace_opset_token(self._columns_file_name, base_opset)
+                    if self._columns_file_name
+                    else None
+                )
+                self._base_tables = LazyDomainTables(
+                    base_zip_path,
+                    base_file_name,
+                    columns_file_name=base_columns_file_name,
+                )
+            else:
+                logger.debug(
+                    "Delta table snapshot %s in %s missing integer %s; "
+                    "base fallback disabled for this table.",
+                    self._file_name,
+                    self._zip_path,
+                    SNAPSHOT_BASE_OPSET_KEY,
+                )
+            return
+
+        self._raw_data = raw_table_payload
 
     def __getitem__(self, key: str) -> pd.DataFrame:
         """Get table for operator, loading from zip if needed."""
         if key not in self._loaded_tables:
             self._ensure_loaded()
-            if key not in self._raw_data:
+            if key in self._raw_data:
+                self._loaded_tables[key] = _sanitize_df(build_table_df(self._raw_data[key]))
+                del self._raw_data[key]
+            elif key in self._deleted_keys:
                 raise KeyError(f"Operator '{key}' not found in tables")
-            self._loaded_tables[key] = _sanitize_df(build_table_df(self._raw_data[key]))
-            del self._raw_data[key]
+            elif self._base_tables and key in self._base_tables:
+                self._loaded_tables[key] = self._base_tables[key]
+            else:
+                raise KeyError(f"Operator '{key}' not found in tables")
         return self._loaded_tables[key]
 
     def __contains__(self, key: str) -> bool:
@@ -227,7 +368,13 @@ class LazyDomainTables:
         if key in self._loaded_tables:
             return True
         self._ensure_loaded()
-        return key in self._raw_data
+        if key in self._raw_data:
+            return True
+        if key in self._deleted_keys:
+            return False
+        if self._base_tables is not None:
+            return key in self._base_tables
+        return False
 
     def get(self, key: str, default: pd.DataFrame | None = None) -> pd.DataFrame | None:
         """Get table for operator with default fallback."""
@@ -253,6 +400,12 @@ class LazyDomainTables:
             return list(self._raw_columns[key])
 
         self._ensure_loaded()
+        if key in self._deleted_keys:
+            return None
+        if self._base_tables is not None:
+            base_columns = self._base_tables.get_columns(key)
+            if base_columns is not None:
+                return base_columns
 
         raw_table = self._raw_data.get(key)
         if isinstance(raw_table, dict):
@@ -293,8 +446,6 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
         self._load()
 
     def _load(self) -> None:
-        import zipfile
-
         if not self._zip_path.exists():
             if self._set_error_on_missing:
                 self[EG_RULE_ERROR_KEY] = "rules_zip_not_found"
@@ -307,17 +458,17 @@ class _LazyNegRules(dict):  # type: ignore[type-arg]
                 )
             return
 
-        with zipfile.ZipFile(self._zip_path, "r") as zf:
-            if self._rule_file not in zf.namelist():
-                if self._set_error_on_missing:
-                    self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
-                    self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
-                    logger.warning(f"Negative rule file not found: {self._rule_file}")
-                else:
-                    logger.debug(f"Negative rule file not found: {self._rule_file}")
-                return
+        raw_payload = _read_json_from_zip(self._zip_path, self._rule_file)
+        if raw_payload is None:
+            if self._set_error_on_missing:
+                self[EG_RULE_ERROR_KEY] = "negative_rule_file_not_found"
+                self[EG_RULE_DEBUG_DETAILS_KEY] = str(self._rule_file)
+                logger.debug(f"Negative rule file not found: {self._rule_file}")
+            else:
+                logger.debug(f"Negative rule file not found: {self._rule_file}")
+            return
 
-            raw: dict[str, Any] = json.loads(zf.read(self._rule_file).decode("utf-8"))
+        raw = _expand_snapshot_payload(raw_payload, self._zip_path, self._rule_file)
 
         filtered: dict[str, Any] = {
             key: value
@@ -601,6 +752,7 @@ def get_query_conditions_for_node(
     domain: ONNXDomain,
     input_to_dq: dict[str, QDQTypeInfo],
     output_to_q: dict[str, QDQTypeInfo],
+    model_path: str | Path | None = None,
     dynamic_axis_strict_mode: bool = False,
 ) -> tuple[dict[str, Any], list[str], bool]:
     """Extract query conditions for runtime checking of an ONNX node.
@@ -614,6 +766,7 @@ def get_query_conditions_for_node(
         domain: ONNX domain of the node.
         input_to_dq: Maps DQ output name -> QDQTypeInfo (for nodes consuming DQ outputs).
         output_to_q: Maps Q input name -> QDQTypeInfo (for nodes producing Q inputs).
+        model_path: Path to the source ONNX model when external data may need to be resolved.
         dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
             for matching against first_axis test data. If True, preserves exact indices.
 
@@ -667,7 +820,7 @@ def get_query_conditions_for_node(
                 conditions[column_name] = None
                 conditions[f"{column_name}_is_none"] = True
             else:
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): required attribute '%s' missing and has no default",
                     node.op_type,
                     node.name,
@@ -703,8 +856,8 @@ def get_query_conditions_for_node(
         input_name: str,
         is_variadic: bool,
         is_constant: bool,
-        shape: tuple | None = None,
-        value: tuple | None = None,
+        shape: tuple | list | None = None,
+        value: Any = None,
     ):
         dyn_axes = _compute_dynamic_axes(shape, is_constant)
         if is_variadic:
@@ -754,7 +907,7 @@ def get_query_conditions_for_node(
             if input_name in optional_input_names:
                 # Mark as optional/undefined - is_constant is True
                 # since the value is known (None/not provided)
-                logger.warning(
+                logger.debug(
                     "Node %s (name: %s): input '%s' is optional"
                     " and not provided, setting value to None",
                     node.op_type,
@@ -775,8 +928,31 @@ def get_query_conditions_for_node(
 
         if inp_name in initializers:
             init = initializers[inp_name]
-            arr = numpy_helper.to_array(init)
-            update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
+            # External data initializers (large weights) may not have data loaded;
+            # keep the known shape but treat them as non-constant when the payload
+            # is unavailable so downstream rules do not assume *_value is usable.
+            # External-data tensors keep their payload out-of-line, so the typed
+            # TensorProto data fields should also be empty; raw_data is therefore
+            # the relevant signal for whether bytes were loaded into this proto.
+            external_arr = None
+            if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
+                external_arr = try_load_external_initializer_array(init, model_path)
+
+                if external_arr is not None:
+                    update_conditions_(
+                        conditions,
+                        input_name,
+                        is_variadic,
+                        True,
+                        external_arr.shape,
+                        external_arr,
+                    )
+                else:
+                    shape = tuple(init.dims) if init.dims is not None else None
+                    update_conditions_(conditions, input_name, is_variadic, False, shape, None)
+            else:
+                arr = numpy_helper.to_array(init)
+                update_conditions_(conditions, input_name, is_variadic, True, arr.shape, arr)
             conditions[f"{input_name}_is_none"] = False
 
             # Add type_vars info for initializers
@@ -950,6 +1126,7 @@ class RuntimeCheckerQuery:
         model_proto: onnx.ModelProto,
         ep_name: str,
         device_type: str,
+        model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
     ) -> None:
         """Initialize runtime checker query.
@@ -958,23 +1135,29 @@ class RuntimeCheckerQuery:
             model_proto: ONNX model proto
             ep_name: Execution provider name
             device_type: Device type (e.g., "CPU", "GPU", "NPU")
+            model_path: Path to the source ONNX model for resolving external data.
             dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
         """
         self.dynamic_axis_strict_mode = dynamic_axis_strict_mode
+        self.model_proto: onnx.ModelProto = model_proto
+        self.model_path = Path(model_path) if model_path is not None else None
         # Try shape inference: standard ONNX first, then symbolic (onnxruntime)
         try:
             # Standard ONNX shape inference — uses temp file for models
             # with external data (avoids silent empty-graph result).
-            self.model_proto = infer_onnx_shapes(model_proto)
+            inferred_model = infer_onnx_shapes(model_proto)
+            self.model_proto = inferred_model if inferred_model is not None else model_proto
 
             # Then try to enhance with symbolic shape inference
             # if available which supports Microsoft domain
             try:
                 from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 
-                self.model_proto = SymbolicShapeInference.infer_shapes(self.model_proto)
+                symbolic_model = SymbolicShapeInference.infer_shapes(self.model_proto)
+                if symbolic_model is not None:
+                    self.model_proto = symbolic_model
             except Exception as e:
                 # If symbolic shape inference fails, continue with standard inference result
                 logger.debug(
@@ -984,7 +1167,7 @@ class RuntimeCheckerQuery:
                 )
         except Exception as e:
             # If standard shape inference fails, use original model
-            logger.warning(f"Shape inference failed: {e}. Using original model.")
+            logger.debug(f"Shape inference failed: {e}. Using original model.")
             self.model_proto = model_proto
 
         self.ep_name = ep_name
@@ -1178,6 +1361,196 @@ class RuntimeCheckerQuery:
             )
         return self._ep_checker
 
+    @staticmethod
+    def _clone_node_proto(node: onnx.NodeProto) -> onnx.NodeProto:
+        """Clone a node proto so extracted test models do not reuse graph objects."""
+        cloned = onnx.NodeProto()
+        cloned.CopyFrom(node)
+        return cloned
+
+    def _find_producer_node(self, tensor_name: str) -> onnx.NodeProto | None:
+        """Return the node that produces a tensor, if any."""
+        if not tensor_name:
+            return None
+
+        for candidate in self.model_proto.graph.node:
+            if tensor_name in candidate.output:
+                return candidate
+        return None
+
+    def _find_consumer_nodes(self, tensor_name: str) -> list[onnx.NodeProto]:
+        """Return nodes that consume a tensor."""
+        if not tensor_name:
+            return []
+
+        return [
+            candidate for candidate in self.model_proto.graph.node if tensor_name in candidate.input
+        ]
+
+    def _build_opset_imports(
+        self,
+        nodes: list[onnx.NodeProto],
+        fallback_op_domain: ONNXDomain,
+        fallback_opset_version: int,
+    ) -> list[onnx.OperatorSetIdProto]:
+        """Build opset imports for an extracted runtime-test model."""
+        opset_imports: list[onnx.OperatorSetIdProto] = []
+        added_domains: set[str] = set()
+        saw_non_default_domain = False
+
+        def add_domain(domain_str: str, version: int) -> None:
+            canonical_domain = "" if domain_str in {"", ONNXDomain.AI_ONNX.value} else domain_str
+            if canonical_domain in added_domains:
+                return
+
+            added_domains.add(canonical_domain)
+            effective_version = max(version, 7) if canonical_domain == "" else version
+            opset_imports.append(onnx.helper.make_opsetid(canonical_domain, effective_version))
+
+        for included_node in nodes:
+            raw_domain = included_node.domain or ""
+            try:
+                node_domain = ONNXDomain.from_str(raw_domain)
+                add_domain(node_domain.schema_domain, self.opset_versions.get(node_domain, 1))
+                saw_non_default_domain = saw_non_default_domain or node_domain != ONNXDomain.AI_ONNX
+            except ValueError:
+                add_domain(raw_domain, 1)
+                saw_non_default_domain = saw_non_default_domain or bool(raw_domain)
+
+        if not opset_imports:
+            add_domain(fallback_op_domain.schema_domain, fallback_opset_version)
+            saw_non_default_domain = fallback_op_domain != ONNXDomain.AI_ONNX
+
+        if saw_non_default_domain and "" not in added_domains:
+            default_opset = self.opset_versions.get(ONNXDomain.AI_ONNX, 17)
+            add_domain("", default_opset)
+
+        return opset_imports
+
+    def _build_runtime_test_model(
+        self,
+        node: onnx.NodeProto,
+        op_domain: ONNXDomain,
+        opset_version: int,
+        include_adjacent_qdq: bool = False,
+    ) -> onnx.ModelProto:
+        """Build the model used for local EP fallback and failed-node artifacts.
+
+        For QDQ operators, include the adjacent DequantizeLinear and QuantizeLinear
+        nodes so the local test model preserves the same quantized context.
+        """
+        if not include_adjacent_qdq:
+            return self._build_single_node_model(node, op_domain, opset_version)
+
+        graph_inputs: list[onnx.ValueInfoProto] = []
+        graph_initializers: list[onnx.TensorProto] = []
+        graph_outputs: list[onnx.ValueInfoProto] = []
+        pre_nodes: list[onnx.NodeProto] = []
+        post_nodes: list[onnx.NodeProto] = []
+        seen_inputs: set[str] = set()
+        seen_initializers: set[str] = set()
+        seen_outputs: set[str] = set()
+        seen_pre_nodes: set[str] = set()
+        seen_post_nodes: set[str] = set()
+
+        def add_graph_source(name: str) -> None:
+            if not name:
+                return
+
+            if name in self.initializers:
+                if name not in seen_initializers:
+                    graph_initializers.append(self.initializers[name])
+                    seen_initializers.add(name)
+                return
+
+            if name in self.constants:
+                if name not in seen_initializers:
+                    graph_initializers.append(self.constants[name])
+                    seen_initializers.add(name)
+                return
+
+            vi = self.valueinfo.get(name)
+            if vi is None:
+                raise ValueError(f"Tensor '{name}' not found in valueinfo or initializers")
+            if name not in seen_inputs:
+                graph_inputs.append(vi)
+                seen_inputs.add(name)
+
+        def add_graph_output(name: str) -> None:
+            if not name or name in seen_outputs:
+                return
+
+            vi = self.valueinfo.get(name)
+            if vi is not None:
+                graph_outputs.append(vi)
+            else:
+                graph_outputs.append(
+                    onnx.helper.make_tensor_value_info(name, onnx.TensorProto.UNDEFINED, None)
+                )
+            seen_outputs.add(name)
+
+        for inp_name in node.input:
+            if not inp_name:
+                continue
+
+            producer = self._find_producer_node(inp_name)
+            if producer is not None and producer.op_type == "DequantizeLinear":
+                producer_key = producer.name or "|".join(producer.output)
+                if producer_key not in seen_pre_nodes:
+                    pre_nodes.append(self._clone_node_proto(producer))
+                    seen_pre_nodes.add(producer_key)
+                for producer_input in producer.input:
+                    add_graph_source(producer_input)
+                continue
+
+            add_graph_source(inp_name)
+
+        for out_name in node.output:
+            if not out_name:
+                continue
+
+            quantize_consumers = [
+                consumer
+                for consumer in self._find_consumer_nodes(out_name)
+                if consumer.op_type == "QuantizeLinear"
+                and consumer.input
+                and consumer.input[0] == out_name
+            ]
+            if quantize_consumers:
+                for consumer in quantize_consumers:
+                    consumer_key = consumer.name or "|".join(consumer.output)
+                    if consumer_key not in seen_post_nodes:
+                        post_nodes.append(self._clone_node_proto(consumer))
+                        seen_post_nodes.add(consumer_key)
+                    for consumer_input in consumer.input[1:]:
+                        add_graph_source(consumer_input)
+                    for consumer_output in consumer.output:
+                        add_graph_output(consumer_output)
+                continue
+
+            add_graph_output(out_name)
+
+        nodes = [*pre_nodes, self._clone_node_proto(node), *post_nodes]
+        graph = onnx.helper.make_graph(
+            nodes,
+            f"runtime_test_{node.op_type}",
+            graph_inputs,
+            graph_outputs,
+            initializer=graph_initializers,
+        )
+
+        model = onnx.helper.make_model(
+            graph,
+            opset_imports=self._build_opset_imports(nodes, op_domain, opset_version),
+        )
+
+        try:
+            model = infer_onnx_shapes(model)
+        except Exception as e:
+            logger.debug("Shape inference failed for runtime-test model: %s", e)
+
+        return model
+
     def _build_single_node_model(
         self, node: onnx.NodeProto, op_domain: ONNXDomain, opset_version: int
     ) -> onnx.ModelProto:
@@ -1204,7 +1577,23 @@ class RuntimeCheckerQuery:
             if not inp_name:
                 continue
             if inp_name in self.initializers:
-                graph_initializers.append(self.initializers[inp_name])
+                init = self.initializers[inp_name]
+                # Skip external data initializers without loaded data;
+                # treat them as graph inputs instead so the model stays valid.
+                if init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data:
+                    vi = self.valueinfo.get(inp_name)
+                    if vi is not None:
+                        graph_inputs.append(vi)
+                    else:
+                        # init.dims is a protobuf repeated field (always a sequence, never None).
+                        # For external-data initializers the dims metadata is always present.
+                        graph_inputs.append(
+                            onnx.helper.make_tensor_value_info(
+                                inp_name, init.data_type, list(init.dims)
+                            )
+                        )
+                else:
+                    graph_initializers.append(init)
             elif inp_name in self.constants:
                 # Convert Constant node output to initializer
                 graph_initializers.append(self.constants[inp_name])
@@ -1259,6 +1648,33 @@ class RuntimeCheckerQuery:
 
         return model
 
+    def _generate_model_inputs(self, model: onnx.ModelProto) -> dict[str, np.ndarray]:
+        """Generate dummy input data for a runtime-test model."""
+        input_feed: dict[str, np.ndarray] = {}
+        default_dim_size = 2  # Replace dynamic/unknown dims with this size
+        initializer_names = {initializer.name for initializer in model.graph.initializer}
+
+        for graph_input in model.graph.input:
+            if graph_input.name in initializer_names:
+                continue
+
+            shape, dtype_str = shape_and_dtype_from_valueinfo(graph_input)
+            if dtype_str is None:
+                raise ValueError(f"Input '{graph_input.name}' has no dtype information")
+
+            np_dtype = SupportedONNXType.from_annotation(dtype_str).np_type
+
+            if shape is None:
+                concrete_shape = (default_dim_size,)
+            else:
+                concrete_shape = tuple(
+                    dim if isinstance(dim, int) and dim > 0 else default_dim_size for dim in shape
+                )
+
+            input_feed[graph_input.name] = np.zeros(concrete_shape, dtype=np_dtype)
+
+        return input_feed
+
     def _generate_node_inputs(self, node: onnx.NodeProto) -> dict[str, np.ndarray]:
         """Generate dummy input data for a single-node model.
 
@@ -1281,18 +1697,31 @@ class RuntimeCheckerQuery:
         for inp_name in node.input:
             if not inp_name:
                 continue
-            # Skip initializers and constants - they are embedded in the model
-            if inp_name in self.initializers or inp_name in self.constants:
+            # Skip initializers and constants - they are embedded in the model.
+            # Exception: external-data initializers without loaded raw_data are
+            # converted to graph inputs by _build_single_node_model, so we must
+            # generate dummy data for them.
+            if inp_name in self.initializers:
+                init = self.initializers[inp_name]
+                if not (init.data_location == onnx.TensorProto.EXTERNAL and not init.raw_data):
+                    continue
+            elif inp_name in self.constants:
                 continue
 
             vi = self.valueinfo.get(inp_name)
             if vi is None:
-                raise ValueError(
-                    f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
-                    f"not found in valueinfo"
-                )
+                init = self.initializers.get(inp_name)
+                if init is not None and init.data_location == onnx.TensorProto.EXTERNAL:
+                    shape = tuple(init.dims)
+                    dtype_str = dtype_from_tensorproto_enum(init.data_type)
+                else:
+                    raise ValueError(
+                        f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
+                        f"not found in valueinfo"
+                    )
+            else:
+                shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
 
-            shape, dtype_str = shape_and_dtype_from_valueinfo(vi)
             if dtype_str is None:
                 raise ValueError(
                     f"Input '{inp_name}' for node '{node.name}' ({node.op_type}) "
@@ -1323,6 +1752,7 @@ class RuntimeCheckerQuery:
         pattern_match: PatternMatchResult,
         node_tags: list[NodeTag],
         fallback_reason: str,
+        include_adjacent_qdq: bool = False,
         save_node_types: set[str] | None = None,
         conditions: Any | None = None,
     ) -> PatternRuntime | None:
@@ -1364,11 +1794,16 @@ class RuntimeCheckerQuery:
             )
 
         try:
-            model = self._build_single_node_model(node, op_domain, opset_version)
-            input_feed = self._generate_node_inputs(node)
+            model = self._build_runtime_test_model(
+                node,
+                op_domain,
+                opset_version,
+                include_adjacent_qdq=include_adjacent_qdq,
+            )
+            input_feed = self._generate_model_inputs(model)
         except Exception as e:
-            logger.warning(
-                "Failed to build single-node model for local EP check on %s (%s): %s",
+            logger.debug(
+                "Failed to build runtime-test model for local EP check on %s (%s): %s",
                 node.name,
                 node.op_type,
                 e,
@@ -1600,6 +2035,7 @@ class RuntimeCheckerQuery:
         opset_version: int,
         result: RuntimeTestResult,
         cache_key: Any,
+        include_adjacent_qdq: bool = False,
         save_node_types: set[str] | None = None,
     ) -> None:
         """Save unsupported or partial node models without re-running result computation."""
@@ -1612,7 +2048,12 @@ class RuntimeCheckerQuery:
         if not (is_unsupported or is_partial):
             return
 
-        node_model = self._build_single_node_model(node, op_domain, opset_version)
+        node_model = self._build_runtime_test_model(
+            node,
+            op_domain,
+            opset_version,
+            include_adjacent_qdq=include_adjacent_qdq,
+        )
         self._save_failed_node(
             node,
             node_model,
@@ -1780,6 +2221,7 @@ class RuntimeCheckerQuery:
                 op_domain,
                 self.input_to_dq_type,
                 self.output_to_q_type,
+                model_path=self.model_path,
                 dynamic_axis_strict_mode=self.dynamic_axis_strict_mode,
             )
         except (
@@ -1870,6 +2312,7 @@ class RuntimeCheckerQuery:
                     pattern_match,
                     node_tags,
                     fallback_reason,
+                    include_adjacent_qdq=is_qdq,
                     save_node_types=save_node_types,
                     # conditions not available when domain/op
                     # rules are missing
@@ -1978,6 +2421,7 @@ class RuntimeCheckerQuery:
                                 pattern_match,
                                 node_tags,
                                 fallback_reason,
+                                include_adjacent_qdq=is_qdq,
                                 conditions=cache_key,
                             )
                             if local_result is not None:
@@ -2014,6 +2458,7 @@ class RuntimeCheckerQuery:
                             pattern_match,
                             node_tags,
                             fallback_reason,
+                            include_adjacent_qdq=is_qdq,
                             conditions=None,
                         )
                         if local_result is not None:
@@ -2126,6 +2571,7 @@ class RuntimeCheckerQuery:
             opset_version,
             result,
             cache_key,
+            include_adjacent_qdq=is_qdq,
             save_node_types=save_node_types,
         )
 

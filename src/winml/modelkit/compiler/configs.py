@@ -103,7 +103,7 @@ class WinMLCompileConfig:
             "qnn": cls.for_qnn,
             "dml": cls.for_dml,
             "cuda": cls.for_cuda,
-            "tensorrt": cls.for_tensorrt,
+            "nv_tensorrt_rtx": cls.for_nv_tensorrt_rtx,
             "openvino": cls.for_openvino,
             "vitisai": cls.for_vitisai,
             "migraphx": cls.for_migraphx,
@@ -111,7 +111,11 @@ class WinMLCompileConfig:
         }
         factory = factories.get(provider)
         if factory:
-            return factory()
+            config = factory()
+            # EPs that don't produce EPContext have no offline compile step
+            if not config.ep_config.enable_ep_context:
+                return None
+            return config
         # Generic fallback for unknown/custom providers
         return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
 
@@ -178,8 +182,8 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_tensorrt(cls, quantize: bool | None = None) -> WinMLCompileConfig:
-        """Factory for TensorRT compilation."""
+    def for_nv_tensorrt_rtx(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+        """Factory for NvTensorRTRTX compilation."""
         if quantize is not None:
             warnings.warn(
                 "The 'quantize' parameter is deprecated and ignored. "
@@ -188,7 +192,7 @@ class WinMLCompileConfig:
                 stacklevel=2,
             )
         return cls(
-            ep_config=EPConfig(provider="tensorrt", enable_ep_context=False),
+            ep_config=EPConfig(provider="nv_tensorrt_rtx", enable_ep_context=False),
         )
 
     @classmethod

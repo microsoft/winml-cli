@@ -7,12 +7,14 @@
 import onnxruntime as ort
 
 
-# Supported execution providers
-SUPPORTED_EPS = [
-    "QNNExecutionProvider",
-    "OpenVINOExecutionProvider",
-    "VitisAIExecutionProvider",
-]
+# Supported execution providers — derived from sysinfo's authoritative EP→device map.
+def _get_supported_eps() -> list[str]:
+    from ..sysinfo.device import get_ep_device_map
+
+    return list(get_ep_device_map().keys())
+
+
+SUPPORTED_EPS = _get_supported_eps()
 
 # EP shorthand aliases (case-insensitive)
 EP_ALIASES = {
@@ -21,6 +23,10 @@ EP_ALIASES = {
     "ov": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "vitis": "VitisAIExecutionProvider",
+    "cpu": "CPUExecutionProvider",
+    "dml": "DmlExecutionProvider",
+    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "migraphx": "MIGraphXExecutionProvider",
 }
 
 # All accepted EP names (full names + aliases)

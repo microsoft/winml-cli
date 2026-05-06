@@ -597,7 +597,11 @@ class TestGenerateBuildConfigOnnxPath:
         mock_resolve.assert_not_called()
 
     def test_raw_onnx_with_gpu(self, tmp_path) -> None:
-        """Raw ONNX + device=gpu resolves quant=None, compile=dml."""
+        """Raw ONNX + device=gpu resolves quant=None, compile=None.
+
+        DML has enable_ep_context=False so for_provider("dml") returns None —
+        no offline compile step is needed.
+        """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -611,13 +615,15 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization, compile=dml
+        # GPU auto-precision is fp16 -> no quantization; DML has no EPContext step
         assert config.quant is None
-        assert config.compile is not None
-        assert config.compile.ep_config.provider == "dml"
+        assert config.compile is None
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
-        """Explicit ep parameter is forwarded to resolve_quant_compile_config."""
+        """Explicit ep parameter is forwarded to resolve_quant_compile_config.
+
+        migraphx has enable_ep_context=False so for_provider("migraphx") returns None.
+        """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 
@@ -635,8 +641,7 @@ class TestGenerateBuildConfigOnnxPath:
                 ep="migraphx",
             )
 
-        assert config.compile is not None
-        assert config.compile.ep_config.provider == "migraphx"
+        assert config.compile is None
 
 
 # =============================================================================
@@ -676,8 +681,8 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_dml_compile(self) -> None:
-        """device=gpu returns (None, WinMLCompileConfig(dml))."""
+    def test_gpu_returns_none_quant_and_none_compile(self) -> None:
+        """device=gpu returns (None, None) — DML has no EPContext step."""
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("gpu", ["gpu", "cpu"]),
@@ -685,8 +690,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
         assert quant is None
-        assert isinstance(compile_cfg, WinMLCompileConfig)
-        assert compile_cfg.ep_config.provider == "dml"
+        assert compile_cfg is None
 
     def test_cpu_returns_none_none(self) -> None:
         """device=cpu returns (None, None) since CPU has no compile provider."""
@@ -700,18 +704,20 @@ class TestResolveQuantCompileConfig:
         assert compile_cfg is None
 
     def test_ep_override_changes_provider(self) -> None:
-        """Explicit ep overrides the default device-to-provider mapping."""
+        """Explicit ep overrides the default device-to-provider mapping.
+
+        nv_tensorrt_rtx has enable_ep_context=False so for_provider returns None.
+        """
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("gpu", ["gpu", "cpu"]),
         ):
             _quant, compile_cfg = resolve_quant_compile_config(
                 device="gpu",
-                ep="tensorrt",
+                ep="nv_tensorrt_rtx",
             )
 
-        assert compile_cfg is not None
-        assert compile_cfg.ep_config.provider == "tensorrt"
+        assert compile_cfg is None
 
     def test_task_forwarded_to_resolve_precision(self) -> None:
         """task parameter is forwarded to resolve_precision.

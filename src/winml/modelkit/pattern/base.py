@@ -168,6 +168,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -176,6 +177,7 @@ from onnx import ModelProto, numpy_helper
 from onnx.defs import OpSchema
 
 from ..onnx import ONNXDomain, SupportedONNXType, check_onnx_model, infer_onnx_shapes
+from ..onnx.external_data import try_load_external_initializer_array
 from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 from .op_input_gen.op_input_gen import OpInputGenerator
@@ -1207,7 +1209,12 @@ class PatternMatcher:
     results = matcher.match()  # Returns list[PatternMatchResult]
     """
 
-    def __init__(self, onnx_model: ModelProto, raise_on_invalid_model: bool = True) -> None:
+    def __init__(
+        self,
+        onnx_model: ModelProto,
+        raise_on_invalid_model: bool = True,
+        model_path: str | Path | None = None,
+    ) -> None:
         """Initialize the pattern matcher with an ONNX model.
 
         This performs shape inference and builds all lookup dictionaries upfront
@@ -1215,12 +1222,19 @@ class PatternMatcher:
 
         Args:
             onnx_model: The ONNX model to search for patterns in.
+            raise_on_invalid_model: Whether to validate the model and log issues.
+            model_path: Optional path to the source ONNX model on disk. When provided,
+                external-data initializers whose payloads are not loaded into the
+                proto will be lazily resolved from sidecar files (subject to the
+                size limits in the runtime-checker query helper) so that
+                value-based pattern constraints can still be evaluated.
         """
         # Run shape inference to populate value_info with type information
         # This is critical for type inference and shape lookups
 
         self.model = infer_onnx_shapes(onnx_model)
         self.graph = self.model.graph
+        self.model_path = Path(model_path) if model_path is not None else None
 
         # Registered patterns: pattern class name -> pattern instance
         self.patterns: dict[str, Pattern] = {}
@@ -1257,10 +1271,7 @@ class PatternMatcher:
             try:
                 check_onnx_model(self.model)
             except onnx.checker.ValidationError as e:
-                raise InvalidPatternMatcherModelError(
-                    f"Model failed ONNX validation: {e}",
-                    error_tag=_MODEL_TAG_INVALID_PATTERN_MATCHER_MODEL,
-                ) from e
+                logger.debug("Model failed ONNX checker validation (non-fatal): %s", e)
             # Warn about nodes with empty names; they get auto-generated names
             # (node_{idx}) in _build_lookups and are added to all lookup structures,
             # so pattern matching proceeds normally via tensor connectivity.
@@ -1273,7 +1284,7 @@ class PatternMatcher:
                 )
                 if len(nodes_with_empty_names) > 10:
                     node_details += f", ... and {len(nodes_with_empty_names) - 10} more"
-                logger.warning(
+                logger.info(
                     "Model has %d nodes with empty names (%s). "
                     "These nodes are assigned auto-generated names (node_<idx>) "
                     "and participate in pattern matching normally via tensor connectivity.",
@@ -1319,7 +1330,20 @@ class PatternMatcher:
         # Build tensor values from initializers
         for initializer in self.graph.initializer:
             self.producer_lookup.setdefault(initializer.name, (initializer.name, 0, "Initializer"))
-            if initializer.name:
+            if not initializer.name:
+                continue
+            if initializer.data_location == onnx.TensorProto.EXTERNAL and not initializer.raw_data:
+                external_arr = try_load_external_initializer_array(initializer, self.model_path)
+                if external_arr is not None:
+                    self.tensor_values[initializer.name] = external_arr
+                else:
+                    # Pattern matching still works via graph topology; only
+                    # value-based constraint checks will be skipped for this tensor.
+                    logger.debug(
+                        "Skipping tensor value for '%s': external data not loaded",
+                        initializer.name,
+                    )
+            else:
                 self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
 
         for node_idx, node in enumerate(self.graph.node):

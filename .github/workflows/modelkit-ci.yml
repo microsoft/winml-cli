@@ -3,12 +3,8 @@ name: ModelKit CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '.pipelines/**'
   push:
     branches: [main]
-    paths-ignore:
-      - '.pipelines/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,7 +35,7 @@ jobs:
             paths: >-
               tests/unit/core tests/unit/onnx tests/unit/cache
               tests/unit/utils tests/unit/sysinfo tests/unit/inspect
-              tests/unit/optracing tests/regression
+              tests/unit/optracing tests/regression tests/cli
 
     name: test (${{ matrix.group }})
 
