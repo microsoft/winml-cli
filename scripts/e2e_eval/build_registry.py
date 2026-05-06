@@ -423,7 +423,10 @@ def build_registry(
         tags = [t for t in e.get("tags", []) if t != "acc"]
         if acc_keys and key in acc_keys:
             tags.append("acc")
-        e["tags"] = tags
+        if tags:
+            e["tags"] = tags
+        else:
+            e.pop("tags", None)
 
     return all_entries
 
