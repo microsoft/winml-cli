@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WinML-ModelKit — Triage Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; color: #1a1a2e; }
+
+  header { background: #0d1117; color: #e6edf3; padding: 28px 40px; border-bottom: 3px solid #1f6feb; }
+  header h1 { font-size: 22px; font-weight: 600; }
+  header p  { font-size: 13px; color: #8b949e; margin-top: 4px; }
+
+  .container { max-width: 1240px; margin: 0 auto; padding: 32px 24px; }
+
+  /* ── Summary cards ─────────────────────────────────── */
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 18px 20px; text-align: center; }
+  .card .num   { font-size: 34px; font-weight: 700; line-height: 1; }
+  .card .label { font-size: 11px; color: #57606a; margin-top: 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .card.total .num { color: #1f6feb; }
+  .card.p0    .num { color: #cf222e; }
+  .card.p1    .num { color: #bc4c00; }
+  .card.p2    .num { color: #9a6700; }
+
+  /* ── Charts ────────────────────────────────────────── */
+  .section-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: #0d1117; border-left: 3px solid #1f6feb; padding-left: 10px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+  @media (max-width: 720px) { .charts { grid-template-columns: 1fr; } }
+  .chart-card { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 20px 24px; }
+
+  .bar-row   { display: flex; align-items: center; margin-bottom: 9px; font-size: 13px; }
+  .bar-label { width: 110px; flex-shrink: 0; color: #24292f; cursor: pointer; }
+  .bar-label:hover { text-decoration: underline; color: #1f6feb; }
+  .bar-track { flex: 1; background: #f6f8fa; border-radius: 4px; height: 20px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 6px;
+               font-size: 11px; font-weight: 700; color: #fff; transition: width .4s; }
+  .bar-fill.compile  { background: #1f6feb; }
+  .bar-fill.export   { background: #388bfd; }
+  .bar-fill.quantize { background: #8957e5; }
+  .bar-fill.perf     { background: #2da44e; }
+  .bar-fill.sys      { background: #d1242f; }
+  .bar-fill.config   { background: #e36209; }
+  .bar-fill.build    { background: #1a7f37; }
+  .bar-fill.analyzer { background: #bf8700; }
+  .bar-fill.other    { background: #8b949e; }
+  .bar-count { width: 28px; text-align: right; font-size: 13px; color: #57606a; margin-left: 8px; }
+
+  /* ── Priority list ─────────────────────────────────── */
+  .priority-list { list-style: none; }
+  .priority-list li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  .priority-list li:last-child { border-bottom: none; }
+
+  /* ── Badges & tags ─────────────────────────────────── */
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+  .badge.p0 { background: #ffebe9; color: #cf222e; border: 1px solid #cf222e44; }
+  .badge.p1 { background: #fff1e5; color: #bc4c00; border: 1px solid #bc4c0044; }
+  .badge.p2 { background: #fdf8e1; color: #9a6700; border: 1px solid #9a670044; }
+  .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 20px; margin: 1px; }
+  .tag.comp { background: #ddf4ff; color: #0969da; }
+  .tag.lbl  { background: #f6f8fa; color: #57606a; border: 1px solid #d0d7de; }
+
+  /* ── Filter / group controls ───────────────────────── */
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .ctrl-group { display: flex; align-items: center; gap: 6px; }
+  .ctrl-label { font-size: 12px; color: #57606a; font-weight: 600; white-space: nowrap; }
+  .filter-btn {
+    font-size: 12px; padding: 4px 13px; border-radius: 20px;
+    border: 1px solid #d0d7de; background: #fff; cursor: pointer; transition: all .15s;
+  }
+  .filter-btn:hover                { background: #f6f8fa; }
+  .filter-btn.active               { background: #0d1117; color: #fff; border-color: #0d1117; }
+  .filter-btn.active.compile-btn   { background: #1f6feb; border-color: #1f6feb; }
+  .filter-btn.active.export-btn    { background: #388bfd; border-color: #388bfd; }
+  .filter-btn.active.quantize-btn  { background: #8957e5; border-color: #8957e5; }
+  .filter-btn.active.perf-btn      { background: #2da44e; border-color: #2da44e; }
+  .filter-btn.active.sys-btn       { background: #d1242f; border-color: #d1242f; }
+  .filter-btn.active.config-btn    { background: #e36209; border-color: #e36209; }
+  .filter-btn.active.build-btn     { background: #1a7f37; border-color: #1a7f37; }
+  .filter-btn.active.analyzer-btn  { background: #bf8700; border-color: #bf8700; }
+  .filter-btn.active.other-btn     { background: #8b949e; border-color: #8b949e; }
+  .divider { width: 1px; height: 22px; background: #d0d7de; }
+
+  /* ── Table ─────────────────────────────────────────── */
+  .table-wrap { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; overflow: hidden; margin-bottom: 32px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead { background: #f6f8fa; }
+  th { padding: 10px 14px; text-align: left; font-weight: 600; color: #57606a; border-bottom: 1px solid #d0d7de; white-space: nowrap; }
+  td { padding: 9px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr.data-row:hover td { background: #f6f8fa; }
+  .issue-num { color: #1f6feb; font-weight: 600; white-space: nowrap; text-decoration: none; }
+  .issue-num:hover { text-decoration: underline; }
+  .issue-title { color: #24292f; max-width: 320px; }
+  .assignee { color: #1f6feb; font-size: 12px; }
+
+  /* row left-border by priority */
+  tr.p0-row td:first-child { border-left: 3px solid #cf222e; }
+  tr.p1-row td:first-child { border-left: 3px solid #bc4c00; }
+  tr.p2-row td:first-child { border-left: 3px solid #9a6700; }
+
+  /* Component group header row */
+  tr.group-header td {
+    background: #f6f8fa;
+    font-weight: 700;
+    font-size: 12px;
+    color: #24292f;
+    padding: 6px 14px;
+    border-bottom: 1px solid #d0d7de;
+    border-top: 2px solid #d0d7de;
+    letter-spacing: .3px;
+  }
+  tr.group-header:first-child td { border-top: none; }
+  tr.group-header td .gh-cnt { font-weight: 400; color: #57606a; margin-left: 6px; }
+
+  /* colored dot per component */
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.compile  { background: #1f6feb; }
+  .dot.export   { background: #388bfd; }
+  .dot.quantize { background: #8957e5; }
+  .dot.perf     { background: #2da44e; }
+  .dot.sys      { background: #d1242f; }
+  .dot.config   { background: #e36209; }
+  .dot.build    { background: #1a7f37; }
+  .dot.analyzer { background: #bf8700; }
+  .dot.eval     { background: #0550ae; }
+  .dot.optimizer{ background: #6e40c9; }
+  .dot.repo     { background: #57606a; }
+  .dot.catalog  { background: #1a7f37; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>WinML-ModelKit — Issue Triage Report</h1>
+  <p>Generated 2026-05-06 &nbsp;·&nbsp; 31 open issues &nbsp;·&nbsp; microsoft/WinML-ModelKit</p>
+</header>
+
+<div class="container">
+
+  <!-- Summary cards -->
+  <div class="summary">
+    <div class="card total"><div class="num">31</div><div class="label">Open Issues</div></div>
+    <div class="card p0"><div class="num">17</div><div class="label">P0 Critical</div></div>
+    <div class="card p1"><div class="num">6</div><div class="label">P1 High</div></div>
+    <div class="card p2"><div class="num">8</div><div class="label">P2 Medium</div></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts">
+    <div class="chart-card">
+      <div class="section-title">By Component</div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Compile')">Compile</span><div class="bar-track"><div class="bar-fill compile" style="width:100%">6</div></div><span class="bar-count">6</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Perf')">Perf</span><div class="bar-track"><div class="bar-fill perf" style="width:100%">6</div></div><span class="bar-count">6</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Load &amp; Export')">Load &amp; Export</span><div class="bar-track"><div class="bar-fill export" style="width:83%">5</div></div><span class="bar-count">5</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Analyzer')">Analyzer</span><div class="bar-track"><div class="bar-fill analyzer" style="width:50%">3</div></div><span class="bar-count">3</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Build')">Build</span><div class="bar-track"><div class="bar-fill build" style="width:50%">3</div></div><span class="bar-count">3</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Quantize')">Quantize</span><div class="bar-track"><div class="bar-fill quantize" style="width:17%">1</div></div><span class="bar-count">1</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Sys')">Sys</span><div class="bar-track"><div class="bar-fill sys" style="width:17%">1</div></div><span class="bar-count">1</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('Config')">Config</span><div class="bar-track"><div class="bar-fill config" style="width:33%">2</div></div><span class="bar-count">2</span></div>
+      <div class="bar-row"><span class="bar-label" onclick="filterComp('other')">Others (4 comps)</span><div class="bar-track"><div class="bar-fill other" style="width:67%">4</div></div><span class="bar-count">4</span></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="section-title">By Priority</div>
+      <ul class="priority-list">
+        <li>
+          <span class="badge p0">P0</span>
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:3px">17 Critical</div>
+            <div style="color:#57606a;font-size:12px">Crashes, silent fallbacks, silent wrong behavior, all customer-reported bugs</div>
+          </div>
+        </li>
+        <li>
+          <span class="badge p1">P1</span>
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:3px">6 High</div>
+            <div style="color:#57606a;font-size:12px">Major feature broken with clear (non-silent) error, no workaround</div>
+          </div>
+        </li>
+        <li>
+          <span class="badge p2">P2</span>
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:3px">8 Medium</div>
+            <div style="color:#57606a;font-size:12px">UX issues, non-blocking bugs, output quality improvements</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Table controls -->
+  <div class="section-title">All Triaged Issues</div>
+  <div class="controls">
+    <div class="ctrl-group">
+      <span class="ctrl-label">Group by</span>
+      <button class="filter-btn"        id="grp-priority" onclick="setGroupBy('priority')">Priority</button>
+      <button class="filter-btn active" id="grp-component" onclick="setGroupBy('component')">Component</button>
+    </div>
+    <div class="divider"></div>
+    <div class="ctrl-group" id="priority-filters" style="display:none">
+      <span class="ctrl-label">Filter</span>
+      <button class="filter-btn active" onclick="filterPriority('all',this)">All (31)</button>
+      <button class="filter-btn" onclick="filterPriority('P0',this)">P0 (17)</button>
+      <button class="filter-btn" onclick="filterPriority('P1',this)">P1 (6)</button>
+      <button class="filter-btn" onclick="filterPriority('P2',this)">P2 (8)</button>
+    </div>
+    <div class="ctrl-group" id="component-filters">
+      <span class="ctrl-label">Filter</span>
+      <button class="filter-btn active"                    onclick="filterCompBtn('all',this)">All (31)</button>
+      <button class="filter-btn compile-btn"               onclick="filterCompBtn('Compile',this)">Compile (6)</button>
+      <button class="filter-btn perf-btn"                  onclick="filterCompBtn('Perf',this)">Perf (6)</button>
+      <button class="filter-btn export-btn"                onclick="filterCompBtn('Load &amp; Export',this)">Load &amp; Export (5)</button>
+      <button class="filter-btn analyzer-btn"              onclick="filterCompBtn('Analyzer',this)">Analyzer (3)</button>
+      <button class="filter-btn build-btn"                 onclick="filterCompBtn('Build',this)">Build (3)</button>
+      <button class="filter-btn config-btn"                onclick="filterCompBtn('Config',this)">Config (2)</button>
+      <button class="filter-btn quantize-btn"              onclick="filterCompBtn('Quantize',this)">Quantize (1)</button>
+      <button class="filter-btn sys-btn"                   onclick="filterCompBtn('Sys',this)">Sys (1)</button>
+      <button class="filter-btn other-btn"                 onclick="filterCompBtn('other',this)">Others (4)</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="triage-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Title</th>
+          <th>Component</th>
+          <th>Priority</th>
+          <th>Labels Added</th>
+          <th>Assignees</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        <!-- rows injected by JS -->
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const ISSUES = [
+  // ── P0 ──────────────────────────────────────────────────────────────────
+  { num:428, title:"winml compile crashes with AttributeError for AMD EPs (VitisAI / MIGraphX)", comp:"Compile",      pri:"P0", labels:["bug","hardware"],                      assignees:"@zhenchaoni" },
+  { num:55,  title:"[Exporter] wmk exporter fails on some P0 models",                           comp:"Load & Export", pri:"P0", labels:["bug"],                                 assignees:"@chinazhangchao" },
+  { num:436, title:"Investigation: Performance gap between full pipeline vs build+compile",      comp:"Perf",          pri:"P0", labels:["bug","customer report"],               assignees:"@tezheng @DingmaomaoBJTU" },
+  { num:435, title:"UX: analyze silently omits Vitis EP without explanation",                    comp:"Analyzer",      pri:"P0", labels:["static-analyzer","customer report"],   assignees:"@hi-brenda" },
+  { num:434, title:"UX: Clarify --compile must be explicitly passed in config and build",        comp:"Compile",       pri:"P0", labels:["bug","customer report"],               assignees:"@DingmaomaoBJTU @hi-brenda" },
+  { num:433, title:"Bug: Quantize stage in build shows train output",                            comp:"Build",         pri:"P0", labels:["bug","customer report"],               assignees:"@tezheng @chinazhangchao" },
+  { num:431, title:"winml config --device npu silently succeeds when no NPU EP is available",   comp:"Config",        pri:"P0", labels:["bug"],                                 assignees:"@chinazhangchao @hi-brenda" },
+  { num:430, title:"perf on AMD NPU always triggers AOT compile stage, fails with TarWriter",   comp:"Compile",       pri:"P0", labels:["bug","NPU"],                           assignees:"@zhenchaoni" },
+  { num:429, title:"--device npu resolves to QNN on AMD machines (should use VitisAI)",         comp:"Compile",       pri:"P0", labels:["bug","NPU","hardware"],                assignees:"@zhenchaoni" },
+  { num:421, title:"Bug: TracerWarning leaks to stderr on winml export, build/hf.py paths",     comp:"Load & Export", pri:"P0", labels:["bug"],                                 assignees:"@chinazhangchao" },
+  { num:420, title:"Bug: 'Using a slow image processor' suppression silently broken",            comp:"Load & Export", pri:"P0", labels:["bug"],                                 assignees:"@chinazhangchao" },
+  { num:240, title:"WinMLSession silently drops provider_options in policy-based compile path", comp:"Compile",       pri:"P0", labels:["bug","NPU"],                           assignees:"@zhenchaoni" },
+  { num:194, title:"wmk analyze exits code 1 even when primary EP reports 100% support",        comp:"Analyzer",      pri:"P0", labels:["bug","static-analyzer"],               assignees:"@chinazhangchao @fangyangci" },
+  { num:192, title:"wmk perf --module: module path construction fails for ResNet (AttributeError)",comp:"Perf",      pri:"P0", labels:["bug"],                                 assignees:"@tezheng" },
+  { num:186, title:"wmk compile --ep qnn silently falls back to OpenVINO when QNN SDK unavailable",comp:"Compile",   pri:"P0", labels:["bug","NPU"],                           assignees:"@zhenchaoni" },
+  { num:175, title:'Bug: "wmk perf" and "wmk config" + "wmk build" have different export results', comp:"Perf",      pri:"P0", labels:["bug"],                                 assignees:"@tezheng @DingmaomaoBJTU" },
+  { num:87,  title:"Bug: final model naming is confusing",                                       comp:"Load & Export", pri:"P0", labels:["bug"],                                 assignees:"@chinazhangchao" },
+  // ── P1 ──────────────────────────────────────────────────────────────────
+  { num:245, title:"onnx 1.21.0 upgrade: fix IR version 13 incompatibility with onnxruntime",   comp:"Repository",    pri:"P1", labels:["infrastructure","dependencies","bug"], assignees:"@timenick @KayMKM" },
+  { num:216, title:"winml eval fails for text-classification models: label alignment error",    comp:"Eval",          pri:"P1", labels:["bug","accuracy"],                      assignees:"@zhenchaoni" },
+  { num:211, title:"Remove --preset flag from winml optimize (presets not yet supported)",      comp:"Optimizer",     pri:"P1", labels:["bug","graph-optimizer"],               assignees:"@tezheng @DingmaomaoBJTU" },
+  { num:193, title:"wmk quantize output fails NPU compilation (QNN MaxPool NHWC layout error)",comp:"Quantize",      pri:"P1", labels:["bug","NPU","QDQ"],                     assignees:"@zhenchaoni" },
+  { num:181, title:"Model export needs to keep pixel_mask input for detr-like models",          comp:"Load & Export", pri:"P1", labels:["bug"],                                 assignees:"@tezheng @chinazhangchao" },
+  { num:115, title:"Bug: wmk config results with not supported device",                          comp:"Config",        pri:"P1", labels:["bug"],                                 assignees:"@chinazhangchao @hi-brenda" },
+  // ── P2 ──────────────────────────────────────────────────────────────────
+  { num:419, title:"Bug: test_reshape_openvino_npu_quick hangs in EPChecker.check_compile",     comp:"Analyzer",      pri:"P2", labels:["bug","hardware","static-analyzer"],    assignees:"@fangyangci" },
+  { num:413, title:"Bug: Rename WinML Hub to WinML Catalog + fix model list color styling",     comp:"Catalog",       pri:"P2", labels:["bug"],                                 assignees:"@DingmaomaoBJTU @hi-brenda" },
+  { num:260, title:"winml build quantize vs standalone quantize use different calibration datasets", comp:"Build",    pri:"P2", labels:["bug"],                                 assignees:"@tezheng @zhenchaoni" },
+  { num:259, title:"winml build shows misleading ValueError when disk is full during quantize",  comp:"Build",         pri:"P2", labels:["bug"],                                 assignees:"@hi-brenda" },
+  { num:218, title:"winml perf --op-tracing: ANSI color codes garbled on Windows cp1252 terminal", comp:"Perf",      pri:"P2", labels:["bug"],                                 assignees:"@tezheng" },
+  { num:217, title:"winml perf --op-tracing fails with EPContext version mismatch (ort-windowsml vs ort-qnn)", comp:"Perf", pri:"P2", labels:["bug","NPU"],                   assignees:"@tezheng" },
+  { num:195, title:"wmk perf --module: unclear error when --module flag gets wrong format",     comp:"Perf",          pri:"P2", labels:["bug"],                                 assignees:"@tezheng @hi-brenda" },
+  { num:58,  title:"bug: sysinfo shows incorrect machine architecture (AMD64 instead of ARM64)",comp:"Sys",           pri:"P2", labels:["bug"],                                 assignees:"@timenick" },
+];
+
+const COMP_ORDER = ["Compile","Perf","Load & Export","Analyzer","Build","Quantize","Sys","Config","Eval","Optimizer","Repository","Catalog"];
+const COMP_DOT = {
+  "Compile":"compile","Load & Export":"export","Quantize":"quantize","Perf":"perf",
+  "Sys":"sys","Config":"config","Build":"build","Analyzer":"analyzer","Eval":"eval","Optimizer":"optimizer",
+  "Repository":"repo","Catalog":"catalog"
+};
+const PRI_ORDER = {P0:0,P1:1,P2:2};
+const OTHER_COMPS = new Set(["Eval","Optimizer","Repository","Catalog"]);
+
+let currentGroup = "component";
+let currentPriFilter = "all";
+let currentCompFilter = "all";
+
+function priClass(p) { return p==="P0"?"p0":p==="P1"?"p1":"p2"; }
+function badgeHtml(p) { return `<span class="badge ${priClass(p)}">${p}</span>`; }
+function labelsHtml(ls) { return ls.map(l=>`<span class="tag lbl">${l}</span>`).join(" "); }
+
+function isVisible(issue) {
+  if (currentGroup === "priority") {
+    return currentPriFilter === "all" || issue.pri === currentPriFilter;
+  } else {
+    if (currentCompFilter === "all") return true;
+    if (currentCompFilter === "other") return OTHER_COMPS.has(issue.comp);
+    return issue.comp === currentCompFilter;
+  }
+}
+
+function buildRow(issue) {
+  const dotClass = COMP_DOT[issue.comp] || "other";
+  return `<tr class="data-row ${priClass(issue.pri)}-row" data-priority="${issue.pri}" data-comp="${issue.comp}">
+    <td><a class="issue-num" href="https://github.com/microsoft/WinML-ModelKit/issues/${issue.num}" target="_blank">#${issue.num}</a></td>
+    <td class="issue-title">${issue.title}</td>
+    <td><span class="tag comp">${issue.comp}</span></td>
+    <td>${badgeHtml(issue.pri)}</td>
+    <td>${labelsHtml(issue.labels)}</td>
+    <td class="assignee">${issue.assignees}</td>
+  </tr>`;
+}
+
+function groupHeader(comp, count) {
+  const dotClass = COMP_DOT[comp] || "other";
+  return `<tr class="group-header"><td colspan="6"><span class="dot ${dotClass}"></span>${comp}<span class="gh-cnt">${count} issue${count>1?"s":""}</span></td></tr>`;
+}
+
+function render() {
+  const tbody = document.getElementById("table-body");
+  let html = "";
+
+  if (currentGroup === "priority") {
+    const sorted = [...ISSUES].filter(isVisible).sort((a,b)=>PRI_ORDER[a.pri]-PRI_ORDER[b.pri]);
+    html = sorted.map(buildRow).join("");
+  } else {
+    for (const comp of COMP_ORDER) {
+      const rows = ISSUES.filter(i => i.comp === comp && isVisible(i));
+      if (rows.length === 0) continue;
+      html += groupHeader(comp, rows.length);
+      html += rows.sort((a,b)=>PRI_ORDER[a.pri]-PRI_ORDER[b.pri]).map(buildRow).join("");
+    }
+  }
+
+  if (!html) html = `<tr><td colspan="6" style="text-align:center;padding:24px;color:#57606a">No issues match the current filter.</td></tr>`;
+  tbody.innerHTML = html;
+}
+
+function setGroupBy(mode) {
+  currentGroup = mode;
+  currentPriFilter = "all";
+  currentCompFilter = "all";
+
+  document.getElementById("grp-priority").classList.toggle("active", mode==="priority");
+  document.getElementById("grp-component").classList.toggle("active", mode==="component");
+  document.getElementById("priority-filters").style.display  = mode==="priority"  ? "" : "none";
+  document.getElementById("component-filters").style.display = mode==="component" ? "" : "none";
+
+  // reset active states
+  document.querySelectorAll("#priority-filters .filter-btn, #component-filters .filter-btn").forEach(b=>b.classList.remove("active"));
+  const firstBtn = mode==="priority"
+    ? document.querySelector("#priority-filters .filter-btn")
+    : document.querySelector("#component-filters .filter-btn");
+  if (firstBtn) firstBtn.classList.add("active");
+
+  render();
+}
+
+function filterPriority(val, btn) {
+  currentPriFilter = val;
+  document.querySelectorAll("#priority-filters .filter-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+}
+
+function filterCompBtn(val, btn) {
+  currentCompFilter = val;
+  document.querySelectorAll("#component-filters .filter-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+}
+
+// click bar chart label → switch to component view + filter
+function filterComp(comp) {
+  setGroupBy("component");
+  const val = comp === "other" ? "other" : comp;
+  // find & click matching button
+  document.querySelectorAll("#component-filters .filter-btn").forEach(b => {
+    if (b.textContent.startsWith(val.split("&")[0].trim()) || (val==="other" && b.textContent.startsWith("Others"))) {
+      filterCompBtn(val, b);
+    }
+  });
+}
+
+// Initial render
+render();
+</script>
+</body>
+</html>
