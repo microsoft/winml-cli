@@ -10,14 +10,14 @@ readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.11,<3.12"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -35,7 +35,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
-  "onnxruntime-windowsml>=1.23.2,<1.24.0",
+  "onnxruntime>=1.24,<1.25",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -55,13 +55,8 @@ dependencies = [
   "torchinfo>=1.8",
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
-  "transformers>=4.57",
+  "transformers>=5,<6",
   "uvicorn[standard]>=0.42.0",
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
-  "winrt-runtime>=3.2.1",
-  "winrt-windows-foundation>=3.2.1",
-  "winrt-windows-foundation-collections>=3.2.1",
 ]
 
 optional-dependencies.dev = [
@@ -82,9 +77,12 @@ optional-dependencies.dev = [
   "types-colorama>=0.4.15.20250801",
 ]
 optional-dependencies.audio = [ "soundfile>=0.13" ]
-optional-dependencies.openvino = [ "openvino>=2023" ]
+optional-dependencies.openvino = [
+  "onnxruntime-ep-openvino>=1.4,<1.5",
+  "openvino>=2025",
+]
 optional-dependencies.qnn = [
-  "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
+  "onnxruntime-qnn>=2.1,<2.2",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
@@ -106,6 +104,17 @@ dev = [
   "pre-commit>=4.5.1",
   "pytest-cov>=7",
   "pytest-timeout>=2.4.0",
+]
+
+# EXPERIMENTAL: transformers 5.x with PyPI optimum + optimum-onnx 0.1.0.
+# optimum-onnx 0.1.0 hardcodes imports against transformers 4.x internals
+# (is_offline_mode, get_parameter_dtype, _CAN_RECORD_REGISTRY, OutputRecorder).
+# We re-inject those symbols via src/winml/modelkit/_transformers_compat.py,
+# loaded at the top of src/winml/modelkit/__init__.py.
+# Remove the override + shim when optimum-onnx 0.2 lands.
+[tool.uv]
+override-dependencies = [
+  "transformers>=5,<6",
 ]
 
 [tool.setuptools.packages.find]
@@ -135,7 +144,7 @@ include = [ "winml", "winml.*" ]
 # =============================================================================
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 
 line-length = 100 # Extended for modern screens
 # Indent with spaces (consistent with PEP 8)
@@ -420,7 +429,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 
 # === Strict Mode ===
 strict = true

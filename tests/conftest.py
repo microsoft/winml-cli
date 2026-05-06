@@ -22,12 +22,12 @@ from onnx import TensorProto
 
 
 # =============================================================================
-# WINML SDK INITIALIZATION GUARD
+# WINML EP INITIALIZATION GUARD
 # =============================================================================
 # winml.modelkit.models.winml.base imports WinMLSession at module level,
-# which triggers WinMLEPRegistry._discover_eps() → WinML SDK runtime init.
-# This can hang on CI environments without the SDK installed.
-# Mock it globally for non-e2e tests; e2e tests use real initialization.
+# which triggers WinMLEPRegistry plugin discovery on the registered ORT
+# EP plugins. Mock it globally for non-e2e tests to keep them fast and
+# to avoid loading EP DLLs; e2e tests use real initialization.
 
 
 @pytest.fixture(autouse=True)

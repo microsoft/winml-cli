@@ -2,13 +2,56 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+"""Plugin-style ONNX Runtime execution provider registration.
+
+Resolves EP plugin DLLs from their pip-installed distribution packages
+(``onnxruntime-ep-openvino``, ``onnxruntime-qnn``, ...) and registers them
+with ONNX Runtime via ``register_execution_provider_library()`` (added in
+ORT 1.24). Built-in EPs (CPU, DML in 1.24+) are registered automatically
+by ORT and are not listed here.
+"""
+from __future__ import annotations
+
+import platform
 import sys
-import traceback
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 
-_winml_instance: "WinML | None" = None
+def _qnn_arch_dir() -> str:
+    """Return the QNN libs subdirectory matching the current architecture."""
+    return "arm64ec" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+
+
+# EP name -> (PyPI distribution, relative DLL path under site-packages).
+EP_PLUGIN_REGISTRY: dict[str, tuple[str, str]] = {
+    "OpenVINOExecutionProvider": (
+        "onnxruntime-ep-openvino",
+        "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll",
+    ),
+    "QNNExecutionProvider": (
+        "onnxruntime-qnn",
+        f"onnxruntime_qnn/libs/{_qnn_arch_dir()}/onnxruntime_providers_qnn.dll",
+    ),
+}
+
+
+def resolve_plugin_dll(ep_name: str) -> Path | None:
+    """Resolve the absolute DLL path for a plugin EP, or None if unavailable."""
+    entry = EP_PLUGIN_REGISTRY.get(ep_name)
+    if entry is None:
+        return None
+    pkg, rel = entry
+    try:
+        dist = metadata.distribution(pkg)
+    except metadata.PackageNotFoundError:
+        return None
+    path = Path(str(dist.locate_file(rel)))
+    return path if path.exists() else None
+
+
+_winml_instance: WinML | None = None
 
 
 class WinML:
@@ -16,7 +59,7 @@ class WinML:
 
     _initialized: bool
 
-    def __new__(cls, *args: Any, **kwargs: Any) -> "WinML":
+    def __new__(cls, *args: Any, **kwargs: Any) -> WinML:
         """Create or return the singleton instance."""
         global _winml_instance
         if _winml_instance is None:
@@ -25,49 +68,21 @@ class WinML:
         return _winml_instance
 
     def __init__(self) -> None:
-        """Initialize WinML execution provider catalog."""
+        """Initialize WinML execution provider catalog from installed plugin packages."""
         if self._initialized:
             return
         self._initialized = True
 
-        self._fix_winrt_runtime()
-        import winui3.microsoft.windows.ai.machinelearning as winml
-        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-            InitializeOptions,
-            initialize,
-        )
-
-        self._win_app_sdk_handle = initialize(options=InitializeOptions.ON_NO_MATCH_SHOW_UI)
-        self._win_app_sdk_handle.__enter__()
-        catalog = winml.ExecutionProviderCatalog.get_default()
-        self._providers = catalog.find_all_providers()
         self._ep_paths: dict[str, str] = {}
-        for provider in self._providers:
-            provider.ensure_ready_async().get()
-            if provider.library_path == "":
-                continue
-            self._ep_paths[provider.name] = provider.library_path
+        for ep_name in EP_PLUGIN_REGISTRY:
+            path = resolve_plugin_dll(ep_name)
+            if path is not None:
+                self._ep_paths[ep_name] = str(path)
+
         self._registered_eps: dict[str, list[str]] = {
             "onnxruntime": [],
             "onnxruntime_genai": [],
         }
-
-    def __del__(self) -> None:
-        """Clean up WinML resources."""
-        self._providers = None
-        self._win_app_sdk_handle.__exit__(None, None, None)
-
-    def _fix_winrt_runtime(self) -> None:
-        """This function removes the msvcp140.dll from the winrt-runtime package.
-
-        So it does not cause issues with other libraries.
-        """
-        from importlib import metadata
-
-        site_packages_path = Path(str(metadata.distribution("winrt-runtime").locate_file("")))
-        dll_path = site_packages_path / "winrt" / "msvcp140.dll"
-        if dll_path.exists():
-            dll_path.unlink()
 
     def register_execution_providers(
         self, ort: bool = True, ort_genai: bool = False
@@ -101,7 +116,6 @@ class WinML:
                             f"Failed to register execution provider {name}: {e}",
                             file=sys.stderr,
                         )
-                        traceback.print_exc()
         return self._registered_eps
 
 

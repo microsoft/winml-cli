@@ -2,16 +2,18 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Execution Provider Registry using Windows App SDK.
+"""Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
-This module discovers and registers execution providers via the
-Windows Machine Learning API (WinML).
+Discovers plugin EPs from installed PyPI packages (``onnxruntime-ep-openvino``,
+``onnxruntime-qnn``, ...) and registers them with ONNX Runtime via
+``register_execution_provider_library()`` (ORT 1.24+).
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+
+from ..winml import EP_PLUGIN_REGISTRY, resolve_plugin_dll
 
 
 logger = logging.getLogger(__name__)
@@ -21,9 +23,9 @@ _winml_ep_registry: WinMLEPRegistry | None = None
 
 
 class WinMLEPRegistry:
-    """Execution Provider Registry using Windows App SDK.
+    """Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
-    Discovers EPs via WinML ExecutionProviderCatalog and registers
+    Discovers plugin EPs from installed PyPI packages and registers
     them with ONNX Runtime.
 
     Usage:
@@ -42,78 +44,30 @@ class WinMLEPRegistry:
         return _winml_ep_registry
 
     def __init__(self) -> None:
-        """Initialize WinML EP registry."""
+        """Discover plugin EPs from installed packages."""
         if self._initialized:
             return
         self._initialized = True
 
         self._ep_paths: dict[str, str] = {}
         self._registered_eps: list[str] = []
-        self._winml_available = False
-        self._win_app_sdk_handle = None
 
-        self._discover_eps()
-
-    def _discover_eps(self) -> None:
-        """Discover execution providers via WinML."""
-        try:
-            self._fix_winrt_runtime()
-            self._init_windows_app_sdk()
-            self._load_ep_catalog()
-            self._winml_available = True
-            logger.debug("WinML EP discovery successful: %s", list(self._ep_paths.keys()))
-        except ImportError as e:
-            logger.warning("WinML not available (missing packages): %s", e)
-            self._winml_available = False
-        except Exception as e:
-            logger.warning("WinML EP discovery failed: %s", e)
-            self._winml_available = False
-
-    def _fix_winrt_runtime(self) -> None:
-        """Fix msvcp140.dll conflict in winrt-runtime package."""
-        try:
-            from importlib import metadata
-
-            site_packages_path = Path(str(metadata.distribution("winrt-runtime").locate_file("")))
-            dll_path = site_packages_path / "winrt" / "msvcp140.dll"
-            if dll_path.exists():
-                dll_path.unlink()
-                logger.debug("Removed conflicting msvcp140.dll from winrt-runtime")
-        except Exception as e:
-            logger.debug("Could not fix winrt-runtime: %s", e)
-
-    def _init_windows_app_sdk(self) -> None:
-        """Initialize Windows App SDK."""
-        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-            InitializeOptions,
-            initialize,
-        )
-
-        self._win_app_sdk_handle = initialize(options=InitializeOptions.ON_NO_MATCH_SHOW_UI)
-        self._win_app_sdk_handle.__enter__()
-
-    def _load_ep_catalog(self) -> None:
-        """Load EP catalog from WinML."""
-        import winui3.microsoft.windows.ai.machinelearning as winml
-
-        catalog = winml.ExecutionProviderCatalog.get_default()
-        providers = catalog.find_all_providers()
-
-        for provider in providers:
-            provider.ensure_ready_async().get()
-            if provider.library_path == "":
-                continue
-            self._ep_paths[provider.name] = provider.library_path
-            logger.debug("Found EP: %s at %s", provider.name, provider.library_path)
+        for ep_name in EP_PLUGIN_REGISTRY:
+            path = resolve_plugin_dll(ep_name)
+            if path is not None:
+                self._ep_paths[ep_name] = str(path)
+                logger.debug("Found EP: %s at %s", ep_name, path)
+            else:
+                logger.debug("EP %s skipped: package not installed", ep_name)
 
     def register_to_ort(self) -> list[str]:
-        """Register discovered EPs to ONNX Runtime.
+        """Register discovered EPs with ONNX Runtime.
 
         Returns:
             List of successfully registered EP names.
         """
-        if not self._winml_available:
-            logger.warning("WinML not available, skipping EP registration")
+        if not self._ep_paths:
+            logger.debug("No plugin EPs found, skipping registration")
             return []
 
         import onnxruntime as ort
@@ -123,7 +77,6 @@ class WinMLEPRegistry:
                 continue
 
             try:
-                # Use ORT's native EP registration API
                 ort.register_execution_provider_library(name, dll_path)
                 self._registered_eps.append(name)
                 logger.debug("Registered EP: %s -> %s", name, dll_path)
@@ -150,16 +103,8 @@ class WinMLEPRegistry:
 
     @property
     def winml_available(self) -> bool:
-        """Whether WinML is available."""
-        return self._winml_available
-
-    def __del__(self) -> None:
-        """Cleanup Windows App SDK handle."""
-        if self._win_app_sdk_handle is not None:
-            try:
-                self._win_app_sdk_handle.__exit__(None, None, None)
-            except Exception as e:
-                logger.debug("Error cleaning up Windows App SDK: %s", e)
+        """Whether any plugin EP package is installed and resolvable."""
+        return bool(self._ep_paths)
 
     @classmethod
     def get_instance(cls) -> WinMLEPRegistry:
@@ -170,9 +115,8 @@ class WinMLEPRegistry:
 def get_ort_available_providers(use_winml: bool = True) -> list[str]:
     """Get available execution providers from ONNX Runtime.
 
-    This function first attempts WinML EP discovery to register any
-    WinML-discovered providers, then returns the full list of available
-    providers from ORT.
+    First registers any discovered plugin EPs (if ``use_winml=True``), then
+    returns the full list of available providers from ORT.
 
     Note:
         This function is for informational/debugging purposes only.
@@ -180,19 +124,18 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
         and does NOT use explicit EP provider names.
 
     Args:
-        use_winml: Try WinML EP discovery first to register providers
+        use_winml: Try plugin EP discovery first to register providers.
 
     Returns:
-        List of available provider names from ORT
+        List of available provider names from ORT.
     """
     import onnxruntime as ort
 
-    # Try WinML discovery first to register any available providers
     if use_winml:
         try:
             registry = WinMLEPRegistry.get_instance()
             registry.register_to_ort()
         except Exception as e:
-            logger.debug("WinML discovery skipped: %s", e)
+            logger.debug("Plugin EP discovery skipped: %s", e)
 
     return ort.get_available_providers()
