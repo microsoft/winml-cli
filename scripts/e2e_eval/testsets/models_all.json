@@ -74,6 +74,9 @@
     "downloads": 7342365,
     "last_update_time": "2024-02-21T03:00:19+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -85,6 +88,9 @@
     "downloads": 7342365,
     "last_update_time": "2024-02-21T03:00:19+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -107,6 +113,9 @@
     "downloads": 12609997,
     "last_update_time": "2024-02-21T02:51:44+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -162,6 +171,9 @@
     "downloads": 26387033,
     "last_update_time": "2024-02-22T03:36:23+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -173,6 +185,9 @@
     "downloads": 26387033,
     "last_update_time": "2024-02-22T03:36:23+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -184,6 +199,9 @@
     "downloads": 793568,
     "last_update_time": "2023-05-23T08:47:23+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -283,6 +301,9 @@
     "downloads": 17571972,
     "last_update_time": "2024-02-19T12:39:28+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -294,6 +315,9 @@
     "downloads": 17561346,
     "last_update_time": "2024-02-19T12:47:04+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -305,6 +329,9 @@
     "downloads": 17415209,
     "last_update_time": "2024-02-19T12:48:21+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -316,6 +343,9 @@
     "downloads": 6396558,
     "last_update_time": "2024-02-19T12:48:30+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -492,6 +522,9 @@
     "downloads": 5662,
     "last_update_time": "2024-06-21T19:49:09+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 18
   },
   {
@@ -503,6 +536,9 @@
     "downloads": 5662,
     "last_update_time": "2024-06-21T19:49:09+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 13
   },
   {
@@ -547,6 +583,9 @@
     "downloads": 19897,
     "last_update_time": "2025-11-14T09:28:25+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
@@ -756,6 +795,9 @@
     "downloads": 207466,
     "last_update_time": "2024-04-11T13:49:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
@@ -767,6 +809,9 @@
     "downloads": 319987,
     "last_update_time": "2024-04-11T13:42:28+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -778,6 +823,9 @@
     "downloads": 237721,
     "last_update_time": "2024-01-08T12:37:16+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 10
   },
   {
@@ -789,6 +837,9 @@
     "downloads": 326447,
     "last_update_time": "2024-04-11T13:49:19+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -855,6 +906,9 @@
     "downloads": 102144,
     "last_update_time": "2024-07-01T14:17:49+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
@@ -877,6 +931,9 @@
     "downloads": 85821,
     "last_update_time": "2024-07-01T14:17:52+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
@@ -888,6 +945,9 @@
     "downloads": 111922,
     "last_update_time": "2025-02-06T18:21:53+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 10
   },
   {
@@ -899,6 +959,9 @@
     "downloads": 5842265,
     "last_update_time": "2023-05-23T12:43:35+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -1207,7 +1270,7 @@
     "downloads": 16,
     "last_update_time": "2022-11-09T12:09:36+00:00",
     "optimum_supported": false,
-    "order": 8
+    "order": 7
   },
   {
     "hf_id": "Ruihang/Wan-Move-14B-480P",
@@ -1295,6 +1358,9 @@
     "downloads": 6078,
     "last_update_time": "2024-02-11T07:53:39+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
@@ -1317,6 +1383,9 @@
     "downloads": 208877,
     "last_update_time": "2025-11-10T05:52:21+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -1493,6 +1562,9 @@
     "downloads": 868846,
     "last_update_time": "2020-12-11T21:31:42+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -1592,6 +1664,9 @@
     "downloads": 2388215,
     "last_update_time": "2025-02-24T21:25:21+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -1636,7 +1711,7 @@
     "downloads": 15,
     "last_update_time": "2023-03-11T11:40:14+00:00",
     "optimum_supported": false,
-    "order": 10
+    "order": 9
   },
   {
     "hf_id": "breezedeus/pix2text-mfr",
@@ -1680,6 +1755,9 @@
     "downloads": 3382610,
     "last_update_time": "2025-08-04T07:58:29+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -1812,6 +1890,9 @@
     "downloads": 226114,
     "last_update_time": "2025-04-15T08:18:25+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
@@ -1845,6 +1926,9 @@
     "downloads": 1129528,
     "last_update_time": "2023-09-06T22:17:56+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -1856,6 +1940,9 @@
     "downloads": 186554,
     "last_update_time": "2024-09-24T15:54:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -1867,6 +1954,9 @@
     "downloads": 594783,
     "last_update_time": "2024-09-24T15:48:47+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -1889,6 +1979,9 @@
     "downloads": 137508,
     "last_update_time": "2024-09-26T09:12:41+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 9
   },
   {
@@ -1988,6 +2081,9 @@
     "downloads": 6641645,
     "last_update_time": "2024-12-15T19:54:53+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -2021,6 +2117,9 @@
     "downloads": 231521,
     "last_update_time": "2024-05-06T13:46:31+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -2032,6 +2131,9 @@
     "downloads": 11141157,
     "last_update_time": "2024-05-06T13:44:53+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -2043,6 +2145,9 @@
     "downloads": 117679,
     "last_update_time": "2024-05-06T13:46:39+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 10
   },
   {
@@ -2054,6 +2159,9 @@
     "downloads": 3222550,
     "last_update_time": "2023-12-19T16:29:37+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -2065,6 +2173,9 @@
     "downloads": 1799281,
     "last_update_time": "2024-10-08T07:51:39+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -2098,6 +2209,9 @@
     "downloads": 2644949,
     "last_update_time": "2023-09-05T14:49:34+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -2120,6 +2234,9 @@
     "downloads": 34211,
     "last_update_time": "2023-06-13T19:40:31+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
@@ -2142,6 +2259,9 @@
     "downloads": 222458,
     "last_update_time": "2024-04-10T13:56:31+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -2153,6 +2273,9 @@
     "downloads": 433457,
     "last_update_time": "2023-05-22T07:04:00+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -2164,6 +2287,9 @@
     "downloads": 88794,
     "last_update_time": "2023-05-22T07:05:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 9
   },
   {
@@ -2175,6 +2301,9 @@
     "downloads": 2270912,
     "last_update_time": "2024-01-17T08:27:01+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -2197,6 +2326,9 @@
     "downloads": 1731647,
     "last_update_time": "2023-09-06T11:23:50+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -2208,6 +2340,9 @@
     "downloads": 2417886,
     "last_update_time": "2023-09-06T11:24:10+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -2505,6 +2640,9 @@
     "downloads": 2957354,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
@@ -2516,6 +2654,9 @@
     "downloads": 2957354,
     "last_update_time": "2024-02-19T11:05:41+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 10
   },
   {
@@ -2538,6 +2679,9 @@
     "downloads": 3980957,
     "last_update_time": "2024-02-19T11:06:00+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 9
   },
   {
@@ -2549,6 +2693,9 @@
     "downloads": 58864524,
     "last_update_time": "2024-02-19T11:06:12+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -2560,6 +2707,9 @@
     "downloads": 363720,
     "last_update_time": "2024-02-19T11:08:45+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -2890,6 +3040,9 @@
     "downloads": 1683914,
     "last_update_time": "2024-09-26T08:20:18+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -2901,6 +3054,9 @@
     "downloads": 2047348,
     "last_update_time": "2024-09-26T08:21:46+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -2923,6 +3079,9 @@
     "downloads": 4599960,
     "last_update_time": "2023-09-05T15:27:12+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -2934,6 +3093,9 @@
     "downloads": 4050315,
     "last_update_time": "2024-02-05T16:37:39+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -2989,6 +3151,9 @@
     "downloads": 704691,
     "last_update_time": "2024-05-08T07:49:12+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -3121,6 +3286,9 @@
     "downloads": 156356,
     "last_update_time": "2024-10-16T21:59:20+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 14
   },
   {
@@ -3176,7 +3344,7 @@
     "downloads": 16,
     "last_update_time": "2022-10-15T20:52:10+00:00",
     "optimum_supported": false,
-    "order": 7
+    "order": 8
   },
   {
     "hf_id": "jwan2021/autotrain-us-housing-prices-1771761514",
@@ -3242,6 +3410,9 @@
     "downloads": 2763004,
     "last_update_time": "2025-01-22T04:41:33+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 13
   },
   {
@@ -3264,6 +3435,9 @@
     "downloads": 2763004,
     "last_update_time": "2025-01-22T04:41:33+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -3275,6 +3449,9 @@
     "downloads": 404428,
     "last_update_time": "2025-01-22T04:38:44+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
@@ -3418,6 +3595,9 @@
     "downloads": 678552,
     "last_update_time": "2025-03-03T02:06:53+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -3429,6 +3609,9 @@
     "downloads": 132507,
     "last_update_time": "2025-09-19T07:21:11+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -3446,7 +3629,7 @@
     "hf_id": "microsoft/Phi-4-multimodal-instruct",
     "task": "visual-question-answering",
     "model_type": "phi4mm",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 364698,
     "last_update_time": "2025-12-10T20:18:10+00:00",
@@ -3457,7 +3640,7 @@
     "hf_id": "microsoft/VibeVoice-ASR-HF",
     "task": "audio-text-to-text",
     "model_type": "vibevoice_asr",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 309933,
     "last_update_time": "2026-03-09T03:11:35+00:00",
@@ -3468,7 +3651,7 @@
     "hf_id": "microsoft/VibeVoice-Realtime-0.5B",
     "task": "text-to-speech",
     "model_type": "vibevoice_streaming",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 1229199,
     "last_update_time": "2025-12-12T15:35:46+00:00",
@@ -3479,7 +3662,7 @@
     "hf_id": "microsoft/beit-base-patch16-224-pt22k-ft22k",
     "task": "image-classification",
     "model_type": "beit",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 9923,
     "last_update_time": "2023-02-27T15:08:16+00:00",
@@ -3490,18 +3673,21 @@
     "hf_id": "microsoft/deberta-xlarge-mnli",
     "task": "text-classification",
     "model_type": "deberta",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 443503,
     "last_update_time": "2022-06-27T15:47:33+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
     "hf_id": "microsoft/llmlingua-2-xlm-roberta-large-meetingbank",
     "task": "token-classification",
     "model_type": "xlm-roberta",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 487952,
     "last_update_time": "2025-01-08T02:12:15+00:00",
@@ -3512,18 +3698,21 @@
     "hf_id": "microsoft/rad-dino",
     "task": "image-feature-extraction",
     "model_type": "dinov2",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 41052,
     "last_update_time": "2025-10-09T14:04:39+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 10
   },
   {
     "hf_id": "microsoft/resnet-18",
     "task": "image-classification",
     "model_type": "resnet",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 527639,
     "last_update_time": "2024-04-08T11:06:50+00:00",
@@ -3539,13 +3728,16 @@
     "downloads": 307737,
     "last_update_time": "2024-02-13T21:24:05+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
     "hf_id": "microsoft/speecht5_tts",
     "task": "text-to-speech",
     "model_type": "speecht5",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 187324,
     "last_update_time": "2023-11-08T14:37:23+00:00",
@@ -3556,18 +3748,21 @@
     "hf_id": "microsoft/swin-large-patch4-window7-224",
     "task": "image-classification",
     "model_type": "swin",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 4514,
     "last_update_time": "2022-05-16T19:58:33+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 14
   },
   {
     "hf_id": "microsoft/swinv2-tiny-patch4-window16-256",
     "task": "image-classification",
     "model_type": "swinv2",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 388488,
     "last_update_time": "2022-12-10T10:09:55+00:00",
@@ -3578,29 +3773,35 @@
     "hf_id": "microsoft/table-transformer-detection",
     "task": "object-detection",
     "model_type": "table-transformer",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 3506330,
     "last_update_time": "2023-09-06T14:49:09+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
     "hf_id": "microsoft/table-transformer-structure-recognition",
     "task": "object-detection",
     "model_type": "table-transformer",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 1278248,
     "last_update_time": "2023-09-06T14:50:49+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
     "hf_id": "microsoft/table-transformer-structure-recognition-v1.1-all",
     "task": "object-detection",
     "model_type": "table-transformer",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 1415671,
     "last_update_time": "2023-11-18T21:58:10+00:00",
@@ -3611,7 +3812,7 @@
     "hf_id": "microsoft/tapex-base",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 742,
     "last_update_time": "2023-05-03T03:48:52+00:00",
@@ -3622,7 +3823,7 @@
     "hf_id": "microsoft/tapex-base-finetuned-wikisql",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 910096,
     "last_update_time": "2023-01-24T16:57:17+00:00",
@@ -3633,7 +3834,7 @@
     "hf_id": "microsoft/tapex-base-finetuned-wtq",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 479,
     "last_update_time": "2023-06-26T19:49:37+00:00",
@@ -3644,7 +3845,7 @@
     "hf_id": "microsoft/tapex-large",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 627,
     "last_update_time": "2023-05-03T03:48:31+00:00",
@@ -3655,7 +3856,7 @@
     "hf_id": "microsoft/tapex-large-finetuned-tabfact",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 124,
     "last_update_time": "2022-07-14T10:10:10+00:00",
@@ -3666,7 +3867,7 @@
     "hf_id": "microsoft/tapex-large-finetuned-wikisql",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 56,
     "last_update_time": "2023-06-26T19:50:22+00:00",
@@ -3677,7 +3878,7 @@
     "hf_id": "microsoft/tapex-large-finetuned-wtq",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 793,
     "last_update_time": "2024-01-12T11:26:01+00:00",
@@ -3688,7 +3889,7 @@
     "hf_id": "microsoft/tapex-large-sql-execution",
     "task": "table-question-answering",
     "model_type": "bart",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 67,
     "last_update_time": "2023-09-15T19:52:28+00:00",
@@ -3699,7 +3900,7 @@
     "hf_id": "microsoft/trocr-base-handwritten",
     "task": "image-to-text",
     "model_type": "vision-encoder-decoder",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 155321,
     "last_update_time": "2025-02-11T04:26:58+00:00",
@@ -3721,7 +3922,7 @@
     "hf_id": "microsoft/trocr-large-handwritten",
     "task": "image-to-text",
     "model_type": "vision-encoder-decoder",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 204436,
     "last_update_time": "2024-05-27T20:10:58+00:00",
@@ -3743,7 +3944,7 @@
     "hf_id": "microsoft/xclip-base-patch32",
     "task": "video-classification",
     "model_type": "xclip",
-    "group": "microsoft",
+    "group": "Top200",
     "priority": "P2",
     "downloads": 233439,
     "last_update_time": "2024-02-04T01:26:30+00:00",
@@ -3792,6 +3993,9 @@
     "downloads": 155249,
     "last_update_time": "2023-06-12T12:30:35+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -3968,6 +4172,9 @@
     "downloads": 311622,
     "last_update_time": "2024-01-14T10:46:46+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -3979,6 +4186,9 @@
     "downloads": 8018,
     "last_update_time": "2022-08-08T13:43:30+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
@@ -3990,6 +4200,9 @@
     "downloads": 199427,
     "last_update_time": "2022-08-06T10:08:05+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 4
   },
   {
@@ -4001,6 +4214,9 @@
     "downloads": 58980,
     "last_update_time": "2022-08-06T10:07:54+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -4023,6 +4239,9 @@
     "downloads": 62446,
     "last_update_time": "2022-08-06T10:25:55+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -4100,6 +4319,9 @@
     "downloads": 1667168,
     "last_update_time": "2022-10-04T09:42:28+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 15
   },
   {
@@ -4122,6 +4344,9 @@
     "downloads": 1667168,
     "last_update_time": "2022-10-04T09:42:28+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 8
   },
   {
@@ -4133,6 +4358,9 @@
     "downloads": 20387212,
     "last_update_time": "2024-02-29T09:45:55+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -4155,6 +4383,9 @@
     "downloads": 20387212,
     "last_update_time": "2024-02-29T09:45:55+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -4166,6 +4397,9 @@
     "downloads": 22249046,
     "last_update_time": "2023-09-15T15:49:35+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -4177,6 +4411,9 @@
     "downloads": 18919844,
     "last_update_time": "2022-10-04T09:41:39+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -4254,6 +4491,9 @@
     "downloads": 2512449,
     "last_update_time": "2024-09-17T15:19:43+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 5
   },
   {
@@ -4276,7 +4516,7 @@
     "downloads": 15,
     "last_update_time": "2022-10-24T09:59:02+00:00",
     "optimum_supported": false,
-    "order": 9
+    "order": 10
   },
   {
     "hf_id": "philschmid/bart-large-cnn-samsum",
@@ -4331,6 +4571,9 @@
     "downloads": 1072249,
     "last_update_time": "2023-05-18T11:16:33+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 6
   },
   {
@@ -4375,6 +4618,9 @@
     "downloads": 214292086,
     "last_update_time": "2025-03-06T13:37:44+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -4386,6 +4632,9 @@
     "downloads": 214292086,
     "last_update_time": "2025-03-06T13:37:44+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 1
   },
   {
@@ -4419,6 +4668,9 @@
     "downloads": 34802154,
     "last_update_time": "2025-08-19T10:14:25+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 3
   },
   {
@@ -4452,6 +4704,9 @@
     "downloads": 2299047,
     "last_update_time": "2025-08-19T10:21:26+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 12
   },
   {
@@ -4463,6 +4718,9 @@
     "downloads": 38319425,
     "last_update_time": "2026-01-28T10:02:26+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -4474,6 +4732,9 @@
     "downloads": 38319425,
     "last_update_time": "2026-01-28T10:02:26+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
@@ -4496,6 +4757,9 @@
     "downloads": 4320691,
     "last_update_time": "2025-08-19T10:29:38+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 11
   },
   {
@@ -4584,6 +4848,9 @@
     "downloads": 164403,
     "last_update_time": "2024-11-26T17:14:50+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 7
   },
   {
@@ -4694,7 +4961,10 @@
     "downloads": 566398,
     "last_update_time": "2026-02-04T13:52:23+00:00",
     "optimum_supported": true,
-    "order": 6
+    "tags": [
+      "acc"
+    ],
+    "order": 5
   },
   {
     "hf_id": "valentinafevu/yolos-fashionpedia",
@@ -4705,7 +4975,7 @@
     "downloads": 566398,
     "last_update_time": "2026-02-04T13:52:23+00:00",
     "optimum_supported": true,
-    "order": 5
+    "order": 6
   },
   {
     "hf_id": "valhalla/distilbart-mnli-12-3",
@@ -4760,6 +5030,9 @@
     "downloads": 1663928,
     "last_update_time": "2024-02-19T11:03:26+00:00",
     "optimum_supported": true,
+    "tags": [
+      "acc"
+    ],
     "order": 2
   },
   {
