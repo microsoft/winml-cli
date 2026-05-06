@@ -1090,7 +1090,8 @@ class TestIterQDQCombinations:
             (
                 "ConvTranspose",
                 3584,
-            ),  # base: shape 3 * auto_pad 4 * group_opts 2 * output 4 * optional b 2 * qdq 16 = 3072
+            ),  # base: shape 3 * auto_pad 4 * group_opts 2
+            # * output 4 * optional b 2 * qdq 16 = 3072
             # even-kernel augmentations: 4 * output 4 * optional b 2 * qdq 16 = 512
             # (increased from 3328 after adding 2 extra even-kernel ConvTranspose patterns)
             (
