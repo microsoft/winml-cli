@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WinML ModelKit — Issue Triage Process</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    padding: 40px 32px 80px;
+    min-width: 900px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: .5px;
+    margin-bottom: 6px;
+    color: #f0f6fc;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #7d8590;
+    margin-bottom: 48px;
+  }
+
+  /* ── layout ─────────────────────────────────────── */
+  .canvas {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* ── shared box styles ──────────────────────────── */
+  .box {
+    border-radius: 10px;
+    padding: 14px 20px;
+    font-size: 13px;
+    line-height: 1.5;
+    border: 1.5px solid transparent;
+    position: relative;
+    text-align: center;
+  }
+  .box strong { display: block; font-size: 14px; margin-bottom: 3px; }
+  .box .sub { font-size: 11.5px; color: #8b949e; margin-top: 4px; }
+
+  /* color variants */
+  .box-blue   { background: #0d2340; border-color: #1f6feb; color: #79c0ff; }
+  .box-green  { background: #0d2d1f; border-color: #2ea043; color: #56d364; }
+  .box-purple { background: #1e1033; border-color: #8957e5; color: #d2a8ff; }
+  .box-orange { background: #2d1a00; border-color: #d29922; color: #e3b341; }
+  .box-red    { background: #2d0a0a; border-color: #f85149; color: #ff7b72; }
+  .box-gray   { background: #161b22; border-color: #30363d; color: #c9d1d9; }
+  .box-teal   { background: #0d2626; border-color: #2bb8ab; color: #56d9cc; }
+  .box-pink   { background: #2d0f20; border-color: #d1508f; color: #f778ba; }
+
+  /* ── arrows ─────────────────────────────────────── */
+  .arrow {
+    width: 2px;
+    background: #30363d;
+    margin: 0 auto;
+    position: relative;
+  }
+  .arrow::after {
+    content: '';
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 7px solid transparent;
+    border-top-color: #30363d;
+  }
+  .arrow-label {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #8b949e;
+    white-space: nowrap;
+  }
+
+  /* ── sections ───────────────────────────────────── */
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #484f58;
+    text-align: center;
+    margin: 10px 0 6px;
+  }
+
+  /* ── horizontal split ───────────────────────────── */
+  .h-split {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    width: 100%;
+    justify-content: center;
+    position: relative;
+  }
+  .h-split .branch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    flex: 1;
+    max-width: 280px;
+  }
+
+  /* horizontal connector bar */
+  .h-bar {
+    position: absolute;
+    top: 0;
+    height: 2px;
+    background: #30363d;
+  }
+
+  /* ── priority grid ──────────────────────────────── */
+  .priority-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    width: 100%;
+    max-width: 840px;
+    margin: 8px 0;
+  }
+  .priority-card {
+    border-radius: 10px;
+    padding: 14px 16px;
+    border: 1.5px solid transparent;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .priority-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .priority-card .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    vertical-align: middle;
+  }
+  .priority-card ul {
+    padding-left: 16px;
+    color: #8b949e;
+  }
+  .priority-card ul li { margin-bottom: 3px; }
+
+  .card-p0 { background: #2d0a0a; border-color: #f85149; color: #ff7b72; }
+  .card-p0 .badge { background: #f85149; color: #fff; }
+  .card-p0 ul { color: #c98086; }
+
+  .card-p1 { background: #2d1a00; border-color: #d29922; color: #e3b341; }
+  .card-p1 .badge { background: #d29922; color: #000; }
+  .card-p1 ul { color: #a88a50; }
+
+  .card-p2 { background: #0d2340; border-color: #1f6feb; color: #79c0ff; }
+  .card-p2 .badge { background: #1f6feb; color: #fff; }
+  .card-p2 ul { color: #5a8ab0; }
+
+  /* ── meeting callouts ───────────────────────────── */
+  .meetings {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    max-width: 840px;
+    margin: 8px 0;
+  }
+  .meeting-card {
+    flex: 1;
+    border-radius: 10px;
+    padding: 16px 18px;
+    border: 1.5px solid #8957e5;
+    background: #1e1033;
+  }
+  .meeting-card h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #d2a8ff;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .meeting-card p { font-size: 12px; color: #8b949e; line-height: 1.6; }
+  .day-tag {
+    font-size: 11px;
+    font-weight: 700;
+    background: #8957e5;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 20px;
+  }
+
+  /* ── Brenda callout ─────────────────────────────── */
+  .brenda-card {
+    width: 100%;
+    max-width: 840px;
+    border-radius: 10px;
+    border: 1.5px solid #d1508f;
+    background: #2d0f20;
+    padding: 16px 20px;
+    margin: 8px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .brenda-icon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .brenda-card h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f778ba;
+    margin-bottom: 6px;
+  }
+  .brenda-card p { font-size: 12px; color: #a0607a; line-height: 1.6; }
+  .brenda-card strong { color: #f778ba; }
+
+  /* ── agent block ────────────────────────────────── */
+  .agent-card {
+    width: 100%;
+    max-width: 840px;
+    border-radius: 10px;
+    border: 1.5px solid #2bb8ab;
+    background: #0d2626;
+    padding: 18px 22px;
+    margin: 8px 0;
+  }
+  .agent-card h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #56d9cc;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .agent-steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .agent-step {
+    background: #0a1f1f;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #56d9cc;
+    text-align: center;
+    border: 1px solid #1e4a46;
+  }
+  .agent-step .step-num {
+    font-size: 10px;
+    font-weight: 700;
+    color: #2bb8ab;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .agent-step .step-title { font-weight: 600; font-size: 12.5px; }
+  .agent-step .step-desc { font-size: 11px; color: #3a8a84; margin-top: 3px; }
+
+  /* ── wide arrow ─────────────────────────────────── */
+  .wide-arrow {
+    width: 100%;
+    max-width: 840px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #484f58;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .5px;
+    margin: 2px 0;
+  }
+  .wide-arrow::before, .wide-arrow::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #21262d;
+  }
+
+  /* ── dashboard card ─────────────────────────────── */
+  .dashboard-card {
+    width: 100%;
+    max-width: 840px;
+    border-radius: 10px;
+    border: 1.5px solid #2ea043;
+    background: #0d2d1f;
+    padding: 14px 18px;
+    margin: 8px 0;
+  }
+  .dashboard-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: #56d364;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dashboard-header span { font-weight: 400; color: #3a7a45; font-size: 11px; }
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  .dash-panel {
+    background: #081f12;
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 1px solid #1a4028;
+  }
+  .dash-panel-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #3a7a45;
+    margin-bottom: 8px;
+  }
+  .dash-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    color: #8b949e;
+    padding: 3px 0;
+    border-bottom: 1px solid #0f2a1a;
+  }
+  .dash-stat-row:last-child { border-bottom: none; }
+  .dash-val {
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .val-green { color: #56d364; }
+  .val-red   { color: #f85149; }
+  .val-yellow{ color: #e3b341; }
+  .val-gray  { color: #8b949e; }
+  .risk-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11.5px;
+    color: #8b949e;
+    padding: 3px 0;
+    border-bottom: 1px solid #0f2a1a;
+  }
+  .risk-item:last-child { border-bottom: none; }
+  .risk-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  /* ── vertical spacer ────────────────────────────── */
+  .v-arrow {
+    width: 100%;
+    max-width: 840px;
+    display: flex;
+    justify-content: center;
+    margin: 4px 0;
+  }
+  .v-arrow-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .v-line { width: 2px; background: #30363d; }
+  .v-arrowhead {
+    width: 0; height: 0;
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-top: 9px solid #30363d;
+  }
+
+  /* ── inline label ───────────────────────────────── */
+  .inline-label {
+    font-size: 11px;
+    color: #484f58;
+    font-style: italic;
+    margin-top: -2px;
+    margin-bottom: 2px;
+  }
+
+  /* ── start/end ──────────────────────────────────── */
+  .pill {
+    border-radius: 999px;
+    padding: 8px 28px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    border: 1.5px solid #30363d;
+    background: #161b22;
+    color: #8b949e;
+    text-align: center;
+  }
+  .pill.start { border-color: #1f6feb; color: #79c0ff; background: #0d2340; }
+
+  /* ── legend ─────────────────────────────────────── */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 48px;
+    padding: 16px;
+    border-top: 1px solid #21262d;
+    width: 100%;
+    max-width: 840px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    color: #7d8590;
+  }
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>WinML ModelKit — Issue Triage Process</h1>
+<p class="subtitle">Daily agent triage · P0 fix &lt;1 week · Mon &amp; Thu syncs</p>
+
+<div class="canvas">
+
+  <!-- START -->
+  <div class="pill start" style="width:260px">New Issue Opens on GitHub</div>
+
+  <div class="v-arrow"><div class="v-arrow-inner">
+    <div class="v-line" style="height:24px"></div>
+    <div class="v-arrowhead"></div>
+  </div></div>
+
+  <!-- TRIGGER -->
+  <div class="box box-gray" style="width:280px">
+    <strong>Label <code style="background:#21262d;padding:1px 6px;border-radius:4px;font-size:12px">need triage</code> applied</strong>
+  </div>
+
+  <div class="v-arrow"><div class="v-arrow-inner">
+    <div class="v-line" style="height:24px"></div>
+    <div class="v-arrowhead"></div>
+  </div></div>
+
+  <!-- DAILY AGENT -->
+  <div class="section-label">Daily — runs automatically</div>
+  <div class="agent-card">
+    <h3>&#x1F916; Agent Auto-Triage <span style="font-size:11px;font-weight:400;color:#3a8a84;margin-left:8px">runs daily</span></h3>
+    <div class="agent-steps">
+      <div class="agent-step">
+        <div class="step-num">1</div>
+        <div class="step-title">Classify</div>
+        <div class="step-desc">Component + Priority</div>
+      </div>
+      <div class="agent-step">
+        <div class="step-num">2</div>
+        <div class="step-title">Assign</div>
+        <div class="step-desc">Label + owner + board</div>
+      </div>
+      <div class="agent-step">
+        <div class="step-num">3</div>
+        <div class="step-title">Comment</div>
+        <div class="step-desc">Post summary on issue</div>
+      </div>
+      <div class="agent-step">
+        <div class="step-num">4</div>
+        <div class="step-title">Report</div>
+        <div class="step-desc">Share daily digest</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BRENDA RULE -->
+  <div class="brenda-card">
+    <div class="brenda-icon">&#x1F4CC;</div>
+    <div>
+      <h3>UX Issues → Brenda first (@hi-brenda)</h3>
+      <p>Any <code style="background:#3d1a2e;padding:1px 5px;border-radius:4px">dev experience</code> / User Experience issue is assigned to <strong>Brenda</strong> for UX input before engineering pickup.</p>
+    </div>
+  </div>
+
+  <div class="v-arrow"><div class="v-arrow-inner">
+    <div class="v-line" style="height:24px"></div>
+    <div class="v-arrowhead"></div>
+  </div></div>
+
+  <!-- PRIORITY ROUTING -->
+  <div class="section-label">Priority Routing</div>
+  <div class="priority-grid">
+
+    <div class="priority-card card-p0">
+      <h3><span class="badge">P0</span> Critical</h3>
+      <ul>
+        <li>Crash / silent wrong result</li>
+        <li>Broken pipeline</li>
+        <li>Customer-reported bugs</li>
+      </ul>
+      <div style="margin-top:12px;padding:8px;background:#1a0505;border-radius:7px;border:1px solid #6b1c1c;font-size:12px;text-align:center;font-weight:700">
+        &#x1F525; Fix within 1 week
+      </div>
+    </div>
+
+    <div class="priority-card card-p1">
+      <h3><span class="badge">P1</span> Major</h3>
+      <ul>
+        <li>Feature broken, no workaround</li>
+        <li>Blocks workflow (non-silent)</li>
+      </ul>
+      <div style="margin-top:12px;padding:8px;background:#1a1000;border-radius:7px;border:1px solid #6b4a0a;font-size:12px;text-align:center;font-weight:700">
+        Standard Queue
+      </div>
+    </div>
+
+    <div class="priority-card card-p2">
+      <h3><span class="badge">P2</span> Normal</h3>
+      <ul>
+        <li>Bugs with workarounds</li>
+        <li>UX, perf, feature requests</li>
+      </ul>
+      <div style="margin-top:12px;padding:8px;background:#07152a;border-radius:7px;border:1px solid #0d3a6b;font-size:12px;text-align:center;font-weight:700">
+        Backlog
+      </div>
+    </div>
+
+  </div>
+
+  <div class="v-arrow"><div class="v-arrow-inner">
+    <div class="v-line" style="height:24px"></div>
+    <div class="v-arrowhead"></div>
+  </div></div>
+
+  <!-- MEETING CADENCE -->
+  <div class="section-label">Weekly Meeting Cadence</div>
+  <div class="meetings">
+
+    <div class="meeting-card">
+      <h3><span class="day-tag">MON</span> Monday Sync</h3>
+      <p>
+        Delta issues since Thu · new P0s · unblock owners
+      </p>
+    </div>
+
+    <div class="meeting-card">
+      <h3><span class="day-tag">THU</span> Thursday Sync</h3>
+      <p>
+        Delta issues since Mon · P0 fix status · escalate if at risk
+      </p>
+    </div>
+
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="dashboard-card">
+    <div class="dashboard-header">&#x1F4CA; Daily Dashboard <span>— shared after each triage run</span></div>
+    <div class="dashboard-grid">
+
+      <!-- panel 1: volume -->
+      <div class="dash-panel">
+        <div class="dash-panel-title">Issue Volume</div>
+        <div class="dash-stat-row">
+          <span>Opened (this period)</span>
+          <span class="dash-val val-yellow">12</span>
+        </div>
+        <div class="dash-stat-row">
+          <span>Closed (this period)</span>
+          <span class="dash-val val-green">8</span>
+        </div>
+        <div class="dash-stat-row">
+          <span>Total open</span>
+          <span class="dash-val val-gray">34</span>
+        </div>
+        <div class="dash-stat-row">
+          <span>P0 open</span>
+          <span class="dash-val val-red">2</span>
+        </div>
+      </div>
+
+      <!-- panel 2: closed by person -->
+      <div class="dash-panel">
+        <div class="dash-panel-title">Closed by Person</div>
+        <div class="dash-stat-row"><span>@zhenchaoni</span><span class="dash-val val-green">3</span></div>
+        <div class="dash-stat-row"><span>@vortex-captain</span><span class="dash-val val-green">2</span></div>
+        <div class="dash-stat-row"><span>@chinazhangchao</span><span class="dash-val val-green">2</span></div>
+        <div class="dash-stat-row"><span>@timenick</span><span class="dash-val val-green">1</span></div>
+      </div>
+
+      <!-- panel 3: risk -->
+      <div class="dash-panel">
+        <div class="dash-panel-title">Risk Flags</div>
+        <div class="risk-item">
+          <div class="risk-dot" style="background:#f85149"></div>
+          <span>#412 P0 open 6 days — no update</span>
+        </div>
+        <div class="risk-item">
+          <div class="risk-dot" style="background:#e3b341"></div>
+          <span>#398 P1 stale 14 days</span>
+        </div>
+        <div class="risk-item">
+          <div class="risk-dot" style="background:#e3b341"></div>
+          <span>3 issues unassigned &gt;2 days</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="v-arrow"><div class="v-arrow-inner">
+    <div class="v-line" style="height:24px"></div>
+    <div class="v-arrowhead"></div>
+  </div></div>
+
+  <!-- RESOLUTION -->
+  <div class="box box-green" style="width:280px">
+    <strong>Issue Resolved &amp; Closed</strong>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#f85149"></div> P0 — Fix &lt;1 week
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#d29922"></div> P1 — Standard queue
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#1f6feb"></div> P2 — Backlog
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#d1508f"></div> Brenda — UX input first
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#2bb8ab"></div> Agent — daily automated triage
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#8957e5"></div> Mon &amp; Thu — team syncs
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
