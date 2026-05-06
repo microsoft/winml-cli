@@ -1653,6 +1653,16 @@
         ]
       },
       "size_mb": 157.2
+    },
+    {
+      "model_id": "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx",
+      "task": "mask-generation",
+      "model_type": "sam3_tracker"
+    },
+    {
+      "model_id": "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx",
+      "task": "mask-generation",
+      "model_type": "sam3_tracker"
     }
   ]
 }

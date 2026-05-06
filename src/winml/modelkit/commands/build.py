@@ -576,6 +576,14 @@ def build(
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx file thereafter.
+        if model_id is not None:
+            from ..loader import is_hf_onnx_path, resolve_hf_onnx_path
+
+            if is_hf_onnx_path(model_id):
+                model_id = str(resolve_hf_onnx_path(model_id))
+
         # Load or auto-generate config
         if config_file is not None:
             config_or_configs = _load_config(
