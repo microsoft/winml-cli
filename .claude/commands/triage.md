@@ -16,6 +16,12 @@ Triage open issues in microsoft/WinML-ModelKit in three phases:
   - P1 → `0a877460`
   - P2 → `da944a9c`
 
+- **Milestones** (repo: microsoft/WinML-ModelKit)
+  - `202603 Release` → milestone number `1`
+  - `202604 Release` → milestone number `2`
+  - `202605 Release` → milestone number `3`  ← **May Release (current)**
+  - `202606+ Post Build` → milestone number `4`
+
 ---
 
 ## Owner map (alias → GitHub handle)
@@ -161,12 +167,17 @@ Set priority:
 gh api graphql -f query='mutation { updateProjectV2ItemFieldValue(input:{projectId:"PVT_kwDOAF3p4s4BTTUF",itemId:"<item_id>",fieldId:"PVTSSF_lADOAF3p4s4BTTUFzhAlRdY",value:{singleSelectOptionId:"<priority_option_id>"}}) { projectV2Item { id } } }'
 ```
 
-### 4. Add labels
+### 4. Set milestone to May Release
+```
+gh api repos/microsoft/WinML-ModelKit/issues/<number> -X PATCH -f milestone=3
+```
+
+### 5. Add labels
 ```
 gh issue edit <number> --repo microsoft/WinML-ModelKit --add-label "<label1>,<label2>"
 ```
 
-### 5. Assign owners
+### 6. Assign owners
 
 **UX routing rule**: If the issue has the `dev experience` label, assign `hi-brenda` (yiba, PM) for confirmation — do NOT assign an engineering owner yet.
 
@@ -175,7 +186,7 @@ Otherwise, assign 1–2 engineering handles from the component table:
 gh issue edit <number> --repo microsoft/WinML-ModelKit --add-assignee "<handle1>,<handle2>"
 ```
 
-### 6. Post triage comment
+### 7. Post triage comment
 
 Do NOT mention assignees in the comment body.
 
