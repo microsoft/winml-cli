@@ -232,7 +232,39 @@ Write a self-contained HTML file to `temp/triage-report.html` with:
 
 Write the complete file (HTML + inline CSS + inline JS, no external dependencies).
 
+---
+
+## Phase 3 — Generate Teams table
+
+After the HTML report, print a **Teams-pasteable summary** directly to the console output (do not write to file).
+
+Teams renders markdown tables. Output this exact format:
+
+```
+## WinML-ModelKit Bug Status — <YYYY-MM-DD>
+
+**Total open: N** | 🔴 P0: N | 🟠 P1: N | 🟡 P2: N
+
+| # | Title | Component | Priority | Owner |
+|---|-------|-----------|----------|-------|
+| [#428](url) | winml compile crashes … | Compile | 🔴 P0 | @zhenchaoni |
+| [#436](url) | Investigation: Perf gap … | Perf | 🔴 P0 | @tezheng |
+…
+```
+
+Rules:
+- Sort rows: P0 first, then P1, then P2; within same priority sort by issue number ascending.
+- **Priority emoji**: P0 → 🔴, P1 → 🟠, P2 → 🟡
+- **Title**: truncate to 55 characters max, add `…` if truncated.
+- **Owner**: first assignee only (skip `hi-brenda` if there is another assignee; show `hi-brenda` only if she is the sole assignee).
+- Issue number links to `https://github.com/microsoft/WinML-ModelKit/issues/<N>`.
+- After the table, add one line per component that has P0 issues, listing those issue numbers: `> 🔴 Compile: #428, #430, #429, #434, #240, #186`
+
 ### Constraints
+
+- Only use **existing labels** — never create new ones
+- Do not close issues
+- Do not modify issue title or body
 
 - Only use **existing labels** — never create new ones
 - Do not close issues
