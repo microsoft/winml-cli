@@ -392,7 +392,7 @@ class TestScatterNDDerivedProperties:
             {
                 "data_shape": data_shape,
                 "indices_value": np.array([[0, 1], [1, 0]], dtype=np.int64),
-                "updates_shape": (2,) + data_shape[2:],
+                "updates_shape": (2, *data_shape[2:]),
             }
         )
 
@@ -488,7 +488,9 @@ class TestConvTransposeDerivedProperties:
         self, conv_transpose_generator_opset22
     ):
         """Generated combinations should cover all finite derived-property combinations."""
-        combinations = conv_transpose_generator_opset22.get_input_and_infinite_attribute_combinations()
+        combinations = (
+            conv_transpose_generator_opset22.get_input_and_infinite_attribute_combinations()
+        )
 
         eq_states = set()
         kernel_even_states = set()

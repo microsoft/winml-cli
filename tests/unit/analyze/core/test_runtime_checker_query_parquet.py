@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -17,6 +17,10 @@ from onnx import TensorProto, helper
 import winml.modelkit.analyze.core.runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import RuntimeCheckerQuery
 from winml.modelkit.analyze.utils.model_utils import encode_rule_condition_value_for_parquet
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _build_add_model(opset: int = 13):
@@ -236,9 +240,15 @@ class TestRuntimeCheckerQueryParquet:
 
         def _unexpected_scan(*args, **kwargs):
             del args, kwargs
-            raise AssertionError("query_table_exact_match should not be called for row_index lookup")
+            raise AssertionError(
+                "query_table_exact_match should not be called for row_index lookup"
+            )
 
-        monkeypatch.setattr(runtime_checker_query_module, "query_table_exact_match", _unexpected_scan)
+        monkeypatch.setattr(
+            runtime_checker_query_module,
+            "query_table_exact_match",
+            _unexpected_scan,
+        )
 
         model = _build_add_model()
         node = model.graph.node[0]

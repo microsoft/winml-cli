@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..models.ihv_type import IHVType
 
 
@@ -134,10 +135,7 @@ def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
         if any(search_dir.glob(f"*_{ep}_{device_upper}_*.parquet")):
             return True
 
-        if any(search_dir.glob(f"{ep}_{device_upper}_*.parquet")):
-            return True
-
-        return False
+        return any(search_dir.glob(f"{ep}_{device_upper}_*.parquet"))
 
     device_upper = device.upper()
     for search_dir in get_runtime_rules_search_dirs():

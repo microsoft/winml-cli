@@ -696,11 +696,9 @@ def _deduplicate_rule_rows(
     conflict_parts: list[pd.DataFrame] = []
     conflict_group_id = 0
 
-    grouped: Any
-    if condition_cols:
-        grouped = df.groupby(condition_cols, dropna=False, sort=False)
-    else:
-        grouped = [((), df)]
+    grouped: Any = (
+        df.groupby(condition_cols, dropna=False, sort=False) if condition_cols else [((), df)]
+    )
 
     for _, group_df in grouped:
         unique_outputs = group_df.loc[:, compare_cols].drop_duplicates(ignore_index=True)
@@ -719,7 +717,7 @@ def _deduplicate_rule_rows(
             continue
 
         row = group_df.iloc[0].copy()
-        row["rule_row_count"] = int(len(group_df))
+        row["rule_row_count"] = len(group_df)
         dedup_rows.append(row)
 
     dedup_df = pd.DataFrame(dedup_rows, dtype=object)
@@ -734,7 +732,10 @@ def _json_safe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
     return json.loads(df.to_json(orient="records", force_ascii=False))
 
 
-def _encode_condition_columns_for_parquet(df: pd.DataFrame, condition_cols: list[str]) -> pd.DataFrame:
+def _encode_condition_columns_for_parquet(
+    df: pd.DataFrame,
+    condition_cols: list[str],
+) -> pd.DataFrame:
     """Return a parquet-write dataframe with condition columns encoded as strings."""
     if df.empty or not condition_cols:
         return df.copy()

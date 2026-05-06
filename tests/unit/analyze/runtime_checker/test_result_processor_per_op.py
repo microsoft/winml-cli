@@ -10,8 +10,8 @@ from __future__ import annotations
 import pandas as pd
 
 from winml.modelkit.analyze.runtime_checker.result_processor import (
-    _encode_condition_columns_for_parquet,
     _deduplicate_rule_rows,
+    _encode_condition_columns_for_parquet,
     _parse_requested_domains,
 )
 

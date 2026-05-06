@@ -13,7 +13,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -34,6 +34,8 @@ from ...pattern.utils import (  # noqa: F401
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from onnx import NodeProto
 
     from winml.modelkit.pattern.match import PatternMatchResult

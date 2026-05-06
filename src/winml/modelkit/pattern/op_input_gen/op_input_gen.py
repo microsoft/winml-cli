@@ -1528,7 +1528,10 @@ class OpInputGenerator(ABC):
                 ep_checker_inputs: dict[str, Any],
             ) -> dict[str, Any]:
                 if isolate_case_execution:
-                    with ResilientRunner(capture_output=capture_output, timeout_sec=60) as case_runner:
+                    with ResilientRunner(
+                        capture_output=capture_output,
+                        timeout_sec=60,
+                    ) as case_runner:
                         return case_runner.run(fn, model_bytes, ep_checker_inputs)
                 return runner.run(fn, model_bytes, ep_checker_inputs)
 
