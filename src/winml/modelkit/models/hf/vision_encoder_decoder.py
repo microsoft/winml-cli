@@ -7,9 +7,9 @@
 Works for any HF ``VisionEncoderDecoderModel`` where:
 
 - The vision encoder produces ``encoder_hidden_states`` of shape
-  ``[batch, encoder_seq, encoder.hidden_size]`` (ViT/DeiT/Beit geometry).
+  ``[batch, encoder_seq, encoder.hidden_size]``.
 - The inner decoder is a CausalLM with cross-attention (TrOCR / MBart /
-  Marian inner causal-LM family).
+  inner causal-LM family).
 
 Dispatch happens at the HF model level: ``VisionDecoderWrapper`` loads the
 full ``VisionEncoderDecoderModel`` and delegates to ``model.decoder``
@@ -24,34 +24,15 @@ PATCHING_SPECS
 Bundles trace-time fixes for inner-decoder positional-embedding ops that
 don't trace cleanly under static-cache export.  Each ``PatchingSpec`` is
 class-targeted, so it's a no-op on graphs that don't contain that class.
-Adding fixes for new families is purely additive.
-
-TrOCR positional-embedding patch
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-``TrOCRDecoder.forward`` (transformers ≥4.57) drives the learned positional
-embedding via::
-
-    past_kv_len = past_key_values.get_seq_length()
-    embed_pos = self.embed_positions(input, past_key_values_length=past_kv_len)
-
-and ``TrOCRLearnedPositionalEmbedding.forward`` derives positions with
-``torch.arange(past_kv_len, past_kv_len + seq_len)`` — which traces as a
-``Range`` op driven by a symbolic scalar; NPU compilers reject that.
-
-We side-channel the absolute seq pos onto the embedding module as a tensor
-attribute named ``position_id`` and ``PATCHING_SPECS``-replace
-``TrOCRLearnedPositionalEmbedding.forward`` with a variant that reads that
-attribute and does a plain ``Embedding`` lookup (preserving TrOCR's
-``+offset``).  The patched forward falls back to stock HF behavior when
-``position_id`` is not set, so any TrOCR embedding used outside this
-exporter is unaffected.
+Adding fixes for new families is purely additive.  See each
+``_patched_..._forward`` function below for the per-family rationale.
 """
 
 from __future__ import annotations
 
 import inspect
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
 import torch.nn as nn
@@ -66,9 +47,14 @@ from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
-from ..winml.encoder_decoder import EncoderDecoderInputGenerator
-from ..winml.kv_cache import PastKeyValueInputGenerator
+from ..winml.composite_model import register_composite_model
+from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
+from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 from .decoder_wrapper import WinMLDecoderWrapper, WinMLStaticCacheDecoderIOConfig
+
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 
 logger = logging.getLogger(__name__)
@@ -154,17 +140,21 @@ def _patched_trocr_learned_positional_embedding_forward(
 ) -> torch.Tensor:
     """Patched ``TrOCRLearnedPositionalEmbedding.forward``.
 
-    If a ``position_id`` tensor attribute has been set on this module by
-    the export wrapper, use it as the lookup index (with TrOCR's
-    ``+self.offset`` preserved) and ignore the kwargs that HF would
-    otherwise derive via ``torch.arange``.  Without ``position_id`` set,
-    behavior is bit-identical to the original HF implementation.
+    Problem: HF derives positions via
+    ``torch.arange(past_kv_len, past_kv_len + seq_len)``, which traces as
+    a ``Range`` op driven by a symbolic scalar — rejected by NPU compilers.
+
+    Fix: when the wrapper sets a ``position_id`` attribute on this module,
+    use it directly as the embedding-lookup index (with TrOCR's
+    ``+self.offset`` preserved).  Otherwise behavior is unchanged.
     """
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
+        # Patched path: lookup with the side-channel index.
         if abs_pos.dim() == 1:
             abs_pos = abs_pos.unsqueeze(0)
         return nn.Embedding.forward(self, abs_pos + self.offset)
+    # Below: identical to HF's original ``TrOCRLearnedPositionalEmbedding.forward``.
     if position_ids is None:
         bsz, seq_len = input_ids.shape[:2]
         position_ids = torch.arange(
@@ -185,18 +175,18 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
 ) -> torch.Tensor:
     """Patched ``TrOCRSinusoidalPositionalEmbedding.forward``.
 
-    Stock HF derives ``position_ids`` via ``cumsum(input_ids != pad)``
-    plus a tensor add of ``past_key_values_length`` — both of which trace
-    as dynamic Cast/Add ops the analyzer can't lower.  We instead read
-    the absolute seq pos from the ``position_id`` attribute (same
-    side-channel the learned-embedding patch uses), shift by HF's
-    standard ``padding_idx + 1`` offset, and look up the frozen sin/cos
-    table directly.
+    Problem: HF derives ``position_ids`` via ``cumsum(input_ids != pad)``
+    plus a tensor add of ``past_key_values_length`` — these trace as
+    dynamic Cast/Add ops the NPU analyzer can't lower.
 
-    Falls back to stock HF behavior when ``position_id`` is unset.
+    Fix: when the wrapper sets a ``position_id`` attribute on this module,
+    use it as the lookup index (shifted by ``padding_idx + 1`` to match
+    HF's offset for non-padded sequences).  Otherwise behavior is unchanged.
     """
     abs_pos = getattr(self, "position_id", None)
     if abs_pos is not None:
+        # Patched path: lookup with the side-channel index, shifted by
+        # ``padding_idx + 1`` to match HF's offset for non-padded sequences.
         if abs_pos.dim() == 1:
             abs_pos = abs_pos.unsqueeze(0)
         position_ids = (abs_pos + self.padding_idx + 1).long()
@@ -204,7 +194,7 @@ def _patched_trocr_sinusoidal_positional_embedding_forward(
         return weights.index_select(0, position_ids.view(-1)).view(
             position_ids.size(0), position_ids.size(1), -1
         ).detach()
-    # Fallback: bit-identical to stock HF behavior.
+    # Below: identical to HF's original ``TrOCRSinusoidalPositionalEmbedding.forward``.
     bsz, seq_len = input_ids.size()
     position_ids = self.create_position_ids_from_input_ids(
         input_ids, self.padding_idx, past_key_values_length
@@ -423,6 +413,7 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs: Any) -> VisionDecoderWrapper:
+        """Load the full VED model and store its inner decoder for export."""
         full = VisionEncoderDecoderModel.from_pretrained(model_name_or_path, **kwargs)
         self = cls()
         self.model = full.decoder           # inner causal LM, called directly
@@ -449,8 +440,12 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
         # have this module path.  The patched forward also no-ops without
         # ``position_id`` set, so this is benign for non-TrOCR archs.
         decoder_module = getattr(self.model, "model", None)
-        inner_decoder = getattr(decoder_module, "decoder", None) if decoder_module is not None else None
-        embed_positions = getattr(inner_decoder, "embed_positions", None) if inner_decoder is not None else None
+        inner_decoder = (
+            getattr(decoder_module, "decoder", None) if decoder_module is not None else None
+        )
+        embed_positions = (
+            getattr(inner_decoder, "embed_positions", None) if inner_decoder is not None else None
+        )
         if embed_positions is not None:
             embed_positions.position_id = inputs["cache_position"]
 
@@ -480,6 +475,66 @@ class VisionDecoderWrapper(WinMLDecoderWrapper):
 
 
 # =============================================================================
+# Inference composite model
+# =============================================================================
+
+
+@register_composite_model("vision-encoder-decoder", "image-to-text")
+class WinMLVEDImageToText(WinMLEncoderDecoderModel):
+    """Vision-encoder-decoder image-to-text inference (TrOCR, Donut, ...)."""
+
+    main_input_name = "pixel_values"
+
+    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+        # ``image-feature-extraction`` is a TasksManager synonym of the
+        # canonical ``feature-extraction`` IOConfig task.  The pre-normalisation
+        # name flows into ``quant.task`` so calibration picks ``ImageDataset``.
+        "encoder": "image-feature-extraction",
+        "decoder": "text2text-generation",
+    }
+
+    def __init__(self, sub_models: dict[str, Any], config: PretrainedConfig) -> None:
+        super().__init__(sub_models, config)
+        self.config.is_encoder_decoder = True
+        # HF ``StaticCache.__init__`` reads
+        # ``config.get_text_config(decoder=True).num_hidden_layers``
+        # (= ``config.decoder.num_hidden_layers`` for VED) to size the
+        # cache layers.  Not every family defines ``decoder_layers`` on
+        # ``config.decoder``; fall back to ``num_hidden_layers``.
+        decoder_layers = getattr(config.decoder, "decoder_layers", None)
+        if decoder_layers is not None:
+            self.config.decoder.num_hidden_layers = decoder_layers
+
+    @classmethod
+    def get_cache_class(cls) -> type:  # noqa: D102
+        # BART-family decoders use absolute position embeddings;
+        # ``WinMLStaticCache`` preserves ``buffer_idx == seq_pos``.
+        return WinMLStaticCache
+
+    @property
+    def generation_config(self):  # noqa: D102
+        if not hasattr(self, "_generation_config"):
+            from transformers import GenerationConfig
+
+            dc = self.config.decoder
+            kw: dict[str, Any] = {
+                "decoder_start_token_id": dc.decoder_start_token_id,
+                "bos_token_id": dc.bos_token_id,
+                "eos_token_id": dc.eos_token_id,
+                "pad_token_id": dc.pad_token_id,
+            }
+            kw.setdefault("max_new_tokens", self._max_dec - 1)
+            kw.setdefault("num_beams", 1)        # static batch=1 ONNX → no beams
+            kw.setdefault("do_sample", False)    # deterministic greedy
+            self._generation_config = GenerationConfig(**kw)
+        return self._generation_config
+
+    @generation_config.setter
+    def generation_config(self, value: Any) -> None:
+        self._generation_config = value
+
+
+# =============================================================================
 # Model Class Mapping
 # =============================================================================
 
@@ -496,4 +551,5 @@ __all__ = [
     "VisionDecoderWrapper",
     "VisionEncoderIOConfig",
     "VisionEncoderWrapper",
+    "WinMLVEDImageToText",
 ]

@@ -190,10 +190,6 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
-from .image_to_text import (
-    WinMLBlipImageToText,
-    WinMLVEDImageToText,
-)
 from .kv_cache import (
     WinMLCache,
     WinMLSlidingWindowCache,
@@ -209,7 +205,6 @@ __all__ = [
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
     "ImageSegmentationOutput",
-    "WinMLBlipImageToText",
     "WinMLCache",
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
@@ -225,7 +220,6 @@ __all__ = [
     "WinMLPreTrainedModel",
     "WinMLSlidingWindowCache",
     "WinMLStaticCache",
-    "WinMLVEDImageToText",
     "get_supported_tasks",
     "get_winml_class",
     "register_composite_model",

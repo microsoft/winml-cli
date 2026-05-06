@@ -35,7 +35,7 @@ Pipeline task: ``image-to-text``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
 import torch.nn as nn
@@ -48,9 +48,14 @@ from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
-from ..winml.encoder_decoder import EncoderDecoderInputGenerator
-from ..winml.kv_cache import PastKeyValueInputGenerator
+from ..winml.composite_model import register_composite_model
+from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
+from ..winml.kv_cache import PastKeyValueInputGenerator, WinMLStaticCache
 from .decoder_wrapper import WinMLDecoderWrapper, WinMLStaticCacheDecoderIOConfig
+
+
+if TYPE_CHECKING:
+    from transformers import PretrainedConfig
 
 
 # =============================================================================
@@ -212,9 +217,12 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
         )
         outputs = self.model.text_decoder(
             input_ids=inputs["decoder_input_ids"],
-            # 3-D mask hits the ``dim == 3`` branch — no causal reconstruction.
+            # HF's causal-mask reconstruction traces as ops the NPU analyzer
+            # doesn't support; pass a 3-D mask to bypass that reconstruction.
             attention_mask=inputs["decoder_attention_mask"].unsqueeze(1),
-            # Explicit position_ids — avoid baking past_key_values_length=0.
+            # Without explicit position_ids, BlipTextModel would derive them
+            # from past_kv_len=0 (a frozen constant in the trace), giving every
+            # step position 0 instead of the actual step index.
             position_ids=inputs["cache_position"].unsqueeze(0),
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=enc_mask,
@@ -224,6 +232,67 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
             return_dict=True,
         )
         return outputs.logits
+
+
+# =============================================================================
+# Inference composite model
+# =============================================================================
+
+
+@register_composite_model("blip", "image-to-text")
+class WinMLBlipImageToText(WinMLEncoderDecoderModel):
+    """BLIP image-to-text inference model."""
+
+    main_input_name = "pixel_values"
+
+    _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
+        # ``image-feature-extraction`` is a TasksManager synonym of the
+        # canonical ``feature-extraction`` IOConfig task.  The pre-normalisation
+        # name flows into ``quant.task`` so calibration picks ``ImageDataset``.
+        "encoder": "image-feature-extraction",
+        "decoder": "text2text-generation",
+    }
+
+    def __init__(self, sub_models: dict[str, Any], config: PretrainedConfig) -> None:
+        super().__init__(sub_models, config)
+        # BLIP defaults ``is_encoder_decoder`` to False because it ships a
+        # custom ``generate()``.  We always go through HF's standard
+        # encoder-decoder path, so flip the flag on.
+        self.config.is_encoder_decoder = True
+        # WinMLCache reads config.num_hidden_layers; BLIP nests it under text_config.
+        self.config.num_hidden_layers = config.text_config.num_hidden_layers
+
+    @classmethod
+    def get_cache_class(cls) -> type:  # noqa: D102
+        # BLIP's text decoder uses absolute position embeddings;
+        # ``WinMLStaticCache`` preserves ``buffer_idx == seq_pos``.
+        return WinMLStaticCache
+
+    @property
+    def generation_config(self):  # noqa: D102
+        if not hasattr(self, "_generation_config"):
+            from transformers import GenerationConfig
+
+            tc = self.config.text_config
+            bos = tc.bos_token_id
+            kw: dict[str, Any] = {
+                # BLIP doesn't declare decoder_start_token_id — fall back to bos.
+                "decoder_start_token_id": bos,
+                "bos_token_id": bos,
+                # BLIP's real terminator is sep_token_id; the declared eos_token_id
+                # points to a BERT [unused] slot the model never emits.
+                "eos_token_id": tc.sep_token_id,
+                "pad_token_id": tc.pad_token_id,
+            }
+            kw.setdefault("max_new_tokens", self._max_dec - 1)
+            kw.setdefault("num_beams", 1)        # static batch=1 ONNX → no beams
+            kw.setdefault("do_sample", False)    # deterministic greedy
+            self._generation_config = GenerationConfig(**kw)
+        return self._generation_config
+
+    @generation_config.setter
+    def generation_config(self, value: Any) -> None:
+        self._generation_config = value
 
 
 # =============================================================================
@@ -244,4 +313,5 @@ __all__ = [
     "BlipDecoderWrapper",
     "BlipVisionEncoderIOConfig",
     "BlipVisionEncoderWrapper",
+    "WinMLBlipImageToText",
 ]

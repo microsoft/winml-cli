@@ -128,7 +128,6 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         past-key tensor.
         """
         cfg = self.onnx_config
-        # past_i_key/value layout: [batch, heads, max_cache_len, head_dim]
         key_names = cfg.past_key_input_names
         value_names = cfg.past_value_input_names
         sample_k = inputs[key_names[0]]
