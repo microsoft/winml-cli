@@ -477,10 +477,14 @@ class WinMLSession:
     ) -> Any:
         """Find the first OrtEpDevice matching the given filters.
 
-        Filters are AND'd: when both ``ep_name`` and ``device`` are set, the
-        returned ep_device must satisfy both. When only one is set, only that
-        filter applies. Unknown device strings (including ``"auto"``) act as
-        a no-op device filter.
+        Behavior:
+            - Both ``ep_name`` and ``device`` unset/``"auto"`` → ``None``
+              (no effective filter).
+            - ``ep_name`` set, ``device`` unset/``"auto"`` → first ep_device
+              matching ``ep_name`` (or None).
+            - ``ep_name`` unset, ``device`` is a concrete type → first
+              ep_device matching that device type (or None).
+            - Both set → ep_device must satisfy both (or None).
 
         Note: Selection order is determined by the ORT EP registry, which is
         not part of any documented contract. On systems where multiple EPs
@@ -491,8 +495,8 @@ class WinMLSession:
         Args:
             ep_name: Full EP name (e.g., "DmlExecutionProvider"), or None
                 to skip EP-name filtering.
-            device: Device policy ("cpu", "gpu", "npu"), or None to skip
-                device filtering.
+            device: Device policy ("cpu", "gpu", "npu", "auto"), or None.
+                ``"auto"`` and unknown strings act as no-op device filters.
 
         Returns:
             The matching OrtEpDevice, or None if not found.
@@ -500,6 +504,11 @@ class WinMLSession:
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper()) if device else None
+
+        # No effective filter — refuse to pick an arbitrary ep_device.
+        if not ep_name and device_type is None:
+            return None
+
         for ep_dev in ort.get_ep_devices():
             if ep_name and ep_dev.ep_name != ep_name:
                 continue
