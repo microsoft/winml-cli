@@ -2010,8 +2010,8 @@ class TestDevicePrecisionCli:
         return result, output_file
 
     def test_device_npu_produces_qnn(self, tmp_path) -> None:
-        """--device npu → compile.provider=qnn, quant with w8a16."""
-        result, output_file = self._invoke(tmp_path, ["--device", "npu"])
+        """--device npu --compile → compile.provider=qnn, quant with w8a16."""
+        result, output_file = self._invoke(tmp_path, ["--device", "npu", "--compile"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
@@ -2059,15 +2059,15 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Default: quant and compile both present (backward compat)
+        # Default: quant present, compile excluded (--no-compile is default)
         assert data["quant"] is not None
-        assert data["compile"] is not None
+        assert data["compile"] is None
 
     def test_auto_precision_int8_triggers_detection(self, tmp_path) -> None:
-        """--device auto --precision int8 → triggers device detection."""
+        """--device auto --precision int8 --compile → triggers device detection."""
         result, output_file = self._invoke(
             tmp_path,
-            ["--device", "auto", "--precision", "int8"],
+            ["--device", "auto", "--precision", "int8", "--compile"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2126,7 +2126,7 @@ class TestConfigOnnxAutoDetect:
             runner = CliRunner()
             result = runner.invoke(
                 config_command,
-                ["-m", str(onnx_file), "--device", "npu", "-o", str(output_file)],
+                ["-m", str(onnx_file), "--device", "npu", "--compile", "-o", str(output_file)],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
