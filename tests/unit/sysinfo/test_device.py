@@ -163,10 +163,20 @@ class TestResolveDevice:
     """Tests for resolve_device()."""
 
     def setup_method(self) -> None:
-        """Clear the lru_cache before each test."""
-        from winml.modelkit.sysinfo.device import _get_available_eps
+        """Mock _get_available_eps so the real function never runs.
 
-        _get_available_eps.cache_clear()
+        Tests stack their own ``with patch(...)`` on top of this default mock
+        to set test-specific return values; the inner patch shadows ours for
+        the duration of the with-block and restores back on exit.
+        """
+        self._eps_patcher = patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset(),
+        )
+        self._eps_patcher.start()
+
+    def teardown_method(self) -> None:
+        self._eps_patcher.stop()
 
     def test_resolve_device_auto_npu_with_ep(self) -> None:
         """Auto mode: NPU hardware + QNN EP -> returns "npu"."""
@@ -330,9 +340,15 @@ class TestResolveDeviceWithEp:
     """Tests for resolve_device(ep=...) — EP-aware filtering of available_devices/eps."""
 
     def setup_method(self) -> None:
-        from winml.modelkit.sysinfo.device import _get_available_eps
+        """Mock _get_available_eps so the real function never runs."""
+        self._eps_patcher = patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset(),
+        )
+        self._eps_patcher.start()
 
-        _get_available_eps.cache_clear()
+    def teardown_method(self) -> None:
+        self._eps_patcher.stop()
 
     def test_ep_qnn_filters_devices_to_npu_and_gpu(self) -> None:
         """ep='qnn' narrows available_devices to QNN's compatible devices (npu/gpu)."""
