@@ -88,14 +88,14 @@ class TestPublicAPI:
         for entry in EP_PATH:
             assert isinstance(entry, (PyPiSource, FilesystemSource, WinMlCatalogSource))
 
-    def test_ep_source_union_includes_all_three(self) -> None:
-        # EpSource is the runtime tagged union.
+    def test_ep_source_subclasses_inherit_from_abc(self) -> None:
+        # EpSource is the abstract base class for all source kinds.
         assert PyPiSource is not None
         assert FilesystemSource is not None
         assert WinMlCatalogSource is not None
-        # Spot check that EpSource is a Union/UnionType.
+        # Every concrete source kind must subclass the ABC.
         for cls in (PyPiSource, FilesystemSource, WinMlCatalogSource):
-            assert cls in EpSource.__args__
+            assert issubclass(cls, EpSource)
 
 
 # ---------------------------------------------------------------------------

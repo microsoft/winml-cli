@@ -35,7 +35,8 @@ import functools
 import logging
 import os
 import platform
-from collections.abc import Callable, Iterator
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -228,12 +229,46 @@ def _qnn_arch_resolver(rel_template: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# EpSource tagged-union dataclasses.
+# EpSource ABC + concrete dataclass implementations.
 # ---------------------------------------------------------------------------
 
 
+class EpSource(ABC):
+    """Abstract base for any source that can yield ``(ep_name, dll_path)``.
+
+    Four concrete subclasses cover the origins documented in
+    ``docs/ep-path-design.md``: :class:`PyPiSource`,
+    :class:`FilesystemSource`, :class:`WinMlCatalogSource`, and
+    :class:`MsixPackageSource`. Subclasses are frozen dataclasses; this
+    base provides the shared :meth:`is_compatible` body and documents
+    the :meth:`resolve` / :meth:`iter_eps` contract.
+    """
+
+    @abstractmethod
+    def resolve(self) -> Iterator[tuple[str, Path]]:
+        """Yield ``(canonical_ep_name, absolute_dll_path)`` zero or more times.
+
+        Errors during resolution should be logged and swallowed (yield
+        nothing) — :func:`discover_eps` tolerates source-level failures
+        but cannot recover from a raised exception.
+        """
+
+    @abstractmethod
+    def iter_eps(self) -> Iterable[str]:
+        """Return the canonical EP names this source declares to provide.
+
+        Used by :meth:`is_compatible` and by the CLI inventory layer.
+        Should match the ``ep_name`` values that :meth:`resolve` would
+        yield, but is statically declarable (no I/O required).
+        """
+
+    def is_compatible(self) -> bool:
+        """True iff every EP this source provides has compatible hardware."""
+        return all(_ep_is_compatible(ep) for ep in self.iter_eps())
+
+
 @dataclass(frozen=True)
-class PyPiSource:
+class PyPiSource(EpSource):
     """A pip-installed plugin EP wheel.
 
     The DLL path is computed lazily via
@@ -288,13 +323,13 @@ class PyPiSource:
         for ep_name in self.eps:
             yield ep_name, path
 
-    def is_compatible(self) -> bool:
-        """True iff every EP in :attr:`eps` is compatible with this machine."""
-        return all(_ep_is_compatible(ep) for ep in self.eps)
+    def iter_eps(self) -> Iterable[str]:
+        """Return the canonical EP names this source provides."""
+        return self.eps
 
 
 @dataclass(frozen=True)
-class FilesystemSource:
+class FilesystemSource(EpSource):
     r"""A directory tree containing one or more registrable plugin DLLs.
 
     Covers the third-party-installer case (Ryzen AI), the unzipped-GitHub
@@ -369,9 +404,9 @@ class FilesystemSource:
             # unusual but tolerated (deterministic by glob order).
             yield ep_name, matches[0].resolve()
 
-    def is_compatible(self) -> bool:
-        """True iff every EP this source provides is compatible with this machine."""
-        return all(_ep_is_compatible(ep) for ep in self.dll_patterns)
+    def iter_eps(self) -> Iterable[str]:
+        """Return the canonical EP names this source provides (the dll_patterns keys)."""
+        return self.dll_patterns.keys()
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +514,7 @@ def _winml_warn_once(key: str, msg: str, *args: Any) -> None:
 
 
 @dataclass(frozen=True)
-class WinMlCatalogSource:
+class WinMlCatalogSource(EpSource):
     """An MSIX EP delivered via the WinAppSDK ``ExecutionProviderCatalog``.
 
     The on-disk DLL path for an MSIX-delivered EP is decided by the
@@ -635,9 +670,9 @@ class WinMlCatalogSource:
         name = getattr(status, "name", None) or str(status)
         return name.replace("_", "").lower().endswith("success")
 
-    def is_compatible(self) -> bool:
-        """True iff every EP in :attr:`eps` is compatible with this machine."""
-        return all(_ep_is_compatible(ep) for ep in self.eps)
+    def iter_eps(self) -> Iterable[str]:
+        """Return the canonical EP names this source provides."""
+        return self.eps
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +721,7 @@ def _pkg_version_str(version: Any) -> str:
 
 
 @dataclass(frozen=True)
-class MsixPackageSource:
+class MsixPackageSource(EpSource):
     """An MSIX-delivered EP, identified by package-family-name prefix.
 
     Bypasses the WinAppSDK ``ExecutionProviderCatalog`` (which exposes
@@ -777,9 +812,9 @@ class MsixPackageSource:
         for ep_name in self.eps:
             yield ep_name, dll_path
 
-    def is_compatible(self) -> bool:
-        """True iff every EP in :attr:`eps` is compatible with this machine."""
-        return all(_ep_is_compatible(ep) for ep in self.eps)
+    def iter_eps(self) -> Iterable[str]:
+        """Return the canonical EP names this source provides."""
+        return self.eps
 
 
 def list_msix_eps(
@@ -873,10 +908,6 @@ def list_msix_eps(
         )
 
     return results
-
-
-# Tagged union covering all four origins documented in the design.
-EpSource = PyPiSource | FilesystemSource | WinMlCatalogSource | MsixPackageSource
 
 
 # ---------------------------------------------------------------------------
