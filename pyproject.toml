@@ -85,8 +85,12 @@ optional-dependencies.qnn = [
   "onnxruntime-qnn>=2.1,<2.2",
 ]
 optional-dependencies.winml-catalog = [
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
+  # [all] extra pulls in the winrt-Windows.{Foundation,ApplicationModel,...}
+  # bindings needed by IAsyncOperationWithProgress.get() during EP catalog
+  # ensure_ready_async() calls. Without [all], the catalog enumerates but
+  # cannot complete async ops.
+  "wasdk-microsoft-windows-ai-machinelearning[all]>=2.0.1",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap[all]>=2.0.1",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
@@ -119,6 +123,13 @@ dev = [
 [tool.uv]
 override-dependencies = [
   "transformers>=5,<6",
+  # wasdk-microsoft-windows-ai-machinelearning 2.0.1 declares
+  # onnxruntime-windowsml==1.24.5-... as a required dep, but inspection of the
+  # wheel shows the Python code only imports winrt.system — never onnxruntime.
+  # The constraint is convenience-bundling, not a runtime requirement. We
+  # neutralize it so we keep upstream onnxruntime instead of Microsoft's distro
+  # (which would shadow onnxruntime/* and shift built-ins).
+  "onnxruntime-windowsml; sys_platform == 'unobtainium'",
 ]
 
 [tool.setuptools.packages.find]
