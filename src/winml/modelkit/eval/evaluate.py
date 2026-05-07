@@ -177,6 +177,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         raise ValueError("model_id is required.")
 
     if config.model_path is not None:
+        # Pre-built ONNX: precision is already baked into the model and is
+        # ignored here (mirrors winml perf's ONNX path).
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
@@ -194,6 +196,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         config.model_id,
         task=config.task,
         device=config.device,
+        precision=config.precision,
     )
 
 

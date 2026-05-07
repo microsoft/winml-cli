@@ -68,6 +68,15 @@ logger = logging.getLogger(__name__)
     help="Device to run on. 'auto' detects the best available device.",
 )
 @click.option(
+    "--precision",
+    type=str,
+    default="auto",
+    show_default=True,
+    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
+    "Applied during model build (fp16/fp32 skip quantization). "
+    "Ignored for pre-built ONNX inputs (precision is already baked in).",
+)
+@click.option(
     "--samples",
     type=int,
     default=100,
@@ -135,6 +144,7 @@ def eval(
     dataset_name: str | None,
     task: str | None,
     device: str,
+    precision: str,
     samples: int,
     split: str,
     shuffle: bool,
@@ -196,6 +206,13 @@ def eval(
         model_id=model_id,
     )
 
+    if model_path is not None and precision != "auto":
+        logger.warning(
+            "--precision %s is ignored for pre-built ONNX inputs "
+            "(precision is already baked into the model).",
+            precision,
+        )
+
     # Parse column mappings from --column key=value pairs
     columns_mapping: dict[str, str] = {}
     for c in column:
@@ -235,6 +252,7 @@ def eval(
         model_id=model_id,
         task=task,
         device=resolved_device,
+        precision=precision.lower(),
         dataset=ds_config,
         output_path=output,
     )

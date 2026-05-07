@@ -59,6 +59,7 @@ class WinMLEvaluationConfig:
     model_path: str | dict[str, str] | None = None
     task: str | None = None
     device: str = "cpu"
+    precision: str = "auto"
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = None
 
@@ -72,6 +73,8 @@ class WinMLEvaluationConfig:
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
+        if self.precision != "auto":
+            result["precision"] = self.precision
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
@@ -96,6 +99,7 @@ class WinMLEvaluationConfig:
             model_path=data.get("model_path"),
             task=data.get("task"),
             device=data.get("device", "cpu"),
+            precision=data.get("precision", "auto"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
         )
