@@ -780,18 +780,19 @@ class TestQDQNodeDisplayMapping:
     """
 
     def test_qdq_pattern_id_maps_to_base_op_for_table_key(self) -> None:
-        """_display_name + removesuffix(' (QDQ)') maps QDQ pattern IDs to base
+        """_display_name + removesuffix(QDQ_SUFFIX) maps QDQ pattern IDs to base
         op types so instance_counts keys match all_op_counts keys."""
+        from winml.modelkit.analyze.core.runtime_checker_query import QDQ_SUFFIX
         from winml.modelkit.commands.analyze import _display_name
 
-        assert _display_name("OP/ai.onnx/Conv (QDQ)").removesuffix(" (QDQ)") == "Conv"
-        assert _display_name("OP/ai.onnx/Add (QDQ)").removesuffix(" (QDQ)") == "Add"
-        assert _display_name("OP/ai.onnx/Pad (QDQ)").removesuffix(" (QDQ)") == "Pad"
+        assert _display_name("OP/ai.onnx/Conv (QDQ)").removesuffix(QDQ_SUFFIX) == "Conv"
+        assert _display_name("OP/ai.onnx/Add (QDQ)").removesuffix(QDQ_SUFFIX) == "Add"
+        assert _display_name("OP/ai.onnx/Pad (QDQ)").removesuffix(QDQ_SUFFIX) == "Pad"
         assert (
-            _display_name("OP/ai.onnx/DequantizeLinear").removesuffix(" (QDQ)")
+            _display_name("OP/ai.onnx/DequantizeLinear").removesuffix(QDQ_SUFFIX)
             == "DequantizeLinear"
         )
-        assert _display_name("OP/ai.onnx/Reshape").removesuffix(" (QDQ)") == "Reshape"
+        assert _display_name("OP/ai.onnx/Reshape").removesuffix(QDQ_SUFFIX) == "Reshape"
 
     @patch("winml.modelkit.commands.analyze.Live")
     @patch("winml.modelkit.commands.analyze.Console")
