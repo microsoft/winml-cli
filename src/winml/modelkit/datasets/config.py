@@ -32,8 +32,8 @@ class DatasetConfig:
             Resolved into ``label_mapping`` at eval time.
     """
 
-    path: str | None = None
-    name: str | None = None
+    path: str | None = field(default=None, metadata={"cli_name": "dataset_path"})
+    name: str | None = field(default=None, metadata={"cli_name": "dataset_name"})
     split: str = "validation"
     samples: int = 100
     shuffle: bool = True
@@ -41,7 +41,7 @@ class DatasetConfig:
     columns_mapping: dict[str, str] = field(default_factory=dict)
     label_mapping: dict[str, int] | None = None
     streaming: bool = False
-    build_script: str | None = None
+    build_script: str | None = field(default=None, metadata={"cli_name": "dataset_script"})
     label_mapping_file: str | None = None
 
     def to_dict(self) -> dict[str, Any]:

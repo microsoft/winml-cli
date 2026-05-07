@@ -203,3 +203,38 @@ def is_cli_provided(ctx: click.Context, param_name: str) -> bool:
     """
     source = ctx.get_parameter_source(param_name)
     return source == click.core.ParameterSource.COMMANDLINE
+
+
+def collect_cli_overrides(ctx: click.Context, cls: type) -> dict[str, object]:
+    """Collect CLI-provided values that match fields on a dataclass.
+
+    Iterates ``ctx.params`` and returns ``{field_name: value}`` for every
+    CLI param that was explicitly provided AND maps to a field on *cls*.
+
+    Name mapping uses ``field(metadata={"cli_name": ...})`` on the
+    dataclass.  Fields without ``cli_name`` metadata match by name.
+
+    Args:
+        ctx: Click context.
+        cls: Target dataclass whose fields define the valid key set.
+
+    Returns:
+        Dict of ``{field_name: value}`` for CLI-provided params.
+    """
+    import dataclasses
+
+    # Build reverse map: cli_name -> field_name
+    rename: dict[str, str] = {}
+    valid_fields: set[str] = set()
+    for f in dataclasses.fields(cls):
+        valid_fields.add(f.name)
+        cli_name = f.metadata.get("cli_name")
+        if cli_name:
+            rename[cli_name] = f.name
+
+    overrides: dict[str, object] = {}
+    for cli_name, value in ctx.params.items():
+        field_name = rename.get(cli_name, cli_name)
+        if field_name in valid_fields and is_cli_provided(ctx, cli_name):
+            overrides[field_name] = value
+    return overrides
