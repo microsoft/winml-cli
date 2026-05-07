@@ -137,6 +137,8 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
         columns_mapping={
             "input_column": "text",
             "label_column": "label",
+            "candidate_labels": "World,Sports,Business,Sci/Tech",
+            "hypothesis_template": "This text is about {}.",
         },
     ),
     "zero-shot-image-classification": DatasetConfig(
