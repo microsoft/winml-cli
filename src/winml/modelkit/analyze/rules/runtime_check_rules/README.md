@@ -6,7 +6,12 @@ Files are **not tracked by git** and are expected to come from `ModelKitArtifact
 
 ## Setup
 
-### Option 1: Download script (recommended)
+No manual download is required for normal `pip`/wheel installs. Runtime rule
+parquet files are bundled and installed with the package.
+
+If `winml analyze` reports missing parquet files, first reinstall the package.
+
+### Option 1: Download script (Microsoft internal fallback)
 
 Requires [GitHub CLI](https://cli.github.com) (`gh`) with an account that has access to `gim-home`.
 
@@ -19,7 +24,7 @@ files here (preserving subdirectories).
 
 Use `--force` to re-download all files even if they already exist locally.
 
-### Option 2: Manual copy
+### Option 2: Manual copy (Microsoft internal fallback)
 
 Copy all runtime rule parquet files from:
 
@@ -49,5 +54,5 @@ exists in multiple locations.
 
 ## What happens if parquet rules are missing
 
-The analyzer logs warnings and treats affected operators as unknown. Analysis results remain
-available but may be incomplete.
+`winml analyze` exits with code 2 and prints an error. Reinstall the package first,
+or use one of the fallback methods above to provide parquet rule files.
