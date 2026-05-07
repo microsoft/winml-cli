@@ -53,7 +53,7 @@ def test_network_failure_persists_envelopes_to_cache(cache, cache_path):
     """Process 1: net is down. The exporter must write the envelope to
     disk so process 2 can recover it."""
     exporter = OneCollectorLogExporter(
-        ikey="o:abc",
+        ikey="abc-def",
         endpoint="https://example.invalid/",
         cache=cache,
     )
@@ -81,7 +81,7 @@ def test_next_process_flushes_cached_envelopes_on_first_export(cache, cache_path
     assert cache_path.exists()
 
     exporter = OneCollectorLogExporter(
-        ikey="o:abc",
+        ikey="abc-def",
         endpoint="https://example.invalid/",
         cache=cache,
     )
@@ -110,7 +110,7 @@ def test_cache_flush_only_runs_on_first_export(cache):
     cache.append([{"name": "stale", "iKey": "o:abc"}])
 
     exporter = OneCollectorLogExporter(
-        ikey="o:abc",
+        ikey="abc-def",
         endpoint="https://example.invalid/",
         cache=cache,
     )
@@ -133,7 +133,7 @@ def test_cached_envelopes_re_persisted_on_recovery_failure(cache, cache_path):
     cache.append(seeded)
 
     exporter = OneCollectorLogExporter(
-        ikey="o:abc",
+        ikey="abc-def",
         endpoint="https://example.invalid/",
         cache=cache,
     )
