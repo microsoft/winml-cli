@@ -301,7 +301,7 @@ class WinMLSession:
             # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()
             logger.info(
-                "Session created with policy %s, providers: %s",
+                "Session created with device %s, providers: %s",
                 target_device,
                 actual_providers,
             )
@@ -478,6 +478,7 @@ class WinMLSession:
             device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
         )
         opts.set_provider_selection_policy(policy)
+        logger.info("Using provider selection policy %s for device %s", policy, device)
 
         return opts
 
