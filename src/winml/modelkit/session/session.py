@@ -441,9 +441,20 @@ class WinMLSession:
             if target_name:
                 matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
+                    from ..utils.constants import DEVICE_TYPE_TO_DEVICE
+
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
-                    logger.info("Explicit EP: %s (%s)", self._ep, target_name)
+                    resolved = DEVICE_TYPE_TO_DEVICE.get(
+                        matched.device.type, str(matched.device.type)
+                    )
+                    logger.info(
+                        "Explicit EP: %s (%s) device=%s -> %s",
+                        self._ep,
+                        target_name,
+                        device,
+                        resolved,
+                    )
                     return opts
                 logger.warning(
                     "EP '%s' (%s) not found for device '%s'",
