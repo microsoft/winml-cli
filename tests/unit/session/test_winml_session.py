@@ -765,12 +765,20 @@ class TestFindEpDevice:
         assert match is not None
         assert match.ep_name == "QNNExecutionProvider"
 
-    def test_no_filter_returns_none(self) -> None:
-        """Both ep_name and device unset/'auto' → None (no arbitrary pick)."""
+    def test_both_unset_returns_none(self) -> None:
+        """ep_name=None and device=None → None (no arbitrary pick)."""
         import onnxruntime as ort
 
         devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
         with self._patch_devices(devs):
             assert WinMLSession._find_ep_device() is None
-            assert WinMLSession._find_ep_device(device="auto") is None
             assert WinMLSession._find_ep_device(ep_name=None, device=None) is None
+
+    def test_ep_none_and_device_auto_returns_none(self) -> None:
+        """ep_name=None and device='auto' → None (auto is a no-op filter)."""
+        import onnxruntime as ort
+
+        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
+        with self._patch_devices(devs):
+            assert WinMLSession._find_ep_device(device="auto") is None
+            assert WinMLSession._find_ep_device(ep_name=None, device="auto") is None
