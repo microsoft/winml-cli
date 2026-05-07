@@ -836,6 +836,7 @@ class TestLoadModel:
             "test/model",
             task="image-classification",
             device="cpu",
+            ep=None,
         )
         assert result is mock_model
 
