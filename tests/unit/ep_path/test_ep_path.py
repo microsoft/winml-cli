@@ -10,7 +10,7 @@ Covers:
       glob patterns, multiple EPs in one root.
     - WinMlCatalogSource.resolve(): graceful no-yield when the
       WinAppSDK ML Python binding is not installed.
-    - WINML_EP_PATH env-var override parsing.
+    - MODELKIT_EP_PATH env-var override parsing.
     - discover_eps(): first-hit-wins precedence, extra_sources
       override, dedup, error tolerance.
 """
@@ -29,7 +29,7 @@ from winml.modelkit.ep_path import (
     FilesystemSource,
     PyPiSource,
     WinMlCatalogSource,
-    _parse_winml_ep_path,
+    _parse_modelkit_ep_path,
     _qnn_arch_resolver,
     canonicalize_ep_name,
     discover_eps,
@@ -307,26 +307,26 @@ class TestWinMlCatalogSourceBindingMissing:
 
 
 # ---------------------------------------------------------------------------
-# WINML_EP_PATH env var override.
+# MODELKIT_EP_PATH env var override.
 # ---------------------------------------------------------------------------
 
 
 class TestWinmlEpPathOverride:
-    """Parsing the WINML_EP_PATH env var into FilesystemSource entries."""
+    """Parsing the MODELKIT_EP_PATH env var into FilesystemSource entries."""
 
     def test_unset_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("WINML_EP_PATH", raising=False)
-        assert _parse_winml_ep_path() == []
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
+        assert _parse_modelkit_ep_path() == []
 
     def test_empty_string_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("WINML_EP_PATH", "")
-        assert _parse_winml_ep_path() == []
+        monkeypatch.setenv("MODELKIT_EP_PATH", "")
+        assert _parse_modelkit_ep_path() == []
 
     def test_single_entry(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("WINML_EP_PATH", str(tmp_path))
-        sources = _parse_winml_ep_path()
+        monkeypatch.setenv("MODELKIT_EP_PATH", str(tmp_path))
+        sources = _parse_modelkit_ep_path()
         assert len(sources) == 1
         assert isinstance(sources[0], FilesystemSource)
         assert sources[0].root == tmp_path
@@ -347,8 +347,8 @@ class TestWinmlEpPathOverride:
         import os
 
         sep = ";" if os.name == "nt" else os.pathsep
-        monkeypatch.setenv("WINML_EP_PATH", f"{a}{sep}{b}")
-        sources = _parse_winml_ep_path()
+        monkeypatch.setenv("MODELKIT_EP_PATH", f"{a}{sep}{b}")
+        sources = _parse_modelkit_ep_path()
         assert len(sources) == 2
         roots = [s.root for s in sources if isinstance(s, FilesystemSource)]
         assert a in roots
@@ -358,9 +358,9 @@ class TestWinmlEpPathOverride:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # End-to-end: drop a synthetic plugin DLL in a directory, set
-        # WINML_EP_PATH to that directory, confirm discover_eps finds it.
+        # MODELKIT_EP_PATH to that directory, confirm discover_eps finds it.
         dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
-        monkeypatch.setenv("WINML_EP_PATH", str(tmp_path))
+        monkeypatch.setenv("MODELKIT_EP_PATH", str(tmp_path))
         # Skip env-var-gated FilesystemSource so the env-var path is the
         # only producer of a VitisAI hit. (The autouse
         # _skip_live_catalog_in_ep_path_tests fixture handles the catalog
@@ -390,7 +390,7 @@ class TestDiscoverEps:
             root=tmp_path,
             dll_patterns={"OpenVINOExecutionProvider": fake_dll.name},
         )
-        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
         resolved = discover_eps(extra_sources=[extra])
         assert "OpenVINOExecutionProvider" in resolved
         path, source = resolved["OpenVINOExecutionProvider"]
@@ -410,7 +410,7 @@ class TestDiscoverEps:
             root=b.parent,
             dll_patterns={"VitisAIExecutionProvider": b.name},
         )
-        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
         resolved = discover_eps(extra_sources=[first, second])
         assert resolved["VitisAIExecutionProvider"][0] == a.resolve()
 
@@ -428,7 +428,7 @@ class TestDiscoverEps:
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
-        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
         resolved = discover_eps(extra_sources=[catalog, good])
         assert resolved["QNNExecutionProvider"][0] == fake_dll.resolve()
 
@@ -440,7 +440,7 @@ class TestDiscoverEps:
             root=tmp_path,
             dll_patterns={"QNNExecutionProvider": fake_dll.name},
         )
-        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
         resolved = discover_eps(extra_sources=[src])
         assert resolved["QNNExecutionProvider"] == (fake_dll.resolve(), src)
 
@@ -463,7 +463,7 @@ class TestDiscoverEps:
             root=second_dll.parent,
             dll_patterns={"NvTensorRtRtxExecutionProvider": second_dll.name},
         )
-        monkeypatch.delenv("WINML_EP_PATH", raising=False)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
         resolved = discover_eps(extra_sources=[first, second])
         # Exactly one entry, keyed by the canonical name.
         nv_keys = [k for k in resolved if k.lower() == "nvtensorrtrtxexecutionprovider"]
