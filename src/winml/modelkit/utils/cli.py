@@ -163,6 +163,30 @@ def build_config_option(func):
     )(func)
 
 
+def trust_remote_code_option(optional_message: str | None = None):
+    """Add shared --trust-remote-code option to a Click command.
+
+    Args:
+        optional_message: Extra command-specific guidance appended to help text.
+
+    Returns:
+        Decorator function.
+    """
+    help_text = (
+        "Allow executing custom code from model repositories or dataset scripts. "
+        "Use only with trusted sources."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    return click.option(
+        "--trust-remote-code",
+        is_flag=True,
+        default=False,
+        help=help_text,
+    )
+
+
 def load_build_config(config_path: Path) -> WinMLBuildConfig:
     """Load a WinMLBuildConfig from a JSON file.
 

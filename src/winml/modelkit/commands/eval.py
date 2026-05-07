@@ -124,11 +124,8 @@ logger = logging.getLogger(__name__)
     default=None,
     help="Path to a Python script that builds the evaluation dataset.",
 )
-@click.option(
-    "--trust-remote-code",
-    is_flag=True,
-    default=False,
-    help="Allow execution of dataset scripts. Required when --dataset-script is used.",
+@cli_utils.trust_remote_code_option(
+    optional_message="Required when --dataset-script is used."
 )
 @click.option(
     "--schema",

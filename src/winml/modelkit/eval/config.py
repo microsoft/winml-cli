@@ -60,7 +60,7 @@ class WinMLEvaluationConfig:
     task: str | None = None
     device: str = "cpu"
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
-    output_path: Path | None = None
+    output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
