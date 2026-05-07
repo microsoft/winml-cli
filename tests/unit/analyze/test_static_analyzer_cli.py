@@ -767,3 +767,101 @@ class TestAnalyzeEPDeviceValidation:
         # Should proceed to analysis (not fail on validation)
         assert result.exit_code == 0
         assert mock_instance.analyze.called
+
+
+class TestQDQNodeDisplayMapping:
+    """Tests for QDQ node result mapping in the op progress table.
+
+    QDQ-wrapped ops (e.g. Conv surrounded by DQ/Q nodes) produce pattern IDs
+    like 'OP/ai.onnx/Conv (QDQ)'.  The live table keys come from
+    metadata.operator_counts which uses bare op types ('Conv').  The
+    on_node_result callback must strip the ' (QDQ)' suffix so results are
+    attributed to the right row instead of being silently dropped.
+    """
+
+    def test_qdq_pattern_id_maps_to_base_op_for_table_key(self) -> None:
+        """_display_name + removesuffix(' (QDQ)') maps QDQ pattern IDs to base
+        op types so instance_counts keys match all_op_counts keys."""
+        from winml.modelkit.commands.analyze import _display_name
+
+        assert _display_name("OP/ai.onnx/Conv (QDQ)").removesuffix(" (QDQ)") == "Conv"
+        assert _display_name("OP/ai.onnx/Add (QDQ)").removesuffix(" (QDQ)") == "Add"
+        assert _display_name("OP/ai.onnx/Pad (QDQ)").removesuffix(" (QDQ)") == "Pad"
+        assert (
+            _display_name("OP/ai.onnx/DequantizeLinear").removesuffix(" (QDQ)")
+            == "DequantizeLinear"
+        )
+        assert _display_name("OP/ai.onnx/Reshape").removesuffix(" (QDQ)") == "Reshape"
+
+    @patch("winml.modelkit.commands.analyze.Live")
+    @patch("winml.modelkit.commands.analyze.Console")
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_qdq_wrapped_ops_tracked_under_base_type(
+        self,
+        mock_analyzer_class: MagicMock,
+        mock_console_class: MagicMock,
+        mock_live_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """on_node_result must map 'Conv (QDQ)' → 'Conv' so the table row
+        shows support counts instead of '...'."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        # Accumulate per-EP instance counts written by on_node_result so we
+        # can assert that QDQ-wrapped ops land under the base op type key.
+        captured_ep_counts: dict = {}
+
+        mock_console = MagicMock()
+        mock_console_class.return_value = mock_console
+
+        ep_support_mock = Mock()
+        ep_support_mock.ep_type = "QNNExecutionProvider"
+        ep_support_mock.classification = {}
+        ep_support_mock.information = []
+        mock_analyzer_result.output.results = [ep_support_mock]
+
+        def invoke_callbacks(**kwargs):
+            on_ep_start = kwargs.get("on_ep_start")
+            on_node_result = kwargs.get("on_node_result")
+            if on_ep_start:
+                on_ep_start("QNNExecutionProvider", {"Conv": 2, "DequantizeLinear": 4})
+            if on_node_result:
+                for _ in range(2):
+                    pr = Mock()
+                    pr.pattern_id = "OP/ai.onnx/Conv (QDQ)"
+                    pr.result.classification.value = "supported"
+                    on_node_result(pr)
+                for _ in range(4):
+                    pr = Mock()
+                    pr.pattern_id = "OP/ai.onnx/DequantizeLinear"
+                    pr.result.classification.value = "supported"
+                    on_node_result(pr)
+            # Capture the instance_counts via _render_analysis_summary call args
+            return mock_analyzer_result
+
+        mock_instance = Mock()
+        mock_instance.analyze.side_effect = invoke_callbacks
+        mock_analyzer_class.return_value = mock_instance
+
+        # Intercept _render_analysis_summary to capture ep_instance_counts
+        with patch("winml.modelkit.commands.analyze._render_analysis_summary") as mock_summary:
+            result = runner.invoke(
+                analyze,
+                ["--model", str(model_file), "--ep", "QNNExecutionProvider", "--device", "NPU"],
+            )
+            if mock_summary.called:
+                captured_ep_counts = mock_summary.call_args[0][2]  # 3rd positional arg
+
+        assert result.exit_code == 0
+        # After the fix, 'Conv (QDQ)' is keyed as 'Conv' in instance_counts.
+        # ep_instance_counts['QNNExecutionProvider']['Conv'] must be populated
+        # (not 'Conv (QDQ)') so the Conv row shows counts instead of '...'.
+        assert mock_summary.called
+        qnn_counts = captured_ep_counts.get("QNNExecutionProvider", {})
+        assert "Conv" in qnn_counts, "Conv (QDQ) results must be stored under 'Conv'"
+        assert "Conv (QDQ)" not in qnn_counts, "QDQ suffix must be stripped"
+        assert qnn_counts["Conv"] == {"supported": 2}
+        assert qnn_counts["DequantizeLinear"] == {"supported": 4}
