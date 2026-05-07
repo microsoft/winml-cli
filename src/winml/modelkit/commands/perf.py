@@ -504,6 +504,9 @@ def _perf_modules(
     verbose: bool,
     console: Console,
     monitor: bool = False,
+    device: str = "auto",
+    ep: str | None = None,
+    precision: str = "auto",
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
 
@@ -523,13 +526,20 @@ def _perf_modules(
         verbose: If True, log exceptions at DEBUG level.
         console: Rich console for output.
         monitor: If True, wrap each per-module benchmark with HWMonitor.
+        device: Target device policy ("auto", "cpu", "gpu", "npu").
+        ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
+            device-to-provider mapping when set.
+        precision: Precision mode passed through to the build stage.
     """
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
     from ..config import generate_hf_build_config
+    from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
+
+    resolved_device, _ = resolve_device(device=device)
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -538,6 +548,9 @@ def _perf_modules(
             model_id=hf_model,
             task=task,
             module=module_class,
+            device=resolved_device,
+            precision=precision,
+            ep=ep,
         )
     except Exception as e:
         console.print(f"[red]Error generating module configs: {e}[/red]")
@@ -590,12 +603,18 @@ def _perf_modules(
                     config=cfg,
                     output_dir=Path(tmpdir),
                     pytorch_model=submodule,
+                    ep=ep,
+                    device=resolved_device,
                 )
 
                 # Benchmark using WinMLSession
                 from ..session import WinMLSession
 
-                session = WinMLSession(str(build_result.final_onnx_path))
+                session = WinMLSession(
+                    str(build_result.final_onnx_path),
+                    device=resolved_device,
+                    ep=ep,
+                )
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
 
@@ -1250,6 +1269,9 @@ def perf(
             verbose=verbose,
             console=console,
             monitor=monitor,
+            device=device.lower(),
+            ep=ep.lower() if ep else None,
+            precision=precision.lower(),
         )
         return
 

@@ -24,7 +24,9 @@ def test_empty_ikey_makes_telemetry_disabled(clean_env, isolated_config, monkeyp
 
 
 def test_consent_disabled_makes_telemetry_disabled(clean_env, isolated_config, monkeypatch):
-    monkeypatch.setattr("winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "o:test-key")
+    monkeypatch.setattr(
+        "winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "test-tenant-1234"
+    )
     consent_mod._write_stored_consent("disabled")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     t = Telemetry.get_or_init()
@@ -70,7 +72,9 @@ def test_init_swallows_resource_build_errors(clean_env, isolated_config, monkeyp
     rather than raise. Without this guard a registry permission error or
     transient OS failure would crash every CLI invocation.
     """
-    monkeypatch.setattr("winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "o:test-key")
+    monkeypatch.setattr(
+        "winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "test-tenant-1234"
+    )
     consent_mod._write_stored_consent("enabled")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
 
