@@ -24,6 +24,7 @@ from .core.onnx_loader import ONNXLoader
 from .core.output_aggregator import OutputAggregator
 from .core.pattern_extractor import PatternExtractor
 from .core.runtime_checker import RuntimeChecker
+from .core.runtime_checker_query import QDQ_SUFFIX
 from .models import (
     Action,
     ActionItem,
@@ -46,6 +47,7 @@ from .utils.rule_loader import RuleLoader
 
 
 __all__ = [
+    "QDQ_SUFFIX",
     "Action",
     "ActionItem",
     "ActionLevel",
