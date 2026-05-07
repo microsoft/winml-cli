@@ -548,7 +548,11 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
         }
         for entry in entries:
             desc = _describe_source(entry.source)
-            desc["status"] = entry.status
+            # When the EP is incompatible with the machine, every entry's
+            # resolution status is moot — surface that directly to avoid
+            # the misleading "[primary]" tag on a source that cannot load.
+            desc["status"] = "incompatible" if not compatible else entry.status
+            desc["compatible"] = compatible
             desc["dll_path"] = str(entry.dll_path)
             if entry.dll_path in catalog_default_paths:
                 desc["is_catalog_default"] = True
@@ -621,7 +625,11 @@ def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
         for entry in record["entries"]:
             status = entry.get("status", "?")
             kind = entry.get("source_kind", "?")
-            status_color = "green" if status == "primary" else "yellow"
+            status_color = {
+                "primary": "green",
+                "shadowed": "yellow",
+                "incompatible": "red",
+            }.get(status, "white")
             tag = f"[{status_color}]\\[{status}][/{status_color}]"
 
             extras: list[str] = []
