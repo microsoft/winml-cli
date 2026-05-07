@@ -19,6 +19,7 @@ from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
 from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
+from .image_to_text_evaluator import WinMLImageToTextEvaluator
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
@@ -42,6 +43,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "feature-extraction": WinMLFeatureExtractionEvaluator,
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
     "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
+    "image-to-text": WinMLImageToTextEvaluator,
     "fill-mask": WinMLFillMaskEvaluator,
     "zero-shot-image-classification": WinMLZeroShotImageClassificationEvaluator,
 }

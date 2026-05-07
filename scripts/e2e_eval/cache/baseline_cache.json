@@ -828,5 +828,55 @@
     },
     "elapsed": 222.8,
     "command": "python.exe run_pytorch_baseline.py --model fashion-clip --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset fashion_mnist --split test --columns-mapping {\"input_column\": \"image\"}"
+  },
+  "Salesforce/blip-image-captioning-base|image-to-text|lmms-lab/flickr30k||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.6891,
+      "num_samples": 500
+    },
+    "elapsed": 586.9,
+    "command": "python.exe run_pytorch_baseline.py --model blip-image-captioning-base --task image-to-text --device cpu --num-samples 500 --dataset flickr30k --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"caption\"}"
+  },
+  "microsoft/trocr-base-handwritten|image-to-text|Teklia/IAM-line||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.0476,
+      "num_samples": 500
+    },
+    "elapsed": 999.5,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-base-handwritten --task image-to-text --device cpu --num-samples 500 --dataset IAM-line --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"}"
+  },
+  "microsoft/trocr-large-handwritten|image-to-text|Teklia/IAM-line||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.0361,
+      "num_samples": 500
+    },
+    "elapsed": 1750.8,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-large-handwritten --task image-to-text --device cpu --num-samples 500 --dataset IAM-line --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"}"
+  },
+  "microsoft/trocr-base-printed|image-to-text|priyank-m/SROIE_2019_text_recognition||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.0113,
+      "num_samples": 500
+    },
+    "elapsed": 825.6,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-base-printed --task image-to-text --device cpu --num-samples 500 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"}"
+  },
+  "microsoft/trocr-large-printed|image-to-text|priyank-m/SROIE_2019_text_recognition||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.0037,
+      "num_samples": 200
+    },
+    "elapsed": 592.2,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-large-printed --task image-to-text --device cpu --num-samples 200 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"}"
   }
 }

@@ -1431,5 +1431,100 @@
         "label_column": "fine_label"
       }
     }
+  },
+  {
+    "hf_id": "Salesforce/blip-image-captioning-base",
+    "task": "image-to-text",
+    "model_type": "blip",
+    "group": "Benchmark",
+    "priority": "P0",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "lmms-lab/flickr30k",
+      "split": "test",
+      "samples": 500,
+      "metric": "cider",
+      "winml_metric_key": "cider",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "caption"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-base-handwritten",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "microsoft",
+    "priority": "P2",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "Teklia/IAM-line",
+      "split": "test",
+      "samples": 500,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-large-handwritten",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "microsoft",
+    "priority": "P2",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "Teklia/IAM-line",
+      "split": "test",
+      "samples": 500,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-base-printed",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "ISV",
+    "priority": "P1",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "priyank-m/SROIE_2019_text_recognition",
+      "split": "test",
+      "samples": 500,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-large-printed",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "ISV",
+    "priority": "P1",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "priyank-m/SROIE_2019_text_recognition",
+      "split": "test",
+      "samples": 200,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
   }
 ]

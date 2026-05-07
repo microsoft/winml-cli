@@ -486,9 +486,6 @@ class WinMLVEDImageToText(WinMLEncoderDecoderModel):
     main_input_name = "pixel_values"
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
-        # ``image-feature-extraction`` is a TasksManager synonym of the
-        # canonical ``feature-extraction`` IOConfig task.  The pre-normalisation
-        # name flows into ``quant.task`` so calibration picks ``ImageDataset``.
         "encoder": "image-feature-extraction",
         "decoder": "text2text-generation",
     }
@@ -538,6 +535,9 @@ class WinMLVEDImageToText(WinMLEncoderDecoderModel):
 # Model Class Mapping
 # =============================================================================
 
+# ``image-feature-extraction`` is normalized to ``feature-extraction`` by
+# Optimum's TasksManager before this lookup, so the encoder key uses the
+# normalized task name.
 MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
     ("vision-encoder-decoder", "feature-extraction"): VisionEncoderWrapper,
     ("vision-encoder-decoder", "text2text-generation"): VisionDecoderWrapper,
