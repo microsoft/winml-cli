@@ -28,9 +28,13 @@ import os
 import sys
 import types
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from winml.modelkit import ep_path as _ep
 from winml.modelkit.ep_path import (
@@ -126,7 +130,12 @@ def _build_fake_binding(catalog: _FakeCatalog | Exception) -> dict[str, types.Mo
     )
 
     class _Options:
+        NONE = "NONE"
+        ON_ERROR_DEBUG_BREAK = "ON_ERROR_DEBUG_BREAK"
+        ON_ERROR_DEBUG_BREAK_IF_DEBUGGER_ATTACHED = "ON_ERROR_DEBUG_BREAK_IF_DEBUGGER_ATTACHED"
+        ON_ERROR_FAIL_FAST = "ON_ERROR_FAIL_FAST"
         ON_NO_MATCH_SHOW_UI = "ON_NO_MATCH_SHOW_UI"
+        ON_PACKAGE_IDENTITY_NOOP = "ON_PACKAGE_IDENTITY_NOOP"
 
     class _Handle:
         entered = 0
@@ -172,13 +181,21 @@ def _build_fake_binding(catalog: _FakeCatalog | Exception) -> dict[str, types.Mo
 
 
 @pytest.fixture
-def reset_catalog_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Reset module-level catalog singleton state between tests."""
-    monkeypatch.setattr(_ep, "_catalog_singleton", None)
-    monkeypatch.setattr(_ep, "_catalog_init_attempted", False)
-    monkeypatch.setattr(_ep, "_catalog_init_failed", False)
-    monkeypatch.setattr(_ep, "_catalog_atexit_registered", False)
+def reset_catalog_singleton(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """Reset the catalog singleton and warn-once cache around each test.
+
+    The catalog is memoized via ``functools.cache``. Clear it both before
+    and after the test so a cached value (or cached ``None`` from a fake
+    binding) cannot leak between tests.
+    """
+    _ep._get_catalog.cache_clear()
     monkeypatch.setattr(_ep, "_winml_catalog_warned_keys", set())
+    try:
+        yield
+    finally:
+        _ep._get_catalog.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -198,14 +215,18 @@ class TestDefaultEpPathIncludesCatalogEntries:
         catalog_names = {
             s.catalog_name for s in EP_PATH if isinstance(s, WinMlCatalogSource)
         }
-        # Per docs/ep-path-design.md lines 175-181, with the camelCase
-        # NvTensorRtRtx fix from the fact-check pass.
+        # The catalog API returns provider.name as the full canonical EP
+        # name (e.g. "QNNExecutionProvider"), so catalog_name in EP_PATH
+        # must match. Verified empirically against the live WinAppSDK ML
+        # 2.0.1 binding on Snapdragon X Elite — find_all_providers() returns
+        # provider.name == "QNNExecutionProvider", not the short "QNN" form
+        # used by older Microsoft Learn supported-execution-providers tables.
         assert catalog_names == {
-            "OpenVINO",
-            "QNN",
-            "VitisAI",
-            "MIGraphX",
-            "NvTensorRtRtx",
+            "OpenVINOExecutionProvider",
+            "QNNExecutionProvider",
+            "VitisAIExecutionProvider",
+            "MIGraphXExecutionProvider",
+            "NvTensorRtRtxExecutionProvider",
         }
 
     def test_canonical_ep_names_match_design(self) -> None:

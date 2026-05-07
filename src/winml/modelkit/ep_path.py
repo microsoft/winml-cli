@@ -31,10 +31,10 @@ Public API:
 from __future__ import annotations
 
 import atexit
+import functools
 import logging
 import os
 import platform
-import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from importlib import metadata
@@ -280,11 +280,6 @@ class FilesystemSource:
 # register an ``atexit`` cleanup so it is released on interpreter shutdown.
 # ``__del__`` is intentionally NOT used — Python does not guarantee it is
 # invoked on shutdown, which would leak the runtime activation.
-_catalog_lock = threading.Lock()
-_catalog_singleton: Any | None = None
-_catalog_init_attempted: bool = False
-_catalog_init_failed: bool = False
-_catalog_atexit_registered: bool = False
 _winml_catalog_warned_keys: set[str] = set()
 
 
@@ -298,84 +293,77 @@ def _release_winml_handle(handle: Any) -> None:
         logger.debug("WinAppSDK bootstrap handle cleanup raised: %s", e)
 
 
+@functools.cache
 def _get_catalog() -> Any | None:
     """Return the cached ``ExecutionProviderCatalog`` or ``None``.
 
-    On first call, lazily imports the WinAppSDK ML Python binding,
-    initializes the WinAppSDK Application Runtime bootstrap, retrieves
-    the default catalog, and caches it. Subsequent calls return the
-    cached value.
+    Runs exactly once per process via ``functools.cache`` (thread-safe via
+    its internal lock). Failures cache as ``None`` and never retry; tests
+    reset state via ``_get_catalog.cache_clear()``.
 
     Returns ``None`` (not raises) when:
 
     * The WinAppSDK ML Python binding is not importable (no ``wasdk-*``
-      install). Logged at DEBUG once per process; this is the common
-      case on machines without the optional ``winml-catalog`` extra.
-    * The bootstrap initialize call raises. Logged at WARN once per
-      process.
-    * ``ExecutionProviderCatalog.get_default()`` raises. Logged at WARN
-      once per process.
+      install). Logged at DEBUG; this is the common case on machines
+      without the optional ``winml-catalog`` extra.
+    * The bootstrap initialize call raises. Logged at DEBUG with a
+      pointer to the WinAppSDK runtime download page.
+    * ``ExecutionProviderCatalog.get_default()`` raises. Logged at WARN.
     """
-    global _catalog_singleton, _catalog_init_attempted, _catalog_init_failed
-    global _catalog_atexit_registered
+    # Lazy import so we do not pay the binding-load cost (or fail
+    # outright on machines without the wasdk extra) at module import.
+    try:
+        import winui3.microsoft.windows.ai.machinelearning as winml
+        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
+            InitializeOptions,
+            initialize,
+        )
+    except ImportError as e:
+        logger.debug(
+            "WinMlCatalogSource: WinAppSDK ML Python binding not "
+            "installed; install the 'winml-catalog' extra to enable "
+            "MSIX-delivered EP discovery (%s)",
+            e,
+        )
+        return None
 
-    with _catalog_lock:
-        if _catalog_init_attempted:
-            return _catalog_singleton
-        _catalog_init_attempted = True
+    # Initialize the WinAppSDK Application Runtime bootstrap. The handle
+    # holds the runtime active for the rest of the process.
+    #
+    # InitializeOptions.NONE: silent fail if the OS-level Windows App
+    # Runtime is not installed. We log at DEBUG (not WARN) for that case
+    # because it's expected — users opt into the Python wasdk packages
+    # via the [winml-catalog] extra but may not yet have the runtime
+    # installed (which is a separate Microsoft installer at
+    # https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads).
+    # ON_NO_MATCH_SHOW_UI would open that page in a browser on every
+    # invocation — too disruptive for an opt-in capability.
+    try:
+        handle = initialize(options=InitializeOptions.NONE)
+        handle.__enter__()
+    except Exception as e:
+        logger.debug(
+            "WinMlCatalogSource: WinAppSDK bootstrap initialize() "
+            "failed (%s). Install the Windows App SDK runtime from "
+            "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads "
+            "to enable MSIX-delivered EP discovery.",
+            e,
+        )
+        return None
 
-        # Lazy import so we do not pay the binding-load cost (or fail
-        # outright on machines without the wasdk extra) at module import.
-        try:
-            import winui3.microsoft.windows.ai.machinelearning as winml
-            from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-                InitializeOptions,
-                initialize,
-            )
-        except ImportError as e:
-            # DEBUG-once per process per the design doc's failure-mode table:
-            # "WinAppSDK ML Python binding not importable -> Log DEBUG once".
-            logger.debug(
-                "WinMlCatalogSource: WinAppSDK ML Python binding not "
-                "installed; install the 'winml-catalog' extra to enable "
-                "MSIX-delivered EP discovery (%s)",
-                e,
-            )
-            _catalog_init_failed = True
-            return None
+    # Register cleanup BEFORE accessing the catalog so a catalog
+    # error still releases the runtime.
+    atexit.register(_release_winml_handle, handle)
 
-        # Initialize the WinAppSDK Application Runtime bootstrap. The
-        # handle holds the runtime active for the rest of the process.
-        try:
-            handle = initialize(options=InitializeOptions.ON_NO_MATCH_SHOW_UI)
-            handle.__enter__()
-        except Exception as e:
-            logger.warning(
-                "WinMlCatalogSource: WinAppSDK bootstrap initialize() failed: %s",
-                e,
-            )
-            _catalog_init_failed = True
-            return None
-
-        # Register cleanup BEFORE accessing the catalog so a catalog
-        # error still releases the runtime.
-        if not _catalog_atexit_registered:
-            atexit.register(_release_winml_handle, handle)
-            _catalog_atexit_registered = True
-
-        try:
-            catalog = winml.ExecutionProviderCatalog.get_default()
-        except Exception as e:
-            logger.warning(
-                "WinMlCatalogSource: ExecutionProviderCatalog.get_default() "
-                "failed: %s",
-                e,
-            )
-            _catalog_init_failed = True
-            return None
-
-        _catalog_singleton = catalog
-        return catalog
+    try:
+        return winml.ExecutionProviderCatalog.get_default()
+    except Exception as e:
+        logger.warning(
+            "WinMlCatalogSource: ExecutionProviderCatalog.get_default() "
+            "failed: %s",
+            e,
+        )
+        return None
 
 
 def _winml_warn_once(key: str, msg: str, *args: Any) -> None:
@@ -526,16 +514,23 @@ class WinMlCatalogSource:
         ``ready_state`` is an enum from the WinAppSDK ML binding; we
         avoid importing the enum type directly (which would mean another
         import that fails when the binding is absent) by comparing on the
-        string ``name`` attribute, falling back to ``str(...)``.
+        string ``name`` attribute, falling back to ``str(...)``. The
+        wasdk 2.0 binding exposes the name as ``NOT_PRESENT``
+        (UPPER_SNAKE_CASE) while WinML docs spell it ``NotPresent``
+        (PascalCase); normalize underscores + casing to match either form.
         """
         name = getattr(ready_state, "name", None) or str(ready_state)
-        return name.endswith("NotPresent")
+        return name.replace("_", "").lower().endswith("notpresent")
 
     @staticmethod
     def _is_success(status: Any) -> bool:
-        """Return True iff the ensure-ready status enum is ``Success``."""
+        """Return True iff the ensure-ready status enum is ``Success``.
+
+        Accepts both ``SUCCESS`` and ``Success`` spellings (see
+        ``_is_not_present`` rationale).
+        """
         name = getattr(status, "name", None) or str(status)
-        return name.endswith("Success")
+        return name.replace("_", "").lower().endswith("success")
 
 
 # Tagged union covering all four origins documented in the design.
@@ -582,23 +577,23 @@ def _default_ep_path_windows() -> list[EpSource]:
         #    matters: PyPI wins if both are present (more deterministic,
         #    locked by pyproject vs Windows-Update-managed MSIX).
         WinMlCatalogSource(
-            catalog_name="OpenVINO",
+            catalog_name="OpenVINOExecutionProvider",
             eps=("OpenVINOExecutionProvider",),
         ),
         WinMlCatalogSource(
-            catalog_name="QNN",
+            catalog_name="QNNExecutionProvider",
             eps=("QNNExecutionProvider",),
         ),
         WinMlCatalogSource(
-            catalog_name="VitisAI",
+            catalog_name="VitisAIExecutionProvider",
             eps=("VitisAIExecutionProvider",),
         ),
         WinMlCatalogSource(
-            catalog_name="MIGraphX",
+            catalog_name="MIGraphXExecutionProvider",
             eps=("MIGraphXExecutionProvider",),
         ),
         WinMlCatalogSource(
-            catalog_name="NvTensorRtRtx",
+            catalog_name="NvTensorRtRtxExecutionProvider",
             eps=("NvTensorRtRtxExecutionProvider",),
         ),
         # 3. Well-known third-party installer drops, gated by env var so

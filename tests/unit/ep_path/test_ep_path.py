@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest  # noqa: TC002 — used as runtime fixture-arg type and reset across tests
+import pytest
 
 from winml.modelkit.ep_path import (
     EP_DLL_NAMES,
@@ -34,6 +34,30 @@ from winml.modelkit.ep_path import (
     canonicalize_ep_name,
     discover_eps,
 )
+
+
+# ---------------------------------------------------------------------------
+# File-scoped autouse: prevent any test in this file from loading the live
+# wasdk binding via ``_get_catalog``. None of the tests here need it; without
+# this gate, tests that call ``discover_eps()`` (which walks the default
+# EP_PATH including WinMlCatalogSource entries) would lazy-load the binding
+# on machines with the [winml-catalog] extra installed and the OS-level
+# Windows App Runtime present, polluting the module-level catalog singleton
+# state for downstream fake-binding tests in test_winml_catalog_source.py.
+#
+# Tests in test_winml_catalog_source.py do not see this fixture (it is
+# defined at file scope in test_ep_path.py, not in conftest.py), so they
+# retain access to the real ``_get_catalog`` implementation needed to
+# exercise their fake-binding-via-sys.modules injection path.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _skip_live_catalog_in_ep_path_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force ``_get_catalog`` to return None so default EP_PATH stays inert."""
+    from winml.modelkit import ep_path as _ep
+
+    monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
 
 
 # ---------------------------------------------------------------------------
@@ -271,19 +295,10 @@ class TestWinMlCatalogSourceBindingMissing:
     is covered in ``test_winml_catalog_source.py``.
     """
 
-    def test_resolve_yields_nothing_without_binding(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # The CI venv has no ``wasdk-*`` extras installed, so the lazy
-        # import inside ``_get_catalog`` raises ImportError and the
-        # source yields nothing silently. We reset the singleton state
-        # so the test exercises the import path freshly.
-        from winml.modelkit import ep_path as _ep
-
-        monkeypatch.setattr(_ep, "_catalog_singleton", None)
-        monkeypatch.setattr(_ep, "_catalog_init_attempted", False)
-        monkeypatch.setattr(_ep, "_catalog_init_failed", False)
-
+    def test_resolve_yields_nothing_without_binding(self) -> None:
+        # The autouse fixture ``_skip_live_catalog_in_ep_path_tests``
+        # forces ``_get_catalog`` to return ``None``, simulating the
+        # binding-missing case. resolve() must yield nothing silently.
         source = WinMlCatalogSource(
             catalog_name="VitisAI", eps=("VitisAIExecutionProvider",)
         )
@@ -346,10 +361,10 @@ class TestWinmlEpPathOverride:
         # WINML_EP_PATH to that directory, confirm discover_eps finds it.
         dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
         monkeypatch.setenv("WINML_EP_PATH", str(tmp_path))
-        # Use extra_sources=[] to ensure we exercise the env-var path
-        # without colliding with whatever the default EP_PATH resolves
-        # for VitisAI (which is gated by RYZEN_AI_INSTALLATION_PATH and
-        # therefore inactive on a CI machine).
+        # Skip env-var-gated FilesystemSource so the env-var path is the
+        # only producer of a VitisAI hit. (The autouse
+        # _skip_live_catalog_in_ep_path_tests fixture handles the catalog
+        # source side.)
         monkeypatch.delenv("RYZEN_AI_INSTALLATION_PATH", raising=False)
         resolved = discover_eps()
         assert "VitisAIExecutionProvider" in resolved
@@ -404,13 +419,9 @@ class TestDiscoverEps:
     ) -> None:
         # On a CI machine without the WinAppSDK binding, resolve() on a
         # WinMlCatalogSource yields nothing and discover_eps continues
-        # to subsequent sources.
-        from winml.modelkit import ep_path as _ep
-
-        monkeypatch.setattr(_ep, "_catalog_singleton", None)
-        monkeypatch.setattr(_ep, "_catalog_init_attempted", False)
-        monkeypatch.setattr(_ep, "_catalog_init_failed", False)
-
+        # to subsequent sources. ``_get_catalog`` is already mocked to
+        # None by the file-scoped autouse fixture
+        # ``_skip_live_catalog_in_ep_path_tests``.
         fake_dll = _touch(tmp_path / "fake_qnn.dll")
         catalog = WinMlCatalogSource(catalog_name="QNN", eps=("QNNExecutionProvider",))
         good = FilesystemSource(
