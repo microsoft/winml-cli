@@ -24,6 +24,7 @@ from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
 from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
 
@@ -45,6 +46,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
     "image-to-text": WinMLImageToTextEvaluator,
     "fill-mask": WinMLFillMaskEvaluator,
+    "zero-shot-classification": WinMLZeroShotClassificationEvaluator,
     "zero-shot-image-classification": WinMLZeroShotImageClassificationEvaluator,
 }
 
@@ -128,6 +130,16 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
         shuffle=True,
         streaming=True,
         columns_mapping={"input_column": "text"},
+    ),
+    "zero-shot-classification": DatasetConfig(
+        path="fancyzhx/ag_news",
+        split="test",
+        samples=100,
+        shuffle=True,
+        columns_mapping={
+            "input_column": "text",
+            "label_column": "label",
+        },
     ),
     "zero-shot-image-classification": DatasetConfig(
         path="uoft-cs/cifar100",
