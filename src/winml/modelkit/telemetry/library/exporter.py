@@ -50,7 +50,6 @@ class OneCollectorLogExporter(LogRecordExporter):
             raise ValueError("ikey must be non-empty")
         if not endpoint:
             raise ValueError("endpoint must be non-empty")
-        self._ikey = ikey
         # OneCollector requires the envelope's iKey field to be
         # ``o:<tenant_token>`` (just the prefix portion of the full ikey),
         # while the x-apikey HTTP header carries the full ikey. Compute
@@ -132,6 +131,14 @@ class OneCollectorLogExporter(LogRecordExporter):
             cached = self._cache.drain()
             if cached and not self._post_envelopes(cached) and not self._is_killed():
                 self._cache.append(cached)
+
+        # If the cache-flush POST just killed us, skip the new-batch POST
+        # too -- another network round-trip would just re-confirm the
+        # kill. Drop the envelopes (don't cache, same rationale as the
+        # top-of-export guard) and return SUCCESS so the
+        # BatchLogRecordProcessor doesn't re-queue them.
+        if self._is_killed():
+            return LogRecordExportResult.SUCCESS
 
         if not self._post_envelopes(envelopes):
             if not self._is_killed():

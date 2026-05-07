@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-r"""Consent decision for ModelKit telemetry.
+r"""Consent decision for WinML CLI telemetry.
 
 A first-run interactive prompt collects user consent (default: accept)
 and persists it to ``%USERPROFILE%\.winml\config.json``. This module

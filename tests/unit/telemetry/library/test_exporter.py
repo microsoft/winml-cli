@@ -346,6 +346,35 @@ def test_kill_drops_envelopes_instead_of_caching(exporter, tmp_path):
     assert not cache_path.exists(), "kill-induced failures must not persist to cache"
 
 
+def test_cache_flush_kill_skips_new_batch_post(tmp_path):
+    """If the cache-flush POST triggers a kill, the new-batch POST in
+    the same export() call must be skipped — otherwise we waste a
+    network round-trip just to re-confirm the kill, and the new
+    envelopes would either be dropped or wrongly re-cached."""
+    cache_path = tmp_path / "modelkit.cache"
+    cache = _PersistentCache(path=cache_path)
+    cache.append([{"name": "ModelKitHeartbeat", "iKey": "o:abc"}])
+
+    exp = OneCollectorLogExporter(
+        ikey="abc-def",
+        endpoint="https://example.invalid/OneCollector/1.0/",
+        cache=cache,
+    )
+    try:
+        ld = _make_log_data("ModelKitHeartbeat", {})
+        with patch.object(exp._session, "post", return_value=_killed_response()) as p:
+            result = exp.export([ld])
+
+        # Exactly one POST: the cache flush. The new-batch POST is
+        # short-circuited by the mid-export kill check.
+        assert p.call_count == 1
+        assert exp._is_killed()
+        # Returned SUCCESS so BatchLogRecordProcessor doesn't re-queue.
+        assert result == LogRecordExportResult.SUCCESS
+    finally:
+        exp.shutdown()
+
+
 def test_kill_window_expiry_re_enables_post(exporter):
     """Past the kill window, export() resumes normal POST behavior."""
     ld = _make_log_data("ModelKitHeartbeat", {})
