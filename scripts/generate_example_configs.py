@@ -76,6 +76,22 @@ MODELS = [
     ("sentence-transformers/paraphrase-multilingual-mpnet-base-v2", "sentence-similarity"),
     ("StanfordAIMI/dinov2-base-xray-224", "image-feature-extraction"),
     ("w11wo/indonesian-roberta-base-posp-tagger", "token-classification"),
+    ("cross-encoder/nli-deberta-v3-small", "zero-shot-classification"),
+    ("joeddav/xlm-roberta-large-xnli", "zero-shot-classification"),
+    ("lxyuan/distilbert-base-multilingual-cased-sentiments-student", "zero-shot-classification"),
+    ("MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli", "zero-shot-classification"),
+    ("MoritzLaurer/deberta-v3-large-zeroshot-v2.0", "zero-shot-classification"),
+    ("MoritzLaurer/mDeBERTa-v3-base-mnli-xnli", "zero-shot-classification"),
+    ("MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7", "zero-shot-classification"),
+    ("openai/clip-vit-base-patch32", "zero-shot-image-classification"),
+    ("openai/clip-vit-large-patch14", "zero-shot-image-classification"),
+    ("openai/clip-vit-large-patch14-336", "zero-shot-image-classification"),
+    ("openai/clip-vit-base-patch16", "zero-shot-image-classification"),
+    ("laion/CLIP-ViT-B-32-laion2B-s34B-b79K", "zero-shot-image-classification"),
+    ("patrickjohncyh/fashion-clip", "zero-shot-image-classification"),
+    ("google/siglip-so400m-patch14-384", "zero-shot-image-classification"),
+    ("google/siglip-base-patch16-224", "zero-shot-image-classification"),
+    ("laion/CLIP-ViT-H-14-laion2B-s32B-b79K", "zero-shot-image-classification"),
 ]
 
 
@@ -112,7 +128,11 @@ def load_eval_option_lookup() -> dict:
 
 
 def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str) -> dict | None:
-    """Run winml config and return the parsed JSON config."""
+    """Run winml config and return the parsed JSON config.
+    
+    For composite models (e.g., CLIP with image-encoder + text-encoder),
+    returns a dict with 'components' list containing all sub-configs.
+    """
     cmd = [
         sys.executable, "-m", "winml.modelkit", "config",
         "-m", hf_id,
@@ -130,12 +150,41 @@ def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str)
             return None
         # Extract JSON from stdout (may have non-JSON lines before it)
         stdout = result.stdout.strip()
-        # Find the first '{' to start of JSON
-        json_start = stdout.find("{")
-        if json_start < 0:
+        
+        # Parse multiple JSON objects (for composite models like CLIP)
+        configs = []
+        pos = 0
+        while True:
+            json_start = stdout.find("{", pos)
+            if json_start < 0:
+                break
+            # Find matching closing brace
+            brace_count = 0
+            json_end = json_start
+            for i in range(json_start, len(stdout)):
+                if stdout[i] == "{":
+                    brace_count += 1
+                elif stdout[i] == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_end = i + 1
+                        break
+            try:
+                config = json.loads(stdout[json_start:json_end])
+                configs.append(config)
+                pos = json_end
+            except json.JSONDecodeError:
+                break
+        
+        if not configs:
             print(f"  FAIL: no JSON in output")
             return None
-        return json.loads(stdout[json_start:])
+        
+        # If single config, return as-is; if multiple, wrap in components
+        if len(configs) == 1:
+            return configs[0]
+        else:
+            return {"components": configs}
     except subprocess.TimeoutExpired:
         print(f"  TIMEOUT")
         return None
