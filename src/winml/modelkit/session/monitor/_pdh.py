@@ -38,9 +38,14 @@ if sys.platform != "win32":
 # Device discovery lives in sysinfo; import here for use by
 # build_adapter_query / build_npu_query / PdhPoller.
 from ...sysinfo.pdh_adapters import (  # noqa: E402
+    discover_gpu_luid,
     discover_npu_luid,
     enumerate_adapters,
 )
+
+
+# Device kind for hardware monitoring. "auto" probes NPU first, then GPU.
+_DEVICE_KINDS = ("npu", "gpu", "cpu", "auto")
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +316,19 @@ def build_npu_query(npu_luid: str, pid: int | None = None) -> PdhQuery:
     return build_adapter_query(npu_luid, engine_type="Compute", pid=pid)
 
 
+def build_gpu_query(gpu_luid: str, pid: int | None = None) -> PdhQuery:
+    """Convenience wrapper: build a query for the GPU (3D engine).
+
+    Args:
+        gpu_luid: GPU LUID string.
+        pid: Process ID to monitor. Defaults to current process.
+
+    Returns:
+        An opened PdhQuery configured for GPU monitoring.
+    """
+    return build_adapter_query(gpu_luid, engine_type="3D", pid=pid)
+
+
 # ---------------------------------------------------------------------------
 # PdhPoller — reusable background polling component
 # ---------------------------------------------------------------------------
@@ -318,8 +336,15 @@ class PdhPoller:
     """Reusable background PDH polling component.
 
     Monitors CPU, RAM, and optionally NPU/GPU metrics via Windows PDH counters.
-    Handles: discover NPU LUID, register counters, background thread,
+    Handles: discover NPU/GPU LUID, register counters, background thread,
     sample collection, cleanup.
+
+    The ``device`` argument selects which adapter to monitor:
+
+    * ``"npu"`` - discover and poll the NPU (Compute engine).
+    * ``"gpu"`` - discover and poll the GPU (3D engine).
+    * ``"cpu"`` - skip adapter polling; collect only CPU/RAM.
+    * ``"auto"`` - probe NPU first, fall back to GPU, then CPU/RAM only.
 
     # TODO: Incorporate psutil for cross-platform CPU/RAM monitoring.
     # PDH is Windows-only; psutil would enable monitoring on Linux/macOS.
@@ -327,17 +352,26 @@ class PdhPoller:
 
     Usage::
 
-        poller = PdhPoller(poll_interval_ms=200)
+        poller = PdhPoller(poll_interval_ms=200, device="gpu")
         poller.start()
         # ... run inference ...
         poller.stop()
         print(poller.mean_utilization_pct)
     """
 
-    def __init__(self, poll_interval_ms: int = 200) -> None:
+    def __init__(
+        self,
+        poll_interval_ms: int = 200,
+        device: str = "auto",
+    ) -> None:
+        device_norm = (device or "auto").lower()
+        if device_norm not in _DEVICE_KINDS:
+            raise ValueError(f"Unknown device {device!r}; expected one of {_DEVICE_KINDS}")
         self._poll_interval_s = poll_interval_ms / 1000.0
+        self._requested_device = device_norm
+        self._device_kind: str | None = None  # resolved at start(): "npu" | "gpu" | None
         self._query: PdhQuery | None = None
-        self._npu_luid: str | None = None
+        self._adapter_luid: str | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -350,18 +384,26 @@ class PdhPoller:
         self._running_time_end_ns: int | None = None
 
     def start(self) -> None:
-        """Discover NPU, register all PDH counters, start background thread.
+        """Resolve target device, register PDH counters, start background thread.
 
-        Monitors CPU and RAM always. NPU utilization and memory are added
-        when an NPU adapter is discovered via PDH.
+        Monitors CPU and RAM always. Adapter utilization and memory are added
+        when the requested NPU/GPU adapter is discovered via PDH.
         """
         try:
-            self._npu_luid = discover_npu_luid()
+            self._adapter_luid, self._device_kind = self._resolve_adapter(self._requested_device)
 
-            if self._npu_luid is not None:
-                self._query = build_npu_query(self._npu_luid)
+            if self._adapter_luid is not None and self._device_kind == "npu":
+                self._query = build_npu_query(self._adapter_luid)
+            elif self._adapter_luid is not None and self._device_kind == "gpu":
+                self._query = build_gpu_query(self._adapter_luid)
             else:
-                logger.info("NPU not found via PDH; monitoring CPU/RAM only")
+                if self._requested_device in ("npu", "gpu"):
+                    logger.info(
+                        "%s not found via PDH; monitoring CPU/RAM only",
+                        self._requested_device.upper(),
+                    )
+                else:
+                    logger.info("No NPU/GPU found via PDH; monitoring CPU/RAM only")
                 self._query = PdhQuery()
                 self._query.open()
 
@@ -449,14 +491,49 @@ class PdhPoller:
                 logger.debug("PdhPoller poll error", exc_info=True)
             self._stop_event.wait(self._poll_interval_s)
 
+    @staticmethod
+    def _resolve_adapter(requested: str) -> tuple[str | None, str | None]:
+        """Return (luid, kind) for the requested device.
+
+        kind is "npu" or "gpu" when an adapter is found; both elements are
+        None when the requested device is "cpu" or no adapter could be
+        discovered.
+        """
+        if requested == "cpu":
+            return None, None
+        if requested == "npu":
+            luid = discover_npu_luid()
+            return luid, ("npu" if luid else None)
+        if requested == "gpu":
+            luid = discover_gpu_luid()
+            return luid, ("gpu" if luid else None)
+        # auto: prefer NPU, then GPU
+        luid = discover_npu_luid()
+        if luid is not None:
+            return luid, "npu"
+        luid = discover_gpu_luid()
+        if luid is not None:
+            return luid, "gpu"
+        return None, None
+
+    @property
+    def adapter_luid(self) -> str | None:
+        """LUID string for the monitored adapter (NPU or GPU), or None."""
+        return self._adapter_luid
+
+    @property
+    def device_kind(self) -> str | None:
+        """Resolved adapter kind: ``"npu"``, ``"gpu"``, or None when only CPU/RAM."""
+        return self._device_kind
+
     @property
     def npu_luid(self) -> str | None:
-        """NPU LUID string, or None if not discovered."""
-        return self._npu_luid
+        """NPU LUID string, or None if not monitoring an NPU."""
+        return self._adapter_luid if self._device_kind == "npu" else None
 
     @property
     def mean_utilization_pct(self) -> float:
-        """Mean NPU utilization % during polling period."""
+        """Mean adapter (NPU/GPU) utilization % during polling period."""
         with self._lock:
             valid = [s for s in self._util_samples if s is not None]
         if not valid:
@@ -465,7 +542,7 @@ class PdhPoller:
 
     @property
     def peak_utilization_pct(self) -> float:
-        """Peak NPU utilization % during polling period."""
+        """Peak adapter (NPU/GPU) utilization % during polling period."""
         with self._lock:
             valid = [s for s in self._util_samples if s is not None]
         if not valid:
@@ -574,7 +651,7 @@ class PdhPoller:
 
     @property
     def running_time_delta_ns(self) -> int:
-        """Total NPU running time delta in nanoseconds."""
+        """Total adapter (NPU/GPU) running time delta in nanoseconds."""
         if self._running_time_start_ns is None or self._running_time_end_ns is None:
             return 0
         return max(0, self._running_time_end_ns - self._running_time_start_ns)
@@ -583,3 +660,8 @@ class PdhPoller:
     def is_npu_available() -> bool:
         """Whether PDH can discover an NPU on this system."""
         return discover_npu_luid() is not None
+
+    @staticmethod
+    def is_gpu_available() -> bool:
+        """Whether PDH can discover a GPU on this system."""
+        return discover_gpu_luid() is not None

@@ -48,12 +48,14 @@ class HWLiveDisplay:
         poll_interval_ms: int = 200,
         chart_width: int = _DEFAULT_CHART_WIDTH,
         chart_height: int = _DEFAULT_CHART_HEIGHT,
+        device: str = "auto",
     ) -> None:
         self._title = title
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._chart_width = chart_width
         self._chart_height = chart_height
-        self._hw = HWMonitor(poll_interval_ms=poll_interval_ms)
+        self._hw = HWMonitor(poll_interval_ms=poll_interval_ms, device=device)
+        self._adapter_label = "GPU" if (device or "").lower() == "gpu" else "NPU"
         self._live: Any = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -74,7 +76,9 @@ class HWLiveDisplay:
         # Background thread drives display updates
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._update_loop, daemon=True, name="hw-live-display",
+            target=self._update_loop,
+            daemon=True,
+            name="hw-live-display",
         )
         self._thread.start()
         return self
@@ -105,11 +109,11 @@ class HWLiveDisplay:
 
         from rich.panel import Panel
 
-        npu_samples = self._hw.utilization_samples
+        adapter_samples = self._hw.utilization_samples
         cpu_samples = self._hw.cpu_samples
 
-        chart = self._render_chart(npu_samples, cpu_samples)
-        status = self._render_status(npu_samples, cpu_samples)
+        chart = self._render_chart(adapter_samples, cpu_samples)
+        status = self._render_status(adapter_samples, cpu_samples)
 
         from rich.console import Group
         from rich.text import Text
@@ -122,47 +126,48 @@ class HWLiveDisplay:
         self._live.update(panel)
 
     def _render_chart(
-        self, npu_samples: list[float], cpu_samples: list[float],
+        self,
+        adapter_samples: list[float],
+        cpu_samples: list[float],
     ) -> Any:
-        """Render NPU/CPU utilization chart via plotext."""
+        """Render adapter (NPU/GPU) and CPU utilization chart via plotext."""
+        adapter = self._adapter_label
         try:
             import plotext as plt
         except ImportError:
             from rich.text import Text
 
-            current = npu_samples[-1] if npu_samples else 0.0
+            current = adapter_samples[-1] if adapter_samples else 0.0
             bar_len = min(50, max(0, int(current / 2)))
             bar = "#" * bar_len + "." * (50 - bar_len)
-            return Text(f"  NPU: [{bar}] {current:.1f}%")
+            return Text(f"  {adapter}: [{bar}] {current:.1f}%")
 
         plt.clf()
         plt.theme("clear")
 
         window_samples = int(_CHART_WINDOW_SECONDS / self._poll_interval_s)
 
-        # NPU (green)
-        npu_window = npu_samples[-window_samples:] if npu_samples else [0]
-        start_idx = max(0, len(npu_samples) - len(npu_window))
-        npu_times = [
-            (start_idx + i) * self._poll_interval_s for i in range(len(npu_window))
+        # Adapter (green)
+        adapter_window = adapter_samples[-window_samples:] if adapter_samples else [0]
+        start_idx = max(0, len(adapter_samples) - len(adapter_window))
+        adapter_times = [
+            (start_idx + i) * self._poll_interval_s for i in range(len(adapter_window))
         ]
-        plt.plot(npu_times, npu_window, marker="braille", color="green")
+        plt.plot(adapter_times, adapter_window, marker="braille", color="green")
 
         # CPU (cyan)
         has_cpu = bool(cpu_samples)
         if has_cpu:
             cpu_window = cpu_samples[-window_samples:]
             cpu_start = max(0, len(cpu_samples) - len(cpu_window))
-            cpu_times = [
-                (cpu_start + i) * self._poll_interval_s for i in range(len(cpu_window))
-            ]
+            cpu_times = [(cpu_start + i) * self._poll_interval_s for i in range(len(cpu_window))]
             plt.plot(cpu_times, cpu_window, marker="braille", color="cyan")
 
         plt.ylabel("Usage %")
         plt.ylim(0, 100)
         plt.yticks([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
 
-        elapsed = len(npu_samples) * self._poll_interval_s
+        elapsed = len(adapter_samples) * self._poll_interval_s
         x_min = max(0.0, elapsed - _CHART_WINDOW_SECONDS)
         x_max = max(elapsed, _CHART_WINDOW_SECONDS)
         plt.xlim(x_min, x_max)
@@ -173,10 +178,10 @@ class HWLiveDisplay:
         from rich.text import Text
 
         legend = (
-            "  Utilization ([green]\u2588\u2588[/green] NPU %  "
+            f"  Utilization ([green]\u2588\u2588[/green] {adapter} %  "
             "[cyan]\u2588\u2588[/cyan] CPU %)"
             if has_cpu
-            else "  Utilization ([green]\u2588\u2588[/green] NPU %)"
+            else f"  Utilization ([green]\u2588\u2588[/green] {adapter} %)"
         )
 
         ansi_output = plt.build()
@@ -184,22 +189,24 @@ class HWLiveDisplay:
         return Group(Text.from_markup(legend), *chart_lines)
 
     def _render_status(
-        self, npu_samples: list[float], cpu_samples: list[float],
+        self,
+        adapter_samples: list[float],
+        cpu_samples: list[float],
     ) -> str:
         """Render hardware status line below the chart."""
-        npu_mean = sum(npu_samples) / len(npu_samples) if npu_samples else 0.0
-        npu_now = npu_samples[-1] if npu_samples else 0.0
+        adapter_mean = sum(adapter_samples) / len(adapter_samples) if adapter_samples else 0.0
+        adapter_now = adapter_samples[-1] if adapter_samples else 0.0
         cpu_now = cpu_samples[-1] if cpu_samples else 0.0
         ram_mb = self._hw.ram_used_mb
         mem_local = self._hw.peak_memory_local_mb
         mem_shared = self._hw.peak_memory_shared_mb
 
-        npu_cell = f"NPU: {npu_mean:.1f}% avg ({npu_now:.1f}% now)"
+        adapter_cell = f"{self._adapter_label}: {adapter_mean:.1f}% avg ({adapter_now:.1f}% now)"
         cpu_cell = f"CPU: {cpu_now:.1f}%"
         ram_cell = f"RAM: {ram_mb:.0f} MB"
         mem_cell = f"Device Mem: {mem_local:.0f}/{mem_shared:.0f} MB"
 
-        return f"  {npu_cell:<32}| {cpu_cell:<12}| {ram_cell:<16}| {mem_cell}"
+        return f"  {adapter_cell:<32}| {cpu_cell:<12}| {ram_cell:<16}| {mem_cell}"
 
     @property
     def hw(self) -> HWMonitor:

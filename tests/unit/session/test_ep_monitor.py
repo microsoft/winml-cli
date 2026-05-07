@@ -673,25 +673,25 @@ class TestPdhPollerGracefulDegradation:
     def test_no_npu_returns_zero_metrics(self):
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        with patch("winml.modelkit.session.monitor._pdh.discover_npu_luid", return_value=None):
-            poller = PdhPoller(poll_interval_ms=50)
-            poller.start()
-            poller.stop()
+        # device="cpu" skips NPU/GPU adapter discovery entirely.
+        poller = PdhPoller(poll_interval_ms=50, device="cpu")
+        poller.start()
+        poller.stop()
 
         assert poller.mean_utilization_pct == 0.0
         assert poller.peak_utilization_pct == 0.0
         assert poller.peak_memory_mb == 0.0
         assert poller.npu_luid is None
+        assert poller.adapter_luid is None
         assert poller.running_time_delta_ns == 0
         assert poller.is_active is False
 
     def test_no_npu_sample_lists_empty(self):
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        with patch("winml.modelkit.session.monitor._pdh.discover_npu_luid", return_value=None):
-            poller = PdhPoller(poll_interval_ms=50)
-            poller.start()
-            poller.stop()
+        poller = PdhPoller(poll_interval_ms=50, device="cpu")
+        poller.start()
+        poller.stop()
 
         assert poller.utilization_samples == []
         assert poller.memory_samples_mb == []
@@ -702,16 +702,182 @@ class TestPdhPollerGracefulDegradation:
         """CPU and RAM should still be collected when no NPU is present."""
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        with patch("winml.modelkit.session.monitor._pdh.discover_npu_luid", return_value=None):
-            poller = PdhPoller(poll_interval_ms=50)
-            poller.start()
-            time.sleep(0.3)
-            poller.stop()
+        poller = PdhPoller(poll_interval_ms=50, device="cpu")
+        poller.start()
+        time.sleep(0.3)
+        poller.stop()
 
         # CPU and RAM should have samples even without NPU
         assert poller.cpu_sample_count >= 1
         assert poller.mean_cpu_pct >= 0.0
         assert poller.ram_used_mb > 0.0  # System always uses some RAM
+
+
+# ============================================================================
+# Device parameter routing tests (issue #445)
+# ============================================================================
+
+
+class TestPollerDeviceRouting:
+    """Verify ``device`` parameter routes PdhPoller to the correct adapter."""
+
+    def test_unknown_device_raises(self):
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        with pytest.raises(ValueError):
+            PdhPoller(device="tpu")
+
+    def test_cpu_device_skips_adapter_discovery(self):
+        """device='cpu' must not even attempt NPU/GPU LUID discovery."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        with (
+            patch("winml.modelkit.session.monitor._pdh.discover_npu_luid") as mock_npu,
+            patch("winml.modelkit.session.monitor._pdh.discover_gpu_luid") as mock_gpu,
+        ):
+            poller = PdhPoller(poll_interval_ms=50, device="cpu")
+            poller.start()
+            poller.stop()
+
+        mock_npu.assert_not_called()
+        mock_gpu.assert_not_called()
+        assert poller.device_kind is None
+        assert poller.adapter_luid is None
+
+    def test_gpu_device_uses_3d_engine_query(self):
+        """device='gpu' must call discover_gpu_luid + build_gpu_query."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.discover_gpu_luid",
+                return_value="0x00000000_0xDEADBEEF",
+            ),
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ) as mock_build_gpu,
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_npu_query",
+            ) as mock_build_npu,
+            patch(
+                "winml.modelkit.session.monitor._pdh.discover_npu_luid",
+                return_value=None,
+            ),
+        ):
+            poller = PdhPoller(poll_interval_ms=50, device="gpu")
+            poller.start()
+            poller.stop()
+
+        mock_build_gpu.assert_called_once()
+        mock_build_npu.assert_not_called()
+        assert poller.device_kind == "gpu"
+        assert poller.adapter_luid == "0x00000000_0xDEADBEEF"
+        # npu_luid is the back-compat property; should be None for GPU mode.
+        assert poller.npu_luid is None
+
+    def test_auto_prefers_npu_then_gpu(self):
+        """device='auto' must probe NPU first, then GPU."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.discover_npu_luid",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.session.monitor._pdh.discover_gpu_luid",
+                return_value="0x0_0xCAFE",
+            ),
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ) as mock_build_gpu,
+        ):
+            poller = PdhPoller(poll_interval_ms=50, device="auto")
+            poller.start()
+            poller.stop()
+
+        mock_build_gpu.assert_called_once()
+        assert poller.device_kind == "gpu"
+        assert poller.adapter_luid == "0x0_0xCAFE"
+
+
+class TestHWMonitorDeviceRouting:
+    """HWMonitor surfaces the correct adapter block for the requested device."""
+
+    def test_to_dict_emits_gpu_block_when_monitoring_gpu(self):
+        from winml.modelkit.session import HWMonitor
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.discover_gpu_luid",
+                return_value="0x0_0xCAFE",
+            ),
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ),
+            HWMonitor(poll_interval_ms=50, device="gpu") as hw,
+        ):
+            time.sleep(0.05)
+
+        d = hw.to_dict()
+        assert d["device_kind"] == "gpu"
+        assert "gpu" in d
+        assert "npu" in d  # back-compat: always present, zeros here
+        assert d["npu"]["mean_pct"] == 0.0
+        assert d["adapter_luid"] == "0x0_0xCAFE"
+        # JSON-serializable
+        assert isinstance(json.dumps(d), str)
+
+    def test_unknown_device_raises(self):
+        from winml.modelkit.session import HWMonitor
+
+        with pytest.raises(ValueError):
+            HWMonitor(device="tpu")
 
 
 # ============================================================================

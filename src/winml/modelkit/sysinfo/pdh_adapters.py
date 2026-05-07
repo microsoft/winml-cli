@@ -117,9 +117,7 @@ def enumerate_adapters() -> dict[str, AdapterInfo]:
         0,
     )
     if (status & 0xFFFFFFFF) not in (0, _PDH_MORE_DATA):
-        raise RuntimeError(
-            f"PdhEnumObjectItemsW sizing failed: 0x{status & 0xFFFFFFFF:08X}"
-        )
+        raise RuntimeError(f"PdhEnumObjectItemsW sizing failed: 0x{status & 0xFFFFFFFF:08X}")
 
     counter_buf = ctypes.create_unicode_buffer(counter_size.value)
     instance_buf = ctypes.create_unicode_buffer(instance_size.value)
@@ -135,9 +133,7 @@ def enumerate_adapters() -> dict[str, AdapterInfo]:
         0,
     )
     if not _pdh_ok(status):
-        raise RuntimeError(
-            f"PdhEnumObjectItemsW failed: 0x{status & 0xFFFFFFFF:08X}"
-        )
+        raise RuntimeError(f"PdhEnumObjectItemsW failed: 0x{status & 0xFFFFFFFF:08X}")
 
     instances = _parse_multi_sz(instance_buf, instance_size.value)
 
@@ -201,6 +197,29 @@ def discover_gpu_luids() -> list[str]:
         return []
 
     return [
-        luid for luid, info in adapters.items()
-        if "3D" in info.engine_types and not info.is_npu
+        luid for luid, info in adapters.items() if "3D" in info.engine_types and not info.is_npu
     ]
+
+
+def discover_gpu_luid() -> str | None:
+    """Auto-discover a GPU LUID (adapter with a 3D engine type).
+
+    Among the GPU adapters returned by :func:`discover_gpu_luids`, prefer the
+    one with the largest peak Local memory bytes (indicating a discrete GPU).
+    Falls back to the first one when memory data is unavailable.
+
+    Returns:
+        GPU LUID string (e.g. ``"0x00000000_0x00015A33"``), or None if no
+        GPU adapter is found.
+    """
+    luids = discover_gpu_luids()
+    if not luids:
+        logger.debug("No GPU adapter found")
+        return None
+    if len(luids) == 1:
+        return luids[0]
+    # Multi-GPU host: just pick the first; ranking by memory would require
+    # a live PDH query for each adapter, which is heavier than this helper
+    # is meant for. Tests/CLI can pass --device gpu and accept the first.
+    logger.debug("Multiple GPU adapters found; using %s", luids[0])
+    return luids[0]

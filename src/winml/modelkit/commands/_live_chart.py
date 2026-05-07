@@ -43,6 +43,11 @@ class LiveMonitorDisplay:
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
+        # Adapter label drives chart legend & status row text.
+        # GPU when --device gpu, CPU-only when --device cpu (no adapter samples
+        # collected), otherwise NPU.
+        device_norm = (device or "").lower()
+        self._adapter_label = "GPU" if device_norm == "gpu" else "NPU"
         self._chart_width = chart_width
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0
@@ -111,10 +116,11 @@ class LiveMonitorDisplay:
         """Render utilization chart as a Rich renderable.
 
         Uses plotext with AnsiDecoder for flicker-free Rich Live integration.
-        Plots NPU (green) and CPU (cyan) with distinct colors.
+        Plots adapter (NPU/GPU, green) and CPU (cyan) with distinct colors.
         X-axis is a moving window of the last N seconds.
         Y-axis has fixed ticks: 0, 20, 40, 60, 80, 100.
         """
+        adapter = self._adapter_label
         try:
             import plotext as plt
         except ImportError:
@@ -124,8 +130,8 @@ class LiveMonitorDisplay:
                 current = util_samples[-1]
                 bar_len = min(50, max(0, int(current / 2)))
                 bar = "#" * bar_len + "." * (50 - bar_len)
-                return Text(f"  NPU: [{bar}] {current:.1f}%")
-            return Text("  NPU: [waiting for data...]")
+                return Text(f"  {adapter}: [{bar}] {current:.1f}%")
+            return Text(f"  {adapter}: [waiting for data...]")
 
         plt.clf()
         plt.theme("clear")
@@ -177,10 +183,11 @@ class LiveMonitorDisplay:
         # Rich-colored title line with legend swatches
         if has_cpu:
             title = Text.from_markup(
-                "  Utilization ([green]\u2588\u2588[/green] NPU %  [cyan]\u2588\u2588[/cyan] CPU %)"
+                f"  Utilization ([green]\u2588\u2588[/green] {adapter} %  "
+                f"[cyan]\u2588\u2588[/cyan] CPU %)"
             )
         else:
-            title = Text.from_markup("  Utilization ([green]\u2588\u2588[/green] NPU %)")
+            title = Text.from_markup(f"  Utilization ([green]\u2588\u2588[/green] {adapter} %)")
 
         ansi_output = plt.build()
         chart_lines = [Text.from_ansi(line) for line in ansi_output.splitlines()]
@@ -220,11 +227,11 @@ class LiveMonitorDisplay:
         row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._device}"
 
         # Row 2: Hardware (pad each cell to fixed width, spaces before divider)
-        npu_cell = f"NPU: {mean_util:.1f}% avg ({current_util:.1f}% now)"
+        adapter_cell = f"{self._adapter_label}: {mean_util:.1f}% avg ({current_util:.1f}% now)"
         cpu_cell = f"CPU: {cpu_pct:.1f}%"
         ram_cell = f"Sys Mem: {ram_mb:.0f} MB"
         mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
-        row2 = f"  {npu_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
+        row2 = f"  {adapter_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
 
         # Row 3: Inference (pad each cell to fixed width, spaces before divider)
         lat_cell = f"Latency: {latency_ms:.2f} ms"

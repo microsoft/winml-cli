@@ -403,7 +403,13 @@ class PerfBenchmark:
             )
             return self._run_benchmark_simple()
 
-        hw_monitor = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+        # Track the device actually being benchmarked so the monitor polls
+        # GPU when --device gpu is specified, NPU when --device npu, etc.
+        monitor_device = self._model.device or self.config.device or "auto"
+        hw_monitor = HWMonitor(
+            poll_interval_ms=_HW_POLL_INTERVAL_MS,
+            device=monitor_device,
+        )
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
@@ -428,7 +434,7 @@ class PerfBenchmark:
                 total_iterations=total_iterations,
                 warmup=self.config.warmup,
                 model_id=self.config.model_id,
-                device=self.config.device,
+                device=monitor_device,
             )
 
             # Store hardware metrics
@@ -626,7 +632,10 @@ def _perf_modules(
                     from ..session.monitor.hw_monitor import HWMonitor
 
                     if HWMonitor.is_available():
-                        hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+                        hw_ctx = HWMonitor(
+                            poll_interval_ms=_HW_POLL_INTERVAL_MS,
+                            device=resolved_device,
+                        )
 
                 if hw_ctx:
                     with session.perf(warmup=warmup) as stats, hw_ctx as hw:
@@ -778,13 +787,17 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     if result.hw_monitor:
         console.print()
         console.print("[bold]Hardware (during benchmark)[/bold]")
-        npu = result.hw_monitor.get("npu", {})
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
         dev_mem = result.hw_monitor.get("device_memory", {})
+        # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
+        # Prefer the active adapter's block.
+        device_kind = result.hw_monitor.get("device_kind") or "npu"
+        adapter = result.hw_monitor.get(device_kind) or result.hw_monitor.get("npu", {})
+        adapter_label = device_kind.upper()
         console.print(
-            f"  NPU: {npu.get('mean_pct', 0):.1f}% avg, "
-            f"{npu.get('peak_pct', 0):.1f}% peak  |  "
+            f"  {adapter_label}: {adapter.get('mean_pct', 0):.1f}% avg, "
+            f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
             f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
         )
         console.print(
@@ -961,7 +974,10 @@ def _run_onnx_benchmark(
         from ..session.monitor.hw_monitor import HWMonitor
 
         if HWMonitor.is_available():
-            hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+            hw_ctx = HWMonitor(
+                poll_interval_ms=_HW_POLL_INTERVAL_MS,
+                device=session.device or device,
+            )
         else:
             Console(stderr=True).print(
                 "[yellow]Warning:[/yellow] HWMonitor unavailable. "
@@ -1132,7 +1148,7 @@ def _run_onnx_benchmark(
     "--monitor",
     is_flag=True,
     default=False,
-    help="Show live NPU utilization chart during benchmark",
+    help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
     "--op-tracing",

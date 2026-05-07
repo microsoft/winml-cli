@@ -24,31 +24,40 @@ if TYPE_CHECKING:
 class HWMonitor:
     """System-wide hardware monitor via Windows PDH counters.
 
-    Monitors CPU, RAM, and NPU/GPU utilization. Works for any NPU
-    that registers as a Windows GPU Engine adapter with Compute-only
-    engine types (Qualcomm, AMD, Intel).
+    Monitors CPU, RAM, and the requested adapter's (NPU or GPU) utilization.
+    Works for any NPU that registers as a Windows GPU Engine adapter with
+    Compute-only engine types (Qualcomm, AMD, Intel) and for GPUs with a
+    3D engine.
 
     Independent of the EPMonitor hierarchy — provides system-wide
     resource visibility rather than EP-specific proof-of-execution.
 
     Example::
 
-        with HWMonitor() as hw:
+        with HWMonitor(device="gpu") as hw:
             # ... run inference ...
             pass
 
-        print(hw.mean_utilization_pct)  # NPU %
+        print(hw.mean_utilization_pct)  # GPU %
         print(hw.mean_cpu_pct)          # CPU %
         print(hw.ram_used_mb)           # RAM MB
     """
 
-    def __init__(self, poll_interval_ms: int = 200) -> None:
+    def __init__(
+        self,
+        poll_interval_ms: int = 200,
+        device: str = "auto",
+    ) -> None:
         """Initialize the monitor.
 
         Args:
             poll_interval_ms: PDH polling interval in milliseconds.
+            device: Which adapter to monitor. ``"npu"`` polls the NPU
+                (Compute engine), ``"gpu"`` polls the GPU (3D engine),
+                ``"cpu"`` skips adapter polling (CPU/RAM only), and
+                ``"auto"`` probes NPU first then GPU.
         """
-        self._pdh = PdhPoller(poll_interval_ms)
+        self._pdh = PdhPoller(poll_interval_ms, device=device)
 
     def __enter__(self) -> Self:
         """Start PDH background polling."""
@@ -64,16 +73,21 @@ class HWMonitor:
         """Stop PDH polling and finalize metrics."""
         self._pdh.stop()
 
-    # --- NPU metrics ---
+    # --- Adapter (NPU/GPU) metrics ---
+
+    @property
+    def device_kind(self) -> str | None:
+        """Resolved adapter kind: ``"npu"``, ``"gpu"``, or None."""
+        return self._pdh.device_kind
 
     @property
     def mean_utilization_pct(self) -> float:
-        """Mean NPU utilization % during monitoring period."""
+        """Mean adapter (NPU/GPU) utilization % during monitoring period."""
         return self._pdh.mean_utilization_pct
 
     @property
     def peak_utilization_pct(self) -> float:
-        """Peak NPU utilization % during monitoring period."""
+        """Peak adapter (NPU/GPU) utilization % during monitoring period."""
         return self._pdh.peak_utilization_pct
 
     @property
@@ -127,9 +141,25 @@ class HWMonitor:
         return sys.platform == "win32"
 
     def to_dict(self) -> dict[str, Any]:
-        """JSON-serializable summary of all collected metrics."""
-        return {
+        """JSON-serializable summary of all collected metrics.
+
+        Emits an adapter block keyed by the resolved device kind (``"npu"``
+        or ``"gpu"``). The ``"npu"`` key is always present for backward
+        compatibility — when only a GPU is being monitored, it contains
+        zeros while the live data is in the ``"gpu"`` block.
+        """
+        kind = self._pdh.device_kind  # "npu", "gpu", or None
+        adapter_block = {
+            "mean_pct": round(self._pdh.mean_utilization_pct, 2),
+            "peak_pct": round(self._pdh.peak_utilization_pct, 2),
+            "sample_count": self._pdh.utilization_sample_count,
+        }
+        zero_block = {"mean_pct": 0.0, "peak_pct": 0.0, "sample_count": 0}
+        result: dict[str, Any] = {
             "monitor": "HWMonitor",
+            "device_kind": kind,
+            "adapter_luid": self._pdh.adapter_luid,
+            # Back-compat alias for callers that read "npu_luid" directly.
             "npu_luid": self._pdh.npu_luid,
             "cpu": {
                 "mean_pct": round(self._pdh.mean_cpu_pct, 2),
@@ -140,23 +170,23 @@ class HWMonitor:
                 "used_mb": round(self._pdh.ram_used_mb, 2),
                 "peak_mb": round(self._pdh.peak_ram_used_mb, 2),
             },
-            "npu": {
-                "mean_pct": round(self._pdh.mean_utilization_pct, 2),
-                "peak_pct": round(self._pdh.peak_utilization_pct, 2),
-                "sample_count": self._pdh.utilization_sample_count,
-            },
+            # "npu" key is always present; populated when device_kind=="npu".
+            "npu": adapter_block if kind == "npu" else zero_block,
             "device_memory": {
                 "local_peak_mb": round(self._pdh.peak_memory_local_mb, 2),
                 "shared_peak_mb": round(self._pdh.peak_memory_shared_mb, 2),
             },
             "running_time_ns": self._pdh.running_time_delta_ns,
         }
+        if kind == "gpu":
+            result["gpu"] = adapter_block
+        return result
 
     # --- Chart-compatible properties ---
 
     @property
     def utilization_samples(self) -> list[float]:
-        """NPU utilization % samples (time series)."""
+        """Adapter (NPU/GPU) utilization % samples (time series)."""
         return self._pdh.utilization_samples
 
     @property
@@ -166,5 +196,5 @@ class HWMonitor:
 
     @property
     def memory_samples_mb(self) -> list[float]:
-        """NPU memory samples in MB (time series)."""
+        """Adapter memory samples in MB (time series)."""
         return self._pdh.memory_samples_mb
