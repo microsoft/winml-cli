@@ -26,7 +26,7 @@ class WinMLEPRegistry:
     """Execution Provider Registry for plugin-style ONNX Runtime EPs.
 
     Discovers plugin EPs via :func:`winml.modelkit.ep_path.discover_eps`
-    (which walks the ``EP_PATH`` list and the ``WINML_EP_PATH`` env-var
+    (which walks the ``EP_PATH`` list and the ``MODELKIT_EP_PATH`` env-var
     override) and registers them with ONNX Runtime.
 
     Usage:

@@ -36,7 +36,7 @@ import logging
 import os
 import platform
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -89,7 +89,7 @@ def canonicalize_ep_name(name: str) -> str:
 # Canonical EP-name -> DLL filename table.
 # ---------------------------------------------------------------------------
 # Used by FilesystemSource (when scanning a directory for any registrable
-# DLL) and by the ``WINML_EP_PATH`` env-var override path. Keys are
+# DLL) and by the ``MODELKIT_EP_PATH`` env-var override path. Keys are
 # always the canonical EP name; pass non-canonical aliases through
 # :func:`canonicalize_ep_name` before consulting this table.
 EP_DLL_NAMES: dict[str, list[str]] = {
@@ -114,6 +114,103 @@ EP_DLL_NAMES: dict[str, list[str]] = {
         "libonnxruntime_providers_nv_tensorrt_rtx.so",
     ],
 }
+
+
+# ---------------------------------------------------------------------------
+# Reverse lookup: DLL filename -> canonical EP name.
+# ---------------------------------------------------------------------------
+# Inverse of :data:`EP_DLL_NAMES`, derived once at module load. Used by
+# :func:`list_msix_eps` to identify which EP a discovered MSIX package
+# provides without hardcoding vendor-specific naming patterns.
+_DLL_TO_EP_NAME: dict[str, str] = {
+    dll: ep
+    for ep, dll_list in EP_DLL_NAMES.items()
+    for dll in dll_list
+}
+
+
+# ---------------------------------------------------------------------------
+# Hardware-compatibility table and helpers.
+# ---------------------------------------------------------------------------
+# Maps each canonical EP name to the vendor substrings (case-insensitive)
+# that must appear in at least one detected hardware vendor string for the
+# EP to be considered compatible with this machine. Empty set = no vendor
+# requirement (e.g., CPU, DML, Azure work everywhere). Unknown EP names
+# default to compatible (forward-compat for new EPs not yet in the table).
+#
+# Substring matching tolerates the variety of vendor-string spellings
+# Windows reports (``"Intel(R) Corporation"`` vs ``"Intel"`` vs ``"Intel Corp"``)
+# without needing per-system normalization.
+_EP_VENDOR_REQUIREMENT: dict[str, set[str]] = {
+    "QNNExecutionProvider":           {"Qualcomm"},
+    "OpenVINOExecutionProvider":      {"Intel"},
+    # AMD reports either the abbreviation or the full company name
+    # depending on driver/WMI provider; accept either.
+    "VitisAIExecutionProvider":       {"AMD", "Advanced Micro Devices"},
+    "MIGraphXExecutionProvider":      {"AMD", "Advanced Micro Devices"},
+    "NvTensorRtRtxExecutionProvider": {"NVIDIA"},
+    "DmlExecutionProvider":           set(),
+    "CPUExecutionProvider":           set(),
+    "AzureExecutionProvider":         set(),
+}
+
+
+@functools.cache
+def _get_detected_vendors() -> frozenset[str]:
+    """Return the union of vendor identification strings from sysinfo.
+
+    Aggregates ``manufacturer`` and ``name`` across detected GPUs and
+    NPUs (CPU vendor is not exposed by every WMI provider; CPU is
+    treated as universally compatible via the empty-requirement entry
+    in :data:`_EP_VENDOR_REQUIREMENT`). Both fields are included because
+    Windows reports vendor inconsistently — sometimes the manufacturer
+    is the IHV (``"Qualcomm Incorporated"``) and sometimes a parent
+    company (``"Microsoft Corporation"`` for OEM-rebranded devices).
+    The substring match in :func:`_ep_is_compatible` tolerates either.
+
+    Cached process-wide; tests reset via ``_get_detected_vendors.cache_clear()``.
+    Returns an empty frozenset if hardware detection fails — in which case
+    every EP with a non-empty vendor requirement reports as incompatible.
+    """
+    strings: set[str] = set()
+    try:
+        from .sysinfo.hardware import GPU, NPU
+    except ImportError as e:
+        logger.debug("Hardware detection unavailable (%s); compat checks will fail", e)
+        return frozenset()
+
+    for cls in (GPU, NPU):
+        try:
+            for hw in cls.get_all():
+                for attr in ("manufacturer", "name"):
+                    value = getattr(hw, attr, None)
+                    if value:
+                        strings.add(str(value))
+        except Exception as e:  # pragma: no cover - WMI failure best-effort
+            logger.debug("%s.get_all() raised %s; skipping", cls.__name__, e)
+
+    return frozenset(strings)
+
+
+def _ep_is_compatible(ep_name: str) -> bool:
+    """Return True iff ``ep_name`` has compatible hardware on this machine.
+
+    Looks up the EP in :data:`_EP_VENDOR_REQUIREMENT`:
+
+    * Empty requirement -> always compatible (CPU, DML, Azure).
+    * Non-empty requirement -> compatible iff at least one required vendor
+      substring appears (case-insensitively) in any detected vendor string.
+    * Unknown EP name -> compatible (forward-compat default).
+
+    Args:
+        ep_name: Canonical EP name (caller should pass through
+            :func:`canonicalize_ep_name` first if the input is an alias).
+    """
+    required = _EP_VENDOR_REQUIREMENT.get(ep_name, set())
+    if not required:
+        return True
+    detected = _get_detected_vendors()
+    return any(req.lower() in v.lower() for req in required for v in detected)
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +290,10 @@ class PyPiSource:
         for ep_name in self.eps:
             yield ep_name, path
 
+    def is_compatible(self) -> bool:
+        """True iff every EP in :attr:`eps` is compatible with this machine."""
+        return all(_ep_is_compatible(ep) for ep in self.eps)
+
 
 @dataclass(frozen=True)
 class FilesystemSource:
@@ -269,6 +370,10 @@ class FilesystemSource:
             # First glob hit wins; multiple matches for one pattern is
             # unusual but tolerated (deterministic by glob order).
             yield ep_name, matches[0].resolve()
+
+    def is_compatible(self) -> bool:
+        """True iff every EP this source provides is compatible with this machine."""
+        return all(_ep_is_compatible(ep) for ep in self.dll_patterns)
 
 
 # ---------------------------------------------------------------------------
@@ -532,9 +637,248 @@ class WinMlCatalogSource:
         name = getattr(status, "name", None) or str(status)
         return name.replace("_", "").lower().endswith("success")
 
+    def is_compatible(self) -> bool:
+        """True iff every EP in :attr:`eps` is compatible with this machine."""
+        return all(_ep_is_compatible(ep) for ep in self.eps)
+
+
+# ---------------------------------------------------------------------------
+# Windows.Management.Deployment.PackageManager singleton (for MsixPackageSource).
+# ---------------------------------------------------------------------------
+
+
+@functools.cache
+def _get_pkg_manager() -> Any | None:
+    """Return cached ``PackageManager`` or None when binding unavailable.
+
+    Uses ``find_packages_by_user_security_id("")`` (empty SID = current user)
+    which is the only enumeration overload that works without elevation.
+    Tests reset via ``_get_pkg_manager.cache_clear()``.
+    """
+    try:
+        from winrt.windows.management.deployment import PackageManager
+    except ImportError as e:
+        logger.debug(
+            "MsixPackageSource: WinRT PackageManager binding not installed; "
+            "install the 'winml-catalog' extra to enable MSIX EP version "
+            "discovery (%s)",
+            e,
+        )
+        return None
+    try:
+        return PackageManager()
+    except Exception as e:
+        logger.warning("MsixPackageSource: PackageManager() failed: %s", e)
+        return None
+
+
+def _pkg_version_tuple(version: Any) -> tuple[int, int, int, int]:
+    """Convert a ``PackageVersion`` to a comparable tuple."""
+    return (
+        int(getattr(version, "major", 0)),
+        int(getattr(version, "minor", 0)),
+        int(getattr(version, "build", 0)),
+        int(getattr(version, "revision", 0)),
+    )
+
+
+def _pkg_version_str(version: Any) -> str:
+    """Render a ``PackageVersion`` as ``"M.m.b.r"``."""
+    return ".".join(str(p) for p in _pkg_version_tuple(version))
+
+
+@dataclass(frozen=True)
+class MsixPackageSource:
+    """An MSIX-delivered EP, identified by package-family-name prefix.
+
+    Bypasses the WinAppSDK ``ExecutionProviderCatalog`` (which exposes
+    only one version per EP-name) to load a specific installed MSIX
+    package version. Use when you need to pin a non-current EP version
+    (compat testing, regression isolation, multi-tenant scenarios).
+
+    Args:
+        family_name_prefix: Prefix matched against installed-package
+            ``PackageFamilyName``. Granularity decides what gets pinned —
+            ``"MicrosoftCorporationII.WinML.Qualcomm.QNN.EP."`` spans
+            both v1.8 and v2 families; ``"...QNN.EP.1.8_"`` pins to the
+            v1.8 line (any build); ``"...QNN.EP.1.8_8wekyb3d8bbwe_"``
+            pins to one family exactly. The trailing character (``.``
+            or ``_``) is the user's disambiguator against future name
+            collisions (e.g., a hypothetical ``EP.10_`` family).
+        relative_dll: POSIX-style relative path inside the package's
+            ``InstalledPath``. For QNN EP MSIX (verified):
+            ``"ExecutionProvider/onnxruntime_providers_qnn.dll"``.
+        eps: Canonical EP names this package provides.
+        version: Optional secondary pin to one exact installed version
+            (e.g. ``"1.8.30.0"``). When ``None`` (typical), the highest
+            installed version within any matched family wins.
+    """
+
+    family_name_prefix: str
+    relative_dll: str
+    eps: tuple[str, ...]
+    version: str | None = None
+
+    def resolve(self) -> Iterator[tuple[str, Path]]:
+        """Yield ``(ep_name, abs_path)`` for the matched MSIX package.
+
+        Selection rules (in order):
+
+        1. Filter by ``family_name.startswith(self.family_name_prefix)``.
+        2. If :attr:`version` is set, filter to packages whose version
+           string equals it.
+        3. If multiple packages remain, pick the one with the highest
+           ``Package.Id.Version``.
+        4. Verify the DLL exists at ``installed_path / relative_dll``.
+        5. Yield ``(ep_name, abs_path)`` for each ``ep`` in :attr:`eps`.
+
+        Yields nothing (silently) when no matching package is installed,
+        when the WinRT binding is unavailable, or when the DLL is missing
+        from the matched package.
+        """
+        manager = _get_pkg_manager()
+        if manager is None:
+            return
+
+        try:
+            packages = list(manager.find_packages_by_user_security_id(""))
+        except Exception as e:
+            logger.warning(
+                "MsixPackageSource: find_packages_by_user_security_id raised %s",
+                e,
+            )
+            return
+
+        matching = [
+            p for p in packages
+            if str(p.id.family_name).startswith(self.family_name_prefix)
+        ]
+        if self.version is not None:
+            matching = [p for p in matching if _pkg_version_str(p.id.version) == self.version]
+
+        if not matching:
+            logger.debug(
+                "MsixPackageSource: no installed package matches prefix=%r version=%r",
+                self.family_name_prefix,
+                self.version,
+            )
+            return
+
+        selected = max(matching, key=lambda p: _pkg_version_tuple(p.id.version))
+        installed_path = Path(str(selected.installed_path))
+        dll_path = installed_path / self.relative_dll
+        if not dll_path.is_file():
+            logger.warning(
+                "MsixPackageSource: package %s installed at %s but DLL missing at %s",
+                selected.id.full_name,
+                installed_path,
+                dll_path,
+            )
+            return
+
+        for ep_name in self.eps:
+            yield ep_name, dll_path
+
+    def is_compatible(self) -> bool:
+        """True iff every EP in :attr:`eps` is compatible with this machine."""
+        return all(_ep_is_compatible(ep) for ep in self.eps)
+
+
+def list_msix_eps(
+    family_name_prefix: str = "MicrosoftCorporationII.WinML.",
+) -> list[MsixPackageSource]:
+    """Enumerate installed MSIX EP packages.
+
+    Returns one fully-pinned :class:`MsixPackageSource` per (family,
+    version) found. Each return value is ``EP_PATH``-ready (drop into
+    the list) and resolvable via ``.resolve()``.
+
+    EP names are auto-detected from the DLL filename inside each package,
+    using the inverse of :data:`EP_DLL_NAMES`. Packages with no
+    recognizable EP DLL are skipped silently.
+
+    Args:
+        family_name_prefix: Default catches all WinML-catalog EP MSIXes
+            published by Microsoft. Override with a narrower prefix to
+            filter (e.g., ``"MicrosoftCorporationII.WinML.Qualcomm."``
+            for QNN-only listings).
+
+    Returns:
+        List of :class:`MsixPackageSource` with ``family_name_prefix``
+        set to the exact PackageFamilyName plus a trailing ``"_"`` for
+        round-trip pinning, and ``version`` set to the exact installed
+        ``Package.Id.Version`` string. Empty list if the binding is
+        unavailable or no matching packages are installed.
+    """
+    manager = _get_pkg_manager()
+    if manager is None:
+        return []
+
+    try:
+        packages = list(manager.find_packages_by_user_security_id(""))
+    except Exception as e:
+        logger.warning(
+            "list_msix_eps: find_packages_by_user_security_id raised %s", e
+        )
+        return []
+
+    matching = [p for p in packages if str(p.id.family_name).startswith(family_name_prefix)]
+    matching.sort(
+        key=lambda p: (str(p.id.family_name), _pkg_version_tuple(p.id.version)),
+    )
+
+    results: list[MsixPackageSource] = []
+    for p in matching:
+        installed_path = Path(str(p.installed_path))
+        try:
+            ep_dir = installed_path / "ExecutionProvider"
+            candidates = list(ep_dir.glob("onnxruntime_providers_*.dll")) if ep_dir.is_dir() else []
+            # Fallback: scan one level down if the conventional layout
+            # is not used by some future vendor.
+            if not candidates:
+                candidates = list(installed_path.glob("**/onnxruntime_providers_*.dll"))
+        except Exception as e:
+            logger.debug(
+                "list_msix_eps: cannot scan %s for EP DLLs (%s); skipping",
+                installed_path,
+                e,
+            )
+            continue
+
+        ep_name: str | None = None
+        chosen_dll: Path | None = None
+        for dll in candidates:
+            mapped = _DLL_TO_EP_NAME.get(dll.name)
+            if mapped is not None:
+                ep_name = mapped
+                chosen_dll = dll
+                break
+
+        if ep_name is None or chosen_dll is None:
+            logger.debug(
+                "list_msix_eps: package %s has no recognizable EP DLL; skipping",
+                p.id.full_name,
+            )
+            continue
+
+        rel = chosen_dll.relative_to(installed_path).as_posix()
+        # Use the exact full family_name (no trailing separator) so the
+        # generated source resolves the same package via startswith().
+        # Combined with self.version pin, this is exact-match round-trip.
+        results.append(
+            MsixPackageSource(
+                family_name_prefix=str(p.id.family_name),
+                relative_dll=rel,
+                eps=(ep_name,),
+                version=_pkg_version_str(p.id.version),
+            )
+        )
+
+    return results
+
 
 # Tagged union covering all four origins documented in the design.
-EpSource = PyPiSource | FilesystemSource | WinMlCatalogSource
+EpSource = PyPiSource | FilesystemSource | WinMlCatalogSource | MsixPackageSource
 
 
 # ---------------------------------------------------------------------------
@@ -661,17 +1005,17 @@ EP_PATH: list[EpSource] = _default_ep_path_for_platform()
 # ---------------------------------------------------------------------------
 
 
-def _parse_winml_ep_path() -> list[EpSource]:
-    """Parse the ``WINML_EP_PATH`` env var into ``FilesystemSource`` entries.
+def _parse_modelkit_ep_path() -> list[EpSource]:
+    """Parse the ``MODELKIT_EP_PATH`` env var into ``FilesystemSource`` entries.
 
     The env var is a path-list using OS-conventional separators (``;`` on
     Windows, ``:`` elsewhere). Each entry is treated as a directory; we
     scan it for every filename in :data:`EP_DLL_NAMES` so the user does
     not have to specify which EP the directory provides.
 
-    Returns an empty list when ``WINML_EP_PATH`` is unset or empty.
+    Returns an empty list when ``MODELKIT_EP_PATH`` is unset or empty.
     """
-    raw = os.environ.get("WINML_EP_PATH")
+    raw = os.environ.get("MODELKIT_EP_PATH")
     if not raw:
         return []
     sep = ";" if os.name == "nt" else os.pathsep
@@ -686,7 +1030,7 @@ def _parse_winml_ep_path() -> list[EpSource]:
     patterns = {ep: dll_names[0] for ep, dll_names in EP_DLL_NAMES.items() if dll_names}
     sources: list[EpSource] = []
     for entry in entries:
-        logger.debug("WINML_EP_PATH override: scanning %s", entry)
+        logger.debug("MODELKIT_EP_PATH override: scanning %s", entry)
         sources.append(
             FilesystemSource(
                 root=Path(entry),
@@ -701,41 +1045,69 @@ def _parse_winml_ep_path() -> list[EpSource]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _DiscoveryResult:
-    """Internal record of one (ep_name, path, source) hit."""
+@dataclass(frozen=True)
+class ResolvedEp:
+    """One (ep_name, dll_path, source) hit with resolution status.
+
+    Returned by :func:`discover_eps` when ``return_shadowed=True``. The
+    ``status`` field distinguishes the precedence-winner ("primary") from
+    later sources for the same EP that were skipped under first-hit-wins
+    ("shadowed").
+    """
 
     ep_name: str
     dll_path: Path
-    source: EpSource = field(repr=False)
+    source: EpSource
+    status: str  # "primary" | "shadowed"
 
 
 def discover_eps(
     extra_sources: list[EpSource] | None = None,
-) -> dict[str, tuple[Path, EpSource]]:
-    """Walk ``EP_PATH`` and return resolved ``(ep_name -> (path, source))``.
+    *,
+    extra_sources_after: list[EpSource] | None = None,
+    return_shadowed: bool = False,
+) -> dict[str, tuple[Path, EpSource]] | dict[str, list[ResolvedEp]]:
+    """Walk ``EP_PATH`` and return resolved EPs.
 
     Precedence (highest first):
 
     1. ``extra_sources`` (programmatic override, useful for tests).
-    2. ``WINML_EP_PATH`` env-var entries (parsed into FilesystemSources).
-    3. The default ``EP_PATH`` list.
+    2. ``MODELKIT_EP_PATH`` env-var entries (parsed into FilesystemSources).
+    3. The default :data:`EP_PATH` list.
+    4. ``extra_sources_after`` (lowest precedence — used by the
+       ``winml sys --list-ep`` CLI to inject :func:`list_msix_eps`
+       results so non-current MSIX versions appear as ``"shadowed"``
+       rather than overriding the user's normal precedence).
 
-    First-hit wins per EP name. Later sources for the same EP are skipped
-    silently (logged at DEBUG). Sources that raise during ``resolve()``
-    do not abort the walk — the error is logged at ERROR and the source
-    contributes nothing.
+    Within that combined list, first-hit-wins per canonical EP name.
+
+    Args:
+        extra_sources: Optional list of EpSources prepended to the walk.
+        extra_sources_after: Optional list of EpSources appended *after*
+            the default :data:`EP_PATH`. Appears as ``"shadowed"`` unless
+            the EP is otherwise unresolved.
+        return_shadowed: When ``False`` (default, back-compat), returns
+            ``dict[ep_name, (dll_path, source)]`` with one entry per EP —
+            the precedence winner. When ``True``, returns
+            ``dict[ep_name, list[ResolvedEp]]`` with all matching sources;
+            the first entry is the ``"primary"``, the rest are
+            ``"shadowed"``. Used by the inventory CLI.
 
     Returns:
-        Dict mapping canonical EP name -> ``(absolute_dll_path, source)``.
+        See ``return_shadowed``.
     """
     sources: list[EpSource] = []
     if extra_sources:
         sources.extend(extra_sources)
-    sources.extend(_parse_winml_ep_path())
+    sources.extend(_parse_modelkit_ep_path())
     sources.extend(EP_PATH)
+    if extra_sources_after:
+        sources.extend(extra_sources_after)
 
-    resolved: dict[str, tuple[Path, EpSource]] = {}
+    # Always compute the full per-EP list; the legacy shape is derived
+    # from it. This keeps the two return shapes consistent and the
+    # precedence rules in one place.
+    full: dict[str, list[ResolvedEp]] = {}
     for source in sources:
         try:
             it = source.resolve()
@@ -751,17 +1123,8 @@ def discover_eps(
                 # Normalize alias spellings (e.g. PascalCase
                 # ``NvTensorRTRTXExecutionProvider``) to the canonical form
                 # so two sources naming the same EP under different aliases
-                # collapse to one entry under the first-hit-wins rule.
+                # collapse to one entry.
                 ep_name = canonicalize_ep_name(raw_ep_name)
-                if ep_name in resolved:
-                    logger.debug(
-                        "EP %s already resolved by %r; skipping %s from %r",
-                        ep_name,
-                        resolved[ep_name][1],
-                        dll_path,
-                        source,
-                    )
-                    continue
                 if not dll_path.is_file():
                     logger.warning(
                         "EP %s: source %r produced %s which is not a file",
@@ -770,9 +1133,22 @@ def discover_eps(
                         dll_path,
                     )
                     continue
-                resolved[ep_name] = (dll_path, source)
+                # Deduplicate (path, source) pairs so a source yielding
+                # the same (ep_name, dll) twice doesn't appear twice.
+                bucket = full.setdefault(ep_name, [])
+                if any(e.dll_path == dll_path and e.source is source for e in bucket):
+                    continue
+                status = "primary" if not bucket else "shadowed"
+                bucket.append(
+                    ResolvedEp(
+                        ep_name=ep_name,
+                        dll_path=dll_path,
+                        source=source,
+                        status=status,
+                    )
+                )
                 logger.debug(
-                    "EP %s resolved to %s from %r", ep_name, dll_path, source
+                    "EP %s [%s] -> %s from %r", ep_name, status, dll_path, source
                 )
         except NotImplementedError as e:
             logger.debug("Skipping not-yet-implemented source %r: %s", source, e)
@@ -781,7 +1157,11 @@ def discover_eps(
             logger.error("Source %r failed mid-iteration: %s", source, e)
             continue
 
-    return resolved
+    if return_shadowed:
+        return full
+
+    # Legacy shape: one (path, source) tuple per EP — the primary winner.
+    return {ep: (entries[0].dll_path, entries[0].source) for ep, entries in full.items()}
 
 
 __all__ = [
@@ -790,8 +1170,11 @@ __all__ = [
     "EP_PATH",
     "EpSource",
     "FilesystemSource",
+    "MsixPackageSource",
     "PyPiSource",
+    "ResolvedEp",
     "WinMlCatalogSource",
     "canonicalize_ep_name",
     "discover_eps",
+    "list_msix_eps",
 ]

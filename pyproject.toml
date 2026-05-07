@@ -91,6 +91,10 @@ optional-dependencies.winml-catalog = [
   # cannot complete async ops.
   "wasdk-microsoft-windows-ai-machinelearning[all]>=2.0.1",
   "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap[all]>=2.0.1",
+  # PackageManager.FindPackagesForUser('') for MsixPackageSource (version pinning
+  # and `winml sys --list-ep` MSIX inventory). Not transitively pulled by wasdk's
+  # [all] extras, must be requested explicitly. Same winrt 3.2.x family.
+  "winrt-Windows.Management.Deployment>=3.2.1",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
