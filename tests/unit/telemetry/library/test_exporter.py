@@ -44,12 +44,17 @@ def exporter(tmp_path):
     # real user-scoped persistent cache (which can be polluted by prior
     # modelkit runs on the dev machine and would inject extra POSTs into
     # the test).
+    # Yield + shutdown so the underlying ``requests.Session`` (and its
+    # connection pool) is closed at teardown rather than leaked across
+    # tests.
     cache = _PersistentCache(path=tmp_path / "modelkit.cache")
-    return OneCollectorLogExporter(
+    exp = OneCollectorLogExporter(
         ikey="abc-def",
         endpoint="https://example.invalid/OneCollector/1.0/",
         cache=cache,
     )
+    yield exp
+    exp.shutdown()
 
 
 @pytest.mark.parametrize(
