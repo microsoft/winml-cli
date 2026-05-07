@@ -144,10 +144,8 @@ _DLL_TO_EP_NAME: dict[str, str] = {
 _EP_VENDOR_REQUIREMENT: dict[str, set[str]] = {
     "QNNExecutionProvider":           {"Qualcomm"},
     "OpenVINOExecutionProvider":      {"Intel"},
-    # AMD reports either the abbreviation or the full company name
-    # depending on driver/WMI provider; accept either.
-    "VitisAIExecutionProvider":       {"AMD", "Advanced Micro Devices"},
-    "MIGraphXExecutionProvider":      {"AMD", "Advanced Micro Devices"},
+    "VitisAIExecutionProvider":       {"AMD"},
+    "MIGraphXExecutionProvider":      {"AMD"},
     "NvTensorRtRtxExecutionProvider": {"NVIDIA"},
     "DmlExecutionProvider":           set(),
     "CPUExecutionProvider":           set(),

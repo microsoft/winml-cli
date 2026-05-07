@@ -131,7 +131,7 @@ class TestEpIsCompatible:
     ) -> None:
         monkeypatch.setattr(
             "winml.modelkit.ep_path._get_detected_vendors",
-            lambda: frozenset({"Advanced Micro Devices, Inc."}),
+            lambda: frozenset({"AMD Radeon Graphics"}),
         )
         assert _ep_is_compatible("VitisAIExecutionProvider") is True
         assert _ep_is_compatible("MIGraphXExecutionProvider") is True
