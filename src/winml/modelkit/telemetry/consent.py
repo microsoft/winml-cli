@@ -48,12 +48,12 @@ _CONFIG_PATH: Path | None = _default_config_path()
 _CONSENT_VERSION: int = 1
 
 _PROMPT_TEXT = """\
-ModelKit can collect anonymous usage data to help improve the product.
+WinML CLI can collect anonymous usage data to help improve the product.
 
 What is collected:
   - Command name, duration, success/failure
   - Target device/EP (when the command specifies them)
-  - OS, architecture, ModelKit version
+  - OS, architecture, WinML CLI version
   - Unhandled exception types, code locations, and scrubbed error
     messages (paths trimmed, length capped, PII patterns scrubbed)
 
