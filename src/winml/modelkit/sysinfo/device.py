@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 _EP_DEVICE_MAP: dict[str, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
+    "CUDAExecutionProvider": "gpu",
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",
@@ -57,14 +58,16 @@ for _ep, _device in _EP_DEVICE_MAP.items():
     for _d in _device.split("/"):
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Short EP name -> full ORT provider name (subset of _EP_DEVICE_MAP keys)
-_EP_SHORT_TO_FULL: dict[str, str] = {
+# Short EP name -> full ORT provider name. Public so that callers in other
+# modules (e.g. WinMLSession) can resolve --ep flags consistently.
+EP_SHORT_TO_FULL: dict[str, str] = {
     "qnn": "QNNExecutionProvider",
     "dml": "DmlExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
+    "cuda": "CUDAExecutionProvider",
     "cpu": "CPUExecutionProvider",
 }
 
@@ -197,9 +200,9 @@ def resolve_device(
     available_eps = _get_available_eps()
 
     if ep is not None:
-        ep_full = _EP_SHORT_TO_FULL.get(ep.lower())
+        ep_full = EP_SHORT_TO_FULL.get(ep.lower())
         if ep_full is None:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_SHORT_TO_FULL)}")
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SHORT_TO_FULL)}")
         available_eps = available_eps & {ep_full}
         ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
         available_devices = [d for d in available_devices if d in ep_compatible_devices]

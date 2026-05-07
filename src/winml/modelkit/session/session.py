@@ -11,7 +11,7 @@ import os
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnxruntime as ort
@@ -133,18 +133,6 @@ class WinMLSession:
 
     # Class-level flag for one-time EP initialization
     _eps_initialized: bool = False
-
-    # EP short name -> ORT full provider name (for add_provider_for_devices matching)
-    _EP_NAME_MAP: ClassVar[dict[str, str]] = {
-        "qnn": "QNNExecutionProvider",
-        "dml": "DmlExecutionProvider",
-        "migraphx": "MIGraphXExecutionProvider",
-        "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
-        "vitisai": "VitisAIExecutionProvider",
-        "openvino": "OpenVINOExecutionProvider",
-        "cuda": "CUDAExecutionProvider",
-        "cpu": "CPUExecutionProvider",
-    }
 
     @classmethod
     def _init_winml_eps_once(cls) -> None:
@@ -437,7 +425,9 @@ class WinMLSession:
         # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
         # instead of the first QNN ep_device (which may report as NPU).
         if self._ep and self._ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(self._ep)
+            from ..sysinfo import EP_SHORT_TO_FULL
+
+            target_name = EP_SHORT_TO_FULL.get(self._ep)
             if target_name:
                 matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
