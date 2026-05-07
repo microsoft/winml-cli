@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from . import _store
 
@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 _STORAGE_KEY = "deviceid"
 
 
-class IdStatus(str, Enum):
+class IdStatus(StrEnum):
     """Outcome of :func:`get_or_create_device_id`.
 
     Subclassing ``str`` keeps the enum serialization-compatible with
