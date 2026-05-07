@@ -48,18 +48,19 @@
 
 ### Release (2w)
 
-| Task | Pri | Owner | Notes |
-|------|-----|-------|-------|
-| Telemetry + privacy review | P0 | @Zhipeng | |
-| Documentation | P0 | @Zheng, @Brenda | |
-| Pypi release (version 0.1.0) | P0 | @Zhipeng | |
-| Launch comms | P0 | @Brenda, @Lu | homepage |
+| Task | Pri | Owner | Status | Notes |
+|------|-----|-------|--------|-------|
+| Telemetry + privacy review | P0 | @Zhipeng | In-progress | |
+| Documentation | P0 | @Zheng, @Brenda | | |
+| PyPI release (version 0.1.0) | P0 | @Zhipeng | | |
+| Launch comms | P0 | @Brenda, @Lu | | homepage |
+| Regular E2E eval & report pipeline | P1 | @Yue | | |
 
 ### AITK
 
-| Task | Pri | Owner |
-|------|-----|-------|
-| UI | P0 | @Shiyi |
+| Task | Pri | Owner | Status |
+|------|-----|-------|--------|
+| UI | P0 | @Shiyi | In-progress |
 
 ---
 
@@ -67,40 +68,60 @@
 
 ### WinML 2.0 (1w + 1w)
 
-| Task | Pri | Owner | Notes |
-|------|-----|-------|-------|
-| Update ModelKit dependency to WinML 2.0 | P0 | | |
-| Test all models with WinML 2.0 | P0 | | |
-| SA: min-delta dataset support for new EPs | P1 | | Leverage run unknown |
-| Profiling + op tracing: verification on all EPs | P1 | @Hualiang, @Zheng | Depends on IHV EP quality |
+| Task | Pri | Owner | Status | Notes |
+|------|-----|-------|--------|-------|
+| Update ModelKit dependency to WinML 2.0 | P0 | @Chao | In-progress | |
+| Test all models with WinML 2.0 | P0 | @Chao | | |
+| SA: min-delta dataset support for new EPs | P1 | @Chao | | Leverage run unknown |
+| Profiling + op tracing: verification on all EPs | P1 | @Hualiang, @Zheng | | Depends on IHV EP quality |
 
 ### New Features (2w)
 
-| Task | Pri | Owner | Notes |
-|------|-----|-------|-------|
-| First run experience | P0 | @Brenda | 1w dev time needed |
-| Core metrics & dashboard | P0 | @Qiong | SA status, perf/memory, summary |
-| ModelKit skills | P1 | | Install skill (env check?) |
-| Feature flag support | P2 | | |
+| Task | Pri | Owner | Status | Notes |
+|------|-----|-------|--------|-------|
+| First run experience | P0 | @Brenda | | 1w dev time needed |
+| Core metrics & dashboard | P0 | @Qiong | In-progress | SA status, perf/memory, summary |
+| ModelKit skills | P1 | @Shiyi | | Install skill (env check?) |
+| Feature flag support | P2 | | | |
 
 ---
 
 ## EP Scale
 
-| Area | Task | Pri | Owner |
-|------|------|-----|-------|
-| ModelKit | E2E verified with all 8 EPs | P0 | @Qiong |
-| SA | Dataset prep — Intel CPU/GPU, TRT RTX, QNN GPU | P0 | @Fangyang |
-| SA | Enable MLAS for CPU without dataset | P0 | |
-| SA | Disable AMD NPU * | P0 | |
+| Area | Task | Pri | Owner | Status | Notes |
+|------|------|-----|-------|--------|-------|
+| ModelKit | E2E verified with all 8 EPs | P0 | @Qiong | In-progress | CPU (146 pass) |
+| SA | Dataset prep — Intel CPU/GPU, TRT RTX, QNN GPU | P0 | @Fangyang | In-progress | TRT RTX in PR, others done |
+| SA | Enable MLAS for CPU without dataset | P0 | @Qiong | Done | |
+| SA | Disable AMD NPU * | P0 | @Fangyang | Done | |
 
 ---
 
 ## Model Scale
 
-| Task | Pri | Target | Owner |
-|------|-----|--------|-------|
-| Built-in models x 8 EPs | P0 | >= 50 | |
+### E2E Perf — Inference Ability (Driver: @Hualiang)
+
+**P0 Models**
+
+| Model | Owner | Status |
+|-------|-------|--------|
+| Sam2 | @Chao | Done |
+| ESRGAN | @Zhenchao | In-progress |
+
+**Top 200 Models**
+
+| Task | Owner | Status | Notes |
+|------|-------|--------|-------|
+| Multi model support & KV cache | @Yi, @Zhenchao | In-progress | |
+| 1/3, 2/3 models & default configs | @Chao, @Shiyi | In-progress | |
+| Top 200 model list adjustment | @Hualiang, @Yi, @Zhenchao, all | In-progress | |
+
+### E2E Eval — Accuracy (Driver: @Zhenchao)
+
+| Task | Owner | Status |
+|------|-------|--------|
+| Accuracy evaluation for non-generation models | @Zhenchao | Done |
+| Accuracy evaluation for generation models (blip, tocr) | @Zhenchao | In-progress |
 
 ---
 
