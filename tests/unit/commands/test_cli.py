@@ -152,7 +152,16 @@ class TestSysCommand:
     def _mock_hw_detection(self):
         """Mock slow hardware detection to prevent CI timeouts."""
         mock_devices = [{"priority": 1, "type": "CPU", "name": "Mock CPU", "details": {}}]
-        mock_eps = [{"name": "CPUExecutionProvider", "device": "CPU", "path": None}]
+        # _gather_ep_info returns dict[ep_name, {compatible, device_types, entries}].
+        mock_eps = {
+            "CPUExecutionProvider": {
+                "compatible": True,
+                "device_types": "CPU",
+                "entries": [
+                    {"status": "primary", "source_kind": "built-in", "dll_path": None}
+                ],
+            }
+        }
         with (
             patch("winml.modelkit.commands.sys._gather_device_info", return_value=mock_devices),
             patch("winml.modelkit.commands.sys._gather_ep_info", return_value=mock_eps),
@@ -196,7 +205,7 @@ class TestSysCommand:
         assert result.exit_code == 0
 
     def test_sys_list_device_list_ep_json_is_valid_single_object(self, runner: CliRunner) -> None:
-        """--list-device --list-ep --format json must emit one valid JSON object, not two arrays."""
+        """--list-device --list-ep --format json must emit one valid JSON object."""
         import json
 
         result = runner.invoke(main, ["sys", "--list-device", "--list-ep", "--format", "json"])
@@ -205,7 +214,10 @@ class TestSysCommand:
         assert "devices" in data
         assert "executionProviders" in data
         assert isinstance(data["devices"], list)
-        assert isinstance(data["executionProviders"], list)
+        # executionProviders is dict[ep_name, {compatible, device_types, entries}]
+        # per the comprehensive inventory shape; one key per detected EP.
+        assert isinstance(data["executionProviders"], dict)
+        assert "CPUExecutionProvider" in data["executionProviders"]
 
     def test_sys_list_device_compact(self, runner: CliRunner) -> None:
         """--list-device --format compact must produce compact output, not text table."""
