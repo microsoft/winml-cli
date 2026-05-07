@@ -65,6 +65,7 @@ EP_SHORT_TO_FULL: dict[str, str] = {
     "dml": "DmlExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "trtrtx": "NvTensorRTRTXExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
     "cuda": "CUDAExecutionProvider",
