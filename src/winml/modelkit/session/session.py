@@ -471,17 +471,14 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(
-        ep_name: str | None = None,
-        device: str | None = None,
-    ) -> Any:
+    def _find_ep_device(device: str, ep_name: str | None = None) -> Any:
         """Find the first OrtEpDevice matching the given filters.
 
         Behavior:
-            - Both ``ep_name`` and ``device`` unset/``"auto"`` → ``None``
-              (no effective filter).
-            - ``ep_name`` set, ``device`` unset/``"auto"`` → first ep_device
+            - ``ep_name`` set, ``device == "auto"`` → first ep_device
               matching ``ep_name`` (or None).
+            - ``ep_name`` unset, ``device == "auto"`` → ``None`` (no
+              effective filter — refuse to pick an arbitrary ep_device).
             - ``ep_name`` unset, ``device`` is a concrete type → first
               ep_device matching that device type (or None).
             - Both set → ep_device must satisfy both (or None).
@@ -493,17 +490,17 @@ class WinMLSession:
         ``ep_name`` to disambiguate.
 
         Args:
+            device: Device policy ("cpu", "gpu", "npu", "auto"). ``"auto"``
+                and unknown strings act as no-op device filters.
             ep_name: Full EP name (e.g., "DmlExecutionProvider"), or None
                 to skip EP-name filtering.
-            device: Device policy ("cpu", "gpu", "npu", "auto"), or None.
-                ``"auto"`` and unknown strings act as no-op device filters.
 
         Returns:
             The matching OrtEpDevice, or None if not found.
         """
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
-        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper()) if device else None
+        device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
 
         # No effective filter — refuse to pick an arbitrary ep_device.
         if not ep_name and device_type is None:
