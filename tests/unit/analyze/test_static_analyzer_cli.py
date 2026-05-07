@@ -782,7 +782,7 @@ class TestQDQNodeDisplayMapping:
     def test_qdq_pattern_id_maps_to_base_op_for_table_key(self) -> None:
         """_display_name + removesuffix(QDQ_SUFFIX) maps QDQ pattern IDs to base
         op types so instance_counts keys match all_op_counts keys."""
-        from winml.modelkit.analyze.core.runtime_checker_query import QDQ_SUFFIX
+        from winml.modelkit.analyze import QDQ_SUFFIX
         from winml.modelkit.commands.analyze import _display_name
 
         assert _display_name("OP/ai.onnx/Conv (QDQ)").removesuffix(QDQ_SUFFIX) == "Conv"

@@ -24,7 +24,7 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.text import Text
 
-from ..analyze.core.runtime_checker_query import QDQ_SUFFIX
+from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
 from ..utils.constants import normalize_ep_name
 from ..utils.logging import configure_logging
