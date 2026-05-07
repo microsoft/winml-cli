@@ -1270,5 +1270,285 @@
         "input_column": "text"
       }
     }
+  },
+  {
+    "hf_id": "cross-encoder/nli-deberta-v3-small",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch32",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "joeddav/xlm-roberta-large-xnli",
+    "task": "zero-shot-classification",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-large-patch14",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+    "task": "zero-shot-classification",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-large-patch14-336",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "openai/clip-vit-base-patch16",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/deberta-v3-large-zeroshot-v2.0",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "AITK",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "patrickjohncyh/fashion-clip",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "zalando-datasets/fashion_mnist",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "image"
+      }
+    }
+  },
+  {
+    "hf_id": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+    "task": "zero-shot-classification",
+    "model_type": "deberta-v2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "nyu-mll/multi_nli",
+      "split": "validation_matched",
+      "metric": "accuracy",
+      "columns_mapping": {
+        "input_column": "premise",
+        "label_column": "genre",
+        "candidate_labels": "fiction,government,slate,telephone,travel"
+      }
+    }
+  },
+  {
+    "hf_id": "google/siglip-so400m-patch14-384",
+    "task": "zero-shot-image-classification",
+    "model_type": "siglip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "google/siglip-base-patch16-224",
+    "task": "zero-shot-image-classification",
+    "model_type": "siglip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+    "task": "zero-shot-image-classification",
+    "model_type": "clip",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "uoft-cs/cifar100",
+      "split": "test",
+      "samples": 1000,
+      "metric": "top1_accuracy",
+      "winml_metric_key": "top1_accuracy",
+      "columns_mapping": {
+        "input_column": "img",
+        "label_column": "fine_label"
+      }
+    }
   }
 ]

@@ -48,5 +48,13 @@ def _format_time(ts: datetime) -> str:
 
 
 def _serialize_batch(envelopes: list[dict[str, Any]]) -> bytes:
-    """Serialize a batch of envelopes as a compact JSON array."""
-    return json.dumps(envelopes, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    r"""Serialize a batch of envelopes as NDJSON (x-json-stream).
+
+    One envelope per line, ``\n`` separated, no enclosing array. This is the
+    wire format the /OneCollector/1.0/ ingest endpoint expects under
+    ``application/x-json-stream``; a JSON array is rejected with HTTP 415.
+    """
+    return b"\n".join(
+        json.dumps(env, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        for env in envelopes
+    )

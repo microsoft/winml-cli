@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..datasets.config import DatasetConfig
@@ -24,6 +23,8 @@ from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
 from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
+from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
 
 if TYPE_CHECKING:
@@ -43,6 +44,8 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
     "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
     "fill-mask": WinMLFillMaskEvaluator,
+    "zero-shot-classification": WinMLZeroShotClassificationEvaluator,
+    "zero-shot-image-classification": WinMLZeroShotImageClassificationEvaluator,
 }
 
 _FE_DEFAULT = DatasetConfig(
@@ -126,6 +129,26 @@ _DEFAULT_DATASETS: dict[str, DatasetConfig] = {
         streaming=True,
         columns_mapping={"input_column": "text"},
     ),
+    "zero-shot-classification": DatasetConfig(
+        path="fancyzhx/ag_news",
+        split="test",
+        samples=100,
+        shuffle=True,
+        columns_mapping={
+            "input_column": "text",
+            "label_column": "label",
+        },
+    ),
+    "zero-shot-image-classification": DatasetConfig(
+        path="uoft-cs/cifar100",
+        split="test",
+        samples=100,
+        shuffle=True,
+        columns_mapping={
+            "input_column": "img",
+            "label_column": "fine_label",
+        },
+    ),
 }
 
 
@@ -156,10 +179,11 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         model = WinMLAutoModel.from_onnx(
-            onnx_path=Path(config.model_path),
+            onnx_path=config.model_path,
             task=config.task,
             device=config.device,
             skip_build=True,
+            hf_config=hf_config,
         )
         model.config = hf_config
         return model

@@ -34,7 +34,7 @@ Use `--force` to re-download all files even if they already exist locally.
 
 ### Option 3: Manual copy (Microsoft internal)
 
-Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/op_check_results/rules/`](https://github.com/gim-home/ModelKitArtifacts/tree/main/op_check_results/rules) into this directory.
+Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/rules_zip/`](https://github.com/gim-home/ModelKitArtifacts/tree/main/rules_zip) into this directory.
 
 ### Option 4: Use external rules directory via environment variable
 

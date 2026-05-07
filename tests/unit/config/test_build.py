@@ -1785,9 +1785,9 @@ class TestDevicePrecisionIntegration:
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
             ("npu", "fp16", False, None, None, "qnn"),
             ("npu", "int8", True, "uint8", "uint8", "qnn"),
-            ("gpu", "auto", False, None, None, "dml"),
-            ("gpu", "int8", True, "uint8", "uint8", "dml"),
-            ("gpu", "fp16", False, None, None, "dml"),
+            ("gpu", "auto", False, None, None, None),
+            ("gpu", "int8", True, "uint8", "uint8", None),
+            ("gpu", "fp16", False, None, None, None),
             ("cpu", "auto", False, None, None, None),
             ("cpu", "int8", True, "uint8", "uint8", None),
             ("cpu", "int16", True, "int16", "uint16", None),
@@ -2010,8 +2010,8 @@ class TestDevicePrecisionCli:
         return result, output_file
 
     def test_device_npu_produces_qnn(self, tmp_path) -> None:
-        """--device npu → compile.provider=qnn, quant with w8a16."""
-        result, output_file = self._invoke(tmp_path, ["--device", "npu"])
+        """--device npu --compile → compile.provider=qnn, quant with w8a16."""
+        result, output_file = self._invoke(tmp_path, ["--device", "npu", "--compile"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
@@ -2035,8 +2035,7 @@ class TestDevicePrecisionCli:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
         assert data["quant"] is None
-        assert data["compile"] is not None
-        assert data["compile"]["execution_provider"] == "dml"
+        assert data["compile"] is None
 
     def test_device_cpu_precision_fp32(self, tmp_path) -> None:
         """--device cpu --precision fp32 → no quant, no compile."""
@@ -2060,15 +2059,15 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Default: quant and compile both present (backward compat)
+        # Default: quant present, compile excluded (--no-compile is default)
         assert data["quant"] is not None
-        assert data["compile"] is not None
+        assert data["compile"] is None
 
     def test_auto_precision_int8_triggers_detection(self, tmp_path) -> None:
-        """--device auto --precision int8 → triggers device detection."""
+        """--device auto --precision int8 --compile → triggers device detection."""
         result, output_file = self._invoke(
             tmp_path,
-            ["--device", "auto", "--precision", "int8"],
+            ["--device", "auto", "--precision", "int8", "--compile"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2127,7 +2126,7 @@ class TestConfigOnnxAutoDetect:
             runner = CliRunner()
             result = runner.invoke(
                 config_command,
-                ["-m", str(onnx_file), "--device", "npu", "-o", str(output_file)],
+                ["-m", str(onnx_file), "--device", "npu", "--compile", "-o", str(output_file)],
             )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -2607,10 +2606,9 @@ class TestGenerateBuildConfigOnnxPath:
         ):
             config = generate_onnx_build_config(str(onnx_file), device="gpu")
 
-        # GPU auto-precision is fp16 -> no quantization, compile=dml
+        # GPU auto-precision is fp16 -> no quantization, no compile (DML has no offline step)
         assert config.quant is None
-        assert config.compile is not None
-        assert config.compile.ep_config.provider == "dml"
+        assert config.compile is None
 
     def test_ep_override_forwarded(self, tmp_path) -> None:
         """Explicit ep parameter is forwarded to resolve_quant_compile_config."""
@@ -2631,8 +2629,8 @@ class TestGenerateBuildConfigOnnxPath:
                 ep="migraphx",
             )
 
-        assert config.compile is not None
-        assert config.compile.ep_config.provider == "migraphx"
+        # migraphx has enable_ep_context=False → no offline compile step
+        assert config.compile is None
 
 
 # =============================================================================
@@ -2672,8 +2670,8 @@ class TestResolveQuantCompileConfig:
         assert isinstance(compile_cfg, WinMLCompileConfig)
         assert compile_cfg.ep_config.provider == "qnn"
 
-    def test_gpu_returns_none_quant_and_dml_compile(self) -> None:
-        """device=gpu returns (None, WinMLCompileConfig(dml))."""
+    def test_gpu_returns_none_quant_and_none_compile(self) -> None:
+        """device=gpu returns (None, None) — DML has no offline compile step."""
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("gpu", ["gpu", "cpu"]),
@@ -2681,8 +2679,7 @@ class TestResolveQuantCompileConfig:
             quant, compile_cfg = resolve_quant_compile_config(device="gpu")
 
         assert quant is None
-        assert isinstance(compile_cfg, WinMLCompileConfig)
-        assert compile_cfg.ep_config.provider == "dml"
+        assert compile_cfg is None
 
     def test_cpu_returns_none_none(self) -> None:
         """device=cpu returns (None, None) since CPU has no compile provider."""
@@ -2696,7 +2693,10 @@ class TestResolveQuantCompileConfig:
         assert compile_cfg is None
 
     def test_ep_override_changes_provider(self) -> None:
-        """Explicit ep overrides the default device-to-provider mapping."""
+        """Explicit ep overrides the default device-to-provider mapping.
+
+        nv_tensorrt_rtx has enable_ep_context=False so for_provider returns None.
+        """
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("gpu", ["gpu", "cpu"]),
@@ -2706,8 +2706,7 @@ class TestResolveQuantCompileConfig:
                 ep="nv_tensorrt_rtx",
             )
 
-        assert compile_cfg is not None
-        assert compile_cfg.ep_config.provider == "nv_tensorrt_rtx"
+        assert compile_cfg is None
 
     def test_task_forwarded_to_resolve_precision(self) -> None:
         """task parameter is forwarded to resolve_precision.

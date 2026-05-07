@@ -127,3 +127,29 @@ def test_format_exception_message_empty_is_empty():
 def test_format_exception_message_none_safe():
     # Defensive: accepts None by returning empty string.
     assert _format_exception_message(None) == ""
+
+
+def test_format_exception_message_scrubs_pii_at_cap_boundary():
+    """Regression: PII straddling the 200-char cap must be scrubbed
+    before truncation. Cap-then-scrub would leak the email's local part
+    because the cropped fragment ``alice@exa…`` no longer matches the
+    email regex (no TLD). The ``<scrubbed>`` placeholder itself may be
+    truncated by the cap - what matters is that the original PII
+    fragments are gone."""
+    prefix = "x" * 195  # email lands across char 196 onward
+    msg = prefix + " alice@example.com"
+    result = _format_exception_message(msg)
+    assert "alice" not in result
+    assert "@" not in result
+    assert len(result) <= 200
+
+
+def test_format_exception_message_scrubs_long_token_at_cap_boundary():
+    """Regression: a long opaque token straddling the cap must be scrubbed
+    as a whole, not leak its in-cap prefix as a sub-24-char fragment."""
+    prefix = "x" * 180  # 30-char token starts at 181, ends at 210
+    msg = prefix + " token=abcdef0123456789abcdefghi9"
+    result = _format_exception_message(msg)
+    assert "abcdef0123456789" not in result
+    assert "<scrubbed>" in result
+    assert len(result) <= 200
