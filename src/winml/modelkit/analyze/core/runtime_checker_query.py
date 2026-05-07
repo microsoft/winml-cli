@@ -76,6 +76,9 @@ if TYPE_CHECKING:
     from .node_checkers.base import NodeChecker
 
 
+QDQ_SUFFIX = " (QDQ)"
+
+
 def _elapsed_ms(start_time: float) -> int:
     """Return elapsed milliseconds from `start_time` to now."""
     return int((time.perf_counter() - start_time) * 1000)
@@ -2390,7 +2393,7 @@ class RuntimeCheckerQuery:
 
         def get_pattern_id(is_qdq):
             return (
-                pattern_match.pattern.pattern_id + " (QDQ)"
+                pattern_match.pattern.pattern_id + QDQ_SUFFIX
                 if is_qdq
                 else pattern_match.pattern.pattern_id
             )
