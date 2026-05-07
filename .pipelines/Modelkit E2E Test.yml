@@ -39,3 +39,14 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+
+  - stage: NPU_AMD
+    displayName: 'E2E Eval — NPU-AMD'
+    dependsOn: []
+    jobs:
+      - template: templates/e2e-eval-jobs.yml
+        parameters:
+          agentName: NPU-AMD
+          agentSuffix: amd
+          evalDate: ${{ parameters.evalDate }}
+          continueRun: ${{ parameters.continueRun }}
