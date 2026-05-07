@@ -60,7 +60,7 @@ class OneCollectorLogExporter(LogRecordExporter):
         self._envelope_ikey = _envelope_ikey(ikey)
         # Bare tenant_token (no "o:" prefix) is what the ``kill-tokens``
         # response header lists, so we keep it around for membership checks.
-        self._tenant_token = self._envelope_ikey[2:]
+        self._tenant_token = self._envelope_ikey.removeprefix("o:")
         self._endpoint = endpoint
         self._cache = cache if cache is not None else _PersistentCache()
         # First export() flushes the cache before sending the new batch;
@@ -68,7 +68,8 @@ class OneCollectorLogExporter(LogRecordExporter):
         self._cache_flushed = False
         # OneCollector's ``kill-tokens`` directive: when set, our tenant
         # is on the backend's deny list and we must stop sending until
-        # this epoch second. ``None`` means not killed.
+        # this epoch second. In-memory only -- process restart re-hits
+        # the 401 once and re-records the kill before short-circuiting.
         self._killed_until: float | None = None
         # _shutdown is read on the BatchLogRecordProcessor export thread and
         # written on the shutdown thread; bool assignment is atomic under the

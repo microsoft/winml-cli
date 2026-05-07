@@ -363,12 +363,25 @@ def test_kill_window_expiry_re_enables_post(exporter):
     p.assert_called_once()
 
 
-def test_kill_tokens_without_duration_header_is_ignored(exporter):
-    """Both ``kill-tokens`` AND ``kill-duration`` must be present — a
-    bare kill-tokens with no duration is a malformed response we skip."""
+@pytest.mark.parametrize(
+    "kill_duration_value",
+    [
+        None,  # header absent entirely
+        "",  # header present but empty
+        "0",  # non-positive
+        "abc",  # non-numeric
+    ],
+)
+def test_kill_tokens_with_unusable_duration_is_ignored(exporter, kill_duration_value):
+    """``kill-tokens`` is meaningless without a positive integer
+    ``kill-duration``. Any of: absent, empty, non-positive, or non-numeric
+    must leave the exporter unkilled."""
     ld = _make_log_data("ModelKitHeartbeat", {})
     resp = MagicMock(status_code=401)
-    resp.headers = {"kill-tokens": "o:abc:all"}  # no kill-duration
+    headers = {"kill-tokens": "o:abc:all"}
+    if kill_duration_value is not None:
+        headers["kill-duration"] = kill_duration_value
+    resp.headers = headers
     resp.text = ""
     with patch.object(exporter._session, "post", return_value=resp):
         exporter.export([ld])
