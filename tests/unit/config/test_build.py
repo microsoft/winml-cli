@@ -1922,7 +1922,7 @@ class TestDevicePrecisionIntegration:
                 precision="auto",
             )
 
-        mock_rd.assert_called_once_with(device="auto")
+        mock_rd.assert_called_once_with(device="auto", ep=None)
 
     def test_explicit_precision_triggers_resolve_device(self) -> None:
         """device='auto' + precision='int8' DOES call resolve_device."""
