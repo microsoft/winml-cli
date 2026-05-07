@@ -54,7 +54,7 @@ Triage open issues in microsoft/WinML-ModelKit in three phases:
 | Config | zhangchao | chinazhangchao |
 | Compile | zhenni | zhenchaoni |
 | Quantize | zhenni | zhenchaoni |
-| Perf | zhiwang, zhengte | timenick, tezheng |
+| Perf | hualxie, zhengte | xieofxie, tezheng |
 | Build | zhangchao, zhengte | chinazhangchao, tezheng |
 | Catalog | qiowu | dingmaomaobjtu |
 | Inspect | zhengte | tezheng |
@@ -208,7 +208,7 @@ Comment template:
 
 ## Phase 2 — Generate HTML report
 
-After Phase 1 completes, fetch the current real state of all open "need triage" issues and write `temp/triage-report.html`.
+After Phase 1 completes, fetch the current real state of all open "need triage" issues and write `quality-status/bug-fixing/<YYYYMMDD>/triage-report.html` where `<YYYYMMDD>` is today's date (e.g. `20260507`). Create the directory if it does not exist.
 
 ### Fetch data
 
@@ -221,7 +221,7 @@ Get each issue's priority from the project (use the `addProjectV2ItemById` mutat
 
 ### Report structure
 
-Write a self-contained HTML file to `temp/triage-report.html` with:
+Write a self-contained HTML file to `quality-status/bug-fixing/<YYYYMMDD>/triage-report.html` with:
 
 **Header**: "WinML-ModelKit — Issue Triage Report", generation date, issue count.
 
