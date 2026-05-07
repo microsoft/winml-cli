@@ -33,9 +33,15 @@ dependencies = [
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  "onnx>=1.21,<1.22",
   "onnx-ir>=0.1",
-  "onnxruntime>=1.24,<1.25",
+  # onnxruntime-windowsml = Microsoft's MSIX-aligned ORT distro. Same
+  # `onnxruntime/` Python module as upstream `onnxruntime`, but bundles
+  # DirectML EP and tracks the WinML ExecutionProviderCatalog cadence.
+  # The two distributions are mutually exclusive — only one can be
+  # installed at a time. Pinning to 1.24.5 series for compatibility with
+  # the wasdk-microsoft-windows-ai-machinelearning 2.0.1 contract.
+  "onnxruntime-windowsml>=1.24.5,<1.25",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -127,13 +133,12 @@ dev = [
 [tool.uv]
 override-dependencies = [
   "transformers>=5,<6",
-  # wasdk-microsoft-windows-ai-machinelearning 2.0.1 declares
-  # onnxruntime-windowsml==1.24.5-... as a required dep, but inspection of the
-  # wheel shows the Python code only imports winrt.system — never onnxruntime.
-  # The constraint is convenience-bundling, not a runtime requirement. We
-  # neutralize it so we keep upstream onnxruntime instead of Microsoft's distro
-  # (which would shadow onnxruntime/* and shift built-ins).
-  "onnxruntime-windowsml; sys_platform == 'unobtainium'",
+  # wasdk-microsoft-windows-ai-machinelearning 2.0.1 metadata pins
+  # onnxruntime-windowsml==1.24.5.post202604171637 (PEP 440 normalized
+  # form), but PyPI publishes it as 1.24.5.202604171637 — uv cannot
+  # resolve the exact pin. Override with a flexible range so uv picks
+  # the actually-published version.
+  "onnxruntime-windowsml>=1.24.5,<1.25",
 ]
 
 [tool.setuptools.packages.find]
