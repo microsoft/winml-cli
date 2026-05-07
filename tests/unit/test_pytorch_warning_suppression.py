@@ -20,7 +20,7 @@ def _install_fake_exporter(
     export_return: dict[str, int],
     *,
     emit_warning: bool,
-) -> None:
+) -> MagicMock:
     exporter_cls = MagicMock()
     exporter = exporter_cls.return_value
 
@@ -38,6 +38,7 @@ def _install_fake_exporter(
 
     monkeypatch.setitem(sys.modules, "winml.modelkit.export.htp", fake_htp_pkg)
     monkeypatch.setitem(sys.modules, "winml.modelkit.export.htp.exporter", fake_exporter_module)
+    return exporter
 
 
 def test_export_pytorch_uses_warning_context(tmp_path, monkeypatch) -> None:
@@ -49,7 +50,7 @@ def test_export_pytorch_uses_warning_context(tmp_path, monkeypatch) -> None:
     model = DummyModel()
     config = SimpleNamespace(enable_hierarchy_tags=True)
     expected = {"onnx_nodes": 1}
-    _install_fake_exporter(monkeypatch, expected, emit_warning=False)
+    exporter = _install_fake_exporter(monkeypatch, expected, emit_warning=False)
 
     with (
         patch("winml.modelkit.export.pytorch.warnings.catch_warnings") as mock_catch_warnings,
@@ -58,6 +59,7 @@ def test_export_pytorch_uses_warning_context(tmp_path, monkeypatch) -> None:
         result = export_pytorch(model, tmp_path / "model.onnx", config)
 
     assert result == expected
+    exporter.export.assert_called_once()
     mock_catch_warnings.assert_called_once_with()
     mock_catch_warnings.return_value.__enter__.assert_called_once_with()
     mock_filterwarnings.assert_called_once_with("ignore")
@@ -72,11 +74,12 @@ def test_export_pytorch_suppresses_export_warnings(tmp_path, monkeypatch) -> Non
     model = DummyModel()
     config = SimpleNamespace(enable_hierarchy_tags=True)
     expected = {"onnx_nodes": 1}
-    _install_fake_exporter(monkeypatch, expected, emit_warning=True)
+    exporter = _install_fake_exporter(monkeypatch, expected, emit_warning=True)
 
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         result = export_pytorch(model, tmp_path / "model.onnx", config)
 
     assert result == expected
+    exporter.export.assert_called_once()
     assert captured == []
