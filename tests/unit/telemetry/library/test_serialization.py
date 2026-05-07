@@ -28,19 +28,26 @@ def test_build_envelope_basic_shape():
     assert envelope["time"] == "2026-04-17T10:30:00.123Z"
 
 
-def test_serialize_batch_emits_json_array():
+def test_serialize_batch_emits_ndjson():
     ts = datetime(2026, 4, 17, 10, 30, 0, 0, tzinfo=timezone.utc)
     envelopes = [
         _build_envelope("ModelKitHeartbeat", "o:key", ts, {}, {}),
         _build_envelope("ModelKitAction", "o:key", ts, {"success": True}, {}),
     ]
     body = _serialize_batch(envelopes)
-    # Compact JSON, no whitespace
-    assert body.startswith(b"[")
-    assert body.endswith(b"]")
+    # NDJSON: one envelope per line, no enclosing array.
+    assert not body.startswith(b"[")
+    assert not body.endswith(b"]")
+    lines = body.split(b"\n")
+    assert len(lines) == 2
+    # Each line is a standalone JSON document.
+    import json
+
+    json.loads(lines[0])
+    json.loads(lines[1])
     # Both events present
-    assert b'"ModelKitHeartbeat"' in body
-    assert b'"ModelKitAction"' in body
+    assert b'"ModelKitHeartbeat"' in lines[0]
+    assert b'"ModelKitAction"' in lines[1]
     # UTF-8 encoded
     assert isinstance(body, bytes)
 
