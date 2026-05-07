@@ -70,11 +70,16 @@ def test_export_success_returns_success(exporter):
 
     assert result == LogRecordExportResult.SUCCESS
     mock_post.assert_called_once()
-    # Content-Type is set on the session (applied to every request).
-    assert exporter._session.headers["Content-Type"].startswith("application/json")
-    # Body is JSON array containing the event
+    # OneCollector /OneCollector/1.0/ ingest only accepts x-json-stream
+    # (NDJSON) or bond-compact-binary; application/json is rejected with
+    # HTTP 415. Auth is via the x-apikey header, not the envelope iKey.
+    headers = exporter._session.headers
+    assert headers["Content-Type"] == "application/x-json-stream; charset=utf-8"
+    assert headers["x-apikey"] == "o:abc"
+    # Body is NDJSON (one envelope per line, no enclosing array).
     _, kwargs = mock_post.call_args
     body = kwargs["data"]
+    assert not body.startswith(b"[")
     assert b'"ModelKitAction"' in body
     assert b'"iKey":"o:abc"' in body
 
@@ -128,7 +133,9 @@ def test_export_translates_resource_to_ext(exporter):
 
     import json
 
-    envelopes = json.loads(captured_body["data"].decode("utf-8"))
+    # NDJSON: one envelope per line.
+    lines = captured_body["data"].decode("utf-8").splitlines()
+    envelopes = [json.loads(line) for line in lines if line]
     ext = envelopes[0]["ext"]
     assert ext["device"] == {
         "localId": "hash-abc",
@@ -141,6 +148,32 @@ def test_export_translates_resource_to_ext(exporter):
         "sesId": "sesid-xyz",
         "initTs": 1712678400.0,
     }
+
+
+def test_export_serializes_multiple_envelopes_as_ndjson(exporter):
+    """Two envelopes → two lines joined by \\n, no enclosing array."""
+    a = _make_log_data("ModelKitHeartbeat", {})
+    b = _make_log_data("ModelKitAction", {"action_name": "build", "success": True})
+
+    captured = {}
+
+    def fake_post(url, data=None, **_kw):
+        captured["data"] = data
+        return MagicMock(status_code=200)
+
+    with patch.object(exporter._session, "post", side_effect=fake_post):
+        exporter.export([a, b])
+
+    body = captured["data"]
+    assert not body.startswith(b"[")
+    assert not body.endswith(b"]")
+    lines = body.split(b"\n")
+    assert len(lines) == 2
+    # Each line is a standalone JSON document (no trailing comma, no brackets).
+    import json
+
+    json.loads(lines[0])
+    json.loads(lines[1])
 
 
 def test_shutdown_closes_session_and_blocks_further_exports(exporter):

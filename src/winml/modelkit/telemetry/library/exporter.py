@@ -60,9 +60,14 @@ class OneCollectorLogExporter(LogRecordExporter):
         # Session object (and its connection pool) when init raises.
         session = requests.Session()
         try:
+            # The /OneCollector/1.0/ ingest only accepts x-json-stream
+            # (NDJSON) or bond-compact-binary; application/json is rejected
+            # with HTTP 415. Auth is via the x-apikey header — embedding the
+            # iKey only inside each envelope is not equivalent.
             session.headers.update(
                 {
-                    "Content-Type": "application/json; charset=utf-8",
+                    "Content-Type": "application/x-json-stream; charset=utf-8",
+                    "x-apikey": ikey,
                 }
             )
         except Exception:
