@@ -41,6 +41,7 @@ from ...sysinfo.pdh_adapters import (  # noqa: E402
     discover_gpu_luid,
     discover_npu_luid,
     enumerate_adapters,
+    resolve_adapter_luid,
 )
 
 
@@ -363,12 +364,16 @@ class PdhPoller:
         self,
         poll_interval_ms: int = 200,
         device: str = "auto",
+        ep_name: str | None = None,
     ) -> None:
         device_norm = (device or "auto").lower()
         if device_norm not in _DEVICE_KINDS:
             raise ValueError(f"Unknown device {device!r}; expected one of {_DEVICE_KINDS}")
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._requested_device = device_norm
+        # Full ORT EP name (e.g. "QNNExecutionProvider") to disambiguate when
+        # multiple EPs cover the same device type during LUID resolution.
+        self._ep_name = ep_name
         self._device_kind: str | None = None  # resolved at start(): "npu" | "gpu" | None
         self._query: PdhQuery | None = None
         self._adapter_luid: str | None = None
@@ -387,10 +392,13 @@ class PdhPoller:
         """Resolve target device, register PDH counters, start background thread.
 
         Monitors CPU and RAM always. Adapter utilization and memory are added
-        when the requested NPU/GPU adapter is discovered via PDH.
+        when the requested NPU/GPU adapter is discovered via ORT (preferred)
+        or PDH fingerprinting (fallback).
         """
         try:
-            self._adapter_luid, self._device_kind = self._resolve_adapter(self._requested_device)
+            self._adapter_luid, self._device_kind = self._resolve_adapter(
+                self._requested_device, self._ep_name
+            )
 
             if self._adapter_luid is not None and self._device_kind == "npu":
                 self._query = build_npu_query(self._adapter_luid)
@@ -492,26 +500,34 @@ class PdhPoller:
             self._stop_event.wait(self._poll_interval_s)
 
     @staticmethod
-    def _resolve_adapter(requested: str) -> tuple[str | None, str | None]:
+    def _resolve_adapter(
+        requested: str, ep_name: str | None = None
+    ) -> tuple[str | None, str | None]:
         """Return (luid, kind) for the requested device.
 
-        kind is "npu" or "gpu" when an adapter is found; both elements are
-        None when the requested device is "cpu" or no adapter could be
-        discovered.
+        Uses :func:`resolve_adapter_luid` so that — when ORT's autoEP API
+        publishes ``OrtHardwareDevice.metadata["LUID"]`` — the monitor tracks
+        the same adapter the inference session binds to. Falls back to PDH
+        fingerprinting when ORT data is unavailable.
+
+        ``kind`` is ``"npu"`` or ``"gpu"`` when an adapter is found; both
+        elements are ``None`` when the requested device is ``"cpu"`` or no
+        adapter could be discovered.
         """
         if requested == "cpu":
             return None, None
         if requested == "npu":
-            luid = discover_npu_luid()
+            luid = resolve_adapter_luid("npu", ep_name=ep_name)
             return luid, ("npu" if luid else None)
         if requested == "gpu":
-            luid = discover_gpu_luid()
+            luid = resolve_adapter_luid("gpu", ep_name=ep_name)
             return luid, ("gpu" if luid else None)
-        # auto: prefer NPU, then GPU
-        luid = discover_npu_luid()
+        # auto: prefer NPU, then GPU. EP name (if any) only narrows within
+        # the matching device type, so the same hint is reused for both.
+        luid = resolve_adapter_luid("npu", ep_name=ep_name)
         if luid is not None:
             return luid, "npu"
-        luid = discover_gpu_luid()
+        luid = resolve_adapter_luid("gpu", ep_name=ep_name)
         if luid is not None:
             return luid, "gpu"
         return None, None

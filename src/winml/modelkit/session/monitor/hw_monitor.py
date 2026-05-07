@@ -47,6 +47,7 @@ class HWMonitor:
         self,
         poll_interval_ms: int = 200,
         device: str = "auto",
+        ep_name: str | None = None,
     ) -> None:
         """Initialize the monitor.
 
@@ -56,8 +57,13 @@ class HWMonitor:
                 (Compute engine), ``"gpu"`` polls the GPU (3D engine),
                 ``"cpu"`` skips adapter polling (CPU/RAM only), and
                 ``"auto"`` probes NPU first then GPU.
+            ep_name: Full ORT EP name (e.g. ``"QNNExecutionProvider"``).
+                When provided, the monitor uses ``OrtHardwareDevice``
+                metadata to resolve the same LUID the inference session
+                will bind to — useful on hybrid systems where multiple
+                adapters share a device type.
         """
-        self._pdh = PdhPoller(poll_interval_ms, device=device)
+        self._pdh = PdhPoller(poll_interval_ms, device=device, ep_name=ep_name)
 
     def __enter__(self) -> Self:
         """Start PDH background polling."""

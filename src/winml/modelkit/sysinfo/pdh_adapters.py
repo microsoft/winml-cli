@@ -223,3 +223,97 @@ def discover_gpu_luid() -> str | None:
     # is meant for. Tests/CLI can pass --device gpu and accept the first.
     logger.debug("Multiple GPU adapters found; using %s", luids[0])
     return luids[0]
+
+
+def _format_pdh_luid(decimal_luid: str) -> str:
+    """Format a decimal LUID string as PDH ``"0xHHHHHHHH_0xHHHHHHHH"``.
+
+    ORT's autoEP exposes ``OrtHardwareDevice.metadata["LUID"]`` as a base-10
+    integer string covering the full 64 bits. PDH counter paths split that
+    into high/low 32-bit halves rendered in upper-case hex. This helper does
+    that conversion (and only that — callers must ensure the input parses
+    as an integer).
+    """
+    v = int(decimal_luid)
+    return f"0x{(v >> 32) & 0xFFFFFFFF:08X}_0x{v & 0xFFFFFFFF:08X}"
+
+
+def resolve_adapter_luid(
+    device_kind: str,
+    ep_name: str | None = None,
+) -> str | None:
+    """Resolve the adapter LUID that ORT will bind an EP to.
+
+    Asks ``onnxruntime.get_ep_devices()`` first: ORT's autoEP API publishes
+    ``OrtHardwareDevice.metadata["LUID"]`` for every EP-device pair, which is
+    authoritative for *which* GPU/NPU the inference session ends up using.
+    Falls back to the PDH-only heuristic helpers when ORT can't be imported,
+    when no matching ep_device is registered, or when the matched device has
+    no LUID metadata (some EPs / older ORT builds).
+
+    Args:
+        device_kind: ``"npu"`` or ``"gpu"`` (case-insensitive).
+        ep_name: Full ORT EP name (e.g. ``"QNNExecutionProvider"``) to
+            disambiguate when several EPs cover the same device type. Pass
+            ``None`` to match the first ep_device of the requested type.
+
+    Returns:
+        PDH-formatted LUID (``"0xHHHHHHHH_0xHHHHHHHH"``) or None if neither
+        ORT nor the PDH fallback found a matching adapter.
+    """
+    kind = (device_kind or "").lower()
+    if kind not in ("npu", "gpu"):
+        return None
+
+    luid = _resolve_via_ort(kind, ep_name)
+    if luid is not None:
+        return luid
+
+    # Fallback: PDH-only heuristic discovery.
+    if kind == "npu":
+        return discover_npu_luid()
+    return discover_gpu_luid()
+
+
+def _resolve_via_ort(kind: str, ep_name: str | None) -> str | None:
+    """Look up the adapter LUID through ORT's autoEP registry.
+
+    Returns None silently on any failure so callers can fall back.
+    """
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        return None
+
+    try:
+        ep_devices = ort.get_ep_devices()
+    except Exception:
+        logger.debug("ort.get_ep_devices() failed", exc_info=True)
+        return None
+
+    target_type = getattr(ort.OrtHardwareDeviceType, "NPU" if kind == "npu" else "GPU", None)
+    if target_type is None:
+        return None
+
+    for ep_dev in ep_devices:
+        if ep_name and ep_dev.ep_name != ep_name:
+            continue
+        if ep_dev.device.type != target_type:
+            continue
+        decimal_luid = dict(ep_dev.device.metadata).get("LUID")
+        if not decimal_luid:
+            continue
+        try:
+            formatted = _format_pdh_luid(decimal_luid)
+        except (TypeError, ValueError):
+            logger.debug("Unparseable LUID metadata: %r", decimal_luid)
+            continue
+        logger.debug(
+            "Resolved %s LUID via ORT (ep=%s): %s",
+            kind.upper(),
+            ep_dev.ep_name,
+            formatted,
+        )
+        return formatted
+
+    return None

@@ -718,6 +718,160 @@ class TestPdhPollerGracefulDegradation:
 # ============================================================================
 
 
+class TestResolveAdapterLuid:
+    """Verify ORT-first LUID resolution with PDH fallback."""
+
+    def test_invalid_kind_returns_none(self):
+        from winml.modelkit.sysinfo.pdh_adapters import resolve_adapter_luid
+
+        assert resolve_adapter_luid("tpu") is None
+        assert resolve_adapter_luid("") is None
+
+    def test_prefers_ort_metadata_when_available(self):
+        """When ORT publishes LUID metadata, resolver returns the formatted
+        value WITHOUT calling the PDH-only helpers."""
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        fake_dev = type(
+            "FakeEpDevice",
+            (),
+            {
+                "ep_name": "QNNExecutionProvider",
+                "device": type(
+                    "FakeHwDev",
+                    (),
+                    {"type": "GPU_TYPE", "metadata": {"LUID": "74191"}},
+                )(),
+            },
+        )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [fake_dev],
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
+            },
+        )
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "discover_gpu_luid") as mock_pdh,
+        ):
+            luid = pdh_adapters.resolve_adapter_luid("gpu")
+
+        # 74191 == 0x121CF
+        assert luid == "0x00000000_0x000121CF"
+        mock_pdh.assert_not_called()
+
+    def test_filters_by_ep_name(self):
+        """When ep_name is given, the resolver picks the matching ep_device
+        even if another EP appears first in the list."""
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        dml_dev = type(
+            "FakeEpDevice",
+            (),
+            {
+                "ep_name": "DmlExecutionProvider",
+                "device": type(
+                    "FakeHwDev",
+                    (),
+                    {"type": "GPU_TYPE", "metadata": {"LUID": "111"}},
+                )(),
+            },
+        )()
+        qnn_dev = type(
+            "FakeEpDevice",
+            (),
+            {
+                "ep_name": "QNNExecutionProvider",
+                "device": type(
+                    "FakeHwDev",
+                    (),
+                    {"type": "GPU_TYPE", "metadata": {"LUID": "222"}},
+                )(),
+            },
+        )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [dml_dev, qnn_dev],
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
+            },
+        )
+
+        with patch.dict("sys.modules", {"onnxruntime": fake_ort}):
+            luid = pdh_adapters.resolve_adapter_luid("gpu", ep_name="QNNExecutionProvider")
+
+        # 222 == 0xDE
+        assert luid == "0x00000000_0x000000DE"
+
+    def test_falls_back_to_pdh_when_ort_has_no_luid_metadata(self):
+        """Some EPs may register without LUID metadata; PDH is the fallback."""
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        bare_dev = type(
+            "FakeEpDevice",
+            (),
+            {
+                "ep_name": "SomeEP",
+                "device": type("FakeHwDev", (), {"type": "GPU_TYPE", "metadata": {}})(),
+            },
+        )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [bare_dev],
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
+            },
+        )
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(
+                pdh_adapters,
+                "discover_gpu_luid",
+                return_value="0x00000000_0xFEED",
+            ),
+        ):
+            luid = pdh_adapters.resolve_adapter_luid("gpu")
+
+        assert luid == "0x00000000_0xFEED"
+
+    def test_falls_back_when_ort_get_ep_devices_raises(self):
+        """A misbehaving ORT build must not break monitoring."""
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        def boom():
+            raise RuntimeError("autoEP unavailable")
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": staticmethod(boom),
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
+            },
+        )
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(
+                pdh_adapters,
+                "discover_npu_luid",
+                return_value="0x00000000_0x00012C89",
+            ),
+        ):
+            luid = pdh_adapters.resolve_adapter_luid("npu")
+
+        assert luid == "0x00000000_0x00012C89"
+
+
 class TestPollerDeviceRouting:
     """Verify ``device`` parameter routes PdhPoller to the correct adapter."""
 
@@ -731,21 +885,17 @@ class TestPollerDeviceRouting:
         """device='cpu' must not even attempt NPU/GPU LUID discovery."""
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        with (
-            patch("winml.modelkit.session.monitor._pdh.discover_npu_luid") as mock_npu,
-            patch("winml.modelkit.session.monitor._pdh.discover_gpu_luid") as mock_gpu,
-        ):
+        with patch("winml.modelkit.session.monitor._pdh.resolve_adapter_luid") as mock_resolve:
             poller = PdhPoller(poll_interval_ms=50, device="cpu")
             poller.start()
             poller.stop()
 
-        mock_npu.assert_not_called()
-        mock_gpu.assert_not_called()
+        mock_resolve.assert_not_called()
         assert poller.device_kind is None
         assert poller.adapter_luid is None
 
     def test_gpu_device_uses_3d_engine_query(self):
-        """device='gpu' must call discover_gpu_luid + build_gpu_query."""
+        """device='gpu' must resolve a GPU LUID + call build_gpu_query."""
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
         fake_query = type(
@@ -764,9 +914,9 @@ class TestPollerDeviceRouting:
 
         with (
             patch(
-                "winml.modelkit.session.monitor._pdh.discover_gpu_luid",
+                "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
                 return_value="0x00000000_0xDEADBEEF",
-            ),
+            ) as mock_resolve,
             patch(
                 "winml.modelkit.session.monitor._pdh.build_gpu_query",
                 return_value=fake_query,
@@ -774,15 +924,12 @@ class TestPollerDeviceRouting:
             patch(
                 "winml.modelkit.session.monitor._pdh.build_npu_query",
             ) as mock_build_npu,
-            patch(
-                "winml.modelkit.session.monitor._pdh.discover_npu_luid",
-                return_value=None,
-            ),
         ):
             poller = PdhPoller(poll_interval_ms=50, device="gpu")
             poller.start()
             poller.stop()
 
+        mock_resolve.assert_called_once_with("gpu", ep_name=None)
         mock_build_gpu.assert_called_once()
         mock_build_npu.assert_not_called()
         assert poller.device_kind == "gpu"
@@ -808,15 +955,12 @@ class TestPollerDeviceRouting:
             },
         )()
 
+        # First call (npu) returns None; second call (gpu) returns the LUID.
         with (
             patch(
-                "winml.modelkit.session.monitor._pdh.discover_npu_luid",
-                return_value=None,
-            ),
-            patch(
-                "winml.modelkit.session.monitor._pdh.discover_gpu_luid",
-                return_value="0x0_0xCAFE",
-            ),
+                "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
+                side_effect=[None, "0x0_0xCAFE"],
+            ) as mock_resolve,
             patch(
                 "winml.modelkit.session.monitor._pdh.build_gpu_query",
                 return_value=fake_query,
@@ -826,9 +970,51 @@ class TestPollerDeviceRouting:
             poller.start()
             poller.stop()
 
+        assert mock_resolve.call_args_list == [
+            (("npu",), {"ep_name": None}),
+            (("gpu",), {"ep_name": None}),
+        ]
         mock_build_gpu.assert_called_once()
         assert poller.device_kind == "gpu"
         assert poller.adapter_luid == "0x0_0xCAFE"
+
+    def test_ep_name_threads_through_to_resolver(self):
+        """An ep_name on PdhPoller is forwarded to resolve_adapter_luid."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
+                return_value="0x0_0xC0FFEE",
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_gpu_query",
+                return_value=fake_query,
+            ),
+        ):
+            poller = PdhPoller(
+                poll_interval_ms=50,
+                device="gpu",
+                ep_name="QNNExecutionProvider",
+            )
+            poller.start()
+            poller.stop()
+
+        mock_resolve.assert_called_once_with("gpu", ep_name="QNNExecutionProvider")
 
 
 class TestHWMonitorDeviceRouting:
@@ -853,7 +1039,7 @@ class TestHWMonitorDeviceRouting:
 
         with (
             patch(
-                "winml.modelkit.session.monitor._pdh.discover_gpu_luid",
+                "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
                 return_value="0x0_0xCAFE",
             ),
             patch(
@@ -872,6 +1058,43 @@ class TestHWMonitorDeviceRouting:
         assert d["adapter_luid"] == "0x0_0xCAFE"
         # JSON-serializable
         assert isinstance(json.dumps(d), str)
+
+    def test_ep_name_threads_through_to_pdh_poller(self):
+        """HWMonitor(ep_name=...) reaches the underlying PdhPoller resolver."""
+        from winml.modelkit.session import HWMonitor
+
+        fake_query = type(
+            "Q",
+            (),
+            {
+                "open": lambda self: None,
+                "add_counter": lambda self, *a, **k: True,
+                "prime": lambda self: None,
+                "collect": lambda self, **k: {},
+                "_collect_once": lambda self: {},
+                "close": lambda self: None,
+                "counter_names": [],
+            },
+        )()
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
+                return_value="0x0_0xC0FFEE",
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_npu_query",
+                return_value=fake_query,
+            ),
+            HWMonitor(
+                poll_interval_ms=50,
+                device="npu",
+                ep_name="QNNExecutionProvider",
+            ),
+        ):
+            pass
+
+        mock_resolve.assert_called_once_with("npu", ep_name="QNNExecutionProvider")
 
     def test_unknown_device_raises(self):
         from winml.modelkit.session import HWMonitor
