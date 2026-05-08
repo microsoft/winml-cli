@@ -43,14 +43,14 @@ def test_default_endpoint_points_at_one_collector():
 
 def test_create_logger_provider_returns_configured_provider(make_provider):
     resource = Resource.create({"app_version": "0.0.1"})
-    provider = make_provider(ikey="o:test", resource=resource)
+    provider = make_provider(ikey="test-tenant-1234", resource=resource)
     assert isinstance(provider, LoggerProvider)
     assert provider.resource.attributes.get("app_version") == "0.0.1"
 
 
 def test_create_logger_provider_with_custom_endpoint(make_provider):
     provider = make_provider(
-        ikey="o:test",
+        ikey="test-tenant-1234",
         endpoint="https://example.invalid/OneCollector/1.0/",
     )
     assert isinstance(provider, LoggerProvider)

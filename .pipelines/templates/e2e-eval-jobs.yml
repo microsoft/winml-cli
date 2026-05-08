@@ -15,6 +15,10 @@ parameters:
   - name: modelTimeout
     type: number
     default: 3600
+  - name: devices
+    type: object
+    default:
+      - npu
 
 jobs:
   - job: Prepare_${{ parameters.agentSuffix }}
@@ -95,54 +99,90 @@ jobs:
           if (-not $evalDate -or $evalDate -eq 'auto') { $evalDate = Get-Date -Format 'yyyy-MM-dd' }
           $dir = "${{ parameters.evalOutputBase }}/$evalDate/${{ parameters.agentSuffix }}"
           Write-Host "##vso[task.setvariable variable=EVAL_DIR;isOutput=true]$dir"
-          Write-Host "Eval output directory: $dir"
+          Write-Host "Eval output directory (base): $dir"
         name: set_output_dir
         displayName: 'Set eval output directory'
 
-      - powershell: |
-          $args = @(
-              "run", "python", "scripts/e2e_eval/run_eval.py",
-              "--list-json", "temp/model_list.json",
-              "--device", "npu"
-          )
-          if ('${{ parameters.continueRun }}' -eq 'True') {
-              $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)")
-          }
-          & uv @args
-        workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Generate model list'
+      - ${{ each device in parameters.devices }}:
+          - powershell: |
+              $args = @(
+                  "run", "python", "scripts/e2e_eval/run_eval.py",
+                  "--list-json", "temp/model_list_${{ device }}.json",
+                  "--device", "${{ device }}"
+              )
+              if ('${{ parameters.continueRun }}' -eq 'True') {
+                  $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)/${{ device }}")
+              }
+              & uv @args
+            workingDirectory: $(Build.SourcesDirectory)
+            displayName: 'Generate model list (${{ device }})'
 
       - powershell: |
-          $models = Get-Content "$(Build.SourcesDirectory)/temp/model_list.json" | ConvertFrom-Json
-          $total = $models.Count
+          $devices = '${{ join(',', parameters.devices) }}' -split ','
+          # rowsByKey: matrix-key -> @{ entry = base-fields; pendingDevices = ordered list }
+          $rowsByKey = [ordered]@{}
+          $usedKeys = @{}
+
+          foreach ($device in $devices) {
+              $listPath = "$(Build.SourcesDirectory)/temp/model_list_$device.json"
+              if (-not (Test-Path $listPath)) {
+                  Write-Warning "Model list missing for device '$device' at $listPath"
+                  continue
+              }
+              $models = Get-Content $listPath | ConvertFrom-Json
+              if ($null -eq $models) { continue }
+              # Force collection even if a single object was returned
+              $models = @($models)
+              Write-Host "Device '$device': $($models.Count) pending models"
+
+              foreach ($m in $models) {
+                  $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
+                  if ($usedKeys.ContainsKey($slug)) {
+                      $key = $usedKeys[$slug]
+                  } else {
+                      $key = $slug
+                      $suffix = 2
+                      while ($rowsByKey.Contains($key)) {
+                          $key = "${slug}_${suffix}"
+                          $suffix++
+                      }
+                      $usedKeys[$slug] = $key
+                  }
+
+                  if (-not $rowsByKey.Contains($key)) {
+                      $rowsByKey[$key] = @{
+                          entry = @{
+                              hf_id = [string]$m.hf_id
+                              hf_task = [string]$m.task
+                              priority = [string]$m.priority
+                              model_type = [string]$m.model_type
+                              model_group = [string]$m.group
+                          }
+                          pendingDevices = New-Object System.Collections.Generic.List[string]
+                      }
+                  }
+                  $rowsByKey[$key].pendingDevices.Add($device)
+              }
+          }
+
+          $total = $rowsByKey.Count
           if ($total -eq 0) {
-              Write-Host "All models already evaluated — nothing to run"
+              Write-Host "All models already evaluated for all selected devices — nothing to run"
               Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]{}"
               Write-Host "##vso[task.setvariable variable=skipEval;isOutput=true]true"
               return
           }
 
           $matrix = @{}
-          for ($i = 0; $i -lt $total; $i++) {
-              $m = $models[$i]
-              $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
-              $key = $slug
-              $suffix = 2
-              while ($matrix.ContainsKey($key)) {
-                  $key = "${slug}_${suffix}"
-                  $suffix++
-              }
-              $matrix[$key] = @{
-                  hf_id = [string]$m.hf_id
-                  hf_task = [string]$m.task
-                  priority = [string]$m.priority
-                  model_type = [string]$m.model_type
-                  model_group = [string]$m.group
-              }
+          foreach ($key in $rowsByKey.Keys) {
+              $row = $rowsByKey[$key]
+              $entry = $row.entry.Clone()
+              $entry['devices_csv'] = ($row.pendingDevices -join ',')
+              $matrix[$key] = $entry
           }
 
           $json = $matrix | ConvertTo-Json -Compress -Depth 5
-          Write-Host "Prepared matrix for $total models"
+          Write-Host "Prepared matrix for $total models across $($devices.Count) device(s)"
           Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]$json"
         name: set_matrix
         displayName: 'Create matrix variables'
@@ -187,72 +227,109 @@ jobs:
           Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
           Write-Host "Model: $(hf_id) / $(hf_task)"
           Write-Host "Priority: $(priority)"
-          Write-Host "Output: $(EVAL_DIR)"
+          Write-Host "Output base: $(EVAL_DIR)"
+          Write-Host "Pending devices: $(devices_csv)"
 
-          $uvArgs = @(
-              "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
-              "--hf-model", "$(hf_id)",
-              "--output-dir", "$(EVAL_DIR)",
-              "--device", "npu",
-              "--continue",
-              "--verbose",
-              "--timeout", "${{ parameters.modelTimeout }}",
-              "--no-report",
-              "--clean-cache"
-          )
-          if ("$(hf_task)") {
-              $uvArgs += @("--task", "$(hf_task)")
+          $devices = '$(devices_csv)' -split ','
+          $devices = $devices | Where-Object { $_ -and $_.Trim() -ne '' }
+          if (-not $devices -or $devices.Count -eq 0) {
+              Write-Warning "No pending devices for $(hf_id) / $(hf_task) — skipping"
+              exit 0
           }
 
-          & uv @uvArgs
-          $evalExit = $LASTEXITCODE
-          if ($evalExit -ne 0) {
-              Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task) (model failure — non-blocking)"
+          for ($i = 0; $i -lt $devices.Count; $i++) {
+              $device = $devices[$i].Trim()
+              $isLast = ($i -eq ($devices.Count - 1))
+              Write-Host "============================================================"
+              Write-Host "[$($i + 1)/$($devices.Count)] device='$device' (last=$isLast) for $(hf_id)"
+              Write-Host "============================================================"
+
+              $deviceOutput = "$(EVAL_DIR)/$device"
+
+              $uvArgs = @(
+                  "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
+                  "--hf-model", "$(hf_id)",
+                  "--output-dir", $deviceOutput,
+                  "--device", $device,
+                  "--continue",
+                  "--verbose",
+                  "--timeout", "${{ parameters.modelTimeout }}",
+                  "--no-report"
+              )
+              if ($isLast) {
+                  # Only clean cache after the LAST device so HF download and
+                  # any reusable build artifacts can be shared across devices
+                  # for this model.
+                  $uvArgs += "--clean-cache"
+              }
+              if ("$(hf_task)") {
+                  $uvArgs += @("--task", "$(hf_task)")
+              }
+
+              & uv @uvArgs
+              $evalExit = $LASTEXITCODE
+              if ($evalExit -ne 0) {
+                  Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task) on device '$device' (model failure — non-blocking)"
+              }
           }
           exit 0
         workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Run eval for current model'
+        displayName: 'Run eval for current model (all pending devices)'
 
-  - job: Report_${{ parameters.agentSuffix }}
-    displayName: 'Generate Eval Report (${{ parameters.agentSuffix }})'
-    dependsOn:
-      - Prepare_${{ parameters.agentSuffix }}
-      - EvalModel_${{ parameters.agentSuffix }}
-    condition: always()
-    pool:
-      name: modelkit-selfhost-pool
-      demands:
-        - Agent.Name -equals ${{ parameters.agentName }}
-    variables:
-      EVAL_DIR: $[ dependencies.Prepare_${{ parameters.agentSuffix }}.outputs['set_output_dir.EVAL_DIR'] ]
+  - ${{ each device in parameters.devices }}:
+      - job: Report_${{ parameters.agentSuffix }}_${{ device }}
+        displayName: 'Generate Eval Report (${{ parameters.agentSuffix }} / ${{ device }})'
+        dependsOn:
+          - Prepare_${{ parameters.agentSuffix }}
+          - EvalModel_${{ parameters.agentSuffix }}
+        condition: always()
+        pool:
+          name: modelkit-selfhost-pool
+          demands:
+            - Agent.Name -equals ${{ parameters.agentName }}
+        variables:
+          EVAL_DIR_BASE: $[ dependencies.Prepare_${{ parameters.agentSuffix }}.outputs['set_output_dir.EVAL_DIR'] ]
 
-    steps:
-      - checkout: self
-        clean: false
-        fetchDepth: 1
-        path: s
+        steps:
+          - checkout: self
+            clean: false
+            fetchDepth: 1
+            path: s
 
-      - checkout: ModelKitArtifacts
-        clean: false
-        fetchDepth: 1
-        lfs: true
-        path: artifacts
+          - checkout: ModelKitArtifacts
+            clean: false
+            fetchDepth: 1
+            lfs: true
+            path: artifacts
 
-      - powershell: |
-          $uvBin = "$env:USERPROFILE\.local\bin"
-          $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
-          Write-Host "##vso[task.prependpath]$uvBin"
-          Write-Host "##vso[task.prependpath]$venvDir"
-        displayName: 'Activate Python environment'
+          - powershell: |
+              $uvBin = "$env:USERPROFILE\.local\bin"
+              $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
+              Write-Host "##vso[task.prependpath]$uvBin"
+              Write-Host "##vso[task.prependpath]$venvDir"
+            displayName: 'Activate Python environment'
 
-      - script: >
-          uv run --no-sync python scripts/e2e_eval/generate_report.py
-          --input-dir $(EVAL_DIR)
-        workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Generate evaluation report'
+          - powershell: |
+              $deviceDir = "$(EVAL_DIR_BASE)/${{ device }}"
+              if (-not (Test-Path $deviceDir)) {
+                  Write-Host "No results found at $deviceDir — skipping report"
+                  Write-Host "##vso[task.setvariable variable=HAS_RESULTS]false"
+                  return
+              }
+              Write-Host "##vso[task.setvariable variable=HAS_RESULTS]true"
+              Write-Host "##vso[task.setvariable variable=DEVICE_DIR]$deviceDir"
+            displayName: 'Resolve device output directory (${{ device }})'
 
-      - task: PublishPipelineArtifact@1
-        inputs:
-          targetPath: $(EVAL_DIR)
-          artifactName: EvalReport_${{ parameters.agentSuffix }}
-        displayName: 'Publish eval results as artifact'
+          - script: >
+              uv run --no-sync python scripts/e2e_eval/generate_report.py
+              --input-dir $(DEVICE_DIR)
+            workingDirectory: $(Build.SourcesDirectory)
+            condition: and(succeeded(), eq(variables['HAS_RESULTS'], 'true'))
+            displayName: 'Generate evaluation report (${{ device }})'
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(DEVICE_DIR)
+              artifactName: EvalReport_${{ parameters.agentSuffix }}_${{ device }}
+            condition: and(succeeded(), eq(variables['HAS_RESULTS'], 'true'))
+            displayName: 'Publish eval results as artifact (${{ device }})'
