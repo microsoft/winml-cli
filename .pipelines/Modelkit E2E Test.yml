@@ -17,15 +17,30 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
-  - name: ovPairs
-    displayName: 'NPU-OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
+  - name: ovEpDevicePairs
+    displayName: 'NPU-OV: EP/device pairs to evaluate'
     type: object
     default:
-      - dml_gpu
-      - mlas_cpu
-      - ov_cpu
-      - ov_gpu
-      - ov_npu
+      - name: dml_gpu
+        displayName: 'DML GPU'
+        ep: dml
+        device: gpu
+      - name: mlas_cpu
+        displayName: 'MLAS CPU'
+        ep: cpu
+        device: cpu
+      - name: ov_cpu
+        displayName: 'OV CPU'
+        ep: ov
+        device: cpu
+      - name: ov_gpu
+        displayName: 'OV GPU'
+        ep: ov
+        device: gpu
+      - name: ov_npu
+        displayName: 'OV NPU'
+        ep: ov
+        device: npu
 
 stages:
   - stage: NPU_QNN
@@ -48,29 +63,7 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
-          epDevicePairs:
-            - ${{ each pairName in parameters.ovPairs }}:
-              - name: ${{ pairName }}
-                ${{ if eq(pairName, 'dml_gpu') }}:
-                  displayName: 'DML GPU'
-                  ep: dml
-                  device: gpu
-                ${{ if eq(pairName, 'mlas_cpu') }}:
-                  displayName: 'MLAS CPU'
-                  ep: cpu
-                  device: cpu
-                ${{ if eq(pairName, 'ov_cpu') }}:
-                  displayName: 'OV CPU'
-                  ep: ov
-                  device: cpu
-                ${{ if eq(pairName, 'ov_gpu') }}:
-                  displayName: 'OV GPU'
-                  ep: ov
-                  device: gpu
-                ${{ if eq(pairName, 'ov_npu') }}:
-                  displayName: 'OV NPU'
-                  ep: ov
-                  device: npu
+          epDevicePairs: ${{ parameters.ovEpDevicePairs }}
 
   - stage: NPU_AMD
     displayName: 'E2E Eval — NPU-AMD'
