@@ -63,7 +63,7 @@ class WinMLEvaluationConfig:
     device: str = "cpu"
     ep: str | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
-    output_path: Path | None = None
+    output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -95,6 +95,8 @@ class WinMLEvaluationConfig:
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
             streaming=ds_data.get("streaming", False),
+            build_script=ds_data.get("build_script"),
+            label_mapping_file=ds_data.get("label_mapping_file"),
         )
         return cls(
             model_id=data.get("model_id"),
