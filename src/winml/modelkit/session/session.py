@@ -301,7 +301,7 @@ class WinMLSession:
             # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()
             logger.info(
-                "Session created with policy %s, providers: %s",
+                "Session created with device %s, providers: %s",
                 target_device,
                 actual_providers,
             )
@@ -432,27 +432,40 @@ class WinMLSession:
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
         """
-        # Explicit EP targeting: create fresh opts to avoid double-registration
-        # Don't filter by device type — trust the user's --ep choice
-        # (e.g., QNN reports as NPU in get_ep_devices but can target GPU)
+        # Explicit EP targeting: create fresh opts to avoid double-registration.
+        # When device is also specified (non-"auto"), narrow by both EP name
+        # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
+        # instead of the first QNN ep_device (which may report as NPU).
         if self._ep and self._ep != "cpu":
             target_name = self._EP_NAME_MAP.get(self._ep)
             if target_name:
-                matched = self._find_ep_device(target_name)
+                matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
+                    from ..utils.constants import DEVICE_TYPE_TO_DEVICE
+
                     opts = ort.SessionOptions()
                     opts.add_provider_for_devices([matched], self._provider_options)
-                    logger.info("Explicit EP: %s (%s)", self._ep, target_name)
+                    resolved = DEVICE_TYPE_TO_DEVICE.get(
+                        matched.device.type, str(matched.device.type)
+                    )
+                    logger.info(
+                        "Explicit EP: %s (%s) device=%s -> %s",
+                        self._ep,
+                        target_name,
+                        device,
+                        resolved,
+                    )
                     return opts
                 logger.warning(
-                    "EP '%s' (%s) not found in available devices",
+                    "EP '%s' (%s) not found for device '%s'",
                     self._ep,
                     target_name,
+                    device,
                 )
 
         # No explicit EP — discover available EP for this device type
         if not self._ep and device.lower() != "cpu":
-            matched = self._find_ep_for_device(device)
+            matched = self._find_ep_device(device=device)
             if matched:
                 opts = ort.SessionOptions()
                 opts.add_provider_for_devices([matched], self._provider_options)
@@ -465,36 +478,34 @@ class WinMLSession:
             device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
         )
         opts.set_provider_selection_policy(policy)
+        logger.info("Using provider selection policy %s for device %s", policy, device)
 
         return opts
 
     @staticmethod
-    def _find_ep_device(ep_name: str) -> Any:
-        """Find the first OrtEpDevice matching the given EP name.
+    def _find_ep_device(device: str, ep_name: str | None = None) -> Any:
+        """Find the first OrtEpDevice matching the given filters.
 
-        Args:
-            ep_name: Full EP name (e.g., "DmlExecutionProvider").
-
-        Returns:
-            The matching OrtEpDevice, or None if not found.
-        """
-        for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == ep_name:
-                return ep_dev
-        return None
-
-    @staticmethod
-    def _find_ep_for_device(device: str) -> Any:
-        """Find the first available OrtEpDevice for the given device type.
-
-        Queries ``ort.get_ep_devices()`` and returns the first EP whose
-        hardware device type matches (e.g., device="gpu" matches GPU EPs).
+        Behavior:
+            - ``ep_name`` set, ``device == "auto"`` → first ep_device
+              matching ``ep_name`` (or None).
+            - ``ep_name`` unset, ``device == "auto"`` → ``None`` (no
+              effective filter — refuse to pick an arbitrary ep_device).
+            - ``ep_name`` unset, ``device`` is a concrete type → first
+              ep_device matching that device type (or None).
+            - Both set → ep_device must satisfy both (or None).
 
         Note: Selection order is determined by the ORT EP registry, which is
         not part of any documented contract. On systems where multiple EPs
         match the same device type (e.g., QNN and DML both appear as GPU),
-        the result is registry-order dependent. When a specific EP is
-        required, use ``self._ep`` to bypass this discovery path entirely.
+        a device-only query returns the first one in registry order. Pass
+        ``ep_name`` to disambiguate.
+
+        Args:
+            device: Device policy ("cpu", "gpu", "npu", "auto"). ``"auto"``
+                and unknown strings act as no-op device filters.
+            ep_name: Full EP name (e.g., "DmlExecutionProvider"), or None
+                to skip EP-name filtering.
 
         Returns:
             The matching OrtEpDevice, or None if not found.
@@ -502,11 +513,17 @@ class WinMLSession:
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
-        if device_type is None:
+
+        # No effective filter — refuse to pick an arbitrary ep_device.
+        if not ep_name and device_type is None:
             return None
+
         for ep_dev in ort.get_ep_devices():
-            if ep_dev.device.type == device_type:
-                return ep_dev
+            if ep_name and ep_dev.ep_name != ep_name:
+                continue
+            if device_type is not None and ep_dev.device.type != device_type:
+                continue
+            return ep_dev
         return None
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:

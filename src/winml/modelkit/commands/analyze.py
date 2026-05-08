@@ -24,6 +24,7 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.text import Text
 
+from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
 from ..utils.constants import normalize_ep_name
 from ..utils.logging import configure_logging
@@ -643,7 +644,7 @@ def analyze(
 
         def on_node_result(pattern_runtime):
             """Callback invoked per-node during analysis."""
-            op = _display_name(pattern_runtime.pattern_id)
+            op = _display_name(pattern_runtime.pattern_id).removesuffix(QDQ_SUFFIX)
             level = pattern_runtime.result.classification.value
             op_counts = instance_counts.setdefault(op, {})
             op_counts[level] = op_counts.get(level, 0) + 1

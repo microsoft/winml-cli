@@ -188,6 +188,11 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
         for dev in available_devices:
             compatible_eps = _DEVICE_EP_MAP.get(dev, [])
             if any(ep in available_eps for ep in compatible_eps):
+                logger.info(
+                    "Auto-selected device '%s' with compatible EPs: %s for auto device",
+                    dev,
+                    sorted(ep for ep in compatible_eps if ep in available_eps),
+                )
                 return dev, available_devices
         # Fallback: CPU is always valid
         return "cpu", available_devices
