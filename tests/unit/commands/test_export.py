@@ -551,7 +551,8 @@ class TestExportOutputDirectory:
         output_path = tmp_path / "model.onnx"
         input_info = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 4])
         output_info = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 2])
-        weight = onnx.numpy_helper.from_array(np.random.randn(4, 2).astype(np.float32), name="W")
+        weight_values = np.arange(8, dtype=np.float32).reshape(4, 2)
+        weight = onnx.numpy_helper.from_array(weight_values, name="W")
         node = onnx.helper.make_node("MatMul", ["X", "W"], ["Y"])
         graph = onnx.helper.make_graph([node], "test", [input_info], [output_info], [weight])
         model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
@@ -571,9 +572,8 @@ class TestExportOutputDirectory:
         )
 
         assert result.exit_code == 0
-        assert "Linked data file:" in result.output
-        assert "model.onnx.data" in result.output
-        assert "for model.onnx" in result.output
+        mock_export_onnx.assert_called_once()
+        assert "Linked data file: model.onnx.data (for model.onnx)" in result.output
 
 
 class TestExportDebugMode:

@@ -31,36 +31,12 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from ..onnx import get_external_data_files
 from ..utils import cli as cli_utils
 
 
 logger = logging.getLogger(__name__)
 console = Console()
-
-
-def _get_onnx_external_data_files(onnx_path: Path) -> list[str]:
-    """Get external data filenames referenced by an ONNX model."""
-    import onnx
-    from onnx.external_data_helper import _get_all_tensors, uses_external_data
-
-    try:
-        model = onnx.load(str(onnx_path), load_external_data=False)
-    except Exception:
-        logger.debug(
-            "Could not inspect external data links in %s",
-            onnx_path,
-            exc_info=True,
-        )
-        return []
-
-    external_files: set[str] = set()
-    for tensor in _get_all_tensors(model):
-        if not uses_external_data(tensor):
-            continue
-        for entry in tensor.external_data:
-            if entry.key == "location":
-                external_files.add(entry.value)
-    return sorted(external_files)
 
 
 def _delete_onnx_with_external_data(onnx_path: Path) -> None:
@@ -414,12 +390,12 @@ def export(
 
         # Show results
         console.print(f"\n[bold green]Success![/bold green] Model exported to: {output_path}")
-        external_files = _get_onnx_external_data_files(output_path)
+        external_files = get_external_data_files(output_path)
         if external_files:
             if len(external_files) == 1:
                 console.print(
                     "[bold blue]Linked data file:[/bold blue] "
-                    f"{output_path.parent / external_files[0]} (for {output_path.name})"
+                    f"{external_files[0]} (for {output_path.name})"
                 )
             else:
                 console.print(
