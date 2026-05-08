@@ -45,6 +45,8 @@ class WinMLEvaluationConfig:
             None = build from model_id.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
+        ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
+            device-to-provider mapping when provided.
         dataset: Dataset configuration.
         output_path: Path to write JSON results.
 
@@ -59,8 +61,9 @@ class WinMLEvaluationConfig:
     model_path: str | dict[str, str] | None = None
     task: str | None = None
     device: str = "cpu"
+    ep: str | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
-    output_path: Path | None = None
+    output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -72,6 +75,8 @@ class WinMLEvaluationConfig:
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
+        if self.ep is not None:
+            result["ep"] = self.ep
         result["dataset"] = self.dataset.to_dict()
         if self.output_path is not None:
             result["output_path"] = str(self.output_path)
@@ -90,12 +95,15 @@ class WinMLEvaluationConfig:
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
             streaming=ds_data.get("streaming", False),
+            build_script=ds_data.get("build_script"),
+            label_mapping_file=ds_data.get("label_mapping_file"),
         )
         return cls(
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
             task=data.get("task"),
             device=data.get("device", "cpu"),
+            ep=data.get("ep"),
             dataset=dataset,
             output_path=(Path(data["output_path"]) if data.get("output_path") else None),
         )
