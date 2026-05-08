@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+import onnx
 import pytest
 from click.testing import CliRunner
 
@@ -535,6 +537,43 @@ class TestExportOutputDirectory:
 
         # Directory should be created
         assert output_path.parent.exists()
+
+    def test_export_shows_linked_external_data_file(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test export output clearly shows which data file is linked to .onnx."""
+        from winml.modelkit.commands.export import export
+
+        output_path = tmp_path / "model.onnx"
+        input_info = onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [1, 4])
+        output_info = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 2])
+        weight = onnx.numpy_helper.from_array(np.random.randn(4, 2).astype(np.float32), name="W")
+        node = onnx.helper.make_node("MatMul", ["X", "W"], ["Y"])
+        graph = onnx.helper.make_graph([node], "test", [input_info], [output_info], [weight])
+        model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+        onnx.save_model(
+            model,
+            str(output_path),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="model.onnx.data",
+            size_threshold=0,
+        )
+
+        result = runner.invoke(
+            export,
+            ["--model", "test-model", "--output", str(output_path)],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 0
+        assert "Linked data file:" in result.output
+        assert "model.onnx.data" in result.output
+        assert "for model.onnx" in result.output
 
 
 class TestExportDebugMode:
