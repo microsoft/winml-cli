@@ -365,7 +365,9 @@ class TestSaveOnnx:
         model = _make_model_with_initializer()
         model_path = output_dir / "export.onnx"
 
-        # Must not raise FileExistsError despite stale file in CWD
+        # Must not raise FileExistsError despite stale file in CWD.
+        # _make_model_with_initializer() is used because an initializer tensor
+        # is required to trigger the external-data code path with threshold_size=0.
         save_onnx(model, model_path, threshold_size=0)
 
         assert model_path.exists()

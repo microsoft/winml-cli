@@ -124,7 +124,8 @@ def save_onnx(
         # process CWD.  This avoids a false-positive FileExistsError when a
         # stale .data sidecar exists in the process CWD from a previous build
         # but the actual output directory is clean.
-        _cwd = Path.cwd()
+        # path.parent is guaranteed to exist: mkdir() was called above.
+        original_cwd = Path.cwd()
         try:
             os.chdir(path.parent)
             onnx.save_model(
@@ -136,7 +137,7 @@ def save_onnx(
                 size_threshold=1024,
             )
         finally:
-            os.chdir(_cwd)
+            os.chdir(original_cwd)
     else:
         logger.debug("Saving ONNX model inline to %s", path)
         onnx.save_model(model, str(path))
