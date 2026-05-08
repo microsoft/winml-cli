@@ -1,0 +1,21 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "task": "sentence-similarity",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_fp16_eval.json",
+  "metrics": {
+    "cosine_spearman": 23.4227
+  }
+}

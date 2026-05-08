@@ -1,0 +1,49 @@
+{
+  "model_id": "dslim/bert-base-NER",
+  "task": "token-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\dslim_bert-base-NER\\token-classification_w8a8_eval.json",
+  "metrics": {
+    "LOC": {
+      "precision": 0.8,
+      "recall": 0.5161290322580645,
+      "f1": 0.6274509803921569,
+      "number": 62
+    },
+    "MISC": {
+      "precision": 0.4666666666666667,
+      "recall": 0.5833333333333334,
+      "f1": 0.5185185185185186,
+      "number": 24
+    },
+    "ORG": {
+      "precision": 0.5,
+      "recall": 0.08333333333333333,
+      "f1": 0.14285714285714285,
+      "number": 36
+    },
+    "PER": {
+      "precision": 0.16666666666666666,
+      "recall": 0.03636363636363636,
+      "f1": 0.05970149253731343,
+      "number": 55
+    },
+    "overall_precision": 0.5795454545454546,
+    "overall_recall": 0.288135593220339,
+    "overall_f1": 0.3849056603773585,
+    "overall_accuracy": 0.8804702808621816,
+    "total_time_in_seconds": 13.354307100002188,
+    "samples_per_second": 7.488220785336262,
+    "latency_in_seconds": 0.13354307100002188
+  }
+}

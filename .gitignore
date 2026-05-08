@@ -240,6 +240,7 @@ nul
 # Generated output files
 export_config.json
 *_perf.json
+!examples/**/*_perf.json
 shape_config.json
 
 # UV / pip

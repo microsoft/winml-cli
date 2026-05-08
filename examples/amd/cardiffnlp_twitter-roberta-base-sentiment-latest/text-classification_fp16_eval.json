@@ -1,0 +1,23 @@
+{
+  "model_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "task": "text-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "tweet_eval",
+    "name": "sentiment",
+    "columns_mapping": {
+      "input_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_fp16_eval.json",
+  "metrics": {
+    "accuracy": 0.44,
+    "total_time_in_seconds": 14.78490129999409,
+    "samples_per_second": 6.763656920728986,
+    "latency_in_seconds": 0.14784901299994088
+  }
+}

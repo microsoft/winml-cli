@@ -1,0 +1,17 @@
+{
+  "model_id": "facebook/dino-vitb16",
+  "task": "image-feature-extraction",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\amd\\facebook_dino-vitb16\\image-feature-extraction_fp16_eval.json",
+  "metrics": {
+    "knn_top1_accuracy": 30.3,
+    "knn_top5_accuracy": 52.9
+  }
+}

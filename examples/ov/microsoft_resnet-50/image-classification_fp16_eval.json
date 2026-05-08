@@ -1,0 +1,19 @@
+{
+  "model_id": "microsoft/resnet-50",
+  "task": "image-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\ov\\microsoft_resnet-50\\image-classification_fp16_eval.json",
+  "metrics": {
+    "accuracy": 0.76,
+    "total_time_in_seconds": 1.177032999927178,
+    "samples_per_second": 84.95938517117779,
+    "latency_in_seconds": 0.011770329999271781
+  }
+}
