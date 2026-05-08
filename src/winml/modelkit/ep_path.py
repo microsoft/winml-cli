@@ -1074,19 +1074,24 @@ def _parse_modelkit_ep_path() -> list[EpSource]:
     if not entries:
         return []
 
-    # Build the inverse-of-EP_DLL_NAMES dict_patterns so each entry
-    # scans for every known plugin DLL filename. We pick the first DLL
-    # name per EP as the search pattern; FilesystemSource will glob for
-    # it under the root.
-    patterns = {ep: dll_names[0] for ep, dll_names in EP_DLL_NAMES.items() if dll_names}
+    # Each EP_DLL_NAMES entry may list multiple filenames (e.g. OpenVINO
+    # has both ``onnxruntime_providers_openvino_plugin.dll`` and
+    # ``libonnxruntime_providers_openvino_plugin.so``). A FilesystemSource
+    # supports only one pattern per ep_name, so emit one source PER
+    # filename instead of picking ``[0]`` (which would search for the
+    # Windows ``.dll`` name on Linux and silently miss the ``.so``).
+    # FilesystemSource resolution is first-glob-hit; multiple sources for
+    # the same ep_name flow through ``discover_eps`` first-hit-wins.
     sources: list[EpSource] = []
     for entry in entries:
         logger.debug("MODELKIT_EP_PATH override: scanning %s", entry)
-        sources.append(
+        sources.extend(
             FilesystemSource(
                 root=Path(entry),
-                dll_patterns=patterns,
+                dll_patterns={ep: dll_name},
             )
+            for ep, dll_names in EP_DLL_NAMES.items()
+            for dll_name in dll_names
         )
     return sources
 

@@ -153,17 +153,28 @@ class WinML:
             import onnxruntime_genai  # type: ignore[import-not-found]
 
             modules.append(onnxruntime_genai)
+        # When extra_sources is supplied the caller is explicitly asking
+        # for the override path to win — bypass the per-process registered
+        # EP-name cache so a second call with new extra_sources isn't
+        # silently no-op'd by the first call's registrations. ORT's
+        # register_execution_provider_library is idempotent for the same
+        # (name, path) pair and returns the existing handle; re-calling
+        # with a different path replaces the registration, which is what
+        # extra_sources callers want.
+        skip_cache = extra_sources is not None
         for name, path in ep_paths.items():
             for module in modules:
-                if name not in self._registered_eps[module.__name__]:
-                    try:
-                        module.register_execution_provider_library(name, path)
+                if not skip_cache and name in self._registered_eps[module.__name__]:
+                    continue
+                try:
+                    module.register_execution_provider_library(name, path)
+                    if name not in self._registered_eps[module.__name__]:
                         self._registered_eps[module.__name__].append(name)
-                    except Exception as e:
-                        print(
-                            f"Failed to register execution provider {name}: {e}",
-                            file=sys.stderr,
-                        )
+                except Exception as e:
+                    print(
+                        f"Failed to register execution provider {name}: {e}",
+                        file=sys.stderr,
+                    )
         return self._registered_eps
 
 

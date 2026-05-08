@@ -349,11 +349,37 @@ class TestWinmlEpPathOverride:
     ) -> None:
         monkeypatch.setenv("MODELKIT_EP_PATH", str(tmp_path))
         sources = _parse_modelkit_ep_path()
-        assert len(sources) == 1
-        assert isinstance(sources[0], FilesystemSource)
-        assert sources[0].root == tmp_path
-        # All known EPs should be in the dll_patterns.
-        assert set(sources[0].dll_patterns.keys()) == set(EP_DLL_NAMES.keys())
+        # Per the C1 fix, the parser emits ONE FilesystemSource per
+        # (root, ep, dll_filename) combination — so a single entry with
+        # five EPs (some with both .dll and .so filenames) yields more
+        # than five sources. Every known EP must be covered at least once.
+        assert all(isinstance(s, FilesystemSource) for s in sources)
+        assert all(s.root == tmp_path for s in sources)
+        covered_eps = {
+            ep
+            for s in sources
+            if isinstance(s, FilesystemSource)
+            for ep in s.dll_patterns
+        }
+        assert covered_eps == set(EP_DLL_NAMES.keys())
+
+    def test_emits_source_per_dll_filename_for_cross_platform(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # C1: EP_DLL_NAMES["OpenVINOExecutionProvider"] has both the
+        # Windows .dll filename and the Linux .so filename. The parser
+        # must emit a FilesystemSource for EACH so a Linux user with
+        # MODELKIT_EP_PATH set finds .so files too.
+        monkeypatch.setenv("MODELKIT_EP_PATH", str(tmp_path))
+        sources = _parse_modelkit_ep_path()
+        ov_dlls = [
+            next(iter(s.dll_patterns.values()))
+            for s in sources
+            if isinstance(s, FilesystemSource)
+            and "OpenVINOExecutionProvider" in s.dll_patterns
+        ]
+        assert "onnxruntime_providers_openvino_plugin.dll" in ov_dlls
+        assert "libonnxruntime_providers_openvino_plugin.so" in ov_dlls
 
     def test_multi_entry_separator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -362,17 +388,12 @@ class TestWinmlEpPathOverride:
         b = tmp_path / "b"
         a.mkdir()
         b.mkdir()
-        # The parser uses ``;`` on Windows and ``os.pathsep`` elsewhere.
-        # Either way ``;`` is interpreted as a separator on Windows; we
-        # construct a value with the OS-native separator so the test is
-        # cross-platform.
+        # os.pathsep is ; on Windows and : elsewhere — same as PATH.
         import os
 
-        sep = ";" if os.name == "nt" else os.pathsep
-        monkeypatch.setenv("MODELKIT_EP_PATH", f"{a}{sep}{b}")
+        monkeypatch.setenv("MODELKIT_EP_PATH", f"{a}{os.pathsep}{b}")
         sources = _parse_modelkit_ep_path()
-        assert len(sources) == 2
-        roots = [s.root for s in sources if isinstance(s, FilesystemSource)]
+        roots = {s.root for s in sources if isinstance(s, FilesystemSource)}
         assert a in roots
         assert b in roots
 
