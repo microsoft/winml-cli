@@ -80,6 +80,7 @@ EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION = "w8a16"
+_HW_POLL_INTERVAL_MS = 200
 
 
 def _load_timeout_skip_set() -> set[tuple[str, str]]:
@@ -214,10 +215,144 @@ def _kill_process_tree(pid: int) -> None:
                 pass  # Process already exited; nothing to kill
 
 
-def _run_subprocess(args: list[str], timeout: int) -> dict:
+def _start_hw_monitor() -> object | None:
+    """Start an HWMonitor for the duration of a subprocess. Returns the live monitor or None.
+
+    Captures system-wide CPU/RAM/NPU metrics from the parent process so even
+    a crashing child leaves data behind. ``None`` is returned when the monitor
+    is unavailable (non-Windows or import failure) so callers can no-op.
+    """
+    try:
+        from winml.modelkit.session import HWMonitor
+    except ImportError:
+        return None
+    if not HWMonitor.is_available():
+        return None
+    try:
+        monitor = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+        monitor.__enter__()
+        return monitor
+    except Exception as exc:
+        safe_print(f"  [monitor] failed to start: {exc}")
+        return None
+
+
+def _stop_hw_monitor(monitor: object | None) -> dict | None:
+    """Stop a live HWMonitor and return its summary dict (or None on error)."""
+    if monitor is None:
+        return None
+    try:
+        monitor.__exit__(None, None, None)
+        return monitor.to_dict()  # type: ignore[attr-defined]
+    except Exception as exc:
+        safe_print(f"  [monitor] failed to collect metrics: {exc}")
+        return None
+
+
+def _merge_hw_monitor(parts: list[dict]) -> dict:
+    """Merge multiple HWMonitor dicts (e.g. composite sub-runs).
+
+    Peaks take ``max`` across parts; means take a sample-count-weighted average
+    when counts are present, falling back to a simple average otherwise.
+    Sample counts and ``running_time_ns`` are summed.
+    """
+
+    def _peak(section: str, key: str) -> float:
+        return max((p.get(section, {}).get(key, 0.0) or 0.0) for p in parts)
+
+    def _weighted_mean(section: str, mean_key: str, count_key: str) -> float:
+        total_w = 0.0
+        total = 0.0
+        fallback = []
+        for p in parts:
+            sec = p.get(section, {})
+            mean = sec.get(mean_key, 0.0) or 0.0
+            count = sec.get(count_key, 0) or 0
+            if count > 0:
+                total += mean * count
+                total_w += count
+            fallback.append(mean)
+        if total_w > 0:
+            return total / total_w
+        return sum(fallback) / len(fallback) if fallback else 0.0
+
+    return {
+        "monitor": "HWMonitor",
+        "npu_luid": next((p.get("npu_luid") for p in parts if p.get("npu_luid")), None),
+        "merged_from": len(parts),
+        "cpu": {
+            "mean_pct": round(_weighted_mean("cpu", "mean_pct", "sample_count"), 2),
+            "peak_pct": round(_peak("cpu", "peak_pct"), 2),
+            "sample_count": sum(p.get("cpu", {}).get("sample_count", 0) for p in parts),
+        },
+        "ram": {
+            "used_mb": round(max(p.get("ram", {}).get("used_mb", 0.0) for p in parts), 2),
+            "peak_mb": round(_peak("ram", "peak_mb"), 2),
+        },
+        "npu": {
+            "mean_pct": round(_weighted_mean("npu", "mean_pct", "sample_count"), 2),
+            "peak_pct": round(_peak("npu", "peak_pct"), 2),
+            "sample_count": sum(p.get("npu", {}).get("sample_count", 0) for p in parts),
+        },
+        "device_memory": {
+            "local_peak_mb": round(_peak("device_memory", "local_peak_mb"), 2),
+            "shared_peak_mb": round(_peak("device_memory", "shared_peak_mb"), 2),
+        },
+        "running_time_ns": sum(p.get("running_time_ns", 0) for p in parts),
+    }
+
+
+def _collect_op_traces(model_dir: Path) -> list[dict]:
+    """Load all ``*_op_trace.json`` files written by ``wmk perf --op-tracing``.
+
+    Returns one dict per file (already a structured ``OpTraceResult.to_dict()``
+    payload). Returns an empty list if no traces were produced (e.g. tracing
+    was disabled, or the underlying perf run failed before tracing).
+    """
+    traces: list[dict] = []
+    for trace_path in sorted(model_dir.glob("*_op_trace.json")):
+        try:
+            with trace_path.open(encoding="utf-8") as f:
+                data = json.load(f)
+            data["_source_file"] = trace_path.name
+            traces.append(data)
+        except (OSError, json.JSONDecodeError) as exc:
+            safe_print(f"  [op-trace] failed to load {trace_path.name}: {exc}")
+    return traces
+
+
+def _format_hw_summary(perf_proc: dict | None, accuracy_result: dict | None) -> str:
+    """Build a one-line HW peak summary across whichever phases produced data."""
+    parts: list[dict] = []
+    if perf_proc and perf_proc.get("hw_monitor"):
+        parts.append(perf_proc["hw_monitor"])
+    if accuracy_result and accuracy_result.get("hw_monitor"):
+        parts.append(accuracy_result["hw_monitor"])
+    if not parts:
+        return ""
+    merged = _merge_hw_monitor(parts) if len(parts) > 1 else parts[0]
+    ram = merged.get("ram", {}).get("peak_mb", 0.0)
+    cpu = merged.get("cpu", {}).get("peak_pct", 0.0)
+    npu = merged.get("npu", {}).get("peak_pct", 0.0)
+    npu_mem = merged.get("device_memory", {}).get("local_peak_mb", 0.0)
+    bits: list[str] = []
+    if ram:
+        bits.append(f"RAM={ram / 1024:.1f}GB")
+    if cpu:
+        bits.append(f"CPU={cpu:.0f}%")
+    if npu:
+        bits.append(f"NPU={npu:.0f}%")
+    if npu_mem:
+        bits.append(f"NPUmem={npu_mem:.0f}MB")
+    return f"  hw[{' '.join(bits)}]" if bits else ""
+
+
+def _run_subprocess(args: list[str], timeout: int, monitor: bool = False) -> dict:
     """Run a subprocess with three-layer timeout protection.
 
     Returns a dict with: stdout, stderr, exit_code, elapsed, timeout, command.
+    When ``monitor`` is True, the dict also carries an ``hw_monitor`` key with
+    the HWMonitor.to_dict() summary captured during the subprocess lifetime.
 
     Windows fix: On Windows, child processes can inherit pipe handles, causing
     ``proc.communicate()`` to block indefinitely even after ``taskkill`` kills
@@ -230,6 +365,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     start = time.perf_counter()
     timed_out = False
+    hw_handle = _start_hw_monitor() if monitor else None
 
     popen_kwargs: dict = {
         "stdout": subprocess.PIPE,
@@ -315,10 +451,16 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
             stdout_thread.join(timeout=2)
         if stderr_thread.is_alive():
             stderr_thread.join(timeout=2)
+        # Always stop the HW monitor here so its background thread is reaped
+        # even when the outer try raises (e.g. KeyboardInterrupt).  Capture
+        # the metrics so the post-finally code can attach them to the result.
+        _hw_metrics_final = _stop_hw_monitor(hw_handle)
+        hw_handle = None
 
     stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
     stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
     elapsed = round(time.perf_counter() - start, 1)
+    hw_metrics = _hw_metrics_final
 
     result = {
         "stdout": stdout,
@@ -328,13 +470,15 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         "timeout": timed_out,
         "command": " ".join(str(a) for a in args),
     }
+    if hw_metrics is not None:
+        result["hw_monitor"] = hw_metrics
 
     # Retry once after clearing caches if the failure was due to disk full.
     if exit_code != 0 and not timed_out and _is_no_space_error(result):
         safe_print("  [disk-full] Detected 'no space left' — clearing caches and retrying...")
         _clear_disk_caches()
         safe_print(f"  [disk-full] Retrying: {result['command']}")
-        result = _run_subprocess(args, timeout)
+        result = _run_subprocess(args, timeout, monitor=monitor)
 
     return result
 
@@ -351,6 +495,7 @@ def _run_build(
     timeout: int,
     model_dir: Path,
     ep: str | None = None,
+    monitor: bool = False,
 ) -> dict:
     """Run winml config + winml build for one model. Returns build result dict.
 
@@ -391,7 +536,7 @@ def _run_build(
     if ep:
         config_args += ["--ep", ep]
 
-    config_proc = _run_subprocess(config_args, timeout)
+    config_proc = _run_subprocess(config_args, timeout, monitor=monitor)
     if config_proc["exit_code"] != 0:
         return {
             "success": False,
@@ -427,7 +572,7 @@ def _run_build(
             "--use-cache",
         ]
 
-        build_proc = _run_subprocess(build_args, timeout)
+        build_proc = _run_subprocess(build_args, timeout, monitor=monitor)
         last_proc = build_proc
         if build_proc["exit_code"] != 0:
             stage = f"build_{label}" if label else "build"
@@ -520,12 +665,20 @@ def run_model(
     timeout: int,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    monitor: bool = False,
+    op_tracing: str | None = None,
+    model_dir: Path | None = None,
 ) -> dict:
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
     When onnx_paths is provided, benchmarks each pre-built ONNX directly.
     Single model is the {"": path} case. Results are merged (worst exit
     code, concatenated stdout/stderr, summed elapsed).
+
+    When ``op_tracing`` is set ("basic" or "detail"), passes ``--op-tracing``
+    to ``wmk perf``; the resulting ``*_op_trace.json`` files (one per sub-run)
+    are loaded and attached under ``result['op_trace']`` as a list of dicts.
+    Requires QNN EP — a non-QNN EP triggers a SystemExit inside ``wmk perf``.
     """
     if not onnx_paths:
         # No pre-built paths: fall back to HF model ID (single model only)
@@ -544,9 +697,13 @@ def run_model(
         if ep:
             args += ["--ep", ep]
         args += ["--iterations", "10", "--warmup", "2"]
+        if model_dir is not None:
+            args += ["--output", str(model_dir / "perf_output.json")]
+        if op_tracing:
+            args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
-        proc = _run_subprocess(args, timeout)
+        proc = _run_subprocess(args, timeout, monitor=monitor)
         proc["device"] = device
         proc["timestamp"] = _utc_now()
         proc["error_summary"] = (
@@ -556,6 +713,10 @@ def run_model(
             if proc["timeout"]
             else f"exit code {proc['exit_code']}"
         )
+        if op_tracing and model_dir is not None:
+            traces = _collect_op_traces(model_dir)
+            if traces:
+                proc["op_trace"] = traces
         return proc
 
     # Run perf for each sub-model and merge results
@@ -565,6 +726,7 @@ def run_model(
     worst_exit = 0
     any_timeout = False
     commands: list[str] = []
+    sub_hw_metrics: list[dict] = []
 
     for label, path in onnx_paths.items():
         if label:
@@ -574,9 +736,15 @@ def run_model(
         if ep:
             args += ["--ep", ep]
         args += ["--iterations", "10", "--warmup", "2"]
+        if model_dir is not None:
+            # Per-sub-run output: keeps op_trace files distinct for composite models.
+            suffix = f"_{label}" if label else ""
+            args += ["--output", str(model_dir / f"perf_output{suffix}.json")]
+        if op_tracing:
+            args += ["--op-tracing", op_tracing]
         args += entry.perf_args
 
-        proc = _run_subprocess(args, timeout)
+        proc = _run_subprocess(args, timeout, monitor=monitor)
         if label:
             all_stdout.append(f"=== {label} ===\n{proc['stdout']}")
             all_stderr.append(f"=== {label} ===\n{proc['stderr']}")
@@ -589,8 +757,10 @@ def run_model(
             worst_exit = proc["exit_code"]
         if proc["timeout"]:
             any_timeout = True
+        if proc.get("hw_monitor"):
+            sub_hw_metrics.append(proc["hw_monitor"])
 
-    return {
+    merged: dict = {
         "stdout": "\n".join(all_stdout),
         "stderr": "\n".join(all_stderr),
         "exit_code": worst_exit,
@@ -607,6 +777,13 @@ def run_model(
             else f"exit code {worst_exit}"
         ),
     }
+    if sub_hw_metrics:
+        merged["hw_monitor"] = _merge_hw_monitor(sub_hw_metrics)
+    if op_tracing and model_dir is not None:
+        traces = _collect_op_traces(model_dir)
+        if traces:
+            merged["op_trace"] = traces
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -679,6 +856,7 @@ def _run_winml_eval(
     model_dir: Path,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    monitor: bool = False,
 ) -> dict:
     """Invoke winml eval for one model. Returns process result + parsed metric."""
     output_path = model_dir / "winml_eval_output.json"
@@ -730,7 +908,7 @@ def _run_winml_eval(
     args += ["--output", str(output_path)]
     args += entry.eval_args
 
-    proc = _run_subprocess(args, timeout)
+    proc = _run_subprocess(args, timeout, monitor=monitor)
 
     metric = None
     if proc["exit_code"] == 0 and output_path.exists():
@@ -748,6 +926,7 @@ def _run_winml_eval(
         "elapsed": proc["elapsed"],
         "timeout": proc["timeout"],
         "command": proc["command"],
+        "hw_monitor": proc.get("hw_monitor"),
     }
 
 
@@ -870,6 +1049,7 @@ def _run_accuracy_phase(
     model_dir: Path,
     onnx_paths: dict[str, str] | None = None,
     ep: str | None = None,
+    monitor: bool = False,
 ) -> dict:
     """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
@@ -877,7 +1057,9 @@ def _run_accuracy_phase(
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_paths, ep=ep)
+    winml = _run_winml_eval(
+        entry, device, timeout, ds_config, model_dir, onnx_paths, ep=ep, monitor=monitor
+    )
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -909,6 +1091,7 @@ def _run_accuracy_phase(
         "dataset_config": {k: v for k, v in ds_config.items() if k != "hf_token_required"},
         "winml_eval_command": winml["command"],
         "pytorch_baseline_command": baseline["command"],
+        "hw_monitor": winml.get("hw_monitor"),
     }
 
 
@@ -1044,6 +1227,28 @@ def parse_args() -> argparse.Namespace:
         dest="clean_cache",
         action="store_true",
         help="Delete caches and leaked temp files after each model evaluation (saves disk space)",
+    )
+    parser.add_argument(
+        "--monitor",
+        dest="monitor",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Sample system-wide CPU/RAM/NPU metrics (Windows PDH) during each "
+            "subprocess and persist them in eval_result.json. Use --no-monitor "
+            "to disable. Default: enabled."
+        ),
+    )
+    parser.add_argument(
+        "--op-tracing",
+        dest="op_tracing",
+        choices=["basic", "detail"],
+        default=None,
+        help=(
+            "Forward --op-tracing to `wmk perf` for per-operator profiling "
+            "(QNN EP only). Adds extra trace iterations and writes "
+            "<model_dir>/<slug>_op_trace.json. Default: disabled."
+        ),
     )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
     parser.add_argument(
@@ -1225,6 +1430,35 @@ def main() -> None:
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
     if args.clean_cache:
         safe_print("Cache cleanup: ON (caches + temp files cleaned after each model)")
+    if args.monitor:
+        try:
+            from winml.modelkit.session import HWMonitor
+
+            mon_status = "ON" if HWMonitor.is_available() else "OFF (unsupported platform)"
+        except ImportError:
+            mon_status = "OFF (winml.modelkit.session not importable)"
+        safe_print(f"HW monitor: {mon_status} (CPU/RAM/NPU sampled per subprocess)")
+    else:
+        safe_print("HW monitor: OFF (--no-monitor)")
+    if args.op_tracing:
+        try:
+            from winml.modelkit.optracing import is_qnn_profiling_available
+
+            if is_qnn_profiling_available():
+                op_status = f"ON (level={args.op_tracing}, QNN EP)"
+            else:
+                op_status = (
+                    f"REQUESTED (level={args.op_tracing}) but QNN EP not available "
+                    "— wmk perf will fail; install onnxruntime-qnn"
+                )
+        except ImportError:
+            op_status = f"REQUESTED (level={args.op_tracing}) — optracing module not importable"
+        safe_print(f"Op-tracing: {op_status}")
+        if args.eval_type == "accuracy":
+            safe_print(
+                "  [warn] --op-tracing has no effect with --eval-type accuracy "
+                "(only the perf phase invokes wmk perf)."
+            )
     if retry_types is not None:
         if retry_types:
             safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
@@ -1316,6 +1550,7 @@ def main() -> None:
                 args.timeout,
                 model_dir,
                 ep=args.ep,
+                monitor=args.monitor,
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
 
@@ -1338,12 +1573,31 @@ def main() -> None:
                     model_dir,
                     onnx_paths,
                     ep=args.ep,
+                    monitor=args.monitor,
                 )
             elif args.eval_type == "perf":
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(
+                    entry,
+                    args.device,
+                    args.timeout,
+                    onnx_paths,
+                    ep=args.ep,
+                    monitor=args.monitor,
+                    op_tracing=args.op_tracing,
+                    model_dir=model_dir,
+                )
             else:
                 # "both": perf → eval
-                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                perf_proc = run_model(
+                    entry,
+                    args.device,
+                    args.timeout,
+                    onnx_paths,
+                    ep=args.ep,
+                    monitor=args.monitor,
+                    op_tracing=args.op_tracing,
+                    model_dir=model_dir,
+                )
                 if perf_proc["exit_code"] != 0:
                     accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
                 else:
@@ -1354,6 +1608,7 @@ def main() -> None:
                         model_dir,
                         onnx_paths,
                         ep=args.ep,
+                        monitor=args.monitor,
                     )
 
         except KeyboardInterrupt:
@@ -1381,17 +1636,25 @@ def main() -> None:
                     delta_str = f" {delta_str}"
                 acc_tag = f"  acc={verdict}{delta_str}"
 
+        # Build a compact HW summary tag (peaks across whichever phases ran)
+        hw_tag = _format_hw_summary(perf_proc, accuracy_result)
+
+        # Op-trace tag: count how many trace files were captured for this model.
+        op_tag = ""
+        if perf_proc and perf_proc.get("op_trace"):
+            op_tag = f"  op_trace={len(perf_proc['op_trace'])}"
+
         if perf_proc is not None:
             perf_passed = perf_proc["exit_code"] == 0
             perf_cls = classify_result(result) or "UNKNOWN"
             perf_tag = "PASS" if perf_passed else f"FAIL ({perf_cls})"
-            safe_print(f"  [{perf_tag}] {result['perf']['elapsed']}s{acc_tag}")
+            safe_print(f"  [{perf_tag}] {result['perf']['elapsed']}s{acc_tag}{hw_tag}{op_tag}")
             if args.verbose and not perf_passed:
                 combined = (perf_proc["stdout"] + perf_proc["stderr"]).strip()
                 for line in combined.splitlines()[-10:]:
                     safe_print(f"    {line}")
         else:
-            safe_print(f"  [acc only]{acc_tag}")
+            safe_print(f"  [acc only]{acc_tag}{hw_tag}")
 
         if args.clean_cache:
             _clear_disk_caches()

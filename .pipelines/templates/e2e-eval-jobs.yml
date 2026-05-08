@@ -15,6 +15,14 @@ parameters:
   - name: modelTimeout
     type: number
     default: 3600
+  # When modelId is set, --list-json is constrained to that single model so the
+  # matrix only contains one row. task is forwarded with --task when also set.
+  - name: modelId
+    type: string
+    default: ''
+  - name: task
+    type: string
+    default: ''
   # pairNames: list of EP/device pair keys defined in the catalog below.
   # Each name resolves to {ep, device, displayName} at runtime in PowerShell.
   # Catalog (kept in sync across all PowerShell blocks in this template):
@@ -138,6 +146,17 @@ jobs:
               )
               if ($pair.ep) {
                   $args += @("--ep", $pair.ep)
+              }
+              # Single-model override: restrict the generated matrix to one HF model.
+              # When task is also provided, forward it as well so adhoc-entry creation works
+              # for models that aren't in the registry.
+              $modelIdParam = '${{ parameters.modelId }}'
+              $taskParam = '${{ parameters.task }}'
+              if ($modelIdParam) {
+                  $args += @("--hf-model", $modelIdParam)
+                  if ($taskParam) {
+                      $args += @("--task", $taskParam)
+                  }
               }
               if ('${{ parameters.continueRun }}' -eq 'True') {
                   $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)/$name")

@@ -25,6 +25,14 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
+  - name: modelId
+    displayName: 'Run only this HF model (e.g. naver-clova-ix/donut-base-finetuned-cord-v2). Leave empty to use the full registry.'
+    type: string
+    default: ''
+  - name: task
+    displayName: 'HF task for the single model (e.g. image-to-text). Only used together with modelId.'
+    type: string
+    default: ''
   - name: qnnPairs
     displayName: 'NPU-QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
     type: object
@@ -56,6 +64,8 @@ stages:
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          modelId: ${{ parameters.modelId }}
+          task: ${{ parameters.task }}
           pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
@@ -68,6 +78,8 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          modelId: ${{ parameters.modelId }}
+          task: ${{ parameters.task }}
           pairNames: ${{ parameters.ovPairs }}
 
   - stage: NPU_AMD
@@ -80,4 +92,6 @@ stages:
           agentSuffix: amd
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          modelId: ${{ parameters.modelId }}
+          task: ${{ parameters.task }}
           pairNames: ${{ parameters.amdPairs }}
