@@ -50,27 +50,27 @@ stages:
           continueRun: ${{ parameters.continueRun }}
           epDevicePairs:
             - ${{ if containsValue(parameters.ovPairs, 'dml_gpu') }}:
-              - name: dml_gpu
+                name: dml_gpu
                 displayName: 'DML GPU'
                 ep: dml
                 device: gpu
             - ${{ if containsValue(parameters.ovPairs, 'mlas_cpu') }}:
-              - name: mlas_cpu
+                name: mlas_cpu
                 displayName: 'MLAS CPU'
                 ep: cpu
                 device: cpu
             - ${{ if containsValue(parameters.ovPairs, 'ov_cpu') }}:
-              - name: ov_cpu
+                name: ov_cpu
                 displayName: 'OV CPU'
                 ep: ov
                 device: cpu
             - ${{ if containsValue(parameters.ovPairs, 'ov_gpu') }}:
-              - name: ov_gpu
+                name: ov_gpu
                 displayName: 'OV GPU'
                 ep: ov
                 device: gpu
             - ${{ if containsValue(parameters.ovPairs, 'ov_npu') }}:
-              - name: ov_npu
+                name: ov_npu
                 displayName: 'OV NPU'
                 ep: ov
                 device: npu
