@@ -705,7 +705,7 @@ def _write_model_linkage_file(final_path: Path) -> Path | None:
         "model": final_path.name,
         "linked_files": _get_linked_files(final_path),
     }
-    linkage_path.write_text(json.dumps(linkage, indent=2))
+    linkage_path.write_text(json.dumps(linkage, indent=2) + "\n", encoding="utf-8")
     return linkage_path
 
 

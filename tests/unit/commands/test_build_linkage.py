@@ -41,6 +41,7 @@ def test_write_model_linkage_file_collects_linked_files(tmp_path: Path) -> None:
     assert data["schema_version"] == 1
     assert data["model"] == "model.onnx"
     assert data["linked_files"] == ["model.onnx.data", "quantized_qnn_ctx_qnn.bin"]
+    assert data["linked_files"].count("model.onnx.data") == 1
 
 
 def test_write_model_linkage_file_skips_missing_model(tmp_path: Path) -> None:
