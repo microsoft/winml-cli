@@ -1,5 +1,13 @@
 trigger: none
 
+schedules:
+  - cron: '0 0 * * Fri'
+    displayName: 'Weekly run — Friday 08:00 (UTC+8)'
+    branches:
+      include:
+        - main
+    always: true
+
 resources:
   repositories:
     - repository: ModelKitArtifacts
