@@ -70,6 +70,7 @@ VISION_ENCODER_DECODER_CONFIG = WinMLBuildConfig(
         layer_norm_fusion=True,
         matmul_add_fusion=True,
         clip_constant_values=True,
+        remove_isnan_in_attention_mask=True,
         reshape_mergedreshape=True,
     ),
 )
