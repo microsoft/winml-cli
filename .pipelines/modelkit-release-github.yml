@@ -88,10 +88,10 @@ extends:
               $outDir = "$(ob_outputDirectory)"
               New-Item -ItemType Directory -Path $outDir -Force | Out-Null
               $wheels = Get-ChildItem "$artifactDir" -Filter "*.whl" -Recurse
-              $sdists = Get-ChildItem "$artifactDir" -Filter "*.tar.gz" -Recurse
-              Write-Host "Found $($wheels.Count) wheel(s) and $($sdists.Count) source archive(s)"
+              $parquets = Get-ChildItem "$artifactDir" -Filter "*.parquet" -Recurse
+              Write-Host "Found $($wheels.Count) wheel(s) and $($parquets.Count) parquet file(s)"
               $wheels | Copy-Item -Destination $outDir
-              $sdists | Copy-Item -Destination $outDir
+              $parquets | Copy-Item -Destination $outDir
             displayName: 'Stage release assets'
 
           - task: GitHubRelease@1
@@ -106,7 +106,7 @@ extends:
               title: 'ModelKit $(ReleaseTag)'
               assets: |
                 $(ob_outputDirectory)\*.whl
-                $(ob_outputDirectory)\*.tar.gz
+                $(ob_outputDirectory)\*.parquet
               isDraft: false
               isPreRelease: true
               addChangeLog: false
