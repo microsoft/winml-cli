@@ -341,6 +341,38 @@ class TestSaveOnnx:
             "already had them, overriding use_external_data=False"
         )
 
+    def test_save_external_with_stale_data_in_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """save_onnx succeeds when a stale .data file exists in the CWD.
+
+        Regression test for the CWD vs output-directory path mismatch:
+        the ONNX library's existence check used to resolve the external data
+        location relative to CWD rather than the output directory.  When a
+        stale ``export.onnx.data`` file existed in CWD from a previous build,
+        it triggered a false-positive ``FileExistsError`` even though the
+        target output directory was clean.
+        """
+        # Simulate a previous build leaving stale sidecar in CWD
+        stale_data = tmp_path / "export.onnx.data"
+        stale_data.write_bytes(b"stale")
+
+        # Output goes to a clean subdirectory, CWD is tmp_path (has stale file)
+        output_dir = tmp_path / "subdir"
+        output_dir.mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        model = _make_model_with_initializer()
+        model_path = output_dir / "export.onnx"
+
+        # Must not raise FileExistsError despite stale file in CWD
+        save_onnx(model, model_path, threshold_size=0)
+
+        assert model_path.exists()
+        assert (output_dir / "export.onnx.data").exists()
+        # Stale file in CWD must be untouched
+        assert stale_data.exists()
+
 
 # ============================================================================
 # cleanup_onnx tests
