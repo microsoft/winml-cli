@@ -15,10 +15,13 @@ parameters:
   - name: modelTimeout
     type: number
     default: 3600
-  - name: devices
+  - name: epDevicePairs
     type: object
     default:
-      - npu
+      - name: npu
+        displayName: 'NPU auto'
+        ep: ''
+        device: npu
 
 jobs:
   - job: Prepare_${{ parameters.agentSuffix }}
@@ -103,37 +106,70 @@ jobs:
         name: set_output_dir
         displayName: 'Set eval output directory'
 
-      - ${{ each device in parameters.devices }}:
+      - ${{ each pair in parameters.epDevicePairs }}:
           - powershell: |
+              $ep = '${{ pair.ep }}'
               $args = @(
                   "run", "python", "scripts/e2e_eval/run_eval.py",
-                  "--list-json", "temp/model_list_${{ device }}.json",
-                  "--device", "${{ device }}"
+                  "--list-json", "temp/model_list_${{ pair.name }}.json",
+                  "--device", "${{ pair.device }}"
               )
+              if ($ep) {
+                  $args += @("--ep", $ep)
+              }
               if ('${{ parameters.continueRun }}' -eq 'True') {
-                  $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)/${{ device }}")
+                  $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)/${{ pair.name }}")
               }
               & uv @args
             workingDirectory: $(Build.SourcesDirectory)
-            displayName: 'Generate model list (${{ device }})'
+            displayName: 'Generate model list (${{ pair.displayName }})'
 
       - powershell: |
-          $devices = '${{ join(',', parameters.devices) }}' -split ','
-          # rowsByKey: matrix-key -> @{ entry = base-fields; pendingDevices = ordered list }
+          $pairSpecsJson = @'
+          ${{ convertToJson(parameters.epDevicePairs) }}
+          '@
+          $pairSpecs = @($pairSpecsJson | ConvertFrom-Json)
+          $pairsByName = [ordered]@{}
+          foreach ($pair in $pairSpecs) {
+              $pairName = [string]$pair.name
+              if (-not $pairName) {
+                  Write-Error "EP/device pair is missing required field 'name'"
+                  exit 1
+              }
+              if (-not [string]$pair.device) {
+                  Write-Error "EP/device pair '$pairName' is missing required field 'device'"
+                  exit 1
+              }
+              if ($pairsByName.Contains($pairName)) {
+                  Write-Error "Duplicate EP/device pair name: $pairName"
+                  exit 1
+              }
+              $pairsByName[$pairName] = $pair
+          }
+
+          # rowsByKey: matrix-key -> @{ entry = base-fields; pendingPairs = ordered list }
           $rowsByKey = [ordered]@{}
           $usedKeys = @{}
 
-          foreach ($device in $devices) {
-              $listPath = "$(Build.SourcesDirectory)/temp/model_list_$device.json"
+          foreach ($pairName in $pairsByName.Keys) {
+              $pair = $pairsByName[$pairName]
+              $displayName = [string]$pair.displayName
+              if (-not $displayName) { $displayName = $pairName }
+              $ep = [string]$pair.ep
+              $epLabel = "auto"
+              if ($ep) { $epLabel = $ep }
+              $device = [string]$pair.device
+
+              $listPath = "$(Build.SourcesDirectory)/temp/model_list_$pairName.json"
               if (-not (Test-Path $listPath)) {
-                  Write-Warning "Model list missing for device '$device' at $listPath"
+                  Write-Warning "Model list missing for EP/device pair '$displayName' at $listPath"
                   continue
               }
               $models = Get-Content $listPath | ConvertFrom-Json
               if ($null -eq $models) { continue }
               # Force collection even if a single object was returned
               $models = @($models)
-              Write-Host "Device '$device': $($models.Count) pending models"
+              Write-Host "Pair '$displayName' (ep='$epLabel', device='$device'): $($models.Count) pending models"
 
               foreach ($m in $models) {
                   $slug = (($m.hf_id + '_' + $m.task) -replace '[^A-Za-z0-9]', '_')
@@ -149,25 +185,25 @@ jobs:
                       $usedKeys[$slug] = $key
                   }
 
-                  if (-not $rowsByKey.Contains($key)) {
+                    if (-not $rowsByKey.Contains($key)) {
                       $rowsByKey[$key] = @{
-                          entry = @{
-                              hf_id = [string]$m.hf_id
-                              hf_task = [string]$m.task
-                              priority = [string]$m.priority
-                              model_type = [string]$m.model_type
-                              model_group = [string]$m.group
-                          }
-                          pendingDevices = New-Object System.Collections.Generic.List[string]
+                        entry = @{
+                          hf_id = [string]$m.hf_id
+                          hf_task = [string]$m.task
+                          priority = [string]$m.priority
+                          model_type = [string]$m.model_type
+                          model_group = [string]$m.group
+                        }
+                        pendingPairs = New-Object System.Collections.Generic.List[string]
                       }
-                  }
-                  $rowsByKey[$key].pendingDevices.Add($device)
+                    }
+                    $rowsByKey[$key].pendingPairs.Add($pairName)
               }
           }
 
           $total = $rowsByKey.Count
-          if ($total -eq 0) {
-              Write-Host "All models already evaluated for all selected devices — nothing to run"
+            if ($total -eq 0) {
+              Write-Host "All models already evaluated for all selected EP/device pairs — nothing to run"
               Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]{}"
               Write-Host "##vso[task.setvariable variable=skipEval;isOutput=true]true"
               return
@@ -177,12 +213,12 @@ jobs:
           foreach ($key in $rowsByKey.Keys) {
               $row = $rowsByKey[$key]
               $entry = $row.entry.Clone()
-              $entry['devices_csv'] = ($row.pendingDevices -join ',')
+              $entry['pairs_csv'] = ($row.pendingPairs -join ',')
               $matrix[$key] = $entry
           }
 
           $json = $matrix | ConvertTo-Json -Compress -Depth 5
-          Write-Host "Prepared matrix for $total models across $($devices.Count) device(s)"
+          Write-Host "Prepared matrix for $total models across $($pairsByName.Count) EP/device pair(s)"
           Write-Host "##vso[task.setvariable variable=modelMatrix;isOutput=true]$json"
         name: set_matrix
         displayName: 'Create matrix variables'
@@ -228,37 +264,69 @@ jobs:
           Write-Host "Model: $(hf_id) / $(hf_task)"
           Write-Host "Priority: $(priority)"
           Write-Host "Output base: $(EVAL_DIR)"
-          Write-Host "Pending devices: $(devices_csv)"
+          Write-Host "Pending EP/device pairs: $(pairs_csv)"
 
-          $devices = '$(devices_csv)' -split ','
-          $devices = $devices | Where-Object { $_ -and $_.Trim() -ne '' }
-          if (-not $devices -or $devices.Count -eq 0) {
-              Write-Warning "No pending devices for $(hf_id) / $(hf_task) — skipping"
+          $pairSpecsJson = @'
+          ${{ convertToJson(parameters.epDevicePairs) }}
+          '@
+          $pairSpecs = @($pairSpecsJson | ConvertFrom-Json)
+          $pairsByName = @{}
+          foreach ($pair in $pairSpecs) {
+              $pairName = [string]$pair.name
+              if ($pairName) {
+                  $pairsByName[$pairName] = $pair
+              }
+          }
+
+          $pendingPairs = '$(pairs_csv)' -split ','
+          $pendingPairs = $pendingPairs | Where-Object { $_ -and $_.Trim() -ne '' }
+          if (-not $pendingPairs -or $pendingPairs.Count -eq 0) {
+              Write-Warning "No pending EP/device pairs for $(hf_id) / $(hf_task) — skipping"
               exit 0
           }
 
-          for ($i = 0; $i -lt $devices.Count; $i++) {
-              $device = $devices[$i].Trim()
-              $isLast = ($i -eq ($devices.Count - 1))
+          for ($i = 0; $i -lt $pendingPairs.Count; $i++) {
+              $pairName = $pendingPairs[$i].Trim()
+              if (-not $pairsByName.ContainsKey($pairName)) {
+                  Write-Error "Pending EP/device pair '$pairName' was not found in template parameters"
+                  exit 1
+              }
+
+              $pair = $pairsByName[$pairName]
+              $displayName = [string]$pair.displayName
+              if (-not $displayName) { $displayName = $pairName }
+              $ep = [string]$pair.ep
+              $epLabel = "auto"
+              if ($ep) { $epLabel = $ep }
+              $device = [string]$pair.device
+              if (-not $device) {
+                  Write-Error "EP/device pair '$pairName' is missing required field 'device'"
+                  exit 1
+              }
+
+              $isLast = ($i -eq ($pendingPairs.Count - 1))
               Write-Host "============================================================"
-              Write-Host "[$($i + 1)/$($devices.Count)] device='$device' (last=$isLast) for $(hf_id)"
+              Write-Host "[$($i + 1)/$($pendingPairs.Count)] pair='$displayName' key='$pairName' ep='$epLabel' device='$device' (last=$isLast) for $(hf_id)"
               Write-Host "============================================================"
 
-              $deviceOutput = "$(EVAL_DIR)/$device"
+              $pairOutput = "$(EVAL_DIR)/$pairName"
 
               $uvArgs = @(
                   "run", "--no-sync", "python", "scripts/e2e_eval/run_eval.py",
                   "--hf-model", "$(hf_id)",
-                  "--output-dir", $deviceOutput,
+                  "--output-dir", $pairOutput,
                   "--device", $device,
                   "--continue",
                   "--verbose",
                   "--timeout", "${{ parameters.modelTimeout }}",
                   "--no-report"
               )
+              if ($ep) {
+                  $uvArgs += @("--ep", $ep)
+              }
               if ($isLast) {
-                  # Only clean cache after the LAST device so HF download and
-                  # any reusable build artifacts can be shared across devices
+                  # Only clean cache after the LAST pair so HF download and
+                  # any reusable build artifacts can be shared across pairs
                   # for this model.
                   $uvArgs += "--clean-cache"
               }
@@ -269,16 +337,16 @@ jobs:
               & uv @uvArgs
               $evalExit = $LASTEXITCODE
               if ($evalExit -ne 0) {
-                  Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task) on device '$device' (model failure — non-blocking)"
+                  Write-Warning "Model eval exited with code $evalExit for $(hf_id) / $(hf_task) on EP/device pair '$displayName' (model failure — non-blocking)"
               }
           }
           exit 0
         workingDirectory: $(Build.SourcesDirectory)
-        displayName: 'Run eval for current model (all pending devices)'
+        displayName: 'Run eval for current model (all pending EP/device pairs)'
 
-  - ${{ each device in parameters.devices }}:
-      - job: Report_${{ parameters.agentSuffix }}_${{ device }}
-        displayName: 'Generate Eval Report (${{ parameters.agentSuffix }} / ${{ device }})'
+  - ${{ each pair in parameters.epDevicePairs }}:
+      - job: Report_${{ parameters.agentSuffix }}_${{ pair.name }}
+        displayName: 'Generate Eval Report (${{ parameters.agentSuffix }} / ${{ pair.displayName }})'
         dependsOn:
           - Prepare_${{ parameters.agentSuffix }}
           - EvalModel_${{ parameters.agentSuffix }}
@@ -310,26 +378,26 @@ jobs:
             displayName: 'Activate Python environment'
 
           - powershell: |
-              $deviceDir = "$(EVAL_DIR_BASE)/${{ device }}"
-              if (-not (Test-Path $deviceDir)) {
-                  Write-Host "No results found at $deviceDir — skipping report"
+              $pairDir = "$(EVAL_DIR_BASE)/${{ pair.name }}"
+              if (-not (Test-Path $pairDir)) {
+                  Write-Host "No results found at $pairDir — skipping report"
                   Write-Host "##vso[task.setvariable variable=HAS_RESULTS]false"
                   return
               }
               Write-Host "##vso[task.setvariable variable=HAS_RESULTS]true"
-              Write-Host "##vso[task.setvariable variable=DEVICE_DIR]$deviceDir"
-            displayName: 'Resolve device output directory (${{ device }})'
+              Write-Host "##vso[task.setvariable variable=PAIR_DIR]$pairDir"
+            displayName: 'Resolve output directory (${{ pair.displayName }})'
 
           - script: >
               uv run --no-sync python scripts/e2e_eval/generate_report.py
-              --input-dir $(DEVICE_DIR)
+              --input-dir $(PAIR_DIR)
             workingDirectory: $(Build.SourcesDirectory)
             condition: and(succeeded(), eq(variables['HAS_RESULTS'], 'true'))
-            displayName: 'Generate evaluation report (${{ device }})'
+            displayName: 'Generate evaluation report (${{ pair.displayName }})'
 
           - task: PublishPipelineArtifact@1
             inputs:
-              targetPath: $(DEVICE_DIR)
-              artifactName: EvalReport_${{ parameters.agentSuffix }}_${{ device }}
+              targetPath: $(PAIR_DIR)
+              artifactName: EvalReport_${{ parameters.agentSuffix }}_${{ pair.name }}
             condition: and(succeeded(), eq(variables['HAS_RESULTS'], 'true'))
-            displayName: 'Publish eval results as artifact (${{ device }})'
+            displayName: 'Publish eval results as artifact (${{ pair.displayName }})'
