@@ -49,31 +49,28 @@ stages:
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
           epDevicePairs:
-            - ${{ if containsValue(parameters.ovPairs, 'dml_gpu') }}:
-                name: dml_gpu
-                displayName: 'DML GPU'
-                ep: dml
-                device: gpu
-            - ${{ if containsValue(parameters.ovPairs, 'mlas_cpu') }}:
-                name: mlas_cpu
-                displayName: 'MLAS CPU'
-                ep: cpu
-                device: cpu
-            - ${{ if containsValue(parameters.ovPairs, 'ov_cpu') }}:
-                name: ov_cpu
-                displayName: 'OV CPU'
-                ep: ov
-                device: cpu
-            - ${{ if containsValue(parameters.ovPairs, 'ov_gpu') }}:
-                name: ov_gpu
-                displayName: 'OV GPU'
-                ep: ov
-                device: gpu
-            - ${{ if containsValue(parameters.ovPairs, 'ov_npu') }}:
-                name: ov_npu
-                displayName: 'OV NPU'
-                ep: ov
-                device: npu
+            - ${{ each pairName in parameters.ovPairs }}:
+              - name: ${{ pairName }}
+                ${{ if eq(pairName, 'dml_gpu') }}:
+                  displayName: 'DML GPU'
+                  ep: dml
+                  device: gpu
+                ${{ if eq(pairName, 'mlas_cpu') }}:
+                  displayName: 'MLAS CPU'
+                  ep: cpu
+                  device: cpu
+                ${{ if eq(pairName, 'ov_cpu') }}:
+                  displayName: 'OV CPU'
+                  ep: ov
+                  device: cpu
+                ${{ if eq(pairName, 'ov_gpu') }}:
+                  displayName: 'OV GPU'
+                  ep: ov
+                  device: gpu
+                ${{ if eq(pairName, 'ov_npu') }}:
+                  displayName: 'OV NPU'
+                  ep: ov
+                  device: npu
 
   - stage: NPU_AMD
     displayName: 'E2E Eval — NPU-AMD'
