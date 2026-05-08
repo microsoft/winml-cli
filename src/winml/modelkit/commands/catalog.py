@@ -349,7 +349,7 @@ def _output_list(
     console.print(
         "  [dim]Verified picks from Hugging Face. Try any model \u2014 run "
         "[/dim][bold cyan]winml inspect <model-id>[/bold cyan]"
-        "[dim] to check compatibility first.[/dim]"
+        "[dim] to check compatibility first.[/dim]\n"
     )
 
 
