@@ -162,7 +162,7 @@ jobs:
               'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
           }
           $pairNames = '${{ join(',', parameters.pairNames) }}' -split ','
-          $pairNames = $pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() }
+          $pairNames = @($pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() })
           if (-not $pairNames -or $pairNames.Count -eq 0) {
               Write-Error "No EP/device pair names configured for this stage"
               exit 1
@@ -298,7 +298,7 @@ jobs:
           }
 
           $pairNames = '$(pairs_csv)' -split ','
-          $pairNames = $pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() }
+          $pairNames = @($pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() })
           if (-not $pairNames -or $pairNames.Count -eq 0) {
               Write-Warning "No pending EP/device pairs for $(hf_id) / $(hf_task) - skipping"
               exit 0
