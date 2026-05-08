@@ -18,16 +18,15 @@ parameters:
   # pairNames: list of EP/device pair keys defined in the catalog below.
   # Each name resolves to {ep, device, displayName} at runtime in PowerShell.
   # Catalog (kept in sync across all PowerShell blocks in this template):
-  #   npu      -> ep='',    device=npu, displayName='NPU auto'
-  #   dml_gpu  -> ep=dml,   device=gpu, displayName='DML GPU'
-  #   mlas_cpu -> ep=cpu,   device=cpu, displayName='MLAS CPU'
-  #   ov_cpu   -> ep=ov,    device=cpu, displayName='OV CPU'
-  #   ov_gpu   -> ep=ov,    device=gpu, displayName='OV GPU'
-  #   ov_npu   -> ep=ov,    device=npu, displayName='OV NPU'
+  #   qnn_npu     -> ep=qnn,      device=npu, displayName='QNN NPU'
+  #   vitisai_npu -> ep=vitisai,  device=npu, displayName='VitisAI NPU'
+  #   dml_gpu     -> ep=dml,      device=gpu, displayName='DML GPU'
+  #   mlas_cpu    -> ep=cpu,      device=cpu, displayName='MLAS CPU'
+  #   ov_cpu      -> ep=openvino, device=cpu, displayName='OV CPU'
+  #   ov_gpu      -> ep=openvino, device=gpu, displayName='OV GPU'
+  #   ov_npu      -> ep=openvino, device=npu, displayName='OV NPU'
   - name: pairNames
     type: object
-    default:
-      - npu
 
 jobs:
   - job: Prepare_${{ parameters.agentSuffix }}
@@ -115,12 +114,13 @@ jobs:
       - ${{ each pairName in parameters.pairNames }}:
           - powershell: |
               $catalog = @{
-                  'npu'      = @{ ep = '';    device = 'npu'; displayName = 'NPU auto' }
-                  'dml_gpu'  = @{ ep = 'dml'; device = 'gpu'; displayName = 'DML GPU' }
-                  'mlas_cpu' = @{ ep = 'cpu'; device = 'cpu'; displayName = 'MLAS CPU' }
-                  'ov_cpu'   = @{ ep = 'ov';  device = 'cpu'; displayName = 'OV CPU' }
-                  'ov_gpu'   = @{ ep = 'ov';  device = 'gpu'; displayName = 'OV GPU' }
-                  'ov_npu'   = @{ ep = 'ov';  device = 'npu'; displayName = 'OV NPU' }
+                  'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+                  'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+                  'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+                  'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+                  'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+                  'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+                  'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
               }
               $name = '${{ pairName }}'
               if (-not $catalog.ContainsKey($name)) {
@@ -150,12 +150,13 @@ jobs:
 
       - powershell: |
           $catalog = @{
-              'npu'      = @{ ep = '';    device = 'npu'; displayName = 'NPU auto' }
-              'dml_gpu'  = @{ ep = 'dml'; device = 'gpu'; displayName = 'DML GPU' }
-              'mlas_cpu' = @{ ep = 'cpu'; device = 'cpu'; displayName = 'MLAS CPU' }
-              'ov_cpu'   = @{ ep = 'ov';  device = 'cpu'; displayName = 'OV CPU' }
-              'ov_gpu'   = @{ ep = 'ov';  device = 'gpu'; displayName = 'OV GPU' }
-              'ov_npu'   = @{ ep = 'ov';  device = 'npu'; displayName = 'OV NPU' }
+              'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+              'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+              'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+              'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+              'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+              'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+              'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
           }
           $pairNames = '${{ join(',', parameters.pairNames) }}' -split ','
           $pairNames = $pairNames | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.Trim() }
@@ -283,12 +284,13 @@ jobs:
           Write-Host "Pending EP/device pairs: $(pairs_csv)"
 
           $catalog = @{
-              'npu'      = @{ ep = '';    device = 'npu'; displayName = 'NPU auto' }
-              'dml_gpu'  = @{ ep = 'dml'; device = 'gpu'; displayName = 'DML GPU' }
-              'mlas_cpu' = @{ ep = 'cpu'; device = 'cpu'; displayName = 'MLAS CPU' }
-              'ov_cpu'   = @{ ep = 'ov';  device = 'cpu'; displayName = 'OV CPU' }
-              'ov_gpu'   = @{ ep = 'ov';  device = 'gpu'; displayName = 'OV GPU' }
-              'ov_npu'   = @{ ep = 'ov';  device = 'npu'; displayName = 'OV NPU' }
+              'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+              'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
+              'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
+              'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
+              'ov_cpu'      = @{ ep = 'openvino'; device = 'cpu'; displayName = 'OV CPU' }
+              'ov_gpu'      = @{ ep = 'openvino'; device = 'gpu'; displayName = 'OV GPU' }
+              'ov_npu'      = @{ ep = 'openvino'; device = 'npu'; displayName = 'OV NPU' }
           }
 
           $pairNames = '$(pairs_csv)' -split ','

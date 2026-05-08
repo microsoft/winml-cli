@@ -37,6 +37,8 @@ stages:
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          pairNames:
+            - qnn_npu
 
   - stage: NPU_OV
     displayName: 'E2E Eval — NPU-OV'
@@ -60,3 +62,5 @@ stages:
           agentSuffix: amd
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          pairNames:
+            - vitisai_npu
