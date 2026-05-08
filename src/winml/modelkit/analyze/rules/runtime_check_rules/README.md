@@ -2,7 +2,8 @@
 
 This directory contains parquet runtime rule artifacts used by the analyzer.
 
-Files are **not tracked by git** and are expected to come from `ModelKitArtifacts`.
+Files are **not tracked by git**. They are bundled in wheel installs and can
+also be fetched from release assets or `ModelKitArtifacts` for source builds.
 
 ## Setup
 
@@ -11,7 +12,19 @@ parquet files are bundled and installed with the package.
 
 If `winml analyze` reports missing parquet files, first reinstall the package.
 
-### Option 1: Download script (Microsoft internal fallback)
+### Option 1: Download from the latest GitHub release (for source builds)
+
+If you are building from source code (for example, cloning this repo), download
+the parquet assets from the latest WinML-ModelKit release.
+
+```bash
+gh release download --repo microsoft/WinML-ModelKit --pattern '*.parquet' --dir src/winml/modelkit/analyze/rules/runtime_check_rules
+```
+
+`gh release download` defaults to the latest release. Use `--tag <version>`
+to pin a specific release if you need a reproducible snapshot.
+
+### Option 2: Download script (Microsoft internal fallback)
 
 Requires [GitHub CLI](https://cli.github.com) (`gh`) with an account that has access to `gim-home`.
 
@@ -24,13 +37,13 @@ files here (preserving subdirectories).
 
 Use `--force` to re-download all files even if they already exist locally.
 
-### Option 2: Manual copy (Microsoft internal fallback)
+### Option 3: Manual copy (Microsoft internal fallback)
 
 Copy all runtime rule parquet files from:
 
 `gim-home/ModelKitArtifacts/rules/`
 
-### Option 3: Use external rules directories via environment variable
+### Option 4: Use external rules directories via environment variable
 
 Set `MODELKIT_RULES_DIR` to one or more directories containing parquet rule artifacts.
 
