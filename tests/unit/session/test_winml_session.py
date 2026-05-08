@@ -773,3 +773,213 @@ class TestFindEpDevice:
         with self._patch_devices(devs):
             assert WinMLSession._find_ep_device(device="auto") is None
             assert WinMLSession._find_ep_device(device="auto", ep_name=None) is None
+
+
+class TestSuppressNativeOutput:
+    """Unit tests for _suppress_native_output context manager."""
+
+    def test_stderr_suppressed_when_flag_set(self, tmp_path):
+        import os
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        trap = tmp_path / "stderr_trap.bin"
+        trap_fd = os.open(str(trap), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        old_stderr = os.dup(2)
+        os.dup2(trap_fd, 2)
+        os.close(trap_fd)
+        try:
+            with _suppress_native_output(suppress_stderr=True):
+                os.write(2, b"should be suppressed")
+        finally:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+
+        assert trap.read_bytes() == b""
+
+    def test_stderr_not_suppressed_by_default(self, tmp_path):
+        import os
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        trap = tmp_path / "stderr_trap.bin"
+        trap_fd = os.open(str(trap), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        old_stderr = os.dup(2)
+        os.dup2(trap_fd, 2)
+        os.close(trap_fd)
+        try:
+            with _suppress_native_output():
+                os.write(2, b"visible text")
+        finally:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+
+        assert trap.read_bytes() == b"visible text"
+
+    def test_stderr_captured_to_log_file(self, tmp_path):
+        import os
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        log = tmp_path / "session.log"
+        with _suppress_native_output(log_path=log, suppress_stderr=True):
+            os.write(1, b"stdout line\n")
+            os.write(2, b"stderr line\n")
+
+        content = log.read_bytes()
+        assert b"stdout line" in content
+        assert b"stderr line" in content
+
+    @pytest.mark.skipif(
+        __import__("sys").platform != "win32", reason="Windows-only: tests SetStdHandle"
+    )
+    def test_win32_std_error_handle_redirected_and_restored(self):
+        """On Windows, suppress_stderr must update STD_ERROR_HANDLE so that native
+        DLLs calling GetStdHandle(STD_ERROR_HANDLE) see the devnull handle."""
+        import ctypes
+        import sys
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetStdHandle.restype = ctypes.c_void_p
+        kernel32.GetStdHandle.argtypes = [ctypes.c_uint32]
+        STD_ERROR_HANDLE = ctypes.c_uint32(0xFFFFFFF4)
+
+        original_handle = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+
+        with _suppress_native_output(suppress_stderr=True):
+            redirected = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+            assert redirected != original_handle, "STD_ERROR_HANDLE should change inside context"
+
+        restored = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+        assert restored == original_handle, "STD_ERROR_HANDLE should be restored after context"
+
+
+class TestOpenVINOCpuFallback:
+    """Unit regression: ep=openvino + device=cpu must fall back when OpenVINO-CPU fails.
+
+    Bug: winml perf -m <model> --ep openvino --device cpu raises
+    CompilationError with [ONNXRuntimeError] INVALID_GRAPH: [OpenVINO-EP]
+    [CPU] Could not deserialize by device xml header.
+
+    Root cause: _build_session_options finds the OpenVINO ep_device with
+    OrtHardwareDeviceType.CPU, calls add_provider_for_devices with it, but
+    OpenVINO internally routes to NPU; the CPU backend cannot deserialize
+    the NPU blob.  No fallback to CPUExecutionProvider is attempted.
+
+    Expected fix: when InferenceSession creation with an explicit OpenVINO
+    ep_device fails, compile() must retry via PREFER_CPU policy so
+    CPUExecutionProvider handles the model instead.
+    """
+
+    @staticmethod
+    def _make_ov_cpu_epdev():
+        from types import SimpleNamespace
+
+        import onnxruntime as ort
+
+        return SimpleNamespace(
+            ep_name="OpenVINOExecutionProvider",
+            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.CPU),
+        )
+
+    def test_compile_falls_back_to_cpu_when_openvino_cpu_raises(
+        self, simple_matmul_onnx: Path
+    ) -> None:
+        """compile() must succeed via CPUExecutionProvider when OpenVINO-CPU fails.
+
+        Simulates the field failure: _find_ep_device returns an OpenVINO-CPU
+        ep_device, add_provider_for_devices is called, and the subsequent
+        InferenceSession creation raises INVALID_GRAPH (CPU plugin cannot
+        deserialize an NPU-compiled blob).  The expected behavior is a
+        transparent retry with the PREFER_CPU policy.
+        """
+        from unittest.mock import patch
+
+        import onnxruntime as ort
+
+        ov_cpu_dev = self._make_ov_cpu_epdev()
+        _call_count = [0]
+        _real_init = ort.InferenceSession.__init__
+
+        def _mock_init(self_sess, path, sess_options=None, **kw):
+            _call_count[0] += 1
+            if _call_count[0] == 1:
+                # First attempt uses the OpenVINO-CPU ep_device; simulate the
+                # field failure where the CPU plugin cannot deserialize an
+                # NPU-compiled blob.
+                raise Exception(
+                    "[ONNXRuntimeError] : 10 : INVALID_GRAPH : [OpenVINO-EP] "
+                    "[CPU] Could not deserialize by device xml header."
+                )
+            # Second attempt: PREFER_CPU policy → real CPUExecutionProvider.
+            return _real_init(self_sess, path, sess_options=sess_options, **kw)
+
+        with (
+            patch(
+                "winml.modelkit.session.session.ort.get_ep_devices",
+                return_value=[ov_cpu_dev],
+            ),
+            # add_provider_for_devices requires a real OrtEpDevice C++ object;
+            # patch it to a no-op so the fake SimpleNamespace device passes through.
+            patch.object(ort.SessionOptions, "add_provider_for_devices"),
+            patch.object(ort.InferenceSession, "__init__", _mock_init),
+        ):
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                device="cpu",
+                ep="openvino",
+            )
+            session.compile()  # Must NOT raise; should fall back to CPUExecutionProvider.
+
+        assert session.state == SessionState.COMPILED
+        assert _call_count[0] == 2, (
+            f"Expected 2 InferenceSession attempts (OpenVINO-CPU then PREFER_CPU), "
+            f"got {_call_count[0]}"
+        )
+
+
+@pytest.mark.ep("openvino")
+class TestOpenVINODeviceRouting:
+    """Integration guard: ep=openvino with device=cpu must compile without error.
+
+    Requires a machine with OpenVINO EP available.  Skipped when OpenVINO is
+    absent.  On NPU-capable machines where the bug manifests this test FAILs
+    until the fix is applied.
+    """
+
+    def test_compile_openvino_cpu_device_succeeds(
+        self, simple_matmul_onnx: Path
+    ) -> None:
+        """WinMLSession with ep=openvino and device=cpu must compile successfully."""
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep="openvino",
+        )
+        session.compile()
+        assert session.state == SessionState.COMPILED
+
+    def test_compile_openvino_cpu_provider_not_npu(
+        self, simple_matmul_onnx: Path
+    ) -> None:
+        """Session compiled with ep=openvino + device=cpu must not run on NPU.
+
+        If OpenVINO-CPU is unavailable and the code falls back to
+        CPUExecutionProvider, that is acceptable.  What must NOT happen is
+        routing to NPU (QNN/OpenVINO-NPU) when cpu was explicitly requested.
+        """
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep="openvino",
+        )
+        session.compile()
+
+        providers = session._session.get_providers()
+        npu_providers = {"QNNExecutionProvider", "NvTensorRTRTXExecutionProvider"}
+        assert not npu_providers.intersection(providers), (
+            f"ep=openvino + device=cpu must not select an NPU provider, "
+            f"got: {providers}"
+        )

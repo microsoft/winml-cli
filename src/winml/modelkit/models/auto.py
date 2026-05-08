@@ -366,25 +366,11 @@ class WinMLAutoModel:
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
 
-        # =====================================================================
-        # [2] LOAD PHASE - Load HF model with weights (Heavyweight, ~30-60s)
-        # =====================================================================
-        effective_trust = trust_remote_code or (
-            build_config.loader.trust_remote_code if build_config.loader else False
-        )
-        pytorch_model, hf_config, _ = load_hf_model(
-            model_name_or_path=model_id,
-            task=resolved_task,
-            trust_remote_code=effective_trust,
-        )
-        model_type = getattr(hf_config, "model_type", "unknown")
-        logger.debug("Model type: %s, task: %s", model_type, resolved_task)
-
         config = build_config
         task = resolved_task
 
         # =====================================================================
-        # [3] CACHE + BUILD PHASE -- delegate to build_hf_model()
+        # [2] CACHE SETUP - Compute paths before deciding whether to load
         # =====================================================================
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
@@ -396,10 +382,35 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        # Compute cache_key and output_dir via shared cache module
         cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key())
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
+        final_path = output_dir / (f"{cache_key}_model.onnx" if cache_key else "model.onnx")
 
+        # =====================================================================
+        # [3] LOAD PHASE - Load HF model with weights (Heavyweight, ~30-60s)
+        #     Skipped when ONNX artifact is already cached.
+        # =====================================================================
+        effective_trust = trust_remote_code or (
+            build_config.loader.trust_remote_code if build_config.loader else False
+        )
+        if final_path.exists() and not force_rebuild:
+            from transformers import AutoConfig
+
+            hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
+            pytorch_model = None
+            logger.info("ONNX artifact cached, skipping model load: %s", final_path)
+        else:
+            pytorch_model, hf_config, _ = load_hf_model(
+                model_name_or_path=model_id,
+                task=resolved_task,
+                trust_remote_code=effective_trust,
+            )
+        model_type = getattr(hf_config, "model_type", "unknown")
+        logger.debug("Model type: %s, task: %s", model_type, resolved_task)
+
+        # =====================================================================
+        # [4] BUILD PHASE -- delegate to build_hf_model()
+        # =====================================================================
         from ..build import build_hf_model
 
         # Pass resolved EP so the static analyzer targets only this EP
@@ -418,7 +429,7 @@ class WinMLAutoModel:
         onnx_path = result.final_onnx_path
 
         # =====================================================================
-        # [4] RUNTIME PHASE - Return inference wrapper
+        # [5] RUNTIME PHASE - Return inference wrapper
         # =====================================================================
         winml_class = get_winml_class(model_type, task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
@@ -427,7 +438,7 @@ class WinMLAutoModel:
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
-            ep=resolved_ep,
+            ep=kwargs.get("ep"),
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model

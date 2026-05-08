@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import os
+import sys
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
@@ -32,14 +34,55 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Windows: ORT native DLLs access stderr via GetStdHandle(STD_ERROR_HANDLE)
+# rather than through the CRT fd table, so os.dup2 alone is not enough to
+# suppress their output.  We need SetStdHandle as well.
+if sys.platform == "win32":
+    import msvcrt as _msvcrt
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.GetStdHandle.restype = ctypes.c_void_p
+    _kernel32.GetStdHandle.argtypes = [ctypes.c_uint32]
+    _kernel32.SetStdHandle.restype = ctypes.c_bool
+    _kernel32.SetStdHandle.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+    _W32_STDOUT = ctypes.c_uint32(0xFFFFFFF5)  # (DWORD)-11
+    _W32_STDERR = ctypes.c_uint32(0xFFFFFFF4)  # (DWORD)-12
+
+    def _w32_get(is_stdout: bool):
+        return _kernel32.GetStdHandle(_W32_STDOUT if is_stdout else _W32_STDERR)
+
+    def _w32_set(is_stdout: bool, handle) -> None:
+        _kernel32.SetStdHandle(_W32_STDOUT if is_stdout else _W32_STDERR, handle)
+
+    def _w32_fd_handle(fd: int):
+        return _msvcrt.get_osfhandle(fd)
+
+else:
+
+    def _w32_get(is_stdout: bool):  # type: ignore[misc]
+        return None
+
+    def _w32_set(is_stdout: bool, handle) -> None:  # type: ignore[misc]
+        pass
+
+    def _w32_fd_handle(fd: int):  # type: ignore[misc]
+        return None
+
 
 @contextmanager
-def _suppress_native_output(log_path: str | Path | None = None):
-    """Redirect native stdout to a log file (or devnull).
+def _suppress_native_output(
+    log_path: str | Path | None = None, suppress_stderr: bool = False
+):
+    """Redirect native stdout (and optionally stderr) to a log file or devnull.
 
     QNN SDK compiler writes progress to stdout via native C++ code that
-    Python logging/warnings cannot intercept. Only redirects stdout —
-    stderr is left untouched so Rich displays and Python logging work.
+    Python logging/warnings cannot intercept. Use suppress_stderr=True to
+    also silence native stderr (e.g., OpenVINO EP API version warnings during
+    ORT session creation).
+
+    On Windows, also updates Win32 STD_*_HANDLE via SetStdHandle so native
+    DLLs that call GetStdHandle() (rather than using the CRT fd table) see
+    the redirected handle.
     """
     if log_path is not None:
         fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
@@ -48,11 +91,24 @@ def _suppress_native_output(log_path: str | Path | None = None):
     old_stdout = os.dup(1)
     os.dup2(fd, 1)
     os.close(fd)
+    old_stderr = None
+    old_stderr_w32 = None
+    if suppress_stderr:
+        old_stderr = os.dup(2)
+        old_stderr_w32 = _w32_get(is_stdout=False)
+        stderr_dest = os.dup(1)  # same destination as stdout (devnull or log file)
+        os.dup2(stderr_dest, 2)
+        os.close(stderr_dest)
+        _w32_set(is_stdout=False, handle=_w32_fd_handle(2))
     try:
         yield
     finally:
         os.dup2(old_stdout, 1)
         os.close(old_stdout)
+        if old_stderr is not None:
+            os.dup2(old_stderr, 2)
+            _w32_set(is_stdout=False, handle=old_stderr_w32)
+            os.close(old_stderr)
 
 
 class SessionState(Enum):
@@ -155,7 +211,10 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                registered = registry.register_to_ort()
+                # EP DLLs may be compiled against a newer ORT API than installed;
+                # suppress their native stderr to avoid version-mismatch noise.
+                with _suppress_native_output(suppress_stderr=True):
+                    registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
             logger.debug("WinML EP init skipped: %s", e)
@@ -268,7 +327,6 @@ class WinMLSession:
             else:
                 try:
                     sess_options = self._build_session_options(target_device)
-
                     model_compiler = ort.ModelCompiler(
                         sess_options,
                         str(self._onnx_path),
@@ -292,7 +350,7 @@ class WinMLSession:
             # registry, e.g. QNN) or left to ORT's device policy (fallback).
             # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
-            with _suppress_native_output(compile_log):
+            with _suppress_native_output(compile_log, suppress_stderr=True):
                 session = ort.InferenceSession(
                     str(model_path),
                     sess_options=sess_options,
@@ -306,18 +364,64 @@ class WinMLSession:
                 actual_providers,
             )
 
-        except Exception as e:
-            self._state = SessionState.ERROR
-            self._last_error = e
-            raise CompilationError(
-                message=f"Failed to compile for {target_device}",
-                context={
-                    "device": target_device,
-                    "onnx_path": str(self._onnx_path),
-                    "error": str(e),
-                },
-                suggestion=self._get_compile_suggestion(target_device, e),
-            ) from e
+        except Exception as ep_err:
+            # When an explicit EP was bound and the session creation failed,
+            # retry using the device policy alone (no EP binding).  This
+            # handles the case where the EP's registered device does not match
+            # the hardware the model was compiled for — e.g. OpenVINO-CPU
+            # receiving an NPU EPContext blob and raising INVALID_GRAPH.
+            if self._ep and self._ep != "cpu":
+                logger.warning(
+                    "EP '%s' failed for device '%s', retrying via device policy: %s",
+                    self._ep,
+                    target_device,
+                    ep_err,
+                )
+                try:
+                    fallback_opts = ort.SessionOptions()
+                    fallback_opts.set_provider_selection_policy(
+                        DEVICE_POLICY_MAP.get(
+                            target_device.lower(),
+                            ort.OrtExecutionProviderDevicePolicy.PREFER_CPU,
+                        )
+                    )
+                    with _suppress_native_output(compile_log, suppress_stderr=True):
+                        session = ort.InferenceSession(
+                            str(model_path),
+                            sess_options=fallback_opts,
+                        )
+                    actual_providers = session.get_providers()
+                    logger.info(
+                        "Fallback session for device '%s': providers %s",
+                        target_device,
+                        actual_providers,
+                    )
+                except Exception as fallback_err:
+                    self._state = SessionState.ERROR
+                    self._last_error = fallback_err
+                    raise CompilationError(
+                        message=f"Failed to compile for {target_device} (EP and policy fallback both failed)",
+                        context={
+                            "device": target_device,
+                            "onnx_path": str(self._onnx_path),
+                            "ep": self._ep,
+                            "ep_error": str(ep_err),
+                            "fallback_error": str(fallback_err),
+                        },
+                        suggestion=self._get_compile_suggestion(target_device, fallback_err),
+                    ) from fallback_err
+            else:
+                self._state = SessionState.ERROR
+                self._last_error = ep_err
+                raise CompilationError(
+                    message=f"Failed to compile for {target_device}",
+                    context={
+                        "device": target_device,
+                        "onnx_path": str(self._onnx_path),
+                        "error": str(ep_err),
+                    },
+                    suggestion=self._get_compile_suggestion(target_device, ep_err),
+                ) from ep_err
 
         # Store session
         self._session = session
@@ -432,6 +536,16 @@ class WinMLSession:
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
         """
+        # CPU never needs EP binding — skip device discovery entirely so that
+        # non-CPU EPs (e.g. OpenVINO) are not probed via get_ep_devices(),
+        # which would trigger their native shared-library load and emit
+        # version-mismatch warnings even when the model runs on CPU.
+        if device.lower() == "cpu":
+            opts = self._session_options
+            opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
+            logger.info("Using PREFER_CPU policy for device cpu")
+            return opts
+
         # Explicit EP targeting: create fresh opts to avoid double-registration.
         # When device is also specified (non-"auto"), narrow by both EP name
         # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
