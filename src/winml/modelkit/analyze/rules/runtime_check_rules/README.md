@@ -7,11 +7,6 @@ also be fetched from release assets or `ModelKitArtifacts` for source builds.
 
 ## Setup
 
-No manual download is required for normal `pip`/wheel installs. Runtime rule
-parquet files are bundled and installed with the package.
-
-If `winml analyze` reports missing parquet files, first reinstall the package.
-
 ### Option 1: Download from the latest GitHub release (for source builds)
 
 If you are building from source code (for example, cloning this repo), download
