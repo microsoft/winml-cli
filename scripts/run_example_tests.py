@@ -2,10 +2,11 @@
 """Run eval tests for all example configs under a given EP.
 
 Usage:
-    python scripts/run_example_tests.py --ep amd --device npu
-    python scripts/run_example_tests.py --ep qnn --device npu --timeout 600
-    python scripts/run_example_tests.py --ep ov --device npu --eval-only
-    python scripts/run_example_tests.py --ep amd --device npu --models microsoft_resnet-50,BAAI_bge-base-en-v1.5
+    python scripts/run_example_tests.py --ep qnn --hardware npu --device npu
+    python scripts/run_example_tests.py --ep qnn --hardware npu --device npu --timeout 600
+    python scripts/run_example_tests.py --ep openvino --hardware cpu --device cpu --eval-only
+    python scripts/run_example_tests.py --ep vitisai --hardware npu --device npu \
+        --models microsoft_resnet-50,BAAI_bge-base-en-v1.5
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,7 +42,7 @@ def run_eval(
         cmd.append("--trust-remote-code")
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             cmd, capture_output=True, text=True, timeout=timeout, cwd=str(REPO_ROOT)
         )
         if result.returncode == 0 and output_path.exists():
@@ -72,7 +74,7 @@ def run_perf(
     ]
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             cmd, capture_output=True, text=True, timeout=timeout, cwd=str(REPO_ROOT)
         )
         if result.returncode == 0 and output_path.exists():
@@ -105,8 +107,8 @@ def needs_trust_remote_code(config_path: Path) -> bool:
     """Check if config has dataset_script requiring --trust-remote-code."""
     try:
         cfg = json.loads(config_path.read_text())
-        eo = cfg.get("eval_option", {})
-        return bool(eo.get("dataset_script"))
+        dataset = (cfg.get("eval") or {}).get("dataset") or {}
+        return bool(dataset.get("build_script"))
     except Exception:
         return False
 
@@ -122,15 +124,32 @@ def clean_caches() -> None:
 
 
 def main() -> None:
+    """Entrypoint for running perf/eval on example configs."""
     parser = argparse.ArgumentParser(description="Run eval tests for example configs")
-    parser.add_argument("--ep", required=True, choices=["amd", "qnn", "ov"], help="EP folder")
+    parser.add_argument(
+        "--ep",
+        required=True,
+        choices=["qnn", "openvino", "vitisai", "nv_tensorrt_rtx", "mlas", "dml"],
+        help="EP folder under examples/",
+    )
+    parser.add_argument(
+        "--hardware",
+        required=True,
+        choices=["npu", "gpu", "cpu"],
+        help="Hardware sub-folder under examples/<ep>/",
+    )
     parser.add_argument("--device", default="npu", help="Device (default: npu)")
-    parser.add_argument("--timeout", type=int, default=1200, help="Timeout per eval (default: 1200s)")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=1200,
+        help="Timeout per eval (default: 1200s)",
+    )
     parser.add_argument("--eval-only", action="store_true", help="Skip perf, only eval")
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
     args = parser.parse_args()
 
-    ep_dir = REPO_ROOT / "examples" / args.ep
+    ep_dir = REPO_ROOT / "examples" / args.ep / args.hardware
     if not ep_dir.exists():
         print(f"EP directory not found: {ep_dir}")
         sys.exit(1)
@@ -142,12 +161,13 @@ def main() -> None:
         model_dirs = [d for d in model_dirs if d.name in allowed]
 
     # Collect all configs
-    configs = []
-    for model_dir in model_dirs:
-        for cfg_file in sorted(model_dir.glob("*_config.json")):
-            configs.append(cfg_file)
+    configs = sorted(
+        cfg_file
+        for model_dir in model_dirs
+        for cfg_file in model_dir.glob("*_config.json")
+    )
 
-    print(f"EP: {args.ep}, Device: {args.device}")
+    print(f"EP: {args.ep}, Hardware: {args.hardware}, Device: {args.device}")
     print(f"Models: {len(model_dirs)}, Configs: {len(configs)}")
     print()
 

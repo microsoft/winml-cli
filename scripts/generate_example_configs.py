@@ -4,8 +4,8 @@
 Usage:
     python scripts/generate_example_configs.py
 
-Generates configs in examples/<ep>/<model_slug>/<task>_<precision>_config.json
-for all builtin models × 3 EPs (amd, qnn, ov) × 3 precisions (w8a8, w8a16, fp16).
+Generates configs in examples/<ep>/<hardware>/<model_slug>/<task>_<precision>_config.json
+with the current eval schema.
 """
 
 from __future__ import annotations
@@ -15,13 +15,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# EP configurations: (ep_name, folder_name, device, ep_flag)
+# EP configurations: (ep_flag, ep_folder, hardware)
+# EP names/aliases are validated by `winml config --help`.
 EPS = [
-    ("vitisai", "amd", "npu", "vitisai"),
-    ("qnn", "qnn", "npu", "qnn"),
-    ("openvino", "ov", "npu", "openvino"),
+    ("qnn", "qnn", "npu"),
+    ("qnn", "qnn", "gpu"),
+    ("openvino", "openvino", "npu"),
+    ("openvino", "openvino", "cpu"),
+    ("openvino", "openvino", "gpu"),
+    ("vitisai", "vitisai", "npu"),
+    ("nv_tensorrt_rtx", "nv_tensorrt_rtx", "gpu"),
+    ("cpu", "mlas", "cpu"),
+    ("dml", "dml", "gpu"),
 ]
 
 PRECISIONS = ["w8a8", "w8a16", "fp16"]
@@ -95,41 +103,61 @@ MODELS = [
 ]
 
 
-def load_eval_option_lookup() -> dict:
-    """Load eval_option data from models_with_acc.json."""
+def load_eval_lookup() -> dict:
+    """Load eval dataset data from models_with_acc.json."""
     acc_path = REPO_ROOT / "scripts" / "e2e_eval" / "testsets" / "models_with_acc.json"
     if not acc_path.exists():
         return {}
-    acc = json.loads(acc_path.read_text())
+    acc = json.loads(acc_path.read_text(encoding="utf-8"))
     lookup = {}
     for m in acc:
         key = (m["hf_id"], m["task"])
         if "dataset_config" in m:
             dc = m["dataset_config"]
-            # Convert to eval_option schema
-            eval_opt: dict = {"dataset": {}}
-            ds = eval_opt["dataset"]
+            dataset: dict = {}
             if dc.get("path"):
-                ds["path"] = dc["path"]
+                dataset["path"] = dc["path"]
             if dc.get("name"):
-                ds["name"] = dc["name"]
+                dataset["name"] = dc["name"]
             if dc.get("split"):
-                ds["split"] = dc["split"]
+                dataset["split"] = dc["split"]
             if dc.get("samples"):
-                ds["samples"] = dc["samples"]
+                dataset["samples"] = dc["samples"]
+            if dc.get("shuffle") is not None:
+                dataset["shuffle"] = dc["shuffle"]
             if dc.get("columns_mapping"):
-                ds["columns_mapping"] = dc["columns_mapping"]
+                dataset["columns_mapping"] = dc["columns_mapping"]
             if dc.get("label_mapping_file"):
-                eval_opt["label_mapping_file"] = dc["label_mapping_file"]
+                dataset["label_mapping_file"] = dc["label_mapping_file"]
             if dc.get("build_script"):
-                eval_opt["dataset_script"] = dc["build_script"]
-            lookup[key] = eval_opt
+                dataset["build_script"] = dc["build_script"]
+            lookup[key] = dataset
     return lookup
+
+
+def merge_eval_section(
+    config: dict,
+    *,
+    task: str,
+    device: str,
+    dataset: dict | None,
+) -> None:
+    """Write/merge the new eval section into a build config."""
+    eval_cfg = config.get("eval") if isinstance(config.get("eval"), dict) else {}
+    eval_cfg["task"] = eval_cfg.get("task") or task
+    eval_cfg["device"] = eval_cfg.get("device") or device
+    if dataset:
+        ds = eval_cfg.get("dataset") if isinstance(eval_cfg.get("dataset"), dict) else {}
+        for key, value in dataset.items():
+            if key not in ds:
+                ds[key] = value
+        eval_cfg["dataset"] = ds
+    config["eval"] = eval_cfg
 
 
 def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str) -> dict | None:
     """Run winml config and return the parsed JSON config.
-    
+
     For composite models (e.g., CLIP with image-encoder + text-encoder),
     returns a dict with 'components' list containing all sub-configs.
     """
@@ -142,7 +170,7 @@ def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str)
         "--precision", precision,
     ]
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             cmd, capture_output=True, text=True, timeout=120, cwd=str(REPO_ROOT)
         )
         if result.returncode != 0:
@@ -150,7 +178,7 @@ def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str)
             return None
         # Extract JSON from stdout (may have non-JSON lines before it)
         stdout = result.stdout.strip()
-        
+
         # Parse multiple JSON objects (for composite models like CLIP)
         configs = []
         pos = 0
@@ -175,18 +203,17 @@ def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str)
                 pos = json_end
             except json.JSONDecodeError:
                 break
-        
+
         if not configs:
-            print(f"  FAIL: no JSON in output")
+            print("  FAIL: no JSON in output")
             return None
-        
+
         # If single config, return as-is; if multiple, wrap in components
         if len(configs) == 1:
             return configs[0]
-        else:
-            return {"components": configs}
+        return {"components": configs}
     except subprocess.TimeoutExpired:
-        print(f"  TIMEOUT")
+        print("  TIMEOUT")
         return None
     except json.JSONDecodeError as e:
         print(f"  FAIL: JSON parse error: {e}")
@@ -199,7 +226,8 @@ def model_slug(hf_id: str) -> str:
 
 
 def main() -> None:
-    eval_lookup = load_eval_option_lookup()
+    """Entrypoint for config generation."""
+    eval_lookup = load_eval_lookup()
     examples_dir = REPO_ROOT / "examples"
 
     total = len(MODELS) * len(EPS) * len(PRECISIONS)
@@ -210,12 +238,12 @@ def main() -> None:
 
     for hf_id, task in MODELS:
         slug = model_slug(hf_id)
-        eval_opt = eval_lookup.get((hf_id, task))
+        eval_dataset = eval_lookup.get((hf_id, task))
 
-        for ep_name, ep_folder, device, ep_flag in EPS:
+        for ep_flag, ep_folder, hardware in EPS:
             for precision in PRECISIONS:
                 done += 1
-                out_dir = examples_dir / ep_folder / slug
+                out_dir = examples_dir / ep_folder / hardware / slug
                 out_file = out_dir / f"{task}_{precision}_config.json"
 
                 if out_file.exists():
@@ -223,17 +251,15 @@ def main() -> None:
                     continue
 
                 print(f"[{done}/{total}] {hf_id} / {task} / {ep_folder} / {precision} ...", end=" ")
-                config = generate_config(hf_id, task, device, ep_flag, precision)
+                config = generate_config(hf_id, task, hardware, ep_flag, precision)
                 if config is None:
                     failed += 1
                     continue
 
-                # Add eval_option if available
-                if eval_opt:
-                    config["eval_option"] = eval_opt
+                merge_eval_section(config, task=task, device=hardware, dataset=eval_dataset)
 
                 out_dir.mkdir(parents=True, exist_ok=True)
-                out_file.write_text(json.dumps(config, indent=2) + "\n")
+                out_file.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
                 created += 1
                 print("OK")
 
