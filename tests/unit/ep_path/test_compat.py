@@ -340,3 +340,73 @@ class TestSourceIsCompatible:
             },
         )
         assert src.is_compatible() is False
+
+
+# ---------------------------------------------------------------------------
+# iter_eps() — direct coverage of the abstract method (review S-4).
+# ---------------------------------------------------------------------------
+
+
+class TestIterEps:
+    """``iter_eps()`` returns the canonical EP names a source declares."""
+
+    def test_pypi_source_iter_eps(self) -> None:
+        src = PyPiSource(
+            distribution="onnxruntime-qnn",
+            relative_dll="ignored",
+            eps=("QNNExecutionProvider",),
+        )
+        assert list(src.iter_eps()) == ["QNNExecutionProvider"]
+
+    def test_filesystem_source_iter_eps(self) -> None:
+        src = FilesystemSource(
+            root=Path("ignored"),
+            dll_patterns={
+                "VitisAIExecutionProvider": "vitisai.dll",
+                "QNNExecutionProvider": "qnn.dll",
+            },
+        )
+        # iter_eps returns the dll_patterns keys (insertion order).
+        assert list(src.iter_eps()) == [
+            "VitisAIExecutionProvider",
+            "QNNExecutionProvider",
+        ]
+
+    def test_winml_catalog_source_iter_eps(self) -> None:
+        src = WinMlCatalogSource(
+            catalog_name="QNNExecutionProvider",
+            eps=("QNNExecutionProvider",),
+        )
+        assert list(src.iter_eps()) == ["QNNExecutionProvider"]
+
+    def test_msix_package_source_iter_eps(self) -> None:
+        src = MsixPackageSource(
+            family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
+            relative_dll="ExecutionProvider/onnxruntime_providers_qnn.dll",
+            eps=("QNNExecutionProvider",),
+        )
+        assert list(src.iter_eps()) == ["QNNExecutionProvider"]
+
+    def test_iter_eps_drives_is_compatible(
+        self, reset_vendor_cache: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # is_compatible iterates iter_eps; a multi-EP source where one EP
+        # is incompatible -> overall False. Confirms iter_eps is the
+        # actual driver (not a hardcoded path through self.eps).
+        monkeypatch.setattr(
+            "winml.modelkit.ep_path._get_detected_vendors",
+            lambda: frozenset({"AMD"}),
+        )
+        ok_src = FilesystemSource(
+            root=Path("ignored"),
+            dll_patterns={"VitisAIExecutionProvider": "v.dll"},
+        )
+        bad_src = FilesystemSource(
+            root=Path("ignored"),
+            dll_patterns={
+                "VitisAIExecutionProvider": "v.dll",
+                "QNNExecutionProvider": "q.dll",
+            },
+        )
+        assert ok_src.is_compatible() is True
+        assert bad_src.is_compatible() is False

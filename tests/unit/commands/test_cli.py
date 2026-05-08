@@ -236,6 +236,90 @@ class TestSysCommand:
         assert "Available Execution Providers" not in result.output
 
 
+class TestSysListEpEndToEnd:
+    """End-to-end coverage for ``_gather_ep_info`` shape (review I-5).
+
+    Other ``TestSysCommand`` tests mock ``_gather_ep_info`` to return a
+    canned dict. Here we mock only the slow boundary calls
+    (``_get_pkg_manager``, ``_get_catalog``) and let the real handler
+    walk ``EP_PATH``, derive ``compatible``/``device_types``/``status``,
+    and emit the JSON shape.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_for_e2e(self, monkeypatch):
+        """Make _gather_ep_info hermetic without mocking it out entirely."""
+        from winml.modelkit import ep_path as _ep
+
+        monkeypatch.setattr(_ep, "EP_PATH", [])
+        monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
+        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
+        # Force compat detection to pretend nothing is detected so
+        # vendor-constrained EPs come out as `compatible=False`.
+        _ep._get_detected_vendors.cache_clear()
+        monkeypatch.setattr(
+            _ep,
+            "_get_detected_vendors",
+            lambda: frozenset({"Qualcomm Inc"}),
+        )
+
+    def test_json_shape_has_all_required_fields(self, runner: CliRunner) -> None:
+        import json
+
+        result = runner.invoke(main, ["sys", "--list-ep", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        eps = data["executionProviders"]
+        assert isinstance(eps, dict)
+        # Built-in CPUExecutionProvider should always be present (no
+        # vendor requirement, never incompatible).
+        assert "CPUExecutionProvider" in eps
+        cpu = eps["CPUExecutionProvider"]
+        assert cpu["compatible"] is True
+        assert "device_types" in cpu
+        entries = cpu["entries"]
+        assert isinstance(entries, list)
+        assert len(entries) >= 1
+        first = entries[0]
+        assert first["status"] == "primary"
+        assert first["source_kind"] == "built-in"
+
+    def test_incompatible_ep_section_marks_entries(
+        self, runner: CliRunner, monkeypatch
+    ) -> None:
+        # Inject a PyPiSource for OpenVINO into EP_PATH; with detected
+        # vendors = {"Qualcomm Inc"}, OpenVINO must be marked incompatible
+        # at the section level AND at every entry level.
+        from winml.modelkit import ep_path as _ep
+        from winml.modelkit.ep_path import PyPiSource
+
+        # Provide a real installed distribution so the source resolves;
+        # onnxruntime-ep-openvino is installed in this venv.
+        ov_source = PyPiSource(
+            distribution="onnxruntime-ep-openvino",
+            relative_dll=(
+                "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"
+            ),
+            eps=("OpenVINOExecutionProvider",),
+        )
+        monkeypatch.setattr(_ep, "EP_PATH", [ov_source])
+
+        import json
+
+        result = runner.invoke(main, ["sys", "--list-ep", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        ov = data["executionProviders"].get("OpenVINOExecutionProvider")
+        if ov is None:
+            pytest.skip("onnxruntime-ep-openvino not installed in this venv")
+        assert ov["compatible"] is False
+        # Section incompatible -> every entry status overridden to incompatible.
+        for entry in ov["entries"]:
+            assert entry["status"] == "incompatible"
+            assert entry["compatible"] is False
+
+
 class TestDisabledCommands:
     """Test that disabled commands (run, serve) are hidden and reject invocations."""
 

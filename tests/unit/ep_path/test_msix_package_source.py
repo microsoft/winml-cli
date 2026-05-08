@@ -100,7 +100,11 @@ def _make_qnn_package(
     install_root = tmp_path / family_name / f"v{'.'.join(str(p) for p in version)}"
     install_root.mkdir(parents=True, exist_ok=True)
     if create_dll:
-        dll = install_root / dll_relative.replace("/", "\\")
+        # POSIX path joined via Path / str works on both Windows and POSIX
+        # without explicit separator translation. The invariant being
+        # tested: MsixPackageSource.relative_dll is POSIX-style; resolve()
+        # rejects backslash inputs. Don't mask that with a manual replace.
+        dll = install_root / dll_relative
         dll.parent.mkdir(parents=True, exist_ok=True)
         dll.write_bytes(b"")
     return _FakePackage(family_name, version, install_root)
@@ -248,6 +252,25 @@ class TestMsixPackageSourceResolve:
             eps=("QNNExecutionProvider",),
         )
         assert list(src.resolve()) == []
+
+    def test_backslash_relative_dll_raises(
+        self,
+        reset_pkg_manager_cache: None,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        # POSIX-style invariant: resolve() must reject backslash separators
+        # so a hand-constructed source fails loudly instead of silently
+        # returning empty on Linux.
+        pkg = _make_qnn_package(tmp_path, "1.8", (1, 8, 30, 0))
+        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
+        src = MsixPackageSource(
+            family_name_prefix="MicrosoftCorporationII.WinML.Qualcomm.QNN.EP.1.8_",
+            relative_dll="ExecutionProvider\\onnxruntime_providers_qnn.dll",
+            eps=("QNNExecutionProvider",),
+        )
+        with pytest.raises(ValueError, match="POSIX-style"):
+            list(src.resolve())
 
     def test_find_packages_raises_yields_nothing(
         self,

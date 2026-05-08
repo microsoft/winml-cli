@@ -134,6 +134,85 @@ class TestReturnShadowed:
         assert "extra" in str(entries[0].dll_path)  # primary
         assert "default" in str(entries[1].dll_path)  # shadowed
 
+    # -----------------------------------------------------------------------
+    # extra_sources_after — the load-bearing kwarg for `winml sys --list-ep`.
+    # MUST appear AFTER EP_PATH precedence-wise so injected MSIX entries
+    # don't artificially override the user's normal precedence. Coverage
+    # added per review C-4.
+    # -----------------------------------------------------------------------
+
+    def test_extra_sources_after_appears_after_ep_path(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _touch(tmp_path / "default" / "qnn.dll")
+        _touch(tmp_path / "after" / "qnn.dll")
+        default = _filesystem_source_for(
+            tmp_path / "default", "QNNExecutionProvider", "qnn.dll"
+        )
+        after = _filesystem_source_for(
+            tmp_path / "after", "QNNExecutionProvider", "qnn.dll"
+        )
+        monkeypatch.setattr(_ep, "EP_PATH", [default])
+
+        result = discover_eps(extra_sources_after=[after], return_shadowed=True)
+        entries = result["QNNExecutionProvider"]
+        assert len(entries) == 2
+        # EP_PATH wins primary; extra_sources_after lands shadowed.
+        assert "default" in str(entries[0].dll_path)
+        assert entries[0].status == "primary"
+        assert "after" in str(entries[1].dll_path)
+        assert entries[1].status == "shadowed"
+
+    def test_extra_sources_after_does_not_promote_to_primary(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # When BOTH extra_sources (prepended) AND extra_sources_after
+        # (appended) provide the same EP, precedence order is:
+        #   extra_sources -> EP_PATH -> extra_sources_after.
+        _touch(tmp_path / "before" / "qnn.dll")
+        _touch(tmp_path / "default" / "qnn.dll")
+        _touch(tmp_path / "after" / "qnn.dll")
+        before = _filesystem_source_for(
+            tmp_path / "before", "QNNExecutionProvider", "qnn.dll"
+        )
+        default = _filesystem_source_for(
+            tmp_path / "default", "QNNExecutionProvider", "qnn.dll"
+        )
+        after = _filesystem_source_for(
+            tmp_path / "after", "QNNExecutionProvider", "qnn.dll"
+        )
+        monkeypatch.setattr(_ep, "EP_PATH", [default])
+
+        result = discover_eps(
+            extra_sources=[before],
+            extra_sources_after=[after],
+            return_shadowed=True,
+        )
+        entries = result["QNNExecutionProvider"]
+        assert len(entries) == 3
+        statuses = [e.status for e in entries]
+        assert statuses == ["primary", "shadowed", "shadowed"]
+        assert "before" in str(entries[0].dll_path)
+        assert "default" in str(entries[1].dll_path)
+        assert "after" in str(entries[2].dll_path)
+
+    def test_extra_sources_after_alone_yields_primary_when_ep_path_empty(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        # Autouse fixture sets EP_PATH=[]; only extra_sources_after provides
+        # an EP. That EP becomes primary by default (no other source competes).
+        _touch(tmp_path / "qnn.dll")
+        only = _filesystem_source_for(tmp_path, "QNNExecutionProvider", "qnn.dll")
+        result = discover_eps(extra_sources_after=[only], return_shadowed=True)
+        entries = result["QNNExecutionProvider"]
+        assert len(entries) == 1
+        assert entries[0].status == "primary"
+
     def test_canonicalization_collapses_aliases(self, tmp_path: Path) -> None:
         """Two sources naming the same EP under different alias spellings
         collapse to one entry name; later one is shadowed (or deduped if

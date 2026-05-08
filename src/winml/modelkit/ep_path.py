@@ -768,7 +768,18 @@ class MsixPackageSource(EpSource):
         Yields nothing (silently) when no matching package is installed,
         when the WinRT binding is unavailable, or when the DLL is missing
         from the matched package.
+
+        Raises:
+            ValueError: if :attr:`relative_dll` contains a backslash —
+                the field's POSIX-style invariant is enforced at resolve
+                time so a hand-constructed source with Windows separators
+                fails loudly on Linux instead of silently returning empty.
         """
+        if "\\" in self.relative_dll:
+            raise ValueError(
+                f"MsixPackageSource.relative_dll must be POSIX-style "
+                f"(forward-slash separators); got {self.relative_dll!r}"
+            )
         manager = _get_pkg_manager()
         if manager is None:
             return
@@ -838,10 +849,14 @@ def list_msix_eps(
 
     Returns:
         List of :class:`MsixPackageSource` with ``family_name_prefix``
-        set to the exact PackageFamilyName plus a trailing ``"_"`` for
-        round-trip pinning, and ``version`` set to the exact installed
-        ``Package.Id.Version`` string. Empty list if the binding is
-        unavailable or no matching packages are installed.
+        set to the exact PackageFamilyName (no trailing separator) and
+        ``version`` set to the exact installed ``Package.Id.Version``
+        string. Round-trip exactness comes from the family-name plus
+        version pin together: a ``startswith()`` match on the full
+        family name only matches that one family, and the exact
+        version filter narrows further to the specific build. Empty
+        list if the binding is unavailable or no matching packages
+        are installed.
     """
     manager = _get_pkg_manager()
     if manager is None:
@@ -999,10 +1014,17 @@ def _default_ep_path_linux() -> list[EpSource]:
     """Default ``EP_PATH`` for Linux hosts.
 
     Only PyPI plugins; no MSIX, no Ryzen AI Windows installer.
-    Note: ``onnxruntime-qnn`` ships Linux aarch64 wheels but no x86_64
-    wheel as of 2026-04-27 (design doc TODO #6, resolved); we still list
-    the source — it just yields nothing on x86_64 Linux because
-    ``importlib.metadata.distribution`` will not find an installed wheel.
+
+    Note on QNN: ``onnxruntime-qnn`` 2.1.0 publishes Linux aarch64 wheels
+    (``manylinux_2_34_aarch64`` for cp311+) but the wheel's internal SO
+    layout has not been empirically verified for this codebase. A
+    ``PyPiSource`` entry is intentionally NOT added here until that
+    layout is confirmed — emitting a speculative ``relative_dll`` could
+    silently break QNN-on-Linux discovery for users who DO have the
+    wheel installed. TODO: install the cp311 aarch64 wheel on a Linux
+    aarch64 box, inspect the .so location, then add a ``PyPiSource``
+    here mirroring the Windows entry but with a verified
+    ``libonnxruntime_providers_qnn.so`` path.
     """
     return [
         PyPiSource(
@@ -1047,8 +1069,8 @@ def _parse_modelkit_ep_path() -> list[EpSource]:
     raw = os.environ.get("MODELKIT_EP_PATH")
     if not raw:
         return []
-    sep = ";" if os.name == "nt" else os.pathsep
-    entries = [e.strip() for e in raw.split(sep) if e.strip()]
+    # os.pathsep is ';' on Windows and ':' on POSIX — same as PATH semantics.
+    entries = [e.strip() for e in raw.split(os.pathsep) if e.strip()]
     if not entries:
         return []
 

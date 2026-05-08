@@ -39,6 +39,12 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
+from ..ep_path import (
+    FilesystemSource,
+    MsixPackageSource,
+    PyPiSource,
+    WinMlCatalogSource,
+)
 from ..sysinfo import OS, get_ep_device_map
 
 
@@ -479,28 +485,35 @@ def _format_device_types(ep_name: str) -> str:
 
 
 def _describe_source(source: Any) -> dict[str, Any]:
-    """Build a JSON-friendly per-source descriptor for ``--list-ep``."""
-    cls_name = type(source).__name__
-    desc: dict[str, Any] = {"source_kind": cls_name}
-    # PyPiSource
-    if hasattr(source, "distribution"):
-        try:
-            from importlib import metadata
+    """Build a JSON-friendly per-source descriptor for ``--list-ep``.
 
-            desc["distribution"] = source.distribution
+    Dispatches on concrete EpSource subclass via ``isinstance`` so a
+    future field-name collision (e.g. a new source class adding its
+    own ``distribution`` attribute) cannot misclassify rows.
+    """
+    desc: dict[str, Any] = {"source_kind": type(source).__name__}
+    if isinstance(source, PyPiSource):
+        from importlib import metadata
+
+        desc["distribution"] = source.distribution
+        try:
             desc["distribution_version"] = metadata.version(source.distribution)
-        except Exception:
-            desc["distribution"] = getattr(source, "distribution", "?")
+        except metadata.PackageNotFoundError as e:
+            # Distribution declared by the source isn't actually installed —
+            # caller will see "?" in the rendered output. DEBUG log so a
+            # verbose run reveals the cause; never silent.
+            logger.debug(
+                "metadata.version(%r) not found: %s",
+                source.distribution,
+                e,
+            )
             desc["distribution_version"] = None
-    # MsixPackageSource
-    if hasattr(source, "family_name_prefix"):
+    elif isinstance(source, MsixPackageSource):
         desc["family_name_prefix"] = source.family_name_prefix
         desc["version"] = source.version
-    # WinMlCatalogSource
-    if hasattr(source, "catalog_name"):
+    elif isinstance(source, WinMlCatalogSource):
         desc["catalog_name"] = source.catalog_name
-    # FilesystemSource
-    if hasattr(source, "root") and hasattr(source, "dll_patterns"):
+    elif isinstance(source, FilesystemSource):
         desc["root"] = str(source.root)
         if source.env_var:
             desc["env_var"] = source.env_var
@@ -534,13 +547,27 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
     # Cross-reference WinMlCatalogSource's pick to tag (catalog default).
     for entries in full.values():
         for entry in entries:
-            if type(entry.source).__name__ == "WinMlCatalogSource":
+            if isinstance(entry.source, WinMlCatalogSource):
                 catalog_default_paths.add(entry.dll_path)
 
     result: dict[str, dict[str, Any]] = {}
     for ep_name, entries in full.items():
         # Compatibility is a property of the EP, not any single source.
-        compatible = entries[0].source.is_compatible() if entries else True
+        # Guard against WMI/COM hiccups in is_compatible() so a single
+        # bad EP can't take down the whole --list-ep output. Default
+        # True (treat as compatible) so the EP at least appears.
+        if entries:
+            try:
+                compatible = entries[0].source.is_compatible()
+            except Exception as e:
+                logger.warning(
+                    "is_compatible() raised for EP %s; treating as compatible: %s",
+                    ep_name,
+                    e,
+                )
+                compatible = True
+        else:
+            compatible = True
         ep_record: dict[str, Any] = {
             "compatible": compatible,
             "device_types": _format_device_types(ep_name),
@@ -580,7 +607,11 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
                 ],
             }
     except Exception as e:
-        logger.debug("ORT not available: %s", e)
+        logger.warning(
+            "onnxruntime import failed during --list-ep; built-in EPs "
+            "(CPU/Azure/Dml) will not be listed: %s",
+            e,
+        )
 
     return result
 
@@ -826,14 +857,22 @@ def sysinfo(
                 try:
                     devices = _gather_device_info()
                     _output_device_text(devices)
-                except Exception:
-                    logger.debug("Device detection failed in default output")
+                except Exception as e:
+                    logger.warning("Device detection failed: %s", e)
+                    console.print(
+                        "[yellow]Device detection failed — re-run with "
+                        "[bold]-v[/bold] for the full traceback.[/yellow]"
+                    )
                 console.print()
                 try:
                     eps = _gather_ep_info()
                     _output_ep_text(eps)
-                except Exception:
-                    logger.debug("EP detection failed in default output")
+                except Exception as e:
+                    logger.warning("EP detection failed: %s", e)
+                    console.print(
+                        "[yellow]EP detection failed — re-run with "
+                        "[bold]-v[/bold] for the full traceback.[/yellow]"
+                    )
 
         except Exception as e:
             console.print(f"[bold red]Error gathering system information:[/bold red] {e}")

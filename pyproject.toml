@@ -139,6 +139,15 @@ override-dependencies = [
   # resolve the exact pin. Override with a flexible range so uv picks
   # the actually-published version.
   "onnxruntime-windowsml>=1.24.5,<1.25",
+  # onnxruntime-qnn declares 'onnxruntime' as a runtime dep, but
+  # onnxruntime-windowsml ships the same `onnxruntime/` Python module
+  # and satisfies the same role. Without this override, both distros
+  # get installed and the upstream wheel's files win on disk → DML EP
+  # disappears from get_available_providers(). Neutralize the upstream
+  # `onnxruntime` *transitive* requirement (NOT onnxruntime-windowsml
+  # itself, which we explicitly want) so only onnxruntime-windowsml
+  # ends up installed.
+  "onnxruntime; sys_platform == 'unobtainium'",
 ]
 
 [tool.setuptools.packages.find]

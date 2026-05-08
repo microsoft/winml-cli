@@ -115,6 +115,28 @@ class TestQnnArchResolver:
         # ``str.format`` with no placeholders returns the same string.
         assert _qnn_arch_resolver("foo.dll") == "foo.dll"
 
+    @pytest.mark.parametrize(
+        ("machine", "expected_arch"),
+        [
+            ("AMD64", "amd64"),     # x64 native
+            ("x86_64", "amd64"),    # POSIX x64 spelling
+            ("ARM64", "arm64ec"),   # Snapdragon native
+            ("aarch64", "arm64ec"), # POSIX arm64 spelling
+        ],
+    )
+    def test_arch_branches_force_both_paths(
+        self,
+        machine: str,
+        expected_arch: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Force both arch branches so test coverage is host-independent
+        # (review S-6). On x86_64 CI, the arm64ec branch would otherwise
+        # never execute.
+        monkeypatch.setattr("platform.machine", lambda: machine)
+        out = _qnn_arch_resolver("libs/{arch}/foo.dll")
+        assert out == f"libs/{expected_arch}/foo.dll"
+
 
 # ---------------------------------------------------------------------------
 # PyPiSource.
