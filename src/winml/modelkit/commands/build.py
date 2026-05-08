@@ -632,13 +632,15 @@ def _run_single_build(
 
         elapsed = time.monotonic() - start_time
         final_path = resolved_dir / "model.onnx"
-        if final_path.exists() and stage_timings:
-            print_final(
-                console,
-                elapsed,
-                str(final_path),
-                stage_timings=stage_timings,
-            )
+        if final_path.exists():
+            _write_model_linkage_file(final_path)
+            if stage_timings:
+                print_final(
+                    console,
+                    elapsed,
+                    str(final_path),
+                    stage_timings=stage_timings,
+                )
     finally:
         logging.captureWarnings(False)
         root_logger.handlers = old_handlers
@@ -664,6 +666,47 @@ def _safe_size(path: Path) -> int:
         return path.stat().st_size
     except OSError:
         return 0
+
+
+def _get_linked_files(model_path: Path) -> list[str]:
+    """Collect files referenced by a final ONNX model (external data / EPContext bins)."""
+    linked_files: set[str] = set()
+
+    try:
+        from ..onnx.external_data import get_external_data_files
+
+        linked_files.update(get_external_data_files(model_path))
+    except Exception:
+        logger.debug("Could not read external data links from %s", model_path, exc_info=True)
+
+    try:
+        from ..core.onnx_utils import get_epcontext_info
+
+        ep_info = get_epcontext_info(model_path)
+        if ep_info:
+            for ctx_info in ep_info.get("ep_contexts", []):
+                cache_path = ctx_info.get("cache_context_path")
+                if cache_path:
+                    linked_files.add(cache_path)
+    except Exception:
+        logger.debug("Could not read EPContext links from %s", model_path, exc_info=True)
+
+    return sorted(linked_files)
+
+
+def _write_model_linkage_file(final_path: Path) -> Path | None:
+    """Write a small manifest that maps model.onnx to any required linked files."""
+    if not final_path.exists():
+        return None
+
+    linkage_path = final_path.parent / "model_linkage.json"
+    linkage = {
+        "schema_version": 1,
+        "model": final_path.name,
+        "linked_files": _get_linked_files(final_path),
+    }
+    linkage_path.write_text(json.dumps(linkage, indent=2))
+    return linkage_path
 
 
 def _show_io(sl: Any, config: WinMLBuildConfig) -> None:
