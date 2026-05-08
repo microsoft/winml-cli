@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help="Device to run on. 'auto' detects the best available device.",
 )
+@cli_utils.ep_option(required=False)
 @click.option(
     "--samples",
     type=int,
@@ -144,6 +145,7 @@ def eval(
     dataset_name: str | None,
     task: str | None,
     device: str,
+    ep: str | None,
     samples: int,
     split: str,
     shuffle: bool,
@@ -233,24 +235,31 @@ def _build_eval_config(
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
-        raw = json.loads(config_file.read_text())
+        build_cfg = cli_utils.load_build_config(config_file)
 
         # Loader task as lowest-priority fallback
-        loader_data = raw.get("loader", {})
-        if "task" in loader_data:
-            cfg.task = loader_data["task"]
+        if build_cfg.loader and build_cfg.loader.task:
+            cfg.task = build_cfg.loader.task
 
-        # Quant fields as fallback (only explicitly-set values)
-        quant_data = raw.get("quant", {})
-        quant_overrides: dict = {}
-        if "samples" in quant_data:
-            quant_overrides.setdefault("dataset", {})["samples"] = quant_data["samples"]
-        if "dataset_name" in quant_data:
-            quant_overrides.setdefault("dataset", {})["name"] = quant_data["dataset_name"]
-        if quant_overrides:
-            cfg = merge_config(cfg, quant_overrides)
+        # Compile EP as fallback for --ep
+        if build_cfg.compile and build_cfg.compile.ep_config:
+            cfg.ep = build_cfg.compile.ep_config.provider
 
-        # Eval section overrides quant/loader
+        # Quant fields as fallback
+        if build_cfg.quant:
+            quant_overrides: dict = {}
+            if build_cfg.quant.samples != 100:  # non-default
+                quant_overrides.setdefault("dataset", {})["samples"] = build_cfg.quant.samples
+            if build_cfg.quant.dataset_name:
+                quant_overrides.setdefault("dataset", {})["name"] = build_cfg.quant.dataset_name
+            if quant_overrides:
+                cfg = merge_config(cfg, quant_overrides)
+
+        # Eval section overrides quant/loader (read raw JSON for this)
+        try:
+            raw = json.loads(config_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            raw = {}
         eval_data = raw.get("eval")
         if eval_data:
             cfg = merge_config(cfg, eval_data)
