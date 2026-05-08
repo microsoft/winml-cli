@@ -24,7 +24,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from .hw_monitor import HWMonitor
+from .hw_monitor import HWMonitor, adapter_label
 
 
 # Chart settings
@@ -55,7 +55,6 @@ class HWLiveDisplay:
         self._chart_width = chart_width
         self._chart_height = chart_height
         self._hw = HWMonitor(poll_interval_ms=poll_interval_ms, device=device)
-        self._adapter_label = "GPU" if (device or "").lower() == "gpu" else "NPU"
         self._live: Any = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -124,6 +123,11 @@ class HWLiveDisplay:
             border_style="blue",
         )
         self._live.update(panel)
+
+    @property
+    def _adapter_label(self) -> str:
+        """Live label that follows the resolved adapter (after start())."""
+        return adapter_label(self._hw.device_kind)
 
     def _render_chart(
         self,

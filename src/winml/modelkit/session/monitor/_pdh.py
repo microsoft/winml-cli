@@ -400,11 +400,28 @@ class PdhPoller:
                 self._requested_device, self._ep_name
             )
 
-            if self._adapter_luid is not None and self._device_kind == "npu":
-                self._query = build_npu_query(self._adapter_luid)
-            elif self._adapter_luid is not None and self._device_kind == "gpu":
-                self._query = build_gpu_query(self._adapter_luid)
-            else:
+            # Try to build the per-adapter query. If the resolved LUID is
+            # missing from PDH enumeration or the engine type isn't present
+            # build_adapter_query raises ValueError; we degrade to CPU/RAM
+            # rather than failing the whole monitor.
+            self._query = None
+            if self._adapter_luid is not None and self._device_kind in ("npu", "gpu"):
+                try:
+                    if self._device_kind == "npu":
+                        self._query = build_npu_query(self._adapter_luid)
+                    else:
+                        self._query = build_gpu_query(self._adapter_luid)
+                except ValueError as exc:
+                    logger.info(
+                        "Adapter query unavailable for %s LUID %s (%s); monitoring CPU/RAM only",
+                        self._device_kind.upper(),
+                        self._adapter_luid,
+                        exc,
+                    )
+                    self._adapter_luid = None
+                    self._device_kind = None
+
+            if self._query is None:
                 if self._requested_device in ("npu", "gpu"):
                     logger.info(
                         "%s not found via PDH; monitoring CPU/RAM only",

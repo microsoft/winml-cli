@@ -905,6 +905,7 @@ def _run_monitored_loop(
         warmup=warmup,
         model_id=model_id,
         device=device,
+        device_kind=getattr(hw, "device_kind", None),
     )
     with display:
         for i in range(total_iterations):

@@ -38,16 +38,22 @@ class LiveMonitorDisplay:
         chart_width: int = 80,
         chart_height: int = 15,
         poll_interval_ms: int = 100,
+        device_kind: str | None = None,
     ) -> None:
+        from ..session.monitor.hw_monitor import adapter_label
+
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
-        # Adapter label drives chart legend & status row text.
-        # GPU when --device gpu, CPU-only when --device cpu (no adapter samples
-        # collected), otherwise NPU.
-        device_norm = (device or "").lower()
-        self._adapter_label = "GPU" if device_norm == "gpu" else "NPU"
+        # `device_kind` is the value HWMonitor resolved at start() — pass it
+        # in when you want the legend to reflect what's actually polled (e.g.
+        # "auto" that resolved to GPU). Falls back to the requested string
+        # when the caller doesn't know the resolved kind yet.
+        if device_kind is None:
+            requested = (device or "").lower()
+            device_kind = requested if requested in ("npu", "gpu") else None
+        self._adapter_label = adapter_label(device_kind)
         self._chart_width = chart_width
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0

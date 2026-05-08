@@ -21,6 +21,21 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
+def adapter_label(device_kind: str | None) -> str:
+    """Return the user-facing label for an adapter ``device_kind``.
+
+    ``device_kind`` is the value resolved by :class:`HWMonitor` after
+    ``__enter__`` (``"npu"``, ``"gpu"``, or ``None`` when only CPU/RAM
+    samples are collected). Centralised so chart legends, status rows, and
+    the ASCII fallback bar all use the same wording.
+    """
+    if device_kind == "gpu":
+        return "GPU"
+    if device_kind == "npu":
+        return "NPU"
+    return "Adapter"
+
+
 class HWMonitor:
     """System-wide hardware monitor via Windows PDH counters.
 

@@ -728,8 +728,9 @@ class TestResolveAdapterLuid:
         assert resolve_adapter_luid("") is None
 
     def test_prefers_ort_metadata_when_available(self):
-        """When ORT publishes LUID metadata, resolver returns the formatted
-        value WITHOUT calling the PDH-only helpers."""
+        """When ORT publishes LUID metadata that PDH also enumerates, the
+        resolver returns the formatted value WITHOUT calling the PDH-only
+        fallback helpers."""
         from winml.modelkit.sysinfo import pdh_adapters
 
         fake_dev = type(
@@ -754,13 +755,16 @@ class TestResolveAdapterLuid:
             },
         )
 
+        # 74191 == 0x121CF; pretend PDH knows this adapter so validation passes.
+        fake_pdh = {"0x00000000_0x000121CF": object()}
+
         with (
             patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
             patch.object(pdh_adapters, "discover_gpu_luid") as mock_pdh,
         ):
             luid = pdh_adapters.resolve_adapter_luid("gpu")
 
-        # 74191 == 0x121CF
         assert luid == "0x00000000_0x000121CF"
         mock_pdh.assert_not_called()
 
@@ -803,10 +807,19 @@ class TestResolveAdapterLuid:
             },
         )
 
-        with patch.dict("sys.modules", {"onnxruntime": fake_ort}):
+        # PDH must enumerate the matched adapter or validation will reject it.
+        # 111 == 0x6F, 222 == 0xDE.
+        fake_pdh = {
+            "0x00000000_0x0000006F": object(),
+            "0x00000000_0x000000DE": object(),
+        }
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
+        ):
             luid = pdh_adapters.resolve_adapter_luid("gpu", ep_name="QNNExecutionProvider")
 
-        # 222 == 0xDE
         assert luid == "0x00000000_0x000000DE"
 
     def test_falls_back_to_pdh_when_ort_has_no_luid_metadata(self):
@@ -870,6 +883,113 @@ class TestResolveAdapterLuid:
             luid = pdh_adapters.resolve_adapter_luid("npu")
 
         assert luid == "0x00000000_0x00012C89"
+
+    def test_falls_back_when_ort_luid_not_in_pdh_enumeration(self):
+        """If ORT publishes a LUID PDH doesn't enumerate, the resolver skips
+        it and falls through to the PDH-only fallback. Without this guard,
+        ``build_adapter_query`` would later raise for the unknown LUID."""
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        ghost_dev = type(
+            "FakeEpDevice",
+            (),
+            {
+                "ep_name": "SomeEP",
+                "device": type(
+                    "FakeHwDev",
+                    (),
+                    {"type": "NPU_TYPE", "metadata": {"LUID": "22278"}},
+                )(),
+            },
+        )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [ghost_dev],
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
+            },
+        )
+
+        # PDH knows *some* adapters but not the one ORT named. A non-empty
+        # dict triggers validation; the ORT LUID is rejected and we fall
+        # through to discover_npu_luid().
+        fake_pdh = {"0x00000000_0xC0FFEE": object()}
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
+            patch.object(
+                pdh_adapters,
+                "discover_npu_luid",
+                return_value="0x00000000_0xFA11BACC",
+            ) as mock_pdh,
+        ):
+            luid = pdh_adapters.resolve_adapter_luid("npu")
+
+        # 22278 == 0x5706 (the failing-test LUID); rejected, fallback wins.
+        assert luid == "0x00000000_0xFA11BACC"
+        mock_pdh.assert_called_once()
+
+    def test_skips_malformed_ep_device(self):
+        """Accessing .device or .metadata may raise on bad ep_devices; the
+        resolver swallows and continues to the next entry."""
+        from winml.modelkit.sysinfo import pdh_adapters
+
+        class _Boom:
+            @property
+            def device(self):
+                raise AttributeError("device unavailable")
+
+            ep_name = "BrokenEP"
+
+        good_dev = type(
+            "FakeEpDevice",
+            (),
+            {
+                "ep_name": "QNNExecutionProvider",
+                "device": type(
+                    "FakeHwDev",
+                    (),
+                    {"type": "NPU_TYPE", "metadata": {"LUID": "76937"}},
+                )(),
+            },
+        )()
+
+        fake_ort = type(
+            "FakeOrt",
+            (),
+            {
+                "get_ep_devices": lambda: [_Boom(), good_dev],
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
+            },
+        )
+
+        # 76937 == 0x12C89
+        fake_pdh = {"0x00000000_0x00012C89": object()}
+
+        with (
+            patch.dict("sys.modules", {"onnxruntime": fake_ort}),
+            patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
+        ):
+            luid = pdh_adapters.resolve_adapter_luid("npu")
+
+        assert luid == "0x00000000_0x00012C89"
+
+
+class TestAdapterLabel:
+    """The ``adapter_label`` helper centralises chart/status row wording."""
+
+    def test_labels(self):
+        from winml.modelkit.session.monitor.hw_monitor import adapter_label
+
+        assert adapter_label("npu") == "NPU"
+        assert adapter_label("gpu") == "GPU"
+        # Unknown / CPU-only mode falls back to a neutral label rather than
+        # claiming an adapter type that isn't being polled.
+        assert adapter_label(None) == "Adapter"
+        assert adapter_label("cpu") == "Adapter"
 
 
 class TestPollerDeviceRouting:
@@ -1015,6 +1135,53 @@ class TestPollerDeviceRouting:
             poller.stop()
 
         mock_resolve.assert_called_once_with("gpu", ep_name="QNNExecutionProvider")
+
+    def test_auto_with_neither_npu_nor_gpu_falls_back_to_cpu_ram(self):
+        """When auto can't find any adapter, the poller must still come up
+        and only collect CPU/RAM — it should not raise."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        with patch(
+            "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
+            return_value=None,
+        ) as mock_resolve:
+            poller = PdhPoller(poll_interval_ms=50, device="auto")
+            poller.start()
+            poller.stop()
+
+        assert mock_resolve.call_args_list == [
+            (("npu",), {"ep_name": None}),
+            (("gpu",), {"ep_name": None}),
+        ]
+        assert poller.device_kind is None
+        assert poller.adapter_luid is None
+        assert poller.npu_luid is None
+
+    def test_resolved_luid_missing_from_pdh_degrades_gracefully(self):
+        """If the resolver returns a LUID but build_*_query then raises
+        ValueError (LUID not in PDH enumeration), the poller must fall
+        through to CPU/RAM-only rather than propagating the exception."""
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        with (
+            patch(
+                "winml.modelkit.session.monitor._pdh.resolve_adapter_luid",
+                return_value="0x00000000_0xDEADBEEF",
+            ),
+            patch(
+                "winml.modelkit.session.monitor._pdh.build_npu_query",
+                side_effect=ValueError("LUID not found"),
+            ) as mock_build,
+        ):
+            poller = PdhPoller(poll_interval_ms=50, device="npu")
+            poller.start()
+            poller.stop()
+
+        mock_build.assert_called_once()
+        # Adapter slots cleared after the failed build attempt; CPU/RAM
+        # collection still works (no exception).
+        assert poller.device_kind is None
+        assert poller.adapter_luid is None
 
 
 class TestHWMonitorDeviceRouting:
