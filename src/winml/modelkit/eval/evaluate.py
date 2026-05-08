@@ -184,6 +184,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             onnx_path=config.model_path,
             task=config.task,
             device=config.device,
+            ep=config.ep,
             skip_build=True,
             hf_config=hf_config,
         )
@@ -194,6 +195,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         config.model_id,
         task=config.task,
         device=config.device,
+        ep=config.ep,
     )
 
 
