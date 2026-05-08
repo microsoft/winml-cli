@@ -67,15 +67,7 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help="Device to run on. 'auto' detects the best available device.",
 )
-@click.option(
-    "--ep",
-    "ep",
-    type=str,
-    default=None,
-    help="Force specific execution provider "
-    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
-    "Overrides device-to-provider mapping.",
-)
+@cli_utils.ep_option(required=False)
 @click.option(
     "--samples",
     type=int,
@@ -247,7 +239,7 @@ def eval(
         model_id=model_id,
         task=task,
         device=resolved_device,
-        ep=ep.lower() if ep else None,
+        ep=ep,
         dataset=ds_config,
         output_path=output,
     )

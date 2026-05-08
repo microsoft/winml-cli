@@ -693,6 +693,200 @@ class TestEvalCli:
         assert result.exit_code != 0
         assert "broken model" in result.output
 
+    def test_cli_ep_passed_through(self):
+        """`--ep <name>` must propagate to WinMLEvaluationConfig.ep."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        runner = CliRunner()
+        with (
+            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
+            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
+        ):
+            mock_evaluate.return_value = EvalResult(
+                config=WinMLEvaluationConfig(),
+                metrics={},
+            )
+            result = runner.invoke(
+                eval_cmd,
+                ["-m", "test/model", "--dataset", "imagenet-1k", "--ep", "qnn"],
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0, result.output
+            config = mock_evaluate.call_args[0][0]
+            assert config.ep == "qnn"
+
+    def test_cli_ep_invalid_value_rejected(self):
+        """Unknown --ep value must be rejected by Click Choice validation."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", "test/model", "--dataset", "imagenet-1k", "--ep", "bogus_ep"],
+        )
+        assert result.exit_code != 0
+        assert "bogus_ep" in result.output.lower() or "invalid" in result.output.lower()
+
+    def test_cli_ep_from_build_config(self, tmp_path):
+        """When --ep is omitted, ep is read from build_cfg.compile.ep_config.provider."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        config_file = tmp_path / "build.yaml"
+        config_file.touch()
+
+        fake_build_cfg = MagicMock()
+        fake_build_cfg.loader = None
+        fake_build_cfg.compile.ep_config.provider = "dml"
+        fake_build_cfg.quant = None
+
+        runner = CliRunner()
+        with (
+            patch("winml.modelkit.sysinfo.resolve_device", return_value=("gpu", ["gpu", "cpu"])),
+            patch(
+                "winml.modelkit.utils.cli.load_build_config",
+                return_value=fake_build_cfg,
+            ),
+            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
+        ):
+            mock_evaluate.return_value = EvalResult(
+                config=WinMLEvaluationConfig(),
+                metrics={},
+            )
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    "test/model",
+                    "--dataset",
+                    "imagenet-1k",
+                    "--config",
+                    str(config_file),
+                ],
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0, result.output
+            config = mock_evaluate.call_args[0][0]
+            assert config.ep == "dml"
+
+    def test_cli_ep_overrides_build_config(self, tmp_path):
+        """Explicit --ep on the CLI must take precedence over build config value."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        config_file = tmp_path / "build.yaml"
+        config_file.touch()
+
+        fake_build_cfg = MagicMock()
+        fake_build_cfg.loader = None
+        fake_build_cfg.compile.ep_config.provider = "dml"
+        fake_build_cfg.quant = None
+
+        runner = CliRunner()
+        with (
+            patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
+            patch(
+                "winml.modelkit.utils.cli.load_build_config",
+                return_value=fake_build_cfg,
+            ),
+            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
+        ):
+            mock_evaluate.return_value = EvalResult(
+                config=WinMLEvaluationConfig(),
+                metrics={},
+            )
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "-m",
+                    "test/model",
+                    "--dataset",
+                    "imagenet-1k",
+                    "--config",
+                    str(config_file),
+                    "--ep",
+                    "qnn",
+                ],
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0, result.output
+            config = mock_evaluate.call_args[0][0]
+            assert config.ep == "qnn"
+
+
+class TestBuildEvalResultEpField:
+    """Tests for build_eval_result handling of the optional `ep` field."""
+
+    @staticmethod
+    def _load_reporter():
+        """Load scripts/e2e_eval/utils/reporter.py via importlib (not on sys.path)."""
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        utils_dir = repo_root / "scripts" / "e2e_eval" / "utils"
+
+        # Pre-load the sibling module reporter.py imports relatively.
+        if "_e2e_classifier" not in sys.modules:
+            spec_c = importlib.util.spec_from_file_location(
+                "_e2e_classifier", utils_dir / "classifier.py"
+            )
+            mod_c = importlib.util.module_from_spec(spec_c)
+            sys.modules["_e2e_classifier"] = mod_c
+            spec_c.loader.exec_module(mod_c)
+
+        # Stub the relative import target so reporter.py's `from .classifier ...` works.
+        pkg_name = "_e2e_reporter_pkg"
+        if pkg_name not in sys.modules:
+            pkg = type(sys)(pkg_name)
+            pkg.__path__ = [str(utils_dir)]
+            sys.modules[pkg_name] = pkg
+            sys.modules[f"{pkg_name}.classifier"] = sys.modules["_e2e_classifier"]
+
+        spec = importlib.util.spec_from_file_location(
+            f"{pkg_name}.reporter", utils_dir / "reporter.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _make_entry(self):
+        entry = MagicMock()
+        entry.hf_id = "test/model"
+        entry.task = "image-classification"
+        entry.model_type = "resnet"
+        entry.group = "Test"
+        entry.priority = "P0"
+        return entry
+
+    def test_ep_omitted_when_none(self):
+        reporter = self._load_reporter()
+
+        result = reporter.build_eval_result(
+            entry=self._make_entry(),
+            perf_proc=None,
+            device="cpu",
+            eval_types_run=["accuracy"],
+            accuracy_result=None,
+            ep=None,
+        )
+        assert "ep" not in result
+
+    def test_ep_present_when_provided(self):
+        reporter = self._load_reporter()
+
+        result = reporter.build_eval_result(
+            entry=self._make_entry(),
+            perf_proc=None,
+            device="npu",
+            eval_types_run=["accuracy"],
+            accuracy_result=None,
+            ep="qnn",
+        )
+        assert result["ep"] == "qnn"
+
 
 class TestDefaultDatasetImmutability:
     """Tests that module-level _DEFAULT_DATASETS are not corrupted."""

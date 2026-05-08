@@ -61,11 +61,10 @@ def build_eval_result(
             "error": perf_proc.get("error_summary", ""),
         }
 
-    return {
+    result = {
         "model": entry.hf_id,
         "task": entry.task,
         "device": device,
-        "ep": ep,
         "model_type": entry.model_type,
         "group": entry.group,
         "priority": entry.priority,
@@ -76,6 +75,10 @@ def build_eval_result(
         "perf": perf_section,
         "accuracy": accuracy_result,
     }
+    # Optional fields: only include when explicitly provided by the user.
+    if ep is not None:
+        result["ep"] = ep
+    return result
 
 
 # ---------------------------------------------------------------------------
