@@ -1,5 +1,13 @@
 trigger: none
 
+schedules:
+  - cron: '0 0 * * Fri'
+    displayName: 'Weekly run — Friday 08:00 (UTC+8)'
+    branches:
+      include:
+        - main
+    always: true
+
 resources:
   repositories:
     - repository: ModelKitArtifacts
@@ -17,13 +25,26 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
-  - name: ovDevices
-    displayName: 'NPU-OV: devices to evaluate'
+  - name: qnnPairs
+    displayName: 'NPU-QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
     type: object
     default:
-      - cpu
-      - gpu
-      - npu
+      - qnn_npu
+      - qnn_gpu
+  - name: ovPairs
+    displayName: 'NPU-OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
+    type: object
+    default:
+      - dml_gpu
+      - mlas_cpu
+      - ov_cpu
+      - ov_gpu
+      - ov_npu
+  - name: amdPairs
+    displayName: 'NPU-AMD: EP/device pairs (any of: vitisai_npu)'
+    type: object
+    default:
+      - vitisai_npu
 
 stages:
   - stage: NPU_QNN
@@ -35,6 +56,7 @@ stages:
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
     displayName: 'E2E Eval — NPU-OV'
@@ -46,7 +68,7 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
-          devices: ${{ parameters.ovDevices }}
+          pairNames: ${{ parameters.ovPairs }}
 
   - stage: NPU_AMD
     displayName: 'E2E Eval — NPU-AMD'
@@ -58,3 +80,4 @@ stages:
           agentSuffix: amd
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          pairNames: ${{ parameters.amdPairs }}
