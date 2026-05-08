@@ -17,6 +17,13 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
+  - name: ovDevices
+    displayName: 'NPU-OV: devices to evaluate'
+    type: object
+    default:
+      - cpu
+      - gpu
+      - npu
 
 stages:
   - stage: NPU_QNN
@@ -39,6 +46,7 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          devices: ${{ parameters.ovDevices }}
 
   - stage: NPU_AMD
     displayName: 'E2E Eval — NPU-AMD'

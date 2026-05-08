@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from winml.modelkit.telemetry.library.serialization import _build_envelope, _serialize_batch
+from winml.modelkit.telemetry.library.serialization import (
+    _build_envelope,
+    _envelope_ikey,
+    _serialize_batch,
+)
 
 
 def test_build_envelope_basic_shape():
@@ -74,3 +78,35 @@ def test_timestamp_millisecond_precision(microsecond, expected_ms):
     ts = datetime(2026, 4, 17, 10, 30, 0, microsecond, tzinfo=timezone.utc)
     envelope = _build_envelope("X", "o:k", ts, {}, {})
     assert envelope["time"] == f"2026-04-17T10:30:00.{expected_ms}Z"
+
+
+@pytest.mark.parametrize(
+    "full_ikey,expected",
+    [
+        # Realistic OneCollector iKey shape: <32hex>-<guid>-<ingestion_token>.
+        (
+            "abc123abc123abc123abc123abc12345-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1234",
+            "o:abc123abc123abc123abc123abc12345",
+        ),
+        # Minimal valid form: anything non-empty before the first dash.
+        ("abc-def", "o:abc"),
+        ("token-rest-of-key", "o:token"),
+    ],
+)
+def test_envelope_ikey_extracts_tenant_token_and_prefixes(full_ikey, expected):
+    """The envelope iKey is ``o:<part-before-first-dash>``; the suffix
+    (ingestion token + GUID) only goes in the ``x-apikey`` header."""
+    assert _envelope_ikey(full_ikey) == expected
+
+
+@pytest.mark.parametrize(
+    "bad_ikey",
+    [
+        "noseparator",  # no dash at all
+        "-leading-dash",  # empty tenant_token portion
+        "",  # empty (defense in depth; exporter rejects this earlier)
+    ],
+)
+def test_envelope_ikey_rejects_malformed(bad_ikey):
+    with pytest.raises(ValueError, match="tenant_token"):
+        _envelope_ikey(bad_ikey)

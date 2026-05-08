@@ -46,7 +46,9 @@ def enabled_telemetry(monkeypatch, isolated_config, clean_env):
     ready instance should use :func:`running_telemetry`, or call
     ``Telemetry.get_or_init()`` from inside the test body.
     """
-    monkeypatch.setattr("winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "o:test-key")
+    monkeypatch.setattr(
+        "winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "test-tenant-1234"
+    )
     consent_mod._write_stored_consent("enabled")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
 
