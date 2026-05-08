@@ -26,41 +26,35 @@ Triage open issues in microsoft/WinML-ModelKit in three phases:
 
 ## Owner map (alias → GitHub handle)
 
-| Alias | GitHub handle |
-|-------|--------------|
-| luhan | luhan2017 |
-| hualxie | xieofxie |
-| zhengte | tezheng |
-| reny | vortex-captain |
-| zhiwang | timenick |
-| yuesu | KayMKM |
-| zhangchao | chinazhangchao |
-| fangyangci | Fangyangci |
-| ziyuanguo | ziyuanguo1998 |
-| shizhen | ssss141414 |
-| qiowu | dingmaomaobjtu |
-| zhenni | zhenchaoni |
-| yiba | hi-brenda |
+> **Source of truth**: `docs/context/team.json` — load it at the start of any task that needs alias↔GitHub resolution or assignee lookup.
+>
+> ```
+> cat docs/context/team.json
+> ```
+
+| Name | Alias | GitHub handle |
+|------|-------|--------------|
+| Lu Han | luhan | luhan2017 |
+| Hualiang Xie | hualxie | xieofxie |
+| Zheng Te | zhengte | tezheng |
+| Yi Ren | reny | vortex-captain |
+| Zhipeng Wang | zhiwang | timenick |
+| Yue Sun | yuesu | KayMKM |
+| Chao Zhang | zhangchao | chinazhangchao |
+| Fangyang Ci | fangyangci | Fangyangci |
+| Ziyuan Guo | ziyuanguo | ziyuanguo1998 |
+| Shiyi Zhen | shizhen | ssss141414 |
+| Qiong Wu | qiowu | dingmaomaobjtu |
+| Zhenchao Ni | zhenni | zhenchaoni |
+| Brenda Bai | yiba | hi-brenda |
 
 ## Component → owners
 
-| Component | Aliases | GitHub handles |
-|-----------|---------|----------------|
-| Load & Export | reny, zhangchao | vortex-captain, chinazhangchao |
-| Analyzer | zhangchao, fangyangci, qiowu | chinazhangchao, Fangyangci, dingmaomaobjtu |
-| Optimizer | qiowu, reny | dingmaomaobjtu, vortex-captain |
-| Eval | zhenni | zhenchaoni |
-| Sys | zhiwang | timenick |
-| Config | zhangchao | chinazhangchao |
-| Compile | zhenni | zhenchaoni |
-| Quantize | zhenni | zhenchaoni |
-| Perf | hualxie, zhengte | xieofxie, tezheng |
-| Build | zhangchao, zhengte | chinazhangchao, tezheng |
-| Catalog | qiowu | dingmaomaobjtu |
-| Inspect | zhengte | tezheng |
-| Repository | zhiwang, yuesu | timenick, KayMKM |
-| User Experience | yiba | hi-brenda |
-| Other | zhengte | tezheng |
+> **Source of truth**: `docs/context/assignments.json` — load it for component→owner lookups.
+>
+> ```
+> cat docs/context/assignments.json
+> ```
 
 ## Component detection keywords
 
@@ -83,11 +77,11 @@ Triage open issues in microsoft/WinML-ModelKit in three phases:
 
 | Priority | When to use |
 |----------|-------------|
-| **P0** | Crash / exception / process exit during normal use; silent fallback (user gets wrong result without knowing); silent wrong behavior (wrong EP, wrong device, dropped options); broken pipeline (different results between equivalent commands); data corruption or silent data loss; **all customer-reported bugs** (`customer report` label) |
-| **P1** | Major feature broken for specific EP/model/platform with a clear (non-silent) error; misleading error messages that block workflow but are not silent |
+| **P0** | Silent fallback (user gets wrong result without knowing); silent wrong behavior (wrong EP, wrong device, dropped options); broken pipeline (different results between equivalent commands); data corruption or silent data loss; **feature broken with a clear (non-silent) error and no workaround** |
+| **P1** | Crash / exception / process exit (P0 if severe or frequent; P1 if edge-case or rare); **customer-reported bugs** (`customer report` label) that do not meet P0 conditions; misleading error messages that block workflow but are not silent |
 | **P2** | Non-blocking bugs with workarounds; UX improvements; output quality; inconsistent behavior; perf issues; most feature requests |
 
-When in doubt between P1 and P2, use P2 (P1 is reserved for clear non-silent breakage without workaround).
+Crashes and customer-reported bugs always land at **P0 or P1 — never P2**. When in doubt between P1 and P2, use P2.
 
 ---
 
