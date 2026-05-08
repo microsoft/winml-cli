@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help="Device to run on. 'auto' detects the best available device.",
 )
+@cli_utils.ep_option(required=False)
 @click.option(
     "--samples",
     type=int,
@@ -135,6 +136,7 @@ def eval(
     dataset_name: str | None,
     task: str | None,
     device: str,
+    ep: str | None,
     samples: int,
     split: str,
     shuffle: bool,
@@ -173,6 +175,8 @@ def eval(
         build_cfg = cli_utils.load_build_config(config_file)
         if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
             task = build_cfg.loader.task
+        if build_cfg.compile and not cli_utils.is_cli_provided(ctx, "ep"):
+            ep = build_cfg.compile.ep_config.provider
         if build_cfg.quant:
             if not cli_utils.is_cli_provided(ctx, "samples"):
                 samples = build_cfg.quant.samples
@@ -235,6 +239,7 @@ def eval(
         model_id=model_id,
         task=task,
         device=resolved_device,
+        ep=ep,
         dataset=ds_config,
         output_path=output,
     )
