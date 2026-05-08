@@ -29,6 +29,7 @@ from typing import Any
 
 import click
 
+from ..utils import cli as cli_utils
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -164,17 +165,12 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Exclude quantization from generated config (sets quant=None)",
 )
 @click.option(
-    "--no-compile",
-    is_flag=True,
-    default=False,
-    help="Exclude compilation from generated config (sets compile=None)",
+    "--no-compile/--compile",
+    "no_compile",
+    default=True,
+    help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
-@click.option(
-    "--trust-remote-code",
-    is_flag=True,
-    default=False,
-    help="Allow running custom code from model repository",
-)
+@cli_utils.trust_remote_code_option()
 def config(
     hf_model: str | None,
     task: str | None,

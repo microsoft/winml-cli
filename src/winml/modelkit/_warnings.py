@@ -81,10 +81,9 @@ def _configure() -> None:
     # NOTE: TracerWarning (from torch.jit) is intentionally NOT filtered here.
     # Importing torch.jit at startup would pull all of torch (~1.7s) into
     # `winml --help` and violate the CLI import budget (tests/cli/test_import_time.py).
-    # During ONNX export, build.py already wraps the export call in
+    # During ONNX export, export_pytorch() wraps torch.onnx.export in
     # `warnings.catch_warnings()` + `filterwarnings("ignore")`, which is strictly
-    # broader than a TracerWarning-only filter. Direct callers of export_pytorch()
-    # that want the same suppression can apply it locally at the call site.
+    # broader than a TracerWarning-only filter.
 
     # Diffusers
     warnings.filterwarnings(
