@@ -37,12 +37,15 @@ def build_eval_result(
     device: str,
     eval_types_run: list[str],
     accuracy_result: dict | None = None,
+    ep: str | None = None,
 ) -> dict:
     """Build a unified eval_result dict (facts only, no derived fields).
 
     perf_proc is the raw subprocess result from run_model(), or None when
     eval_types_run is ["accuracy"] (accuracy-only mode, perf phase skipped).
     accuracy_result is the accuracy sub-section dict (or None if not run).
+    ep is the explicit execution provider (e.g., "qnn", "dml"), or None when
+    not specified (device-to-provider mapping was used).
     """
     perf_section: dict | None = None
     if perf_proc is not None:
@@ -58,7 +61,7 @@ def build_eval_result(
             "error": perf_proc.get("error_summary", ""),
         }
 
-    return {
+    result = {
         "model": entry.hf_id,
         "task": entry.task,
         "device": device,
@@ -72,6 +75,10 @@ def build_eval_result(
         "perf": perf_section,
         "accuracy": accuracy_result,
     }
+    # Optional fields: only include when explicitly provided by the user.
+    if ep is not None:
+        result["ep"] = ep
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +347,8 @@ def generate_html_report(
             {
                 "hf_id": hf_id,
                 "task": task,
+                "device": r.get("device", ""),
+                "ep": r.get("ep"),
                 "model_type": r.get("model_type", ""),
                 "group": r.get("group", ""),
                 "priority": r.get("priority", ""),
@@ -359,6 +368,15 @@ def generate_html_report(
                 ),
                 "delta_display": (
                     format_delta(acc) if acc and not acc.get("skipped") else ""
+                ),
+                "metric": (
+                    {
+                        "name": (acc.get("winml_metric") or {}).get("metric"),
+                        "baseline": (acc.get("pytorch_baseline_metric") or {}).get("value"),
+                        "winml": (acc.get("winml_metric") or {}).get("value"),
+                    }
+                    if acc and not acc.get("skipped")
+                    else None
                 ),
             }
         )

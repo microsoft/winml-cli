@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import platform
 import sys
 from typing import Any
@@ -54,31 +53,26 @@ def _get_python_info() -> dict[str, Any]:
 
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
+    system = platform.system()
     release = platform.release()
 
-    # platform.release() may incorrectly report '10' for Windows 11 on some
-    # Python versions; OS class queries the build number for accurate detection.
-    try:
-        if OS.get().is_windows_11():
-            release = "11"
-    except Exception:
-        # Fallback to platform.release() if OS detection fails
-        pass
-
-    # platform.machine() reports the running Python process architecture.
-    # On ARM64 Windows running an x64 Python under WOW64 emulation,
-    # PROCESSOR_ARCHITEW6432 holds the true host arch; otherwise
-    # PROCESSOR_ARCHITECTURE matches the host.
-    machine = (
-        os.environ.get("PROCESSOR_ARCHITEW6432")
-        or os.environ.get("PROCESSOR_ARCHITECTURE")
-        or platform.machine()
-    )
+    # For Windows, use OS class for accurate Windows 11 detection
+    # platform.release() may incorrectly report '10' on some Python versions
+    if system == "Windows":
+        try:
+            os_info = OS.get()
+            # Only override if it's actually Windows 11
+            # Otherwise keep the original platform.release() value
+            if os_info.is_windows_11():
+                release = "11"
+        except Exception:
+            # Fallback to platform.release() if OS detection fails
+            pass
 
     return {
-        "system": platform.system(),
+        "system": system,
         "release": release,
-        "machine": machine,
+        "machine": platform.machine(),
         "processor": platform.processor() or "Unknown",
     }
 
