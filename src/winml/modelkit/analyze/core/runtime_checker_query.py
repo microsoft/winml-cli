@@ -77,6 +77,8 @@ SNAPSHOT_CURRENT_OPSET_KEY = "__current_opset__"
 SNAPSHOT_CHANGED_KEY = "__changed__"
 SNAPSHOT_DELETED_KEY = "__deleted__"
 
+QDQ_SUFFIX = " (QDQ)"
+
 
 class _PseudoNode:
     """Lightweight stand-in for onnx.NodeProto used only for logging in _check_negative_rules."""
@@ -2206,7 +2208,7 @@ class RuntimeCheckerQuery:
 
         def get_pattern_id(is_qdq):
             return (
-                pattern_match.pattern.pattern_id + " (QDQ)"
+                pattern_match.pattern.pattern_id + QDQ_SUFFIX
                 if is_qdq
                 else pattern_match.pattern.pattern_id
             )
