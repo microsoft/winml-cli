@@ -19,6 +19,7 @@ parameters:
   # Each name resolves to {ep, device, displayName} at runtime in PowerShell.
   # Catalog (kept in sync across all PowerShell blocks in this template):
   #   qnn_npu     -> ep=qnn,      device=npu, displayName='QNN NPU'
+  #   qnn_gpu     -> ep=qnn,      device=gpu, displayName='QNN GPU'
   #   vitisai_npu -> ep=vitisai,  device=npu, displayName='VitisAI NPU'
   #   dml_gpu     -> ep=dml,      device=gpu, displayName='DML GPU'
   #   mlas_cpu    -> ep=cpu,      device=cpu, displayName='MLAS CPU'
@@ -115,6 +116,7 @@ jobs:
           - powershell: |
               $catalog = @{
                   'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+                  'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
                   'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
                   'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
                   'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
@@ -151,6 +153,7 @@ jobs:
       - powershell: |
           $catalog = @{
               'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+              'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
               'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
               'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
               'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }
@@ -285,6 +288,7 @@ jobs:
 
           $catalog = @{
               'qnn_npu'     = @{ ep = 'qnn';      device = 'npu'; displayName = 'QNN NPU' }
+              'qnn_gpu'     = @{ ep = 'qnn';      device = 'gpu'; displayName = 'QNN GPU' }
               'vitisai_npu' = @{ ep = 'vitisai';  device = 'npu'; displayName = 'VitisAI NPU' }
               'dml_gpu'     = @{ ep = 'dml';      device = 'gpu'; displayName = 'DML GPU' }
               'mlas_cpu'    = @{ ep = 'cpu';      device = 'cpu'; displayName = 'MLAS CPU' }

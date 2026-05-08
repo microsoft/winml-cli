@@ -17,6 +17,12 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
+  - name: qnnPairs
+    displayName: 'NPU-QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
+    type: object
+    default:
+      - qnn_npu
+      - qnn_gpu
   - name: ovPairs
     displayName: 'NPU-OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
     type: object
@@ -26,6 +32,11 @@ parameters:
       - ov_cpu
       - ov_gpu
       - ov_npu
+  - name: amdPairs
+    displayName: 'NPU-AMD: EP/device pairs (any of: vitisai_npu)'
+    type: object
+    default:
+      - vitisai_npu
 
 stages:
   - stage: NPU_QNN
@@ -37,8 +48,7 @@ stages:
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
-          pairNames:
-            - qnn_npu
+          pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
     displayName: 'E2E Eval — NPU-OV'
@@ -62,5 +72,4 @@ stages:
           agentSuffix: amd
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
-          pairNames:
-            - vitisai_npu
+          pairNames: ${{ parameters.amdPairs }}
