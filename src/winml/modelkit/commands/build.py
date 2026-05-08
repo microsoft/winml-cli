@@ -1047,27 +1047,21 @@ def _build_hf_pipeline(
     current_path = export_path
 
     # ── Export stage ──────────────────────────────────────────────
-    import warnings
-
     with StageLive("export", console) as sl:
         sl.set_status("Exporting to ONNX...")
 
         # Load + export (blocking)
-        # Suppress TracerWarning and other transformer warnings
-        # during export to keep Live display clean.
         pytorch_model = _load_model(config, model_id, trust_remote_code=False)
         t0 = time.monotonic()
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            export_onnx(
-                model=pytorch_model,
-                output_path=export_path,
-                export_config=config.export,
-                model_id=model_label,
-                task=config.loader.task,
-                verbose=False,
-                use_external_data=True,
-            )
+        export_onnx(
+            model=pytorch_model,
+            output_path=export_path,
+            export_config=config.export,
+            model_id=model_label,
+            task=config.loader.task,
+            verbose=False,
+            use_external_data=True,
+        )
         _export_elapsed = time.monotonic() - t0
         sl.set_done(_export_elapsed)
         # Meta shown after export completes (avoids duplicate in Live frame)
