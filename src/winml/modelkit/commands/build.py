@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 import click
 from rich.logging import RichHandler
 
+from ..utils import cli as cli_utils
 from ..utils.console import (
     detect_model_source,
     get_console,
@@ -295,11 +296,8 @@ def _build_modules(
     default=None,
     help="Maximum autoconf re-optimization rounds (default: 3). --no-analyze sets this to 0.",
 )
-@click.option(
-    "--trust-remote-code",
-    is_flag=True,
-    default=False,
-    help="Trust remote code for custom model architectures (e.g., Mu2).",
+@cli_utils.trust_remote_code_option(
+    optional_message="Trust remote code for custom model architectures (e.g., Mu2)."
 )
 @click.option(
     "-v",

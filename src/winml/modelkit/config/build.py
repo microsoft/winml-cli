@@ -16,7 +16,8 @@ Configuration Hierarchy:
     ├── export: WinMLExportConfig       # from modelkit/export/config.py
     ├── optim: WinMLOptimizationConfig  # from modelkit/optim/config.py
     ├── quant: WinMLQuantizationConfig  # from modelkit/quant/config.py
-    └── compile: WinMLCompileConfig     # from modelkit/compiler/configs.py
+    ├── compile: WinMLCompileConfig     # from modelkit/compiler/configs.py
+    └── eval: WinMLEvaluationConfig     # from modelkit/eval/config.py
 
 Design Principles (P1 FUNDAMENTAL):
 - CALLS existing APIs from loader/, export/, models/hf/
@@ -62,6 +63,8 @@ from ..quant.config import WinMLQuantizationConfig
 from ..utils.config_utils import merge_config
 
 
+# NOTE: WinMLEvaluationConfig is imported lazily to avoid pulling
+# eval/__init__.py which imports heavy deps (torch, sklearn, etc.).
 # NOTE: MODEL_BUILD_CONFIGS is imported lazily inside generate_build_config()
 # to avoid circular import: config -> models.hf -> config
 
@@ -69,6 +72,8 @@ from ..utils.config_utils import merge_config
 if TYPE_CHECKING:
     import torch
     from torch import nn
+
+    from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
 
 __all__ = [
     "WinMLBuildConfig",
@@ -96,6 +101,7 @@ class WinMLBuildConfig:
         optim: Optimization configuration
         quant: Quantization configuration
         compile: Compilation configuration
+        eval: Evaluation configuration
 
     Example:
         from winml.modelkit.config import WinMLBuildConfig
@@ -126,14 +132,28 @@ class WinMLBuildConfig:
     optim: WinMLOptimizationConfig = field(default_factory=WinMLOptimizationConfig)
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
+    eval: WinMLEvaluationConfig | None = None
+
+    def __post_init__(self) -> None:
+        # Lazy import: inject into module globals so typing.get_type_hints()
+        # can resolve the eval field annotation (used by merge_config).
+        from ..eval.config import WinMLEvaluationConfig
+
+        globals().setdefault("WinMLEvaluationConfig", WinMLEvaluationConfig)
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> WinMLBuildConfig:
         """Create config from nested dictionary."""
+        from ..eval.config import WinMLEvaluationConfig
+
         loader_data = config_dict.get("loader", {})
         export_data = config_dict.get("export", {})
         quant_data = config_dict.get("quant")
         compile_data = config_dict.get("compile")
+        eval_data = config_dict.get("eval")
+        eval_cfg = None
+        if eval_data is not None:
+            eval_cfg = WinMLEvaluationConfig.from_dict(eval_data)
         return cls(
             loader=WinMLLoaderConfig.from_dict(loader_data),
             export=(WinMLExportConfig.from_dict(export_data) if export_data is not None else None),
@@ -144,6 +164,7 @@ class WinMLBuildConfig:
             compile=(
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
+            eval=eval_cfg,
         )
 
     def to_dict(self) -> dict:
@@ -158,6 +179,8 @@ class WinMLBuildConfig:
         loader_dict = self.loader.to_dict()
         if loader_dict:
             result["loader"] = loader_dict
+        if self.eval is not None:
+            result["eval"] = self.eval.to_dict()
         return result
 
     def validate(self) -> None:
