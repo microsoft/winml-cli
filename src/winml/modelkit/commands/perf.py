@@ -799,20 +799,24 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
         ram = result.hw_monitor.get("ram", {})
         dev_mem = result.hw_monitor.get("device_memory", {})
         # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
-        # Prefer the active adapter's block.
-        device_kind = result.hw_monitor.get("device_kind") or "npu"
-        adapter = result.hw_monitor.get(device_kind) or result.hw_monitor.get("npu", {})
-        adapter_label = device_kind.upper()
-        console.print(
-            f"  {adapter_label}: {adapter.get('mean_pct', 0):.1f}% avg, "
-            f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
-            f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
-        )
-        console.print(
-            f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
-            f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
-            f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
-        )
+        # device_kind is None when CPU/RAM-only — drop the adapter line entirely
+        # rather than printing zeroed "NPU: 0.0% avg".
+        device_kind = result.hw_monitor.get("device_kind")
+        if device_kind in ("npu", "gpu"):
+            adapter = result.hw_monitor.get(device_kind, {})
+            console.print(
+                f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
+                f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
+            )
+            console.print(
+                f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
+                f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
+                f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
+            )
+        else:
+            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg")
+            console.print(f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB")
 
     console.print()
 

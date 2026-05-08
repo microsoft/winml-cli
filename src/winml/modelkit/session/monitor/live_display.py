@@ -129,6 +129,11 @@ class HWLiveDisplay:
         """Live label that follows the resolved adapter (after start())."""
         return adapter_label(self._hw.device_kind)
 
+    @property
+    def _show_adapter(self) -> bool:
+        """True iff HWMonitor resolved an actual NPU/GPU adapter to poll."""
+        return self._hw.device_kind in ("npu", "gpu")
+
     def _render_chart(
         self,
         adapter_samples: list[float],
@@ -136,11 +141,17 @@ class HWLiveDisplay:
     ) -> Any:
         """Render adapter (NPU/GPU) and CPU utilization chart via plotext."""
         adapter = self._adapter_label
+        show_adapter = self._show_adapter
         try:
             import plotext as plt
         except ImportError:
             from rich.text import Text
 
+            if not show_adapter:
+                current = cpu_samples[-1] if cpu_samples else 0.0
+                bar_len = min(50, max(0, int(current / 2)))
+                bar = "#" * bar_len + "." * (50 - bar_len)
+                return Text(f"  CPU: [{bar}] {current:.1f}%")
             current = adapter_samples[-1] if adapter_samples else 0.0
             bar_len = min(50, max(0, int(current / 2)))
             bar = "#" * bar_len + "." * (50 - bar_len)
@@ -151,13 +162,14 @@ class HWLiveDisplay:
 
         window_samples = int(_CHART_WINDOW_SECONDS / self._poll_interval_s)
 
-        # Adapter (green)
-        adapter_window = adapter_samples[-window_samples:] if adapter_samples else [0]
-        start_idx = max(0, len(adapter_samples) - len(adapter_window))
-        adapter_times = [
-            (start_idx + i) * self._poll_interval_s for i in range(len(adapter_window))
-        ]
-        plt.plot(adapter_times, adapter_window, marker="braille", color="green")
+        # Adapter (green) \u2014 only when an adapter is actually polled.
+        if show_adapter:
+            adapter_window = adapter_samples[-window_samples:] if adapter_samples else [0]
+            start_idx = max(0, len(adapter_samples) - len(adapter_window))
+            adapter_times = [
+                (start_idx + i) * self._poll_interval_s for i in range(len(adapter_window))
+            ]
+            plt.plot(adapter_times, adapter_window, marker="braille", color="green")
 
         # CPU (cyan)
         has_cpu = bool(cpu_samples)
@@ -171,7 +183,9 @@ class HWLiveDisplay:
         plt.ylim(0, 100)
         plt.yticks([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
 
-        elapsed = len(adapter_samples) * self._poll_interval_s
+        # Anchor the timeline on whichever series we have.
+        sample_count = len(adapter_samples) if show_adapter else len(cpu_samples)
+        elapsed = sample_count * self._poll_interval_s
         x_min = max(0.0, elapsed - _CHART_WINDOW_SECONDS)
         x_max = max(elapsed, _CHART_WINDOW_SECONDS)
         plt.xlim(x_min, x_max)
@@ -181,12 +195,15 @@ class HWLiveDisplay:
         from rich.console import Group
         from rich.text import Text
 
-        legend = (
-            f"  Utilization ([green]\u2588\u2588[/green] {adapter} %  "
-            "[cyan]\u2588\u2588[/cyan] CPU %)"
-            if has_cpu
-            else f"  Utilization ([green]\u2588\u2588[/green] {adapter} %)"
-        )
+        if show_adapter and has_cpu:
+            legend = (
+                f"  Utilization ([green]\u2588\u2588[/green] {adapter} %  "
+                "[cyan]\u2588\u2588[/cyan] CPU %)"
+            )
+        elif show_adapter:
+            legend = f"  Utilization ([green]\u2588\u2588[/green] {adapter} %)"
+        else:
+            legend = "  Utilization ([cyan]\u2588\u2588[/cyan] CPU %)"
 
         ansi_output = plt.build()
         chart_lines = [Text.from_ansi(line) for line in ansi_output.splitlines()]
@@ -198,16 +215,20 @@ class HWLiveDisplay:
         cpu_samples: list[float],
     ) -> str:
         """Render hardware status line below the chart."""
-        adapter_mean = sum(adapter_samples) / len(adapter_samples) if adapter_samples else 0.0
-        adapter_now = adapter_samples[-1] if adapter_samples else 0.0
         cpu_now = cpu_samples[-1] if cpu_samples else 0.0
         ram_mb = self._hw.ram_used_mb
+        cpu_cell = f"CPU: {cpu_now:.1f}%"
+        ram_cell = f"RAM: {ram_mb:.0f} MB"
+
+        if not self._show_adapter:
+            return f"  {cpu_cell:<12}| {ram_cell}"
+
+        adapter_mean = sum(adapter_samples) / len(adapter_samples) if adapter_samples else 0.0
+        adapter_now = adapter_samples[-1] if adapter_samples else 0.0
         mem_local = self._hw.peak_memory_local_mb
         mem_shared = self._hw.peak_memory_shared_mb
 
         adapter_cell = f"{self._adapter_label}: {adapter_mean:.1f}% avg ({adapter_now:.1f}% now)"
-        cpu_cell = f"CPU: {cpu_now:.1f}%"
-        ram_cell = f"RAM: {ram_mb:.0f} MB"
         mem_cell = f"Device Mem: {mem_local:.0f}/{mem_shared:.0f} MB"
 
         return f"  {adapter_cell:<32}| {cpu_cell:<12}| {ram_cell:<16}| {mem_cell}"

@@ -1429,3 +1429,57 @@ class TestLiveMonitorDisplay:
             latency_ms=1.0,
             hw_dict={},
         )
+
+    def test_cpu_only_status_omits_adapter_cell(self):
+        """device='cpu' → no adapter cell, no Device Mem cell — only CPU/RAM."""
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
+        status = display._render_status(
+            iteration=1,
+            latency_ms=1.0,
+            util_samples=[42.0],  # ignored: no adapter polled
+            cpu_pct=12.5,
+            ram_mb=8000.0,
+        )
+        # Adapter line / device-memory line gone; CPU + Sys Mem remain.
+        assert "CPU: 12.5%" in status
+        assert "Sys Mem: 8000 MB" in status
+        assert "NPU:" not in status
+        assert "GPU:" not in status
+        assert "Adapter:" not in status
+        assert "Device Mem:" not in status
+
+    def test_cpu_only_chart_legend_omits_adapter_swatch(self):
+        """The chart legend should advertise only CPU when no adapter polled."""
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(total_iterations=10, warmup=0, model_id="test", device="cpu")
+        chart = display._render_chart(util_samples=[], cpu_samples=[10.0, 20.0])
+        # Renderable Group's first child is the legend Text.
+        legend_text = str(chart.renderables[0])
+        assert "CPU %" in legend_text
+        assert "NPU %" not in legend_text
+        assert "GPU %" not in legend_text
+        assert "Adapter %" not in legend_text
+
+    def test_adapter_kind_status_keeps_adapter_cell(self):
+        """device_kind='gpu' → status row keeps the adapter cell + label."""
+        from winml.modelkit.commands._live_chart import LiveMonitorDisplay
+
+        display = LiveMonitorDisplay(
+            total_iterations=10,
+            warmup=0,
+            model_id="test",
+            device="auto",
+            device_kind="gpu",
+        )
+        status = display._render_status(
+            iteration=1,
+            latency_ms=1.0,
+            util_samples=[42.0],
+            cpu_pct=12.5,
+            ram_mb=8000.0,
+        )
+        assert "GPU: 42.0% avg" in status
+        assert "Device Mem:" in status
