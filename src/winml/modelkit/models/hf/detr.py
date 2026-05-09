@@ -16,8 +16,14 @@ Note:
 
 Image size:
     DETR's preprocessor uses shortest_edge=800. The export pipeline reads
-    this from preprocessor_config.json via _populate_image_size_from_preprocessor,
-    so no custom OnnxConfig is needed. Override via --shape-config if desired.
+    this from preprocessor_config.json via _populate_image_size_from_preprocessor.
+
+ONNX export:
+    Optimum's built-in DETR/Table Transformer OnnxConfig exports only
+    ``pixel_values``. For non-square images this causes large accuracy
+    regressions because padded regions cannot be masked during inference.
+    This module registers an override that adds optional ``pixel_mask``
+    input and generates matching dummy input tensors during export.
 
 Exports:
     DETR_CONFIG: WinMLBuildConfig with conv fusion flags
@@ -25,7 +31,11 @@ Exports:
 
 from __future__ import annotations
 
+import torch
+from optimum.exporters.onnx.model_configs import DetrOnnxConfig, TableTransformerOnnxConfig
+
 from ...config import WinMLBuildConfig
+from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
 
 
@@ -38,3 +48,51 @@ DETR_CONFIG = WinMLBuildConfig(
         conv_add_fusion=True,
     ),
 )
+
+
+class _DetrPixelMaskMixin:
+    """Shared pixel_mask input override for DETR-family ONNX export configs."""
+
+    @property
+    def inputs(self) -> dict[str, dict[int, str]]:
+        """Return input tensors including optional pixel_mask."""
+        return {
+            "pixel_values": {0: "batch_size", 1: "num_channels", 2: "height", 3: "width"},
+            "pixel_mask": {0: "batch_size", 1: "height", 2: "width"},
+        }
+
+    def generate_dummy_inputs(self, framework: str = "pt", **kwargs) -> dict:
+        """Generate dummy inputs with pixel_mask matching pixel_values spatial shape."""
+        inputs = super().generate_dummy_inputs(framework=framework, **kwargs)
+        pixel_values = inputs.get("pixel_values")
+
+        if framework != "pt" or pixel_values is None:
+            return inputs
+
+        inputs["pixel_mask"] = torch.ones(
+            (pixel_values.shape[0], pixel_values.shape[2], pixel_values.shape[3]),
+            dtype=torch.int64,
+            device=pixel_values.device,
+        )
+        return inputs
+
+
+@register_onnx_overwrite(
+    "detr",
+    "feature-extraction",
+    "object-detection",
+    "image-segmentation",
+    library_name="transformers",
+)
+class DetrIOConfig(_DetrPixelMaskMixin, DetrOnnxConfig):
+    """DETR ONNX config override that adds optional pixel_mask input."""
+
+
+@register_onnx_overwrite(
+    "table-transformer",
+    "feature-extraction",
+    "object-detection",
+    library_name="transformers",
+)
+class TableTransformerIOConfig(_DetrPixelMaskMixin, TableTransformerOnnxConfig):
+    """Table Transformer ONNX config override that adds optional pixel_mask input."""
