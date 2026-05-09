@@ -447,56 +447,55 @@ def test_make_ep_col_fn_for_device_header():
 
 
 def test_make_ep_col_fn_for_device_npu_all_eps():
-    """Model with QNN+OV shows both short labels in order."""
+    """Model with QNN+OV shows both labels in supported_eps key order."""
     _, fn = _make_ep_col_fn_for_device("NPU")
-    # bert models have ["QNN EP", "OV EP"] → order from _DEVICE_EP_LABELS NPU list = OV, QNN
-    bert = MINIMAL_CATALOG["models"][0]  # google-bert, ["QNN EP", "OV EP"]
-    assert fn(bert) == "OV / QNN"
+    bert = MINIMAL_CATALOG["models"][0]  # google-bert: qnn before ov in JSON
+    assert fn(bert) == "QNN / OV"
 
 
 def test_make_ep_col_fn_for_device_npu_ov_only():
     _, fn = _make_ep_col_fn_for_device("NPU")
-    detr = MINIMAL_CATALOG["models"][2]  # ["OV EP"]
+    detr = MINIMAL_CATALOG["models"][2]  # ov only
     assert fn(detr) == "OV"
 
 
 def test_make_ep_col_fn_for_device_npu_vitisai_only():
     _, fn = _make_ep_col_fn_for_device("NPU")
-    clip = MINIMAL_CATALOG["models"][3]  # ["VitisAI EP"]
-    assert fn(clip) == "VitisAI"
+    clip = MINIMAL_CATALOG["models"][3]  # vitisai only
+    assert fn(clip) == "VITISAI"
 
 
-def test_make_ep_col_fn_for_device_cpu_always_includes_mlas():
-    """MLAS is always-on → every model's CPU cell includes it."""
+def test_make_ep_col_fn_for_device_cpu_always_present():
+    """cpu alias is always-on → every model's CPU cell includes it."""
     _, fn = _make_ep_col_fn_for_device("CPU")
     for m in MINIMAL_CATALOG["models"]:
-        assert "MLAS" in fn(m)
+        assert "CPU" in fn(m)
 
 
 def test_make_ep_col_fn_for_device_cpu_ov_added_when_present():
     _, fn = _make_ep_col_fn_for_device("CPU")
-    bert = MINIMAL_CATALOG["models"][0]  # has CPU EP + OV (both support CPU)
-    assert fn(bert) == "MLAS / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # has cpu + ov (both support CPU)
+    assert fn(bert) == "CPU / OV"
 
 
 def test_make_ep_col_fn_for_device_gpu_shows_all_gpu_eps():
     _, fn = _make_ep_col_fn_for_device("GPU")
-    bert = MINIMAL_CATALOG["models"][0]  # DML + OV + QNN all support GPU
-    assert fn(bert) == "DML / OV / QNN"
+    bert = MINIMAL_CATALOG["models"][0]  # dml + qnn + ov all support GPU
+    assert fn(bert) == "DML / QNN / OV"
 
 
 def test_make_ep_col_fn_for_device_gpu_dml_always_present():
     """DML is in every model's supported_eps → always appears in GPU column."""
     _, fn = _make_ep_col_fn_for_device("GPU")
-    clip = MINIMAL_CATALOG["models"][3]  # VitisAI only for optional EPs
+    clip = MINIMAL_CATALOG["models"][3]  # vitisai only for optional EPs
     assert fn(clip) == "DML"
 
 
 def test_make_ep_col_fn_for_device_cpu_without_ov():
-    """Model with no OV EP shows only 'MLAS' for CPU column."""
+    """Model with no ov EP shows only 'CPU' for CPU column."""
     _, fn = _make_ep_col_fn_for_device("CPU")
-    clip = MINIMAL_CATALOG["models"][3]  # VitisAI only for optional EPs
-    assert fn(clip) == "MLAS"
+    clip = MINIMAL_CATALOG["models"][3]  # vitisai only for optional EPs
+    assert fn(clip) == "CPU"
     assert "OV" not in fn(clip)
 
 
@@ -578,8 +577,8 @@ def test_device_filter_shows_correct_eps():
     _, fn = _make_ep_col_fn_for_device("NPU")
     wide.print(_build_list_renderable(MINIMAL_CATALOG["models"], ep_col_header="EPs", ep_col_fn=fn))
     rendered = buf.getvalue()
-    assert "OV / QNN" in rendered  # bert models
-    assert "VitisAI" in rendered  # clip model
+    assert "QNN / OV" in rendered  # bert models (JSON key order: qnn before ov)
+    assert "VITISAI" in rendered  # clip model
 
 
 def test_cli_ep_filter_narrows_results(runner, patched_catalog, tmp_path):

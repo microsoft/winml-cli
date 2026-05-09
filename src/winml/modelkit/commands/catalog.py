@@ -85,17 +85,6 @@ def _filter_models(
     return result
 
 
-# Short display labels for all EPs, keyed by canonical alias (matching EP_ALIASES in constants.py)
-# Insertion order determines column display order.
-_EP_SHORT_LABEL: dict[str, str] = {
-    "cpu": "MLAS",
-    "dml": "DML",
-    "ov": "OV",
-    "qnn": "QNN",
-    "vitisai": "VitisAI",
-}
-
-
 def _filter_by_ep(
     models: list[dict[str, Any]],
     ep: str | None,
@@ -215,8 +204,8 @@ def _make_ep_col_fn_for_device(
     """Build the column header and per-model cell function for *--device* mode.
 
     Returns a column header of ``"EPs"`` and a function that, for a given
-    model, returns the slash-separated EP short names (from
-    :data:`_EP_SHORT_LABEL`) whose ``supported_eps`` entry includes *device*.
+    model, returns the slash-separated EP alias labels (uppercased) whose
+    ``supported_eps`` entry includes *device*.
 
     Args:
         device: Device string (case-insensitive, e.g. ``"NPU"``).
@@ -228,9 +217,8 @@ def _make_ep_col_fn_for_device(
 
     def cell_fn(m: dict[str, Any]) -> str:
         supported = m.get("supported_eps") or {}
-        present = {k for k, devs in supported.items() if device_upper in devs}
-        labels = [lbl for alias, lbl in _EP_SHORT_LABEL.items() if alias in present]
-        return " / ".join(labels) if labels else "\u2014"
+        present = [k for k, devs in supported.items() if device_upper in devs]
+        return " / ".join(k.upper() for k in present) if present else "\u2014"
 
     return "EPs", cell_fn
 
