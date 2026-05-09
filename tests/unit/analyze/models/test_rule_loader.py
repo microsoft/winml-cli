@@ -22,9 +22,10 @@ from pathlib import Path
 import pytest
 
 from winml.modelkit.analyze import IHVType, RuleLoader
-from winml.modelkit.analyze.utils import get_runtime_rules_search_dirs, resolve_rule_zip_path
-from winml.modelkit.analyze.utils import rule_expander as rule_expander_module
-from winml.modelkit.analyze.utils import rule_loader as rule_loader_module
+from winml.modelkit.analyze.utils import (
+    get_runtime_rules_search_dirs,
+    resolve_rule_parquet_path,
+)
 from winml.modelkit.analyze.utils.rule_loader import _DEFAULT_RUNTIME_RULES_DIR, _RULE_LOADER_DIR
 
 
@@ -451,8 +452,8 @@ class TestRuleLoaderWithRealMockData:
         assert "Erf-based GELU" in gelu_info.explanation
 
 
-class TestResolveRuleZipPath:
-    """Test resolve_rule_zip_path and get_runtime_rules_search_dirs."""
+class TestRuntimeRulesSearchDirs:
+    """Test get_runtime_rules_search_dirs behavior."""
 
     def test_default_search_dir_included(self, monkeypatch):
         """Default embedded dir is always in the search list."""
@@ -487,98 +488,38 @@ class TestResolveRuleZipPath:
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) == 1
 
-    def test_resolve_finds_file_in_env_dir(self, monkeypatch):
-        """resolve_rule_zip_path finds a zip in an env var directory."""
+
+class TestResolveRuleParquetPath:
+    """Test resolve_rule_parquet_path behavior."""
+
+    def test_resolve_parquet_finds_file_in_env_dir(self, monkeypatch):
+        """resolve_rule_parquet_path finds parquet in an env-var search directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            zip_name = "QNN_NPU_ai_onnx_opset13.zip"
-            (Path(tmpdir) / zip_name).write_bytes(b"PK")
+            parquet_name = "Split_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
+            (Path(tmpdir) / parquet_name).write_bytes(b"PAR1")
             monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
 
-            result = resolve_rule_zip_path(zip_name)
-            assert result == Path(tmpdir).resolve() / zip_name
+            result = resolve_rule_parquet_path(parquet_name)
+            assert result == Path(tmpdir).resolve() / parquet_name
             assert result.exists()
 
-    def test_resolve_fallback_to_default(self, monkeypatch):
-        """When no directory has the file, returns the default path."""
+    def test_resolve_parquet_fallback_to_first_search_dir(self, monkeypatch):
+        """When parquet is missing everywhere, fallback path is under first search dir."""
         monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
-        result = resolve_rule_zip_path("nonexistent_file.zip")
-        assert result == _DEFAULT_RUNTIME_RULES_DIR / "nonexistent_file.zip"
+        parquet_name = "missing_rule.parquet"
 
-    def test_resolve_prefers_env_over_default(self, monkeypatch):
-        """Env var dirs are searched first (before default dir)."""
-        zip_name = "test_priority.zip"
+        result = resolve_rule_parquet_path(parquet_name)
+        assert result == _DEFAULT_RUNTIME_RULES_DIR / parquet_name
 
+    def test_resolve_parquet_finds_file_in_ep_device_subdir(self, monkeypatch):
+        """resolve_rule_parquet_path finds parquet under rules_dir/<EP>_<DEVICE>/."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / zip_name).write_bytes(b"PK")
+            parquet_name = "Split_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
+            nested_dir = Path(tmpdir) / "QNNExecutionProvider_NPU"
+            nested_dir.mkdir(parents=True, exist_ok=True)
+            (nested_dir / parquet_name).write_bytes(b"PAR1")
             monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
 
-            result = resolve_rule_zip_path(zip_name)
-            assert result == Path(tmpdir).resolve() / zip_name
-
-    def test_resolve_auto_expand_disabled_by_default(self, monkeypatch):
-        """Auto-expand is not triggered by resolve when the call is disabled."""
-        zip_name = "QNN_NPU_ai_onnx_opset13.zip"
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            rules_dir = Path(tmpdir)
-            (rules_dir / zip_name).write_bytes(b"PK")
-            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
-            monkeypatch.setattr(rule_loader_module, "_EXPAND_CHECKED_DIRS", set())
-
-            calls: list[Path] = []
-
-            def _fake_expand_rules_zip_dir(
-                rules_dir: Path,
-                *,
-                output_dir: Path | None = None,
-                glob_pattern: str = "*.zip",
-                marker_filename: str = "expanded",
-            ):
-                del output_dir, glob_pattern, marker_filename
-                calls.append(rules_dir.resolve())
-
-            monkeypatch.setattr(
-                rule_expander_module,
-                "expand_rules_zip_dir",
-                _fake_expand_rules_zip_dir,
-            )
-
-            result = resolve_rule_zip_path(zip_name)
-
-            assert result == rules_dir.resolve() / zip_name
-            assert calls == []
-
-    def test_resolve_skips_auto_expand_when_marker_exists(self, monkeypatch):
-        """Auto-expand is skipped when expanded marker already exists."""
-        zip_name = "QNN_NPU_ai_onnx_opset13.zip"
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            rules_dir = Path(tmpdir)
-            (rules_dir / zip_name).write_bytes(b"PK")
-            (rules_dir / rule_expander_module.EXPANDED_MARKER_FILE).touch()
-            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
-            monkeypatch.setattr(rule_loader_module, "_EXPAND_CHECKED_DIRS", set())
-
-            called = False
-
-            def _fake_expand_rules_zip_dir(
-                rules_dir: Path,
-                *,
-                output_dir: Path | None = None,
-                glob_pattern: str = "*.zip",
-                marker_filename: str = "expanded",
-            ):
-                del rules_dir, output_dir, glob_pattern, marker_filename
-                nonlocal called
-                called = True
-
-            monkeypatch.setattr(
-                rule_expander_module,
-                "expand_rules_zip_dir",
-                _fake_expand_rules_zip_dir,
-            )
-
-            result = resolve_rule_zip_path(zip_name)
-
-            assert result == rules_dir.resolve() / zip_name
-            assert called is False
+            result = resolve_rule_parquet_path(parquet_name)
+            assert result == nested_dir.resolve() / parquet_name
+            assert result.exists()

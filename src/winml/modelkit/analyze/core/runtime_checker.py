@@ -11,6 +11,7 @@ FR-016-020 (Support classification).
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import tqdm
@@ -22,6 +23,7 @@ from ..models.runtime_checks import (
     PatternRuntime,
     RuntimeTestResult,
 )
+from ..utils.timing_utils import make_timing_logger
 from .runtime_checker_query import RuntimeCheckerQuery
 
 
@@ -35,6 +37,7 @@ if TYPE_CHECKING:
     from ..models.onnx_model import ONNXModel
 
 logger = logging.getLogger(__name__)
+_log_timing = make_timing_logger(logger)
 
 # Runtime check result status constants
 RESULT_SUCCESS = "success"
@@ -188,7 +191,10 @@ class RuntimeChecker:
 
         logger.info("Checking operator-level runtime support")
 
+        total_start = time.perf_counter()
         results: list[PatternRuntime] = []
+        run_for_node_total_ms = 0
+        callback_total_ms = 0
 
         # Get all nodes from model
         model_proto = self._model.get_model()
@@ -198,19 +204,35 @@ class RuntimeChecker:
         nodes = model_proto.graph.node
         iterator = nodes if on_node_result else tqdm.tqdm(nodes)
         for node in iterator:
+            node_start = time.perf_counter()
             result = query.run_for_node(
                 node,
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
             )
+            run_for_node_total_ms += int((time.perf_counter() - node_start) * 1000)
             results.append(result)
             if on_node_result:
+                callback_start = time.perf_counter()
                 try:
                     on_node_result(result)
                 except Exception:
                     logger.debug("on_node_result callback failed", exc_info=True)
+                callback_total_ms += int((time.perf_counter() - callback_start) * 1000)
 
         logger.info("Checked %d operators", len(results))
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        _log_timing(
+            "runtime_checker.op_support",
+            ep=self._ep,
+            device=self._device,
+            nodes=len(results),
+            total_ms=total_ms,
+            run_for_node_ms=run_for_node_total_ms,
+            callback_ms=callback_total_ms,
+            overhead_ms=total_ms - run_for_node_total_ms - callback_total_ms,
+            avg_run_for_node_ms=(run_for_node_total_ms // len(results) if results else 0),
+        )
 
         return results
 
@@ -245,10 +267,26 @@ class RuntimeChecker:
 
         logger.info("Checking subgraph-level runtime support for %d patterns", len(patterns))
 
+        total_start = time.perf_counter()
+        query_pattern_total_ms = 0
         results: list[PatternRuntime] = []
         for pattern in patterns:
+            pattern_start = time.perf_counter()
             pattern_runtime = self.query_pattern_support(pattern, run_unknown_op=run_unknown_op)
+            query_pattern_total_ms += int((time.perf_counter() - pattern_start) * 1000)
             results.append(pattern_runtime)
+
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        _log_timing(
+            "runtime_checker.subgraph_support",
+            ep=self._ep,
+            device=self._device,
+            patterns=len(results),
+            total_ms=total_ms,
+            query_pattern_ms=query_pattern_total_ms,
+            overhead_ms=total_ms - query_pattern_total_ms,
+            avg_query_pattern_ms=(query_pattern_total_ms // len(results) if results else 0),
+        )
 
         return results
 
@@ -342,21 +380,30 @@ class RuntimeChecker:
         """
         logger.info("Generating runtime support summary")
 
+        total_start = time.perf_counter()
         summary_dict: dict[str, list[PatternRuntime]] = {}
+        op_support_ms = 0
+        subgraph_support_ms = 0
+        merge_ms = 0
 
         # Get operator-level support (only if model is available)
         if self._model is not None:
+            op_start = time.perf_counter()
             op_results = self.op_support(
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,
             )
+            op_support_ms = int((time.perf_counter() - op_start) * 1000)
             summary_dict["op_runtime_check_result"] = op_results
 
         # Get subgraph-level support
+        subgraph_start = time.perf_counter()
         pattern_results = self.subgraph_support(patterns, run_unknown_op=run_unknown_op)
+        subgraph_support_ms = int((time.perf_counter() - subgraph_start) * 1000)
         summary_dict["subgraph_runtime_check_result"] = pattern_results
 
+        merge_start = time.perf_counter()
         # Build node_name -> PatternRuntime from pattern_results
         node_to_pattern_runtime: dict[str, PatternRuntime] = {}
         for pr in pattern_results:
@@ -389,6 +436,21 @@ class RuntimeChecker:
                 merged.append(op_r)
 
         summary_dict["op_runtime_check_result"] = merged
+        merge_ms = int((time.perf_counter() - merge_start) * 1000)
+
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        _log_timing(
+            "runtime_checker.summary",
+            ep=self._ep,
+            device=self._device,
+            op_results=len(summary_dict.get("op_runtime_check_result", [])),
+            subgraph_results=len(summary_dict.get("subgraph_runtime_check_result", [])),
+            total_ms=total_ms,
+            op_support_ms=op_support_ms,
+            subgraph_support_ms=subgraph_support_ms,
+            merge_ms=merge_ms,
+            overhead_ms=total_ms - op_support_ms - subgraph_support_ms - merge_ms,
+        )
 
         return summary_dict
 

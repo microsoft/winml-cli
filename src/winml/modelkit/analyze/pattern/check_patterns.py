@@ -30,7 +30,7 @@ from ...pattern.base import (
 from ...sysinfo import SysInfo
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker
-from ..utils import CheckResultWriter
+from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 
 
 winml.register_execution_providers(ort=True)
@@ -48,6 +48,7 @@ def check_patterns(
     dry_run: bool = False,
     not_run_start_id: int = 1,
     case_index: str | list[str] | None = None,
+    conflict_file: str | Path | None = None,
     opset_mapping: dict[str, int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run patterns on execution provider and return results.
@@ -65,6 +66,8 @@ def check_patterns(
         dry_run: If True, skip compile/run execution and emit check_result with reason "not_run".
         not_run_start_id: Initial id used for not_run placeholder reasons (not_run_<id>).
         case_index: Optional hashed signature(s) to filter to specific test cases.
+        conflict_file: Optional absolute path to conflict CSV. When provided,
+                   case_index values are loaded from the second CSV column.
         opset_mapping: Required dict mapping domain strings to opset versions,
                        e.g., {"ai.onnx": 17, "com.microsoft": 1}.
                        Used for ONNX model generation.
@@ -77,6 +80,12 @@ def check_patterns(
             ...
         }
     """
+    if conflict_file is not None:
+        if case_index is not None:
+            raise ValueError("--case_index and --conflict_file cannot be used together")
+        case_index = load_case_indices_from_conflict_file(conflict_file)
+        print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
+
     sys_info = SysInfo().to_dict()
 
     # Create output directory if it doesn't exist
@@ -360,6 +369,16 @@ def build_parser():
             "Mutually exclusive with --rerun_failed and --delta_only."
         ),
     )
+    parser.add_argument(
+        "--conflict_file",
+        type=str,
+        default=None,
+        help=(
+            "Optional absolute path to a conflict CSV. "
+            "When provided, case_index values are loaded from its 2nd column. "
+            "Cannot be used together with --case_index."
+        ),
+    )
 
     parser.add_argument(
         "--dry_run",
@@ -443,6 +462,7 @@ def run_from_args(args: Any) -> None:
         dry_run=args.dry_run,
         not_run_start_id=args.not_run_start_id,
         case_index=args.case_index,
+        conflict_file=args.conflict_file,
         opset_mapping=opset_mapping,
     )
 

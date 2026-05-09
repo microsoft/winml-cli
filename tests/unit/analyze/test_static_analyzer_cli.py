@@ -16,7 +16,7 @@ Tests verify:
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -25,16 +25,16 @@ from click.testing import CliRunner
 from winml.modelkit.commands.analyze import analyze
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
 @pytest.fixture(autouse=True)
 def _mock_rule_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bypass rule-data validation so CLI tests don't depend on rule zips."""
+    """Bypass rule-data validation so CLI tests don't depend on rule artifacts."""
     monkeypatch.setattr(
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
+        lambda: ([Path("runtime_check_rules")], [Path("runtime_check_rules/mock.parquet")]),
     )
 
 
@@ -191,6 +191,34 @@ class TestAnalyzeCommandArguments:
         )
         # Click should catch this with path validation
         assert result.exit_code != 0
+
+    def test_missing_runtime_rule_parquet_exits_two(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When no parquet is found in search dirs, analyze should fail fast."""
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
+            lambda: ([Path("runtime_check_rules")], []),
+        )
+
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+            ],
+        )
+
+        assert result.exit_code == 2
+        assert "no runtime rule parquet files were found" in result.output.lower()
+        assert "reinstall" in result.output.lower()
 
 
 class TestAnalyzeCommandExecution:
