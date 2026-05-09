@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import ctypes
 import logging
 import os
 import sys
@@ -34,55 +33,56 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Windows: ORT native DLLs access stderr via GetStdHandle(STD_ERROR_HANDLE)
-# rather than through the CRT fd table, so os.dup2 alone is not enough to
-# suppress their output.  We need SetStdHandle as well.
-if sys.platform == "win32":
-    import msvcrt as _msvcrt
 
-    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _kernel32.GetStdHandle.restype = ctypes.c_void_p
-    _kernel32.GetStdHandle.argtypes = [ctypes.c_uint32]
-    _kernel32.SetStdHandle.restype = ctypes.c_bool
-    _kernel32.SetStdHandle.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-    _W32_STDOUT = ctypes.c_uint32(0xFFFFFFF5)  # (DWORD)-11
-    _W32_STDERR = ctypes.c_uint32(0xFFFFFFF4)  # (DWORD)-12
+# WORKAROUND: Suppress compatibility noise printed during EP DLL registration.
+#
+# Symptom: two lines appear on every run even when the EP is unused:
+#   "The requested API version [24] is not available, only API versions
+#    [1, 23] are supported in this build. Current ORT Version is: 1.23.5"
+#
+# Root cause: the WinApp SDK 2.0 EP DLLs were built against ORT API v24, but
+# the currently bundled WinML runtime is still v1.8 (ORT 1.23.5, API v23).
+# The DLL prints this mismatch warning to native stderr during registration.
+# Functionality is NOT affected — ORT falls back cleanly to an available EP.
+#
+# Fix: upgrade the WinML runtime to 2.0. Remove this workaround once that
+# upgrade lands and the API version mismatch is resolved.
+#
+# Technical note: the DLL writes via Win32 GetStdHandle(STD_ERROR_HANDLE)
+# rather than the CRT fd table, so os.dup2 alone is not sufficient on
+# Windows — SetStdHandle must also be updated.
+@contextmanager
+def _suppress_ep_registration_stderr():
+    """Suppress native stderr during EP DLL registration (Win32 + CRT)."""
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    old_fd = os.dup(2)
+    os.dup2(null_fd, 2)
+    os.close(null_fd)
+    old_w32 = None
+    if sys.platform == "win32":
+        import ctypes
+        import msvcrt
 
-    def _w32_get(is_stdout: bool):
-        return _kernel32.GetStdHandle(_W32_STDOUT if is_stdout else _W32_STDERR)
-
-    def _w32_set(is_stdout: bool, handle) -> None:
-        _kernel32.SetStdHandle(_W32_STDOUT if is_stdout else _W32_STDERR, handle)
-
-    def _w32_fd_handle(fd: int):
-        return _msvcrt.get_osfhandle(fd)
-
-else:
-
-    def _w32_get(is_stdout: bool):  # type: ignore[misc]
-        return None
-
-    def _w32_set(is_stdout: bool, handle) -> None:  # type: ignore[misc]
-        pass
-
-    def _w32_fd_handle(fd: int):  # type: ignore[misc]
-        return None
+        k32 = ctypes.WinDLL("kernel32")
+        _std_err = ctypes.c_uint32(0xFFFFFFF4)
+        old_w32 = k32.GetStdHandle(_std_err)
+        k32.SetStdHandle(_std_err, msvcrt.get_osfhandle(2))
+    try:
+        yield
+    finally:
+        os.dup2(old_fd, 2)
+        os.close(old_fd)
+        if old_w32 is not None:
+            k32.SetStdHandle(_std_err, old_w32)
 
 
 @contextmanager
-def _suppress_native_output(
-    log_path: str | Path | None = None, suppress_stderr: bool = False
-):
-    """Redirect native stdout (and optionally stderr) to a log file or devnull.
+def _suppress_native_output(log_path: str | Path | None = None):
+    """Redirect native stdout to a log file (or devnull).
 
     QNN SDK compiler writes progress to stdout via native C++ code that
-    Python logging/warnings cannot intercept. Use suppress_stderr=True to
-    also silence native stderr (e.g., OpenVINO EP API version warnings during
-    ORT session creation).
-
-    On Windows, also updates Win32 STD_*_HANDLE via SetStdHandle so native
-    DLLs that call GetStdHandle() (rather than using the CRT fd table) see
-    the redirected handle.
+    Python logging/warnings cannot intercept. Only redirects stdout —
+    stderr is left untouched so Rich displays and Python logging work.
     """
     if log_path is not None:
         fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
@@ -91,24 +91,11 @@ def _suppress_native_output(
     old_stdout = os.dup(1)
     os.dup2(fd, 1)
     os.close(fd)
-    old_stderr = None
-    old_stderr_w32 = None
-    if suppress_stderr:
-        old_stderr = os.dup(2)
-        old_stderr_w32 = _w32_get(is_stdout=False)
-        stderr_dest = os.dup(1)  # same destination as stdout (devnull or log file)
-        os.dup2(stderr_dest, 2)
-        os.close(stderr_dest)
-        _w32_set(is_stdout=False, handle=_w32_fd_handle(2))
     try:
         yield
     finally:
         os.dup2(old_stdout, 1)
         os.close(old_stdout)
-        if old_stderr is not None:
-            os.dup2(old_stderr, 2)
-            _w32_set(is_stdout=False, handle=old_stderr_w32)
-            os.close(old_stderr)
 
 
 class SessionState(Enum):
@@ -211,9 +198,7 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                # EP DLLs may be compiled against a newer ORT API than installed;
-                # suppress their native stderr to avoid version-mismatch noise.
-                with _suppress_native_output(suppress_stderr=True):
+                with _suppress_ep_registration_stderr():
                     registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
@@ -350,11 +335,8 @@ class WinMLSession:
             # registry, e.g. QNN) or left to ORT's device policy (fallback).
             # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
-            with _suppress_native_output(compile_log, suppress_stderr=True):
-                session = ort.InferenceSession(
-                    str(model_path),
-                    sess_options=sess_options,
-                )
+            with _suppress_native_output(compile_log):
+                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
             # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()

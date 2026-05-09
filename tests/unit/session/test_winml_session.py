@@ -834,25 +834,24 @@ class TestSuppressNativeOutput:
         __import__("sys").platform != "win32", reason="Windows-only: tests SetStdHandle"
     )
     def test_win32_std_error_handle_redirected_and_restored(self):
-        """On Windows, suppress_stderr must update STD_ERROR_HANDLE so that native
-        DLLs calling GetStdHandle(STD_ERROR_HANDLE) see the devnull handle."""
+        """On Windows, _suppress_ep_registration_stderr must update STD_ERROR_HANDLE
+        so that native DLLs calling GetStdHandle(STD_ERROR_HANDLE) see the devnull handle."""
         import ctypes
-        import sys
 
-        from winml.modelkit.session.session import _suppress_native_output
+        from winml.modelkit.session.session import _suppress_ep_registration_stderr
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.GetStdHandle.restype = ctypes.c_void_p
         kernel32.GetStdHandle.argtypes = [ctypes.c_uint32]
-        STD_ERROR_HANDLE = ctypes.c_uint32(0xFFFFFFF4)
+        std_error_handle = ctypes.c_uint32(0xFFFFFFF4)
 
-        original_handle = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+        original_handle = kernel32.GetStdHandle(std_error_handle)
 
-        with _suppress_native_output(suppress_stderr=True):
-            redirected = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+        with _suppress_ep_registration_stderr():
+            redirected = kernel32.GetStdHandle(std_error_handle)
             assert redirected != original_handle, "STD_ERROR_HANDLE should change inside context"
 
-        restored = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+        restored = kernel32.GetStdHandle(std_error_handle)
         assert restored == original_handle, "STD_ERROR_HANDLE should be restored after context"
 
 
@@ -909,7 +908,7 @@ class TestOpenVINOCpuFallback:
                 # First attempt uses the OpenVINO-CPU ep_device; simulate the
                 # field failure where the CPU plugin cannot deserialize an
                 # NPU-compiled blob.
-                raise Exception(
+                raise RuntimeError(
                     "[ONNXRuntimeError] : 10 : INVALID_GRAPH : [OpenVINO-EP] "
                     "[CPU] Could not deserialize by device xml header."
                 )
@@ -949,9 +948,7 @@ class TestOpenVINODeviceRouting:
     until the fix is applied.
     """
 
-    def test_compile_openvino_cpu_device_succeeds(
-        self, simple_matmul_onnx: Path
-    ) -> None:
+    def test_compile_openvino_cpu_device_succeeds(self, simple_matmul_onnx: Path) -> None:
         """WinMLSession with ep=openvino and device=cpu must compile successfully."""
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
@@ -961,9 +958,7 @@ class TestOpenVINODeviceRouting:
         session.compile()
         assert session.state == SessionState.COMPILED
 
-    def test_compile_openvino_cpu_provider_not_npu(
-        self, simple_matmul_onnx: Path
-    ) -> None:
+    def test_compile_openvino_cpu_provider_not_npu(self, simple_matmul_onnx: Path) -> None:
         """Session compiled with ep=openvino + device=cpu must not run on NPU.
 
         If OpenVINO-CPU is unavailable and the code falls back to
@@ -980,6 +975,5 @@ class TestOpenVINODeviceRouting:
         providers = session._session.get_providers()
         npu_providers = {"QNNExecutionProvider", "NvTensorRTRTXExecutionProvider"}
         assert not npu_providers.intersection(providers), (
-            f"ep=openvino + device=cpu must not select an NPU provider, "
-            f"got: {providers}"
+            f"ep=openvino + device=cpu must not select an NPU provider, got: {providers}"
         )

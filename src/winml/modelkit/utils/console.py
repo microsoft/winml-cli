@@ -149,7 +149,9 @@ def print_setup(
     console.print(HEAVY_SEP)
     console.print(f"   \U0001f4e6 [bold]{'Model:':<10}[/bold] [cyan]{model}[/cyan]")
     config_suffix = "  [dim](autoconf off)[/dim]" if not auto else "  [dim](autoconf on)[/dim]"
-    console.print(f"   \U0001f4c1 [bold]{'Config:':<10}[/bold] [cyan]{config}[/cyan]{config_suffix}")
+    console.print(
+        f"   \U0001f4c1 [bold]{'Config:':<10}[/bold] [cyan]{config}[/cyan]{config_suffix}"
+    )
     console.print(f"   \U0001f4c2 [bold]{'Output:':<10}[/bold] [cyan]{output}[/cyan]")
     console.print()
 

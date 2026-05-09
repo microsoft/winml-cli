@@ -88,7 +88,9 @@ class WinMLCompileConfig:
         return self.ep_config.provider
 
     @classmethod
-    def for_provider(cls, provider: str | None, device: str | None = None) -> WinMLCompileConfig | None:
+    def for_provider(
+        cls, provider: str | None, device: str | None = None
+    ) -> WinMLCompileConfig | None:
         """Factory that dispatches to a known for_* method or creates a generic config.
 
         Args:
@@ -204,7 +206,9 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_openvino(cls, quantize: bool | None = None, device: str | None = None) -> WinMLCompileConfig:
+    def for_openvino(
+        cls, quantize: bool | None = None, device: str | None = None
+    ) -> WinMLCompileConfig:
         """Factory for OpenVINO compilation."""
         if quantize is not None:
             warnings.warn(
@@ -220,11 +224,15 @@ class WinMLCompileConfig:
             # cache keys and don't accidentally share the wrong EPContext.
             provider_options["device_type"] = device.upper()
         return cls(
-            ep_config=EPConfig(provider="openvino", enable_ep_context=True, provider_options=provider_options),
+            ep_config=EPConfig(
+                provider="openvino", enable_ep_context=True, provider_options=provider_options
+            ),
         )
 
     @classmethod
-    def for_vitisai(cls, quantize: bool | None = None, device: str | None = None) -> WinMLCompileConfig:
+    def for_vitisai(
+        cls, quantize: bool | None = None, device: str | None = None
+    ) -> WinMLCompileConfig:
         """Factory for Vitis AI (AMD NPU/GPU) compilation."""
         if quantize is not None:
             warnings.warn(
@@ -237,7 +245,9 @@ class WinMLCompileConfig:
         if device:
             provider_options["device_type"] = device.upper()
         return cls(
-            ep_config=EPConfig(provider="vitisai", enable_ep_context=False, provider_options=provider_options),
+            ep_config=EPConfig(
+                provider="vitisai", enable_ep_context=False, provider_options=provider_options
+            ),
         )
 
     @classmethod
