@@ -318,14 +318,16 @@ def _get_or_load_parquet_table_global(parquet_path: Path) -> pd.DataFrame | None
 
             _PARQUET_TABLE_GLOBAL_CACHE_COND.wait()
 
-    table_df = _read_and_sanitize_parquet_table(parquet_path)
-
-    with _PARQUET_TABLE_GLOBAL_CACHE_COND:
-        _PARQUET_TABLE_GLOBAL_CACHE[global_cache_key] = _ParquetTableCacheEntry(
-            is_loading=False,
-            table_df=table_df,
-        )
-        _PARQUET_TABLE_GLOBAL_CACHE_COND.notify_all()
+    table_df: pd.DataFrame | None = None
+    try:
+        table_df = _read_and_sanitize_parquet_table(parquet_path)
+    finally:
+        with _PARQUET_TABLE_GLOBAL_CACHE_COND:
+            _PARQUET_TABLE_GLOBAL_CACHE[global_cache_key] = _ParquetTableCacheEntry(
+                is_loading=False,
+                table_df=table_df,
+            )
+            _PARQUET_TABLE_GLOBAL_CACHE_COND.notify_all()
 
     return table_df
 
@@ -2022,28 +2024,28 @@ class RuntimeCheckerQuery:
 
             return _finish(
                 PatternRuntime(
-                pattern_id=pattern_id,
-                result=RuntimeTestResult(
-                    compile=False,
-                    run=False,
-                    no_data=True,
-                    reason="rules_not_found",
-                    node_tags=node_tags,
-                    debug_details=(
-                        {
-                            "op_type": node.op_type,
-                            "domain": str(op_domain),
-                            "opset_version": opset_version,
-                            "table_path": parquet_path_norm,
-                            "table_file": parquet_file,
-                            "op_since_version": op_since_version,
-                        }
-                        if for_debug
-                        else None
+                    pattern_id=pattern_id,
+                    result=RuntimeTestResult(
+                        compile=False,
+                        run=False,
+                        no_data=True,
+                        reason="rules_not_found",
+                        node_tags=node_tags,
+                        debug_details=(
+                            {
+                                "op_type": node.op_type,
+                                "domain": str(op_domain),
+                                "opset_version": opset_version,
+                                "table_path": parquet_path_norm,
+                                "table_file": parquet_file,
+                                "op_since_version": op_since_version,
+                            }
+                            if for_debug
+                            else None
+                        ),
                     ),
-                ),
-                alternatives=self.alternatives,
-                pattern_match=pattern_match,
+                    alternatives=self.alternatives,
+                    pattern_match=pattern_match,
                 ),
                 outcome="rules_not_found",
                 table_file=parquet_file,

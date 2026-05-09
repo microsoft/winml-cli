@@ -64,6 +64,8 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         return IHVType.AMD
 
     # NVIDIA / TensorRT RTX
+    # This is intentionally a permissive substring fallback to cover common
+    # TensorRT naming variants. Callers should prefer canonical EP names.
     nvidia_keywords = ("nvidia", "nvtensorrt", "tensorrt", "rtx")
     if any(kw in ep_lower for kw in nvidia_keywords):
         return IHVType.NVIDIA

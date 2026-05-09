@@ -16,7 +16,7 @@ from onnx import TensorProto, helper
 
 import winml.modelkit.analyze.core.runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import RuntimeCheckerQuery
-from winml.modelkit.analyze.utils.model_utils import encode_rule_condition_value_for_parquet
+from winml.modelkit.analyze.utils import encode_rule_condition_value_for_parquet
 
 
 if TYPE_CHECKING:

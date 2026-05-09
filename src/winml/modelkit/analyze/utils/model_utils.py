@@ -11,7 +11,6 @@ The node_to_pattern_match function stays here as it uses OperatorPattern (analyz
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 from typing import TYPE_CHECKING
 
@@ -34,8 +33,6 @@ from ...pattern.utils import (  # noqa: F401
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from onnx import NodeProto
 
     from winml.modelkit.pattern.match import PatternMatchResult
@@ -90,32 +87,6 @@ def encode_rule_condition_value_for_parquet(value: object) -> str:
     """
     normalized = _normalize_for_parquet_encoding(make_hashable(value))
     return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def build_rule_row_index_from_encoded_conditions(encoded_conditions: Mapping[str, str]) -> str:
-    """Build a stable row-index hash from encoded condition values.
-
-    Args:
-        encoded_conditions: Mapping of condition column -> encoded condition value.
-
-    Returns:
-        Stable hex digest that can be used as parquet/json row lookup key.
-    """
-    canonical = json.dumps(
-        sorted(encoded_conditions.items()),
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def build_rule_row_index_from_conditions(conditions: Mapping[str, object]) -> str:
-    """Build a stable row-index hash from raw condition values."""
-    encoded_conditions = {
-        key: encode_rule_condition_value_for_parquet(value)
-        for key, value in conditions.items()
-    }
-    return build_rule_row_index_from_encoded_conditions(encoded_conditions)
 
 
 def node_to_pattern_match(

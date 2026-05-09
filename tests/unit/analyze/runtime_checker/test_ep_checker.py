@@ -5,7 +5,7 @@
 
 import onnxruntime as ort
 
-from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
+from winml.modelkit.analyze.runtime_checker import EPChecker
 
 
 def _make_checker(
