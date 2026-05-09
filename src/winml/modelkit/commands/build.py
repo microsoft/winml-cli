@@ -599,6 +599,7 @@ def _run_single_build(
         config=Path(config_file).name if config_file else "(auto)",
         output=str(resolved_dir),
         source=source,
+        auto=config.auto,
     )
     print_stages_header(console)
 
@@ -646,11 +647,15 @@ def _run_single_build(
         elapsed = time.monotonic() - start_time
         final_path = resolved_dir / "model.onnx"
         if final_path.exists() and stage_timings:
+            config_json = resolved_dir / (
+                f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
+            )
             print_final(
                 console,
                 elapsed,
                 str(final_path),
                 stage_timings=stage_timings,
+                config=str(config_json) if config_json.exists() else None,
             )
     finally:
         logging.captureWarnings(False)
