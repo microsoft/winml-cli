@@ -69,8 +69,14 @@ from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
-# Aggregated model class mappings: (model_type, task) -> HF model class
-MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+# Aggregated model class mappings: (model_type, task) -> HF model class.
+#
+# A sentinel entry with task=None encodes the per-model-type default task
+# applied during auto-detection. Its value is the default class; the resolver
+# reverse-looks-up the task name from the matching (model_type, default_task)
+# entry. See sam.py for the canonical example (mask-generation default for
+# SAM/SAM2).
+MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     **_BART_CLASS_MAPPING,
     **_CLIP_CLASS_MAPPING,
     **_MARIAN_CLASS_MAPPING,
