@@ -22,11 +22,11 @@ Command prefixes: `TOP` top-level, `ANA` analyze, `BLD` build, `CMP` compile, `C
 |---|---:|---:|---:|---:|---:|
 | Top-level (`winml`) | 0 | 2 | 3 | 0 | 5 |
 | `winml analyze` | 0 | 3 | 0 | 0 | 3 |
-| `winml build` | 0 | 2 | 2 | 0 | 4 |
+| `winml build` | 0 | 3 | 2 | 0 | 5 |
 | `winml compile` | 2 | 1 | 1 | 0 | 4 |
 | `winml config` | 1 | 2 | 0 | 0 | 3 |
-| `winml eval` | 1 | 1 | 2 | 0 | 4 |
-| `winml export` | 2 | 2 | 0 | 0 | 4 |
+| `winml eval` | 1 | 2 | 2 | 0 | 5 |
+| `winml export` | 2 | 3 | 0 | 0 | 5 |
 | `winml hub` | 0 | 2 | 2 | 0 | 4 |
 | `winml inspect` | 1 | 3 | 0 | 0 | 4 |
 | `winml optimize` | 1 | 1 | 1 | 0 | 3 |
@@ -34,7 +34,7 @@ Command prefixes: `TOP` top-level, `ANA` analyze, `BLD` build, `CMP` compile, `C
 | `winml quantize` | 2 | 0 | 1 | 0 | 3 |
 | `winml sys` | 0 | 2 | 1 | 0 | 3 |
 | Cross-cutting | 0 | 2 | 6 | 1 | 9 |
-| **Total** | **11** | **27** | **19** | **1** | **58** |
+| **Total** | **11** | **30** | **19** | **1** | **61** |
 
 Out of 6 high-traffic commands (`export`, `inspect`, `compile`, `quantize`, `perf`, `sys`), every one ships at least one P0 or P1 issue. Two `--help` examples are non-runnable. Three commands silently override or ignore user input and return success. Three local-state commands take >7 s when they should take <500 ms. The wheel is 144 MB.
 
@@ -397,6 +397,35 @@ uv run winml build --help | Select-String 'config|schema|json|fields|keys'
 
 ---
 
+### BLD-P1-3 — Config `loader.task` is not validated against `--model` (or against the model architecture); incompatible pair fails mid-build with a cryptic upstream error
+
+**Category**: Validate Inputs Up-Front — when two inputs are independently supplied (config file *and* `-m/--model`), their compatibility must be checked at command entry.
+
+**Status**: Behavior derived from static code path inspection (`commands/build.py`, `loader/config.py`). `build` does not expose `--task` on the CLI (`uv run winml build --help | Select-String task` returns nothing — verified), so the only way to set the task is via `loader.task` in the config JSON.
+
+**Repro**:
+```
+# config.json contains {"loader": {"task": "text-generation"}, ...}
+uv run winml build -c config.json -m microsoft/resnet-50 -o temp\bld\
+```
+
+**Actual** (from code-path analysis and parallel to EXP-P1-3):
+- `resolve_loader_config()` accepts `task="text-generation"` from the config without checking it against `microsoft/resnet-50`'s architecture.
+- `TasksManager.get_model_class_for_task("text-generation")` resolves to `AutoModelForCausalLM`.
+- `AutoModelForCausalLM.from_pretrained("microsoft/resnet-50")` then raises the same `ValueError: Unrecognized configuration class ResNetConfig … AutoModelForCausalLM` + 100-line config-class dump observed in EXP-P1-3, except now from inside the `build` pipeline (not `export`), after the Setup banner and Stages header have already printed (compounds BLD-P1-2).
+- No traceback de-duplication: the user sees the same wall of text emitted by `transformers` plus the build pipeline's own error wrapping.
+
+**Expected**: At command entry, after loading both `--model` and the config, validate that `loader.task` is a supported task for the model architecture (using the same `TasksManager` map). On mismatch, exit 2 before the Setup banner prints, with one line:
+```
+Error: config.loader.task='text-generation' is not supported for --model microsoft/resnet-50 (architecture: resnet).
+Supported tasks: image-classification, image-feature-extraction.
+```
+Do not download the model, do not print the Setup banner, do not let the upstream `ValueError` reach the user.
+
+**Why it matters**: The combination is silent at the seam between config and CLI. A user who reuses a config from a text model with a vision model (or vice versa) sees a cryptic upstream error from `transformers` rather than a one-line message about their config field. Same root cause as EXP-P1-3 but on a different command surface; should be fixed by a single shared validator. Violates R4.1 (validate inputs at entry), R4.2 (reject unsupported combinations), R3.1 (actionable errors).
+
+---
+
 ## `winml compile`
 
 ### CMP-P0-1 — `--device cpu --ep qnn` silently overrides device to NPU and exits 0
@@ -659,6 +688,38 @@ No guidance to the user about *why* `glue/mrpc` is incompatible with an image-cl
 
 ---
 
+### EVL-P1-2 — `eval` accepts a pre-built ONNX whose I/O signature does not match `--task`; failure surfaces late as an unrelated pipeline/dataset error
+
+**Category**: Validate Inputs Up-Front + Actionable Errors — `eval` should cross-check the ONNX graph's input names against the requested task's expected inputs at load time.
+
+**Status**: Behavior derived from static code path inspection (`commands/eval.py`, `eval/evaluate.py`). Runtime reproduction was blocked by an in-progress merge conflict in `src/winml/modelkit/commands/eval.py` on the audit branch; the reproduction string below is the path the code will follow once the conflict is resolved.
+
+**Repro**:
+```
+# 1. Export a real image-classification ONNX:
+uv run winml export -m microsoft/resnet-50 -o temp\resnet50.onnx
+# 2. Ask eval to run it as a text-generation task:
+uv run winml eval -m temp\resnet50.onnx --model-id microsoft/resnet-50 --task text-generation --samples 5
+```
+
+**Actual** (from code-path analysis):
+- `_resolve_task(cfg)` returns `"text-generation"` because `cfg.task` is non-`None`. **No validation** that the task is even a known evaluator key, and **no validation** that the task is compatible with the ONNX graph.
+- `WinMLAutoModel.from_onnx("temp\\resnet50.onnx", task="text-generation")` succeeds — `from_onnx` does not inspect the graph's `input` / `output` names against the task's expected I/O contract.
+- `_EVALUATOR_REGISTRY.get("text-generation")` returns the text-generation evaluator, which constructs an HF `pipeline(task="text-generation", model=<resnet-onnx>)`.
+- Failure surfaces several seconds later, deep in dataset preparation or first inference, as an `IndexError`/`KeyError`/missing-`input_ids` error. The user has no signal that the *task* flag is the cause; the symptom looks like a dataset or model-load bug.
+
+**Expected**: At ONNX load time, when the user has explicitly passed `--task <T>`, compare the ONNX graph's input names against the task's documented input contract (e.g. `image-classification` → `pixel_values`; `text-generation` → `input_ids` + `attention_mask`). On mismatch, exit 2 with one line:
+```
+Error: ONNX file temp\resnet50.onnx exposes inputs [pixel_values] which do not
+match task 'text-generation' (expects [input_ids, attention_mask]).
+Did the model export with --task image-classification?
+```
+Secondary fix: validate `--task` against the evaluator registry at command entry; reject unknown task strings up front instead of letting `_EVALUATOR_REGISTRY.get(...)` fail late.
+
+**Why it matters**: A user who passes the wrong `--task` (typo, wrong recall, or copy-paste from another command) gets neither a useful error nor a hint that `--task` is the wrong knob. Worst case, an evaluator that does not strictly check input shape could *complete* against random model output and report bogus accuracy numbers. Violates R4.1 (validate inputs at entry), R4.2 (reject unsupported combinations), R3.1 (actionable errors).
+
+---
+
 ### EVL-P1-1 — `--samples N` silently ignored; output reports the wrong sample count
 
 **Category**: Conflicting Flag Combinations — never silently ignore a user-supplied flag.
@@ -812,6 +873,51 @@ Multiple TracerWarning lines from torch leak to default-verbosity output.
 **Expected**: At default verbosity, suppress `torch.jit.TracerWarning` and other library warnings. Show them only when `-v`.
 
 **Why it matters**: Users see scary `WARNING` lines for benign torch internals and assume their export is broken. A clean default output is a quality signal.
+
+---
+
+### EXP-P1-3 — Mismatched `--task` for HF model dumps a raw `transformers` traceback and a 100-line config-class wall
+
+**Category**: Validate Inputs Up-Front + Actionable Errors — incompatible model/task pairs must be rejected at command entry with a one-line user-language message, not a raw upstream `ValueError` plus traceback.
+
+**Repro**:
+```
+uv run winml export -m microsoft/resnet-50 --task text-generation -o temp\rn50_textgen.onnx
+```
+Rationale: `microsoft/resnet-50` is an image-classification model; `text-generation` is a causal-LM task. This is the canonical "user typed the wrong `--task`" mistake.
+
+**Actual** (verified, exit code non-zero, error fires after model download):
+```
+Starting HTP export...
+
+Export failed: Unrecognized configuration class <class
+'transformers.models.resnet.configuration_resnet.ResNetConfig'> for this kind
+of AutoModel: AutoModelForCausalLM.
+Model type should be one of ApertusConfig, ArceeConfig, AriaTextConfig,
+BambaConfig, BartConfig, BertConfig, BertGenerationConfig, BigBirdConfig,
+BigBirdPegasusConfig, BioGptConfig, BitNetConfig, BlenderbotConfig, ... <100+
+ more config class names dumped> ..., Zamba2Config.
+[2026-05-09T13:34:23] ERROR: Export failed
+Traceback (most recent call last):
+  File "...\src\winml\modelkit\commands\export.py", line 365, in export
+    pytorch_model, _, detected_task = load_hf_model(model, task=task)
+  File "...\src\winml\modelkit\loader\hf.py", line 235, in load_hf_model
+    model = resolved_class.from_pretrained(...)
+  File "...\transformers\models\auto\auto_factory.py", line 607, in from_pretrained
+    raise ValueError(...)
+ValueError: Unrecognized configuration class <... full message repeated ...>
+```
+At default verbosity the user sees: a downloaded model, a 100-line config-class dump, a 6-frame Python traceback into `transformers` internals, and the same message repeated as a "clean" `Error:` line. Symmetric case `-m gpt2 --task image-classification` fails the same way (same code path: `load_hf_model` → `AutoModelFor<TASK>.from_pretrained`).
+
+**Expected**: Validate task ↔ model-architecture compatibility at command entry — *before* downloading the model — using the same `optimum.exporters.tasks.TasksManager` map already used for auto-detection. On mismatch, exit 2 with one line such as:
+```
+Error: Task 'text-generation' is not supported for model microsoft/resnet-50 (architecture: resnet).
+Supported tasks for resnet: image-classification, image-feature-extraction.
+Did you mean: --task image-classification ?
+```
+No traceback at default verbosity (R3.1); 100-line config-class dump never reaches the user (R3.2). Tracebacks gated behind `-vv`.
+
+**Why it matters**: This is the single most common `--task` mistake (typo or wrong recall of the canonical task name). Today the user (a) wastes a model download, (b) is shown internal `transformers` symbols and a 100-line wall of `*Config` class names that have nothing to do with their model, (c) gets no hint that *task* is the wrong knob, and (d) gets a Python traceback at default verbosity. Violates R1.5 ("did you mean…?"), R3.1 (actionable errors), R3.2 (bounded log volume), R4.1 (validate inputs at entry), R4.2 (reject unsupported combinations).
 
 ---
 
