@@ -16,7 +16,6 @@ Usage:
 Examples:
     winml optimize -m model.onnx -o model_opt.onnx
     winml optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
-    winml optimize -m model.onnx --preset transformer-optimized
 """
 
 from __future__ import annotations
@@ -39,32 +38,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 console = Console()
-
-
-# Import PRESETS from the optim CLI module for consistency
-PRESETS: dict[str, dict[str, Any]] = {
-    "qnn-compatible": {
-        "gelu-fusion": False,
-        "attention-fusion": False,
-        "graph-optimization-level": 1,
-    },
-    "transformer-optimized": {
-        "gelu-fusion": True,
-        "layer-norm-fusion": True,
-        "attention-fusion": True,
-        "bias-gelu-fusion": True,
-    },
-    "full": {
-        "gelu-fusion": True,
-        "matmul-add-fusion": True,
-        "layer-norm-fusion": True,
-        "attention-fusion": True,
-        "bias-gelu-fusion": True,
-    },
-    "minimal": {
-        "graph-optimization-level": 1,
-    },
-}
 
 
 # =============================================================================
@@ -203,13 +176,6 @@ def capability_options(func: Callable) -> Callable:
     help="Output path (default: {input}_opt.onnx)",
 )
 @click.option(
-    "--preset",
-    "-p",
-    type=click.Choice(list(PRESETS.keys())),
-    default=None,
-    help="Use optimization preset",
-)
-@click.option(
     "--config",
     "-c",
     type=click.Path(exists=True, path_type=Path),
@@ -231,7 +197,6 @@ def optimize(
     list_rewrites: bool,
     model: Path | None,
     output: Path | None,
-    preset: str | None,
     config: Path | None,
     verbose: bool,
     **kwargs: Any,
@@ -246,8 +211,7 @@ def optimize(
     Configuration precedence (highest to lowest):
         1. CLI options (--enable-X, --disable-X)
         2. Config file options (-c/--config)
-        3. Preset defaults (-p/--preset)
-        4. Capability defaults
+        3. Capability defaults
 
     \b
     Examples:
@@ -266,9 +230,6 @@ def optimize(
 
         # Basic optimization with GELU fusion
         winml optimize -m model.onnx -o model_opt.onnx --enable-gelu-fusion
-
-        # Use transformer preset
-        winml optimize -m bert.onnx --preset transformer-optimized
 
         # Use config file
         winml optimize -m model.onnx -c config.toml
@@ -399,8 +360,6 @@ def optimize(
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
-    if preset:
-        console.print(f"[bold blue]Preset:[/bold blue] {preset}")
     if config:
         console.print(f"[bold blue]Config:[/bold blue] {config}")
 
@@ -410,12 +369,7 @@ def optimize(
     for cap_name, cap_def in all_caps.items():
         final_config[cap_name] = cap_def.default
 
-    # 2. Apply preset if specified (overrides defaults)
-    if preset and preset in PRESETS:
-        final_config.update(PRESETS[preset])
-        console.print(f"[dim]Applied preset: {preset}[/dim]")
-
-    # 3. Apply config file if specified (overrides preset/defaults)
+    # 2. Apply config file if specified (overrides defaults)
     if config:
         file_config = load_config(config)
         # Normalize snake_case keys to kebab-case (accept both formats)
@@ -423,17 +377,17 @@ def optimize(
         final_config.update(file_config)
         console.print(f"[dim]Loaded config from: {config}[/dim]")
 
-    # 4. Override with explicit CLI options (highest precedence)
+    # 3. Override with explicit CLI options (highest precedence)
     # kwargs contains python_name -> value mappings from capability_options
     for cap_name, cap_def in all_caps.items():
         python_name = cap_def.python_name
         if python_name in kwargs and kwargs[python_name] is not None:
             final_config[cap_name] = kwargs[python_name]
 
-    # 5. Auto-enable dependencies (e.g., bias-gelu-fusion requires gelu-fusion)
+    # 4. Auto-enable dependencies (e.g., bias-gelu-fusion requires gelu-fusion)
     final_config = auto_enable_dependencies(final_config, all_caps)
 
-    # 6. Validate configuration (especially important for config files)
+    # 5. Validate configuration (especially important for config files)
     errors = validate(final_config, all_caps)
     dep_errors = validate_dependencies(final_config, all_caps)
     all_errors = errors + dep_errors
