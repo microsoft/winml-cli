@@ -180,8 +180,9 @@ def quantize_onnx(
         # raising FileExistsError, so we proactively clear them here.
         if output_path.exists():
             output_path.unlink()
-        for stale in output_path.parent.glob(f"{output_path.name}.data*"):
-            stale.unlink()
+        stale_sidecar = output_path.parent / f"{output_path.name}.data"
+        if stale_sidecar.exists():
+            stale_sidecar.unlink()
         original_cwd = Path.cwd()
         try:
             os.chdir(output_path.parent)
