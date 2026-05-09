@@ -194,6 +194,12 @@ def load_hf_model(
     """
     logger.info("Loading HF model: %s", model_name_or_path)
 
+    # Ensure HF model registrations (AutoConfig.register, OnnxConfig overwrites,
+    # task-mapping fallbacks) have run before any AutoConfig / TasksManager calls.
+    from ..export.io import ensure_hf_models_registered
+
+    ensure_hf_models_registered()
+
     # Validate user_script requirements before any network calls
     if user_script is not None:
         if not trust_remote_code:

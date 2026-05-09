@@ -40,6 +40,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
+    "image-to-image": "WinMLModelForImageToImage",
     # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
     "question-answering": "WinMLModelForQuestionAnswering",
@@ -80,6 +81,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         WinMLModelForImageSegmentation,
         WinMLModelForSemanticSegmentation,
     )
+    from .image_to_image import WinMLModelForImageToImage
     from .object_detection import WinMLModelForObjectDetection
     from .question_answering import WinMLModelForQuestionAnswering
     from .sequence_classification import WinMLModelForSequenceClassification
@@ -89,6 +91,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
+        "WinMLModelForImageToImage": WinMLModelForImageToImage,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
         "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
@@ -190,6 +193,7 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .image_to_image import ImageReconstructionOutput, WinMLModelForImageToImage
 from .kv_cache import (
     WinMLCache,
     WinMLSlidingWindowCache,
@@ -204,6 +208,7 @@ __all__ = [
     "COMPOSITE_MODEL_REGISTRY",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
+    "ImageReconstructionOutput",
     "ImageSegmentationOutput",
     "WinMLCache",
     "WinMLCompositeModel",
@@ -213,6 +218,7 @@ __all__ = [
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
+    "WinMLModelForImageToImage",
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",

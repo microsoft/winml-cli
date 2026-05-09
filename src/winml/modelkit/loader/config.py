@@ -169,7 +169,12 @@ def resolve_loader_config(
     """
     from transformers import AutoConfig
 
+    from ..export.io import ensure_hf_models_registered
     from .task import get_supported_tasks, resolve_task_and_model_class
+
+    # Ensure HF model registrations (AutoConfig.register, OnnxConfig overwrites,
+    # task-mapping fallbacks) have run before any AutoConfig / TasksManager calls.
+    ensure_hf_models_registered()
 
     # 1. Load hf_config (depends on: model_id, model_type, or model_class)
     if model_id is not None:
