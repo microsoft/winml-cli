@@ -227,10 +227,28 @@ def model_slug(hf_id: str) -> str:
 
 def main() -> None:
     """Entrypoint for config generation."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate example configs")
+    parser.add_argument("--ep", help="Filter by EP folder name (e.g. qnn, openvino)")
+    parser.add_argument("--hardware", help="Filter by hardware (e.g. npu, gpu, cpu)")
+    args = parser.parse_args()
+
+    eps = EPS
+    if args.ep or args.hardware:
+        eps = [
+            (ef, folder, hw)
+            for ef, folder, hw in EPS
+            if (not args.ep or folder == args.ep) and (not args.hardware or hw == args.hardware)
+        ]
+        if not eps:
+            print(f"No matching EP config for --ep={args.ep} --hardware={args.hardware}")
+            sys.exit(1)
+
     eval_lookup = load_eval_lookup()
     examples_dir = REPO_ROOT / "examples"
 
-    total = len(MODELS) * len(EPS) * len(PRECISIONS)
+    total = len(MODELS) * len(eps) * len(PRECISIONS)
     done = 0
     created = 0
     skipped = 0
@@ -240,7 +258,7 @@ def main() -> None:
         slug = model_slug(hf_id)
         eval_dataset = eval_lookup.get((hf_id, task))
 
-        for ep_flag, ep_folder, hardware in EPS:
+        for ep_flag, ep_folder, hardware in eps:
             for precision in PRECISIONS:
                 done += 1
                 out_dir = examples_dir / ep_folder / hardware / slug

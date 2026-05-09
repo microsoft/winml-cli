@@ -1,0 +1,23 @@
+{
+  "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+  "task": "zero-shot-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation_matched",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/multi_nli",
+    "columns_mapping": {
+      "input_column": "premise",
+      "label_column": "genre",
+      "candidate_labels": "fiction,government,slate,telephone,travel"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\MoritzLaurer_mDeBERTa-v3-base-mnli-xnli\\zero-shot-classification_w8a16_eval.json",
+  "metrics": {
+    "accuracy": 0.3,
+    "f1": 0.22222222222222224
+  }
+}

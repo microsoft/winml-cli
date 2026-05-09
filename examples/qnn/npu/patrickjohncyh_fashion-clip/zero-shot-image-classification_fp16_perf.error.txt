@@ -1,0 +1,26 @@
+ght require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+
+Generating train split:   0%|          | 0/3668 [00:00<?, ? examples/s]
+Generating train split: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 3668/3668 [00:00<00:00, 65409.78 examples/s]
+
+Generating validation split:   0%|          | 0/408 [00:00<?, ? examples/s]
+Generating validation split: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 408/408 [00:00<00:00, 23979.54 examples/s]
+
+Generating test split:   0%|          | 0/1725 [00:00<?, ? examples/s]
+Generating test split: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 1725/1725 [00:00<00:00, 95584.52 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|¨€¨€¨€¨€¨€¨€¨€¨€¨€¨€| 10/10 [00:00<00:00, 172.36 examples/s]
+[2026-05-09T02:45:23] ERROR: Quantization failed
+Traceback (most recent call last):
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\quant\quantizer.py", line 142, in quantize_onnx
+    qdq_config = get_qdq_config(
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\onnxruntime\quantization\quantize.py", line 320, in get_qdq_config
+    else onnx.load_model(model_input, load_external_data=False)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\onnx\__init__.py", line 226, in load_model
+    model = _get_serializer(format, f).deserialize_proto(_load_bytes(f), ModelProto())
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\onnx\__init__.py", line 163, in _load_bytes
+    with open(f, "rb") as readable:
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\shzhen\\.cache\\winml\\artifacts\\patrickjohncyh_fashion-clip\\feat_7e080c936b918de3_optimized.onnx'

@@ -2,21 +2,21 @@
 
 ## Run All Tests
 
-Run perf + eval for all configs under a given EP:
+Run perf + eval for all configs under a given EP and hardware:
 
 ```bash
-python scripts/run_example_tests.py --ep amd --device npu
-python scripts/run_example_tests.py --ep qnn --device npu
-python scripts/run_example_tests.py --ep ov --device npu
+uv run python scripts/run_example_tests.py --ep qnn --hardware npu --device npu
+uv run python scripts/run_example_tests.py --ep qnn --hardware gpu --device gpu
+uv run python scripts/run_example_tests.py --ep openvino --hardware cpu --device cpu
 ```
 
 The script:
-1. Finds all `*_config.json` files under `examples/<ep>/`
+1. Finds all `*_config.json` files under `examples/<ep>/<hardware>/`
 2. For each config, runs **perf** then **eval**:
    - `winml perf -m <hf_id> --device <device> -c <config> -o <perf_output>`
    - `winml eval -m <hf_id> --device <device> -c <config> -o <eval_output>`
 3. Adds `--trust-remote-code` automatically when config has `dataset_script`
-4. Skips configs that already have `_eval.json`, `_error.txt`, or `.timeout` results
+4. Skips configs that already have `_perf.json`/`_eval.json`, `_error.txt`, or `.timeout` results
 5. Cleans HF/winml caches between different models to save disk space
 6. Safe to re-run — picks up where it left off
 
@@ -27,11 +27,12 @@ Options:
 
 Results are saved alongside configs:
 ```
-examples/amd/microsoft_resnet-50/
+examples/qnn/npu/microsoft_resnet-50/
 ├── image-classification_w8a8_config.json
 ├── image-classification_w8a8_perf.json     # perf results
 ├── image-classification_w8a8_eval.json     # eval results
 ├── image-classification_w8a16_config.json
+├── image-classification_w8a16_perf.json
 ├── image-classification_w8a16_eval.json
 ├── image-classification_fp16_config.json
 ├── image-classification_fp16_eval.error.txt  # failure
@@ -49,18 +50,18 @@ For each config, it runs the equivalent of:
 ```bash
 # 1. Perf (builds model if needed, then measures latency)
 winml perf -m microsoft/resnet-50 --device npu \
-  -c examples/amd/microsoft_resnet-50/image-classification_w8a8_config.json \
-  -o examples/amd/microsoft_resnet-50/image-classification_w8a8_perf.json
+  -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
+  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_perf.json
 
 # 2. Eval (uses cached build artifacts from perf)
 winml eval -m microsoft/resnet-50 --device npu \
-  -c examples/amd/microsoft_resnet-50/image-classification_w8a8_config.json \
-  -o examples/amd/microsoft_resnet-50/image-classification_w8a8_eval.json
+  -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
+  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_eval.json
 
 # Model with dataset_script (adds --trust-remote-code to eval)
 winml eval -m w11wo/indonesian-roberta-base-posp-tagger --device npu \
-  -c examples/amd/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json \
-  -o examples/amd/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval.json \
+  -c examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json \
+  -o examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval.json \
   --trust-remote-code
 ```
 

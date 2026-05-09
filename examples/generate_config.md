@@ -8,6 +8,14 @@ Run the generator:
 uv run python scripts/generate_example_configs.py
 ```
 
+To generate configs for a specific EP and/or hardware only:
+
+```bash
+uv run python scripts/generate_example_configs.py --ep qnn --hardware gpu
+uv run python scripts/generate_example_configs.py --ep openvino
+uv run python scripts/generate_example_configs.py --hardware npu
+```
+
 The script:
 1. Calls `winml config -m <hf_id> --task <task> --device <device> --ep <ep> --precision <precision>`
 2. Writes `examples/<ep>/<hardware>/<model_slug>/<task>_<precision>_config.json`
