@@ -79,9 +79,6 @@ class TestOptimizeCliInterface:
     def test_model_required_without_list_flags(self, runner: CliRunner) -> None:
         result = runner.invoke(optimize, [], obj={})
         assert result.exit_code != 0
-
-    def test_model_required_error_message(self, runner: CliRunner) -> None:
-        result = runner.invoke(optimize, [], obj={})
         assert "--model" in result.output or "model" in result.output.lower()
 
 
