@@ -1,0 +1,24 @@
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\load.py", line 1137, in dataset_module_factory
+    commit_hash = api.dataset_info(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\huggingface_hub\utils\_validators.py", line 114, in _inner_fn
+    return fn(*args, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\huggingface_hub\hf_api.py", line 2731, in dataset_info
+    hf_raise_for_status(r)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\huggingface_hub\utils\_http.py", line 476, in hf_raise_for_status
+    raise _format(HfHubHTTPError, str(e), response) from e
+huggingface_hub.errors.HfHubHTTPError: 500 Server Error: Internal Server Error for url: https://huggingface.co/api/datasets/nielsr/ade20k-demo (Request ID: Root=1-69fe33cb-3e90d00f531c35423f8400f2;3022854c-2b0e-4bcd-8064-ccaf927ed5ec)
+
+Internal Error - We're working hard to fix this as soon as possible!
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\quant\quantizer.py", line 111, in quantize_onnx
+    data_reader = DatasetCalibrationReader(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 193, in __init__
+    self._dataset = universal_calib_dataset(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 125, in universal_calib_dataset
+    raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
+RuntimeError: Failed to create image-segmentation dataset: 500 Server Error: Internal Server Error for url: https://huggingface.co/api/datasets/nielsr/ade20k-demo (Request ID: Root=1-69fe33cb-3e90d00f531c35423f8400f2;3022854c-2b0e-4bcd-8064-ccaf927ed5ec)
+
+Internal Error - We're working hard to fix this as soon as possible!

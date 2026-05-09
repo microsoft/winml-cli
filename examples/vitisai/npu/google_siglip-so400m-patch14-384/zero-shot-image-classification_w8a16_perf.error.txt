@@ -1,0 +1,26 @@
+ta\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\models\auto\tokenization_auto.py", line 1156, in from_pretrained
+    return tokenizer_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\utils\import_utils.py", line 2157, in __getattribute__
+    requires_backends(cls, cls._backends)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\utils\import_utils.py", line 2143, in requires_backends
+    raise ImportError("".join(failed))
+ImportError: 
+SiglipTokenizer requires the SentencePiece library but it was not found in your environment. Check out the instructions on the
+installation page of its repo: https://github.com/google/sentencepiece#installation and follow the ones
+that match your environment. Please note that you may need to restart your runtime after installation.
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\quant\quantizer.py", line 111, in quantize_onnx
+    data_reader = DatasetCalibrationReader(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 193, in __init__
+    self._dataset = universal_calib_dataset(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 125, in universal_calib_dataset
+    raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
+RuntimeError: Failed to create feature-extraction dataset: 
+SiglipTokenizer requires the SentencePiece library but it was not found in your environment. Check out the instructions on the
+installation page of its repo: https://github.com/google/sentencepiece#installation and follow the ones
+that match your environment. Please note that you may need to restart your runtime after installation.
+
