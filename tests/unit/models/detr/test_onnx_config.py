@@ -16,7 +16,7 @@ import pytest
 import torch
 from transformers import DetrConfig, TableTransformerConfig
 
-# Import triggers ONNX config registration
+# Import executes hf module decorators that register ONNX config overrides in TasksManager.
 import winml.modelkit.models  # noqa: F401
 from winml.modelkit.export import generate_dummy_inputs
 from winml.modelkit.export.io import _get_onnx_config  # Testing internal implementation
