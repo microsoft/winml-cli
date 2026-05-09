@@ -833,7 +833,7 @@
     "status": "PASS",
     "metric": {
       "metric": "accuracy",
-      "value": 0.6891,
+      "value": 0.3965,
       "num_samples": 500
     },
     "elapsed": 586.9,
