@@ -25,6 +25,9 @@ Exports:
 
 from __future__ import annotations
 
+from optimum.exporters.tasks import TasksManager
+from transformers import AutoConfig, AutoModelForImageToImage
+
 # Import configs - importing triggers ONNX config registration with TasksManager
 # ConvNeXT and SAM2 modules also register PATCHING_SPECS / _MODEL_PATCHER
 # on their OnnxConfig classes at import time.
@@ -40,6 +43,8 @@ from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registra
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
+from .esrgan import ESRGANConfig, ESRGANForImageSuperResolution
+from .esrgan import ESRGANIOConfig as _ESRGANIOConfig  # triggers registration
 from .marian import MARIAN_CONFIG
 from .marian import MODEL_CLASS_MAPPING as _MARIAN_CLASS_MAPPING
 from .marian import MarianDecoderIOConfig as _MarianDecoderIOConfig  # triggers registration
@@ -67,6 +72,15 @@ from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
+
+
+# Register ESRGAN with AutoConfig and Optimum TasksManager so that
+# from_pretrained recognises model_type and auto task detection works.
+AutoConfig.register("esrgan", ESRGANConfig)
+AutoModelForImageToImage.register(ESRGANConfig, ESRGANForImageSuperResolution)
+TasksManager._TRANSFORMERS_TASKS_TO_MODEL_MAPPINGS.setdefault("image-to-image", {})[
+    "esrgan"
+] = "ESRGANForImageSuperResolution"
 
 
 # Aggregated model class mappings: (model_type, task) -> HF model class

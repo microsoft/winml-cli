@@ -133,21 +133,36 @@ def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
     arch_name = architectures[0]
     logger.debug("Resolving model class for architecture: %s", arch_name)
 
+    # First try standard transformers module
     try:
         transformers_module = importlib.import_module("transformers")
         return getattr(transformers_module, arch_name)
-    except AttributeError as e:
-        raise ValueError(
-            f"Cannot import {arch_name} from transformers. Please specify task explicitly."
-        ) from e
+    except AttributeError:
+        pass
+
+    # Fallback: check AutoModel registries for custom-registered models
+    # (e.g., RealESRGAN registered via AutoModelForImageToImage.register())
+    from transformers import AutoModelForImageToImage
+
+    mapping = getattr(AutoModelForImageToImage, "_model_mapping", None)
+    if mapping is not None:
+        for model_cls in mapping.values():
+            if getattr(model_cls, "__name__", None) == arch_name:
+                logger.debug("Resolved %s from AutoModelForImageToImage", arch_name)
+                return model_cls
+
+    raise ValueError(
+        f"Cannot import {arch_name} from transformers or auto registries. "
+        "Please specify task explicitly."
+    )
 
 
 def _detect_task_from_model_class(model_class: type) -> str:
     """Detect task from a model class via TasksManager.
 
-    One-liner wrapper around ``TasksManager.infer_task_from_model()``.
-    Avoids the ``class -> string -> reimport -> class`` round-trip when
-    the class is already available.
+    First tries ``TasksManager.infer_task_from_model()``, then falls back
+    to scanning ``_TRANSFORMERS_TASKS_TO_MODEL_MAPPINGS`` for custom-registered
+    models (e.g., RealESRGAN).
 
     Args:
         model_class: A HuggingFace model class (e.g., ``BertForSequenceClassification``)
@@ -157,7 +172,22 @@ def _detect_task_from_model_class(model_class: type) -> str:
     """
     from optimum.exporters.tasks import TasksManager
 
-    return TasksManager.infer_task_from_model(model_class)
+    try:
+        return TasksManager.infer_task_from_model(model_class)
+    except (RuntimeError, ValueError):
+        pass
+
+    # Fallback: search _TRANSFORMERS_TASKS_TO_MODEL_MAPPINGS for custom models
+    class_name = model_class.__name__
+    for task, mapping in TasksManager._TRANSFORMERS_TASKS_TO_MODEL_MAPPINGS.items():
+        for model_class_name in mapping.values():
+            if model_class_name == class_name:
+                return task
+
+    raise RuntimeError(
+        "The task name could not be automatically inferred. "
+        "Please provide the argument --task task-name."
+    )
 
 
 def _detect_task_from_config(config: PretrainedConfig) -> str:
