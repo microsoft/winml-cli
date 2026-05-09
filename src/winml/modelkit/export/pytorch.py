@@ -24,6 +24,7 @@ Example:
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -83,11 +84,13 @@ def export_pytorch(
         enable_reporting=enable_reporting,
         embed_hierarchy_attributes=export_config.enable_hierarchy_tags,
     )
-    return exporter.export(
-        model=model,
-        output_path=str(output_path),
-        export_config=export_config,
-        model_name_or_path=model_name_or_path,
-        task=task,
-        **kwargs,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        return exporter.export(
+            model=model,
+            output_path=str(output_path),
+            export_config=export_config,
+            model_name_or_path=model_name_or_path,
+            task=task,
+            **kwargs,
+        )
