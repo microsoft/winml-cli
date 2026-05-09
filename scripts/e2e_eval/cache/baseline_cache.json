@@ -878,5 +878,85 @@
     },
     "elapsed": 592.2,
     "command": "python.exe run_pytorch_baseline.py --model trocr-large-printed --task image-to-text --device cpu --num-samples 200 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"}"
+  },
+  "cross-encoder/nli-deberta-v3-small|zero-shot-classification|fancyzhx/ag_news||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.635,
+      "num_samples": 200
+    },
+    "elapsed": 117.9,
+    "command": "python.exe run_pytorch_baseline.py --model nli-deberta-v3-small --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "joeddav/xlm-roberta-large-xnli|zero-shot-classification|fancyzhx/ag_news||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.395,
+      "num_samples": 200
+    },
+    "elapsed": 320.9,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large-xnli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli|zero-shot-classification|fancyzhx/ag_news||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.71,
+      "num_samples": 200
+    },
+    "elapsed": 496.6,
+    "command": "python.exe run_pytorch_baseline.py --model DeBERTa-v3-large-mnli-fever-anli-ling-wanli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "MoritzLaurer/deberta-v3-large-zeroshot-v2.0|zero-shot-classification|fancyzhx/ag_news||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.865,
+      "num_samples": 200
+    },
+    "elapsed": 495.6,
+    "command": "python.exe run_pytorch_baseline.py --model deberta-v3-large-zeroshot-v2.0 --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli|zero-shot-classification|fancyzhx/ag_news||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.675,
+      "num_samples": 200
+    },
+    "elapsed": 178.6,
+    "command": "python.exe run_pytorch_baseline.py --model mDeBERTa-v3-base-mnli-xnli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7|zero-shot-classification|fancyzhx/ag_news||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.62,
+      "num_samples": 200
+    },
+    "elapsed": 179.7,
+    "command": "python.exe run_pytorch_baseline.py --model mDeBERTa-v3-base-xnli-multilingual-nli-2mil7 --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli|zero-shot-classification|fancyzhx/ag_news||test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.77,
+      "num_samples": 100
+    },
+    "elapsed": 273.3,
+    "command": "python.exe run_pytorch_baseline.py --model DeBERTa-v3-large-mnli-fever-anli-ling-wanli --task zero-shot-classification --device cpu --num-samples 100 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "MoritzLaurer/deberta-v3-large-zeroshot-v2.0|zero-shot-classification|fancyzhx/ag_news||test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.86,
+      "num_samples": 100
+    },
+    "elapsed": 284.0,
+    "command": "python.exe run_pytorch_baseline.py --model deberta-v3-large-zeroshot-v2.0 --task zero-shot-classification --device cpu --num-samples 100 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
   }
 }

@@ -1278,13 +1278,14 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "samples": 200,
       "metric": "accuracy",
       "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
+        "input_column": "text",
+        "label_column": "label",
+        "candidate_labels": "World,Sports,Business,Sci/Tech"
       }
     }
   },
@@ -1313,13 +1314,15 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "samples": 200,
       "metric": "accuracy",
       "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
+        "input_column": "text",
+        "label_column": "label",
+        "candidate_labels": "World,Sports,Business,Sci/Tech",
+        "hypothesis_template": "This text is about {}."
       }
     }
   },
@@ -1338,23 +1341,6 @@
       "columns_mapping": {
         "input_column": "img",
         "label_column": "fine_label"
-      }
-    }
-  },
-  {
-    "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
-    "task": "zero-shot-classification",
-    "model_type": "distilbert",
-    "group": "Top200",
-    "priority": "P1",
-    "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
-      "metric": "accuracy",
-      "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
       }
     }
   },
@@ -1383,13 +1369,14 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "samples": 100,
       "metric": "accuracy",
       "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
+        "input_column": "text",
+        "label_column": "label",
+        "candidate_labels": "World,Sports,Business,Sci/Tech"
       }
     }
   },
@@ -1418,13 +1405,14 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "samples": 100,
       "metric": "accuracy",
       "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
+        "input_column": "text",
+        "label_column": "label",
+        "candidate_labels": "World,Sports,Business,Sci/Tech"
       }
     }
   },
@@ -1453,13 +1441,14 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "samples": 200,
       "metric": "accuracy",
       "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
+        "input_column": "text",
+        "label_column": "label",
+        "candidate_labels": "World,Sports,Business,Sci/Tech"
       }
     }
   },
@@ -1487,13 +1476,14 @@
     "group": "Top200",
     "priority": "P1",
     "dataset_config": {
-      "path": "nyu-mll/multi_nli",
-      "split": "validation_matched",
+      "path": "fancyzhx/ag_news",
+      "split": "test",
+      "samples": 200,
       "metric": "accuracy",
       "columns_mapping": {
-        "input_column": "premise",
-        "label_column": "genre",
-        "candidate_labels": "fiction,government,slate,telephone,travel"
+        "input_column": "text",
+        "label_column": "label",
+        "candidate_labels": "World,Sports,Business,Sci/Tech"
       }
     }
   },

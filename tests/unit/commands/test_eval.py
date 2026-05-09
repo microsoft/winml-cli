@@ -7,8 +7,12 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import click
 import pytest
+from click.testing import CliRunner
 
 from winml.modelkit.commands.eval import _resolve_model_path
 
@@ -184,3 +188,95 @@ class TestMixedForms:
                 model=(str(onnx_file), f"text-encoder={onnx_vision}"),
                 model_id="some/id",
             )
+
+
+# ---------------------------------------------------------------------------
+# Config precedence (CLI > config file > dataclass defaults)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
+
+
+@pytest.fixture
+def eval_config_file(tmp_path):
+    config = {
+        "loader": {
+            "task": "feature-extraction",
+        },
+        "eval": {
+            "task": "image-classification",
+            "device": "gpu",
+            "dataset": {
+                "path": "timm/mini-imagenet",
+                "split": "test",
+                "samples": 33,
+            },
+        },
+    }
+    cfg_path = tmp_path / "eval_config.json"
+    cfg_path.write_text(json.dumps(config), encoding="utf-8")
+    return cfg_path
+
+
+class TestEvalConfigPrecedence:
+    def test_cli_overrides_config_and_config_overrides_defaults(
+        self,
+        runner: CliRunner,
+        eval_config_file,
+    ):
+        """Validate precedence: CLI > config file > dataclass defaults."""
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        captured_cfg = {}
+
+        def _fake_evaluate(cfg):
+            captured_cfg["cfg"] = cfg
+
+            class _FakeResult:
+                def __init__(self, config):
+                    self.config = config
+                    self.metrics = {"accuracy": 1.0}
+
+                def to_dict(self):
+                    return {
+                        "metrics": self.metrics,
+                        "config": self.config.to_dict(),
+                    }
+
+            return _FakeResult(cfg)
+
+        with (
+            patch("winml.modelkit.eval.evaluate", side_effect=_fake_evaluate),
+            patch("winml.modelkit.commands.eval._resolve_device", return_value=None),
+            patch("winml.modelkit.commands.eval._write_and_display", return_value=None),
+        ):
+            result = runner.invoke(
+                eval_cmd,
+                [
+                    "--config",
+                    str(eval_config_file),
+                    "-m",
+                    "microsoft/resnet-50",
+                    "--device",
+                    "cpu",
+                    "--samples",
+                    "7",
+                    "--split",
+                    "train",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = captured_cfg["cfg"]
+
+        # CLI > config
+        assert cfg.device == "cpu"
+        assert cfg.dataset.samples == 7
+        assert cfg.dataset.split == "train"
+
+        # config > dataclass defaults (task default is None)
+        assert cfg.task == "image-classification"
