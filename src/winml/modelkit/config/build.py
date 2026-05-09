@@ -133,6 +133,7 @@ class WinMLBuildConfig:
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
+    auto: bool = True
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -165,16 +166,20 @@ class WinMLBuildConfig:
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
             eval=eval_cfg,
+            auto=config_dict.get("auto", True),
         )
 
     def to_dict(self) -> dict:
         """Convert config to nested dictionary."""
-        result: dict = {
+        result: dict = {}
+        if not self.auto:
+            result["auto"] = False
+        result.update({
             "export": self.export.to_dict() if self.export is not None else None,
             "optim": self.optim.to_dict(),
             "quant": self.quant.to_dict() if self.quant is not None else None,
             "compile": self.compile.to_dict() if self.compile is not None else None,
-        }
+        })
         # Only include loader if it has non-default values
         loader_dict = self.loader.to_dict()
         if loader_dict:
@@ -236,6 +241,7 @@ class WinMLBuildConfig:
     def generate_cache_key(self) -> str:
         """Generate deterministic cache key for caching pipeline outputs."""
         components = self.to_dict()
+        components.pop("auto", None)
         json_str = json.dumps(components, sort_keys=True)
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
