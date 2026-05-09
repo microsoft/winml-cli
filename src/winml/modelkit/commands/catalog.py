@@ -88,19 +88,14 @@ def _filter_models(
 # EPs always supported by every catalog model (no supported_eps entry needed)
 _ALWAYS_ON_EPS: frozenset[str] = frozenset({"DmlExecutionProvider", "CPUExecutionProvider"})
 
-# Maps optional EP full name → catalog supported_eps key
-_OPTIONAL_EP_TO_CAT_KEY: dict[str, str] = {
-    "QNNExecutionProvider": "QNN EP",
-    "OpenVINOExecutionProvider": "OV EP",
-    "VitisAIExecutionProvider": "VitisAI EP",
-}
-
-# Maps device (uppercase) → catalog supported_eps keys for EPs that target that device.
+# Maps device (uppercase) → optional EP full names that target that device.
 # An empty frozenset means the device is covered by an always-on EP → all models match.
-_DEVICE_TO_CAT_KEYS: dict[str, frozenset[str]] = {
+_DEVICE_TO_EPS: dict[str, frozenset[str]] = {
     "CPU": frozenset(),  # MLAS always-on → all models
     "GPU": frozenset(),  # DML always-on → all models
-    "NPU": frozenset({"QNN EP", "OV EP", "VitisAI EP"}),
+    "NPU": frozenset(
+        {"QNNExecutionProvider", "OpenVINOExecutionProvider", "VitisAIExecutionProvider"}
+    ),
 }
 
 
@@ -122,10 +117,9 @@ def _filter_by_ep(
     ep_full = normalize_ep_name(ep)
     if ep_full in _ALWAYS_ON_EPS:
         return models  # DML/MLAS always supported by every catalog model
-    cat_key = _OPTIONAL_EP_TO_CAT_KEY.get(ep_full or "")
-    if cat_key is None:
+    if ep_full not in _DEVICE_TO_EPS["NPU"]:
         return []  # EP not represented in catalog
-    return [m for m in models if cat_key in (m.get("supported_eps") or [])]
+    return [m for m in models if ep_full in (m.get("supported_eps") or [])]
 
 
 def _filter_by_device(
@@ -143,10 +137,12 @@ def _filter_by_device(
     """
     if device is None:
         return models
-    cat_keys = _DEVICE_TO_CAT_KEYS.get(device.upper(), frozenset())
-    if not cat_keys:
+    if device.upper() not in _DEVICE_TO_EPS:
+        return []
+    ep_keys = _DEVICE_TO_EPS[device.upper()]
+    if not ep_keys:
         return models  # always-on EP covers this device (CPU → MLAS, GPU → DML)
-    return [m for m in models if any(k in (m.get("supported_eps") or []) for k in cat_keys)]
+    return [m for m in models if any(k in (m.get("supported_eps") or []) for k in ep_keys)]
 
 
 # ---------------------------------------------------------------------------
@@ -193,12 +189,16 @@ _EP_TO_DEVICES_STR: dict[str, str] = {
     "VitisAIExecutionProvider": "NPU",
 }
 
-# Maps device (uppercase) → ordered (short_label, cat_key_or_None) pairs
+# Maps device (uppercase) → ordered (short_label, ep_full_name_or_None) pairs
 # used to build per-model EP strings in --device column mode.
 _DEVICE_EP_LABELS: dict[str, list[tuple[str, str | None]]] = {
-    "CPU": [("MLAS", None), ("OV", "OV EP")],
-    "GPU": [("OV", "OV EP"), ("QNN", "QNN EP")],
-    "NPU": [("OV", "OV EP"), ("QNN", "QNN EP"), ("VitisAI", "VitisAI EP")],
+    "CPU": [("MLAS", None), ("OV", "OpenVINOExecutionProvider")],
+    "GPU": [("OV", "OpenVINOExecutionProvider"), ("QNN", "QNNExecutionProvider")],
+    "NPU": [
+        ("OV", "OpenVINOExecutionProvider"),
+        ("QNN", "QNNExecutionProvider"),
+        ("VitisAI", "VitisAIExecutionProvider"),
+    ],
 }
 
 

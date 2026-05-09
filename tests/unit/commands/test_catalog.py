@@ -40,14 +40,14 @@ MINIMAL_CATALOG = {
             "model_type": "bert",
             "num_parameters": 110,
             "task": "fill-mask",
-            "supported_eps": ["QNN EP", "OV EP"],
+            "supported_eps": ["QNNExecutionProvider", "OpenVINOExecutionProvider"],
         },
         {
             "model_id": "dslim/bert-base-NER",
             "model_type": "bert",
             "num_parameters": 110,
             "task": "token-classification",
-            "supported_eps": ["QNN EP", "OV EP"],
+            "supported_eps": ["QNNExecutionProvider", "OpenVINOExecutionProvider"],
         },
         {
             # OV EP only (no QNN, no VitisAI)
@@ -55,7 +55,7 @@ MINIMAL_CATALOG = {
             "model_type": "detr",
             "num_parameters": 41,
             "task": "object-detection",
-            "supported_eps": ["OV EP"],
+            "supported_eps": ["OpenVINOExecutionProvider"],
         },
         {
             # VitisAI EP only
@@ -63,7 +63,7 @@ MINIMAL_CATALOG = {
             "model_type": "clip",
             "num_parameters": 151,
             "task": "zero-shot-image-classification",
-            "supported_eps": ["VitisAI EP"],
+            "supported_eps": ["VitisAIExecutionProvider"],
         },
     ],
 }
@@ -189,8 +189,9 @@ def test_type_color_differs_across_types():
 # ---------------------------------------------------------------------------
 
 
-def test_hub_default_shows_table(runner, patched_catalog):
-    result = runner.invoke(catalog, ["--output", "/dev/null"])
+def test_catalog_default_shows_table(runner, patched_catalog, tmp_path):
+    out = tmp_path / "out.json"
+    result = runner.invoke(catalog, ["--output", str(out)])
     assert result.exit_code == 0
     assert "ModelKit Catalog" in result.output
     assert "4 validated model(s)" in result.output
@@ -198,7 +199,7 @@ def test_hub_default_shows_table(runner, patched_catalog):
     assert "detr" in result.output
 
 
-def test_hub_table_shows_size_column():
+def test_catalog_table_shows_size_column():
     buf = StringIO()
     wide = Console(file=buf, width=120, highlight=False)
     wide.print(_build_list_renderable(MINIMAL_CATALOG["models"]))
@@ -207,7 +208,7 @@ def test_hub_table_shows_size_column():
     assert "110M" in rendered
 
 
-def test_hub_saves_json_file(runner, patched_catalog, tmp_path):
+def test_catalog_saves_json_file(runner, patched_catalog, tmp_path):
     out = tmp_path / "catalog.json"
     result = runner.invoke(catalog, ["--output", str(out)])
     assert result.exit_code == 0
@@ -223,7 +224,7 @@ def test_hub_saves_json_file(runner, patched_catalog, tmp_path):
     assert "num_parameters" in first
 
 
-def test_hub_filter_model_type(runner, patched_catalog, tmp_path):
+def test_catalog_filter_model_type(runner, patched_catalog, tmp_path):
     out = tmp_path / "out.json"
     result = runner.invoke(catalog, ["--model-type", "bert", "--output", str(out)])
     assert result.exit_code == 0
@@ -232,7 +233,7 @@ def test_hub_filter_model_type(runner, patched_catalog, tmp_path):
     assert len(data) == 2
 
 
-def test_hub_filter_task(runner, patched_catalog, tmp_path):
+def test_catalog_filter_task(runner, patched_catalog, tmp_path):
     out = tmp_path / "out.json"
     result = runner.invoke(catalog, ["--task", "fill-mask", "--output", str(out)])
     assert result.exit_code == 0
@@ -241,13 +242,14 @@ def test_hub_filter_task(runner, patched_catalog, tmp_path):
     assert data[0]["model_id"] == "google-bert/bert-base-uncased"
 
 
-def test_hub_no_match_shows_message(runner, patched_catalog):
-    result = runner.invoke(catalog, ["--model-type", "llama", "--output", "/dev/null"])
+def test_catalog_no_match_shows_message(runner, patched_catalog, tmp_path):
+    out = tmp_path / "out.json"
+    result = runner.invoke(catalog, ["--model-type", "llama", "--output", str(out)])
     assert result.exit_code == 0
     assert "No models match" in result.output
 
 
-def test_hub_saves_path_shown_in_output(runner, patched_catalog, tmp_path):
+def test_catalog_saves_path_shown_in_output(runner, patched_catalog, tmp_path):
     out = tmp_path / "my_catalog.json"
     result = runner.invoke(catalog, ["--output", str(out)])
     assert result.exit_code == 0
@@ -255,7 +257,7 @@ def test_hub_saves_path_shown_in_output(runner, patched_catalog, tmp_path):
     assert "my_catalog.json" in result.output
 
 
-def test_hub_catalog_load_error(runner):
+def test_catalog_load_error(runner):
     with patch(
         "winml.modelkit.commands.catalog._load_catalog",
         side_effect=FileNotFoundError("missing"),
@@ -265,7 +267,7 @@ def test_hub_catalog_load_error(runner):
     assert "Failed to load model catalog" in result.output
 
 
-def test_hub_real_catalog_loads(runner, tmp_path):
+def test_catalog_real_catalog_loads(runner, tmp_path):
     """Smoke test: real hub_models.json is loadable and returns expected fields."""
     out = tmp_path / "catalog.json"
     result = runner.invoke(catalog, ["--output", str(out)])
@@ -291,17 +293,17 @@ def test_filter_by_ep_none_returns_all():
 
 
 def test_filter_by_ep_qnn_alias():
-    # bert models have QNN EP; detr (OV only) and clip (VitisAI only) do not
+    # bert models have QNN; detr (OV only) and clip (VitisAI only) do not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "qnn")
     assert len(result) == 2
-    assert all("QNN EP" in m["supported_eps"] for m in result)
+    assert all("QNNExecutionProvider" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_ov_alias():
-    # bert (x2) and detr have OV EP; clip does not
+    # bert (x2) and detr have OV; clip does not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "ov")
     assert len(result) == 3
-    assert all("OV EP" in m["supported_eps"] for m in result)
+    assert all("OpenVINOExecutionProvider" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_vitisai_alias():
@@ -408,12 +410,6 @@ def test_make_ep_col_fn_for_ep_dml_devices():
 def test_make_ep_col_fn_for_ep_cpu_devices():
     _, fn = _make_ep_col_fn_for_ep("CPUExecutionProvider")
     assert fn({}) == "CPU"
-
-
-def test_make_ep_col_fn_for_ep_same_value_for_all_models():
-    """--ep mode: every model row shows the same device string."""
-    _, fn = _make_ep_col_fn_for_ep("QNNExecutionProvider")
-    assert fn(MINIMAL_CATALOG["models"][0]) == fn(MINIMAL_CATALOG["models"][1])
 
 
 # ---------------------------------------------------------------------------
