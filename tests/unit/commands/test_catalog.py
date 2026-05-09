@@ -41,6 +41,8 @@ MINIMAL_CATALOG = {
             "num_parameters": 110,
             "task": "fill-mask",
             "supported_eps": {
+                "CPUExecutionProvider": ["CPU"],
+                "DmlExecutionProvider": ["GPU"],
                 "QNNExecutionProvider": ["GPU", "NPU"],
                 "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
             },
@@ -51,6 +53,8 @@ MINIMAL_CATALOG = {
             "num_parameters": 110,
             "task": "token-classification",
             "supported_eps": {
+                "CPUExecutionProvider": ["CPU"],
+                "DmlExecutionProvider": ["GPU"],
                 "QNNExecutionProvider": ["GPU", "NPU"],
                 "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
             },
@@ -62,16 +66,20 @@ MINIMAL_CATALOG = {
             "num_parameters": 41,
             "task": "object-detection",
             "supported_eps": {
+                "CPUExecutionProvider": ["CPU"],
+                "DmlExecutionProvider": ["GPU"],
                 "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
             },
         },
         {
-            # VitisAI only
+            # VitisAI only (for optional EPs)
             "model_id": "openai/clip-vit-base-patch32",
             "model_type": "clip",
             "num_parameters": 151,
             "task": "zero-shot-image-classification",
             "supported_eps": {
+                "CPUExecutionProvider": ["CPU"],
+                "DmlExecutionProvider": ["GPU"],
                 "VitisAIExecutionProvider": ["NPU"],
             },
         },
@@ -417,15 +425,15 @@ def test_make_ep_col_fn_for_ep_vitisai_devices():
 
 
 def test_make_ep_col_fn_for_ep_dml_devices():
-    # DML is always-on: device string is fixed regardless of model
     _, fn = _make_ep_col_fn_for_ep("DmlExecutionProvider")
-    assert fn({}) == "GPU"
+    bert = MINIMAL_CATALOG["models"][0]  # all models have DML → GPU
+    assert fn(bert) == "GPU"
 
 
 def test_make_ep_col_fn_for_ep_cpu_devices():
-    # CPU EP is always-on: device string is fixed regardless of model
     _, fn = _make_ep_col_fn_for_ep("CPUExecutionProvider")
-    assert fn({}) == "CPU"
+    bert = MINIMAL_CATALOG["models"][0]  # all models have CPU EP → CPU
+    assert fn(bert) == "CPU"
 
 
 # ---------------------------------------------------------------------------
@@ -467,28 +475,27 @@ def test_make_ep_col_fn_for_device_cpu_always_includes_mlas():
 
 def test_make_ep_col_fn_for_device_cpu_ov_added_when_present():
     _, fn = _make_ep_col_fn_for_device("CPU")
-    bert = MINIMAL_CATALOG["models"][0]  # has OV EP
+    bert = MINIMAL_CATALOG["models"][0]  # has CPU EP + OV (both support CPU)
     assert fn(bert) == "MLAS / OV"
 
 
-def test_make_ep_col_fn_for_device_gpu_shows_optional_eps():
+def test_make_ep_col_fn_for_device_gpu_shows_all_gpu_eps():
     _, fn = _make_ep_col_fn_for_device("GPU")
-    bert = MINIMAL_CATALOG["models"][0]  # has QNN EP + OV EP
-    assert fn(bert) == "OV / QNN"
-    assert "DML" not in fn(bert)
+    bert = MINIMAL_CATALOG["models"][0]  # DML + OV + QNN all support GPU
+    assert fn(bert) == "DML / OV / QNN"
 
 
-def test_make_ep_col_fn_for_device_gpu_dash_when_no_optional_eps():
-    """Model with no OV/QNN EP shows dash for GPU column (DML is hidden)."""
+def test_make_ep_col_fn_for_device_gpu_dml_always_present():
+    """DML is in every model's supported_eps → always appears in GPU column."""
     _, fn = _make_ep_col_fn_for_device("GPU")
-    clip = MINIMAL_CATALOG["models"][3]  # VitisAI EP only — no optional GPU EPs
-    assert fn(clip) == "\u2014"
+    clip = MINIMAL_CATALOG["models"][3]  # VitisAI only for optional EPs
+    assert fn(clip) == "DML"
 
 
 def test_make_ep_col_fn_for_device_cpu_without_ov():
     """Model with no OV EP shows only 'MLAS' for CPU column."""
     _, fn = _make_ep_col_fn_for_device("CPU")
-    clip = MINIMAL_CATALOG["models"][3]  # VitisAI EP only
+    clip = MINIMAL_CATALOG["models"][3]  # VitisAI only for optional EPs
     assert fn(clip) == "MLAS"
     assert "OV" not in fn(clip)
 

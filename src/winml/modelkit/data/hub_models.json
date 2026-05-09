@@ -6,6 +6,12 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -23,6 +29,12 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -40,6 +52,12 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -60,6 +78,12 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -77,6 +101,12 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -94,6 +124,12 @@
       "task": "token-classification",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -111,6 +147,12 @@
       "task": "fill-mask",
       "model_type": "roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -131,6 +173,12 @@
       "task": "fill-mask",
       "model_type": "roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -151,6 +199,12 @@
       "task": "fill-mask",
       "model_type": "xlm-roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -171,6 +225,12 @@
       "task": "fill-mask",
       "model_type": "xlm-roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "OpenVINOExecutionProvider": [
           "CPU",
           "GPU",
@@ -187,6 +247,12 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -204,6 +270,12 @@
       "task": "text-classification",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -221,6 +293,12 @@
       "task": "text-classification",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -238,6 +316,12 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -258,6 +342,12 @@
       "task": "text-classification",
       "model_type": "roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -278,6 +368,12 @@
       "task": "token-classification",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -298,6 +394,12 @@
       "task": "question-answering",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -318,6 +420,12 @@
       "task": "question-answering",
       "model_type": "roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -338,6 +446,12 @@
       "task": "question-answering",
       "model_type": "roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -358,6 +472,12 @@
       "task": "token-classification",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -375,6 +495,12 @@
       "task": "image-classification",
       "model_type": "convnext",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -392,6 +518,12 @@
       "task": "image-feature-extraction",
       "model_type": "vit",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -412,6 +544,12 @@
       "task": "image-feature-extraction",
       "model_type": "vit",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -429,6 +567,12 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -449,6 +593,12 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -469,6 +619,12 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -489,6 +645,12 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -506,6 +668,12 @@
       "task": "fill-mask",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "OpenVINOExecutionProvider": [
           "CPU",
           "GPU",
@@ -522,6 +690,12 @@
       "task": "fill-mask",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -542,6 +716,12 @@
       "task": "question-answering",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "OpenVINOExecutionProvider": [
           "CPU",
           "GPU",
@@ -558,6 +738,12 @@
       "task": "image-classification",
       "model_type": "vit",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -578,6 +764,12 @@
       "task": "image-feature-extraction",
       "model_type": "vit",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -598,6 +790,12 @@
       "task": "feature-extraction",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -618,6 +816,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -638,6 +842,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -658,6 +868,12 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -678,6 +894,12 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -698,6 +920,12 @@
       "task": "image-classification",
       "model_type": "resnet",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -718,6 +946,12 @@
       "task": "image-classification",
       "model_type": "swin",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -738,6 +972,12 @@
       "task": "object-detection",
       "model_type": "table-transformer",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -755,6 +995,12 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -775,6 +1021,12 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -795,6 +1047,12 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -815,6 +1073,12 @@
       "task": "feature-extraction",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -835,6 +1099,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -852,6 +1122,12 @@
       "task": "feature-extraction",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -872,6 +1148,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -889,6 +1171,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -909,6 +1197,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -929,6 +1223,12 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -946,6 +1246,12 @@
       "task": "image-classification",
       "model_type": "vit",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -966,6 +1272,12 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -986,6 +1298,12 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1006,6 +1324,12 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1023,6 +1347,12 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1040,6 +1370,12 @@
       "task": "sentence-similarity",
       "model_type": "xlm-roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1060,6 +1396,12 @@
       "task": "token-classification",
       "model_type": "roberta",
       "supported_eps": {
+        "CPUExecutionProvider": [
+          "CPU"
+        ],
+        "DmlExecutionProvider": [
+          "GPU"
+        ],
         "OpenVINOExecutionProvider": [
           "CPU",
           "GPU",
