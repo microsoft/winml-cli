@@ -41,10 +41,10 @@ MINIMAL_CATALOG = {
             "size_mb": 104.4,
             "task": "fill-mask",
             "supported_eps": {
-                "CPUExecutionProvider": ["CPU"],
-                "DmlExecutionProvider": ["GPU"],
-                "QNNExecutionProvider": ["GPU", "NPU"],
-                "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
+                "cpu": ["CPU"],
+                "dml": ["GPU"],
+                "qnn": ["GPU", "NPU"],
+                "ov": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -53,10 +53,10 @@ MINIMAL_CATALOG = {
             "size_mb": 104.4,
             "task": "token-classification",
             "supported_eps": {
-                "CPUExecutionProvider": ["CPU"],
-                "DmlExecutionProvider": ["GPU"],
-                "QNNExecutionProvider": ["GPU", "NPU"],
-                "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
+                "cpu": ["CPU"],
+                "dml": ["GPU"],
+                "qnn": ["GPU", "NPU"],
+                "ov": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -66,9 +66,9 @@ MINIMAL_CATALOG = {
             "size_mb": 159.6,
             "task": "object-detection",
             "supported_eps": {
-                "CPUExecutionProvider": ["CPU"],
-                "DmlExecutionProvider": ["GPU"],
-                "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
+                "cpu": ["CPU"],
+                "dml": ["GPU"],
+                "ov": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -78,9 +78,9 @@ MINIMAL_CATALOG = {
             "size_mb": 354.2,
             "task": "zero-shot-image-classification",
             "supported_eps": {
-                "CPUExecutionProvider": ["CPU"],
-                "DmlExecutionProvider": ["GPU"],
-                "VitisAIExecutionProvider": ["NPU"],
+                "cpu": ["CPU"],
+                "dml": ["GPU"],
+                "vitisai": ["NPU"],
             },
         },
     ],
@@ -314,14 +314,14 @@ def test_filter_by_ep_qnn_alias():
     # bert models have QNN; detr (OV only) and clip (VitisAI only) do not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "qnn")
     assert len(result) == 2
-    assert all("QNNExecutionProvider" in m["supported_eps"] for m in result)
+    assert all("qnn" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_ov_alias():
     # bert (x2) and detr have OV; clip does not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "ov")
     assert len(result) == 3
-    assert all("OpenVINOExecutionProvider" in m["supported_eps"] for m in result)
+    assert all("ov" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_vitisai_alias():

@@ -85,13 +85,14 @@ def _filter_models(
     return result
 
 
-# Short display labels for all EPs, in canonical column order
+# Short display labels for all EPs, keyed by canonical alias (matching EP_ALIASES in constants.py)
+# Insertion order determines column display order.
 _EP_SHORT_LABEL: dict[str, str] = {
-    "CPUExecutionProvider": "MLAS",
-    "DmlExecutionProvider": "DML",
-    "OpenVINOExecutionProvider": "OV",
-    "QNNExecutionProvider": "QNN",
-    "VitisAIExecutionProvider": "VitisAI",
+    "cpu": "MLAS",
+    "dml": "DML",
+    "ov": "OV",
+    "qnn": "QNN",
+    "vitisai": "VitisAI",
 }
 
 
@@ -113,7 +114,11 @@ def _filter_by_ep(
     if ep is None:
         return models
     ep_full = normalize_ep_name(ep)
-    return [m for m in models if ep_full in (m.get("supported_eps") or {})]
+    return [
+        m
+        for m in models
+        if ep_full in {normalize_ep_name(k) for k in (m.get("supported_eps") or {})}
+    ]
 
 
 def _filter_by_device(
@@ -195,8 +200,11 @@ def _make_ep_col_fn_for_ep(
     """
 
     def cell_fn(m: dict[str, Any]) -> str:
-        devices = sorted((m.get("supported_eps") or {}).get(ep_full, []))
-        return " / ".join(devices) if devices else "\u2014"
+        supported = m.get("supported_eps") or {}
+        for k, devices in supported.items():
+            if normalize_ep_name(k) == ep_full:
+                return " / ".join(sorted(devices)) if devices else "\u2014"
+        return "\u2014"
 
     return "Devices", cell_fn
 
@@ -220,8 +228,8 @@ def _make_ep_col_fn_for_device(
 
     def cell_fn(m: dict[str, Any]) -> str:
         supported = m.get("supported_eps") or {}
-        present = {ep for ep, devs in supported.items() if device_upper in devs}
-        labels = [lbl for ep, lbl in _EP_SHORT_LABEL.items() if ep in present]
+        present = {k for k, devs in supported.items() if device_upper in devs}
+        labels = [lbl for alias, lbl in _EP_SHORT_LABEL.items() if alias in present]
         return " / ".join(labels) if labels else "\u2014"
 
     return "EPs", cell_fn

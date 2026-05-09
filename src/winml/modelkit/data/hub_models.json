@@ -6,14 +6,14 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -26,14 +26,14 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -46,19 +46,19 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -69,14 +69,14 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -89,14 +89,14 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -109,14 +109,14 @@
       "task": "token-classification",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -129,19 +129,19 @@
       "task": "fill-mask",
       "model_type": "roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -152,19 +152,19 @@
       "task": "fill-mask",
       "model_type": "roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -175,19 +175,19 @@
       "task": "fill-mask",
       "model_type": "xlm-roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -198,17 +198,17 @@
       "task": "fill-mask",
       "model_type": "xlm-roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -219,14 +219,14 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -239,14 +239,14 @@
       "task": "text-classification",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -259,14 +259,14 @@
       "task": "text-classification",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -279,18 +279,18 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -301,19 +301,19 @@
       "task": "text-classification",
       "model_type": "roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -324,19 +324,19 @@
       "task": "token-classification",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -347,18 +347,18 @@
       "task": "question-answering",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -369,19 +369,19 @@
       "task": "question-answering",
       "model_type": "roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -392,19 +392,19 @@
       "task": "question-answering",
       "model_type": "roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -415,14 +415,14 @@
       "task": "token-classification",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -435,14 +435,14 @@
       "task": "image-classification",
       "model_type": "convnext",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -455,19 +455,19 @@
       "task": "image-feature-extraction",
       "model_type": "vit",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -478,14 +478,14 @@
       "task": "image-feature-extraction",
       "model_type": "vit",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "NPU"
         ]
@@ -497,19 +497,19 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -520,18 +520,18 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -542,19 +542,19 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -565,14 +565,14 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -585,18 +585,18 @@
       "task": "fill-mask",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -607,19 +607,19 @@
       "task": "fill-mask",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -630,18 +630,18 @@
       "task": "question-answering",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -652,19 +652,19 @@
       "task": "image-classification",
       "model_type": "vit",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -675,19 +675,19 @@
       "task": "image-feature-extraction",
       "model_type": "vit",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -698,19 +698,19 @@
       "task": "feature-extraction",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -721,18 +721,18 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -743,18 +743,18 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -765,19 +765,19 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -788,19 +788,19 @@
       "task": "image-feature-extraction",
       "model_type": "dinov2",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -811,19 +811,19 @@
       "task": "image-classification",
       "model_type": "resnet",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -834,19 +834,19 @@
       "task": "image-classification",
       "model_type": "swin",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -857,14 +857,14 @@
       "task": "object-detection",
       "model_type": "table-transformer",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -877,19 +877,19 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -900,19 +900,19 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -923,19 +923,19 @@
       "task": "image-segmentation",
       "model_type": "segformer",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -946,19 +946,19 @@
       "task": "feature-extraction",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -969,14 +969,14 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -989,19 +989,19 @@
       "task": "feature-extraction",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1012,14 +1012,14 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -1032,19 +1032,19 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1055,19 +1055,19 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1078,14 +1078,14 @@
       "task": "zero-shot-image-classification",
       "model_type": "clip",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -1098,19 +1098,19 @@
       "task": "image-classification",
       "model_type": "vit",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1121,19 +1121,19 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1144,19 +1144,19 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1167,14 +1167,14 @@
       "task": "feature-extraction",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -1187,14 +1187,14 @@
       "task": "sentence-similarity",
       "model_type": "bert",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
@@ -1207,19 +1207,19 @@
       "task": "sentence-similarity",
       "model_type": "xlm-roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU",
           "NPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
@@ -1230,18 +1230,18 @@
       "task": "token-classification",
       "model_type": "roberta",
       "supported_eps": {
-        "CPUExecutionProvider": [
+        "cpu": [
           "CPU"
         ],
-        "QNNExecutionProvider": [
+        "qnn": [
           "GPU"
         ],
-        "OpenVINOExecutionProvider": [
+        "ov": [
           "CPU",
           "GPU",
           "NPU"
         ],
-        "VitisAIExecutionProvider": [
+        "vitisai": [
           "NPU"
         ]
       },
