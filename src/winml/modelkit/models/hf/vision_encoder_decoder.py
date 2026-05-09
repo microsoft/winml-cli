@@ -69,10 +69,6 @@ VISION_ENCODER_DECODER_CONFIG = WinMLBuildConfig(
         gelu_fusion=True,
         layer_norm_fusion=True,
         matmul_add_fusion=True,
-        clamp_constant_values=True,
-        # ±1e5 keeps masked-position softmax exact-zero in fp16 without overflowing.
-        clamp_min=-1e5,
-        clamp_max=1e5,
         remove_isnan_in_attention_mask=True,
         reshape_mergedreshape=True,
     ),
