@@ -292,7 +292,7 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
                 default_task,
                 model_type_normalized,
             )
-            task = default_task
+        return default_task, default_class
 
     # [4] Check specializations first (CLIP, SAM2, etc.) - highest priority
     model_class = _get_custom_model_class(model_type, task)
