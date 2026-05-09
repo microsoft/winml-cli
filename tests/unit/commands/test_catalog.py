@@ -38,7 +38,7 @@ MINIMAL_CATALOG = {
         {
             "model_id": "google-bert/bert-base-uncased",
             "model_type": "bert",
-            "num_parameters": 110,
+            "size_mb": 104.4,
             "task": "fill-mask",
             "supported_eps": {
                 "CPUExecutionProvider": ["CPU"],
@@ -50,7 +50,7 @@ MINIMAL_CATALOG = {
         {
             "model_id": "dslim/bert-base-NER",
             "model_type": "bert",
-            "num_parameters": 110,
+            "size_mb": 104.4,
             "task": "token-classification",
             "supported_eps": {
                 "CPUExecutionProvider": ["CPU"],
@@ -63,7 +63,7 @@ MINIMAL_CATALOG = {
             # OV only (no QNN, no VitisAI)
             "model_id": "facebook/detr-resnet-50",
             "model_type": "detr",
-            "num_parameters": 41,
+            "size_mb": 159.6,
             "task": "object-detection",
             "supported_eps": {
                 "CPUExecutionProvider": ["CPU"],
@@ -75,7 +75,7 @@ MINIMAL_CATALOG = {
             # VitisAI only (for optional EPs)
             "model_id": "openai/clip-vit-base-patch32",
             "model_type": "clip",
-            "num_parameters": 151,
+            "size_mb": 354.2,
             "task": "zero-shot-image-classification",
             "supported_eps": {
                 "CPUExecutionProvider": ["CPU"],
@@ -165,12 +165,12 @@ def test_fmt_model_id_overflow_is_ascii_safe():
 # ---------------------------------------------------------------------------
 
 
-def test_fmt_size_millions():
-    assert _fmt_size(110) == "110M"
+def test_fmt_size_mb():
+    assert _fmt_size(104.4) == "104MB"
 
 
-def test_fmt_size_billions():
-    assert _fmt_size(1500) == "1.5B"
+def test_fmt_size_gb():
+    assert _fmt_size(1536.0) == "1.5GB"
 
 
 def test_fmt_size_none():
@@ -178,7 +178,7 @@ def test_fmt_size_none():
 
 
 def test_fmt_size_boundary():
-    assert _fmt_size(1000) == "1.0B"
+    assert _fmt_size(1024.0) == "1.0GB"
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ def test_catalog_table_shows_size_column():
     wide.print(_build_list_renderable(MINIMAL_CATALOG["models"]))
     rendered = buf.getvalue()
     assert "Size" in rendered
-    assert "110M" in rendered
+    assert "104MB" in rendered
 
 
 def test_catalog_saves_json_file(runner, patched_catalog, tmp_path):
@@ -239,7 +239,7 @@ def test_catalog_saves_json_file(runner, patched_catalog, tmp_path):
     assert "model_type" in first
     assert "task" in first
     assert "supported_eps" in first
-    assert "num_parameters" in first
+    assert "size_mb" in first
 
 
 def test_catalog_filter_model_type(runner, patched_catalog, tmp_path):
@@ -297,7 +297,7 @@ def test_catalog_real_catalog_loads(runner, tmp_path):
         assert "model_type" in entry
         assert "task" in entry
         assert "supported_eps" in entry
-        assert "num_parameters" in entry
+        assert "size_mb" in entry
 
 
 # ---------------------------------------------------------------------------

@@ -9,9 +9,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -22,7 +19,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 104.4
     },
     {
       "model_id": "BAAI/bge-base-en-v1.5",
@@ -32,9 +29,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -45,7 +39,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 104.4
     },
     {
       "model_id": "BAAI/bge-large-en-v1.5",
@@ -55,9 +49,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -71,7 +62,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 336
+      "size_mb": 319.6
     },
     {
       "model_id": "BAAI/bge-small-en-v1.5",
@@ -81,9 +72,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -94,7 +82,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 33
+      "size_mb": 31.8
     },
     {
       "model_id": "BAAI/bge-small-en-v1.5",
@@ -104,9 +92,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -117,7 +102,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 33
+      "size_mb": 31.8
     },
     {
       "model_id": "Babelscape/wikineural-multilingual-ner",
@@ -127,9 +112,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -140,7 +122,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 179
+      "size_mb": 169.1
     },
     {
       "model_id": "FacebookAI/roberta-base",
@@ -150,9 +132,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -166,7 +145,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 125
+      "size_mb": 118.9
     },
     {
       "model_id": "FacebookAI/roberta-large",
@@ -176,9 +155,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -192,7 +168,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 355
+      "size_mb": 338.9
     },
     {
       "model_id": "FacebookAI/xlm-roberta-base",
@@ -202,9 +178,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -218,7 +191,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 279
+      "size_mb": 266.0
     },
     {
       "model_id": "FacebookAI/xlm-roberta-large",
@@ -228,11 +201,10 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
+        "QNNExecutionProvider": [
           "GPU"
         ],
         "OpenVINOExecutionProvider": [
-          "CPU",
           "GPU",
           "NPU"
         ],
@@ -240,7 +212,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 561
+      "size_mb": 535.2
     },
     {
       "model_id": "Intel/bert-base-uncased-mrpc",
@@ -250,9 +222,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -263,7 +232,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 104.4
     },
     {
       "model_id": "Intel/bert-base-uncased-mrpc",
@@ -273,9 +242,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -286,7 +252,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 104.4
     },
     {
       "model_id": "ProsusAI/finbert",
@@ -296,9 +262,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -309,7 +272,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 104.4
     },
     {
       "model_id": "StanfordAIMI/dinov2-base-xray-224",
@@ -319,11 +282,7 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
-          "GPU",
           "NPU"
         ],
         "OpenVINOExecutionProvider": [
@@ -335,7 +294,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 81.8
     },
     {
       "model_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
@@ -345,9 +304,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -361,7 +317,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 125
+      "size_mb": 119.5
     },
     {
       "model_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
@@ -371,9 +327,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -387,7 +340,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 336
+      "size_mb": 318.1
     },
     {
       "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
@@ -397,23 +350,19 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
         ],
         "OpenVINOExecutionProvider": [
           "CPU",
-          "GPU",
           "NPU"
         ],
         "VitisAIExecutionProvider": [
           "NPU"
         ]
       },
-      "num_parameters": 336
+      "size_mb": 319.6
     },
     {
       "model_id": "deepset/roberta-base-squad2",
@@ -423,9 +372,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -439,7 +385,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 125
+      "size_mb": 118.3
     },
     {
       "model_id": "deepset/tinyroberta-squad2",
@@ -449,9 +395,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -465,7 +408,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 82
+      "size_mb": 77.8
     },
     {
       "model_id": "dslim/bert-base-NER",
@@ -475,9 +418,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -488,7 +428,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 103.3
     },
     {
       "model_id": "facebook/convnext-tiny-224",
@@ -498,9 +438,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -511,7 +448,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 29
+      "size_mb": 27.3
     },
     {
       "model_id": "facebook/dino-vitb16",
@@ -521,9 +458,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -537,7 +471,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 81.8
     },
     {
       "model_id": "facebook/dino-vits16",
@@ -547,20 +481,16 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
         ],
         "OpenVINOExecutionProvider": [
           "CPU",
-          "GPU",
           "NPU"
         ]
       },
-      "num_parameters": 21
+      "size_mb": 20.7
     },
     {
       "model_id": "facebook/dinov2-base",
@@ -570,9 +500,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -586,7 +513,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 82.6
     },
     {
       "model_id": "facebook/dinov2-large",
@@ -596,23 +523,19 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
         ],
         "OpenVINOExecutionProvider": [
           "CPU",
-          "GPU",
           "NPU"
         ],
         "VitisAIExecutionProvider": [
           "NPU"
         ]
       },
-      "num_parameters": 307
+      "size_mb": 290.3
     },
     {
       "model_id": "facebook/dinov2-small",
@@ -622,9 +545,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -638,7 +558,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 22
+      "size_mb": 21.0
     },
     {
       "model_id": "google-bert/bert-base-multilingual-cased",
@@ -648,9 +568,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -661,7 +578,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 179
+      "size_mb": 170.3
     },
     {
       "model_id": "google-bert/bert-base-multilingual-uncased",
@@ -671,7 +588,7 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
+        "QNNExecutionProvider": [
           "GPU"
         ],
         "OpenVINOExecutionProvider": [
@@ -683,7 +600,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 168
+      "size_mb": 160.3
     },
     {
       "model_id": "google-bert/bert-base-uncased",
@@ -693,9 +610,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -709,7 +623,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 105.0
     },
     {
       "model_id": "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad",
@@ -719,7 +633,7 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
+        "QNNExecutionProvider": [
           "GPU"
         ],
         "OpenVINOExecutionProvider": [
@@ -731,7 +645,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 336
+      "size_mb": 319.6
     },
     {
       "model_id": "google/vit-base-patch16-224",
@@ -741,9 +655,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -757,7 +668,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 82.5
     },
     {
       "model_id": "google/vit-base-patch16-224-in21k",
@@ -767,9 +678,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -783,7 +691,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 82.4
     },
     {
       "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
@@ -793,9 +701,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -809,7 +714,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 151
+      "size_mb": 144.3
     },
     {
       "model_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
@@ -819,23 +724,19 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
         ],
         "OpenVINOExecutionProvider": [
           "CPU",
-          "GPU",
           "NPU"
         ],
         "VitisAIExecutionProvider": [
           "NPU"
         ]
       },
-      "num_parameters": 151
+      "size_mb": 144.3
     },
     {
       "model_id": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
@@ -845,23 +746,19 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
         ],
         "OpenVINOExecutionProvider": [
           "CPU",
-          "GPU",
           "NPU"
         ],
         "VitisAIExecutionProvider": [
           "NPU"
         ]
       },
-      "num_parameters": 986
+      "size_mb": 940.4
     },
     {
       "model_id": "mattmdjaga/segformer_b2_clothes",
@@ -871,9 +768,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -887,7 +781,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 25
+      "size_mb": 26.1
     },
     {
       "model_id": "microsoft/rad-dino",
@@ -897,9 +791,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -913,7 +804,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 82.6
     },
     {
       "model_id": "microsoft/resnet-50",
@@ -923,9 +814,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -939,7 +827,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 25
+      "size_mb": 24.4
     },
     {
       "model_id": "microsoft/swin-large-patch4-window7-224",
@@ -949,9 +837,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -965,7 +850,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 197
+      "size_mb": 187.6
     },
     {
       "model_id": "microsoft/table-transformer-detection",
@@ -975,9 +860,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -988,7 +870,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 110
+      "size_mb": 27.5
     },
     {
       "model_id": "nvidia/segformer-b1-finetuned-ade-512-512",
@@ -998,9 +880,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1014,7 +893,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 14
+      "size_mb": 13.1
     },
     {
       "model_id": "nvidia/segformer-b2-finetuned-ade-512-512",
@@ -1024,9 +903,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1040,7 +916,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 25
+      "size_mb": 26.2
     },
     {
       "model_id": "nvidia/segformer-b5-finetuned-ade-640-640",
@@ -1050,9 +926,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1066,7 +939,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 82
+      "size_mb": 80.9
     },
     {
       "model_id": "openai/clip-vit-base-patch16",
@@ -1076,9 +949,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1092,7 +962,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 149
+      "size_mb": 142.7
     },
     {
       "model_id": "openai/clip-vit-base-patch16",
@@ -1102,9 +972,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1115,7 +982,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 149
+      "size_mb": 142.7
     },
     {
       "model_id": "openai/clip-vit-base-patch32",
@@ -1124,9 +991,6 @@
       "supported_eps": {
         "CPUExecutionProvider": [
           "CPU"
-        ],
-        "DmlExecutionProvider": [
-          "GPU"
         ],
         "QNNExecutionProvider": [
           "GPU",
@@ -1141,7 +1005,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 151
+      "size_mb": 144.3
     },
     {
       "model_id": "openai/clip-vit-base-patch32",
@@ -1150,9 +1014,6 @@
       "supported_eps": {
         "CPUExecutionProvider": [
           "CPU"
-        ],
-        "DmlExecutionProvider": [
-          "GPU"
         ],
         "QNNExecutionProvider": [
           "GPU",
@@ -1164,7 +1025,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 151
+      "size_mb": 144.3
     },
     {
       "model_id": "openai/clip-vit-large-patch14",
@@ -1174,9 +1035,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1190,7 +1048,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 428
+      "size_mb": 407.8
     },
     {
       "model_id": "openai/clip-vit-large-patch14-336",
@@ -1200,9 +1058,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1216,7 +1071,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 428
+      "size_mb": 408.2
     },
     {
       "model_id": "patrickjohncyh/fashion-clip",
@@ -1226,9 +1081,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1239,7 +1091,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 151
+      "size_mb": 144.3
     },
     {
       "model_id": "rizvandwiki/gender-classification",
@@ -1249,9 +1101,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1265,7 +1114,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 86
+      "size_mb": 81.8
     },
     {
       "model_id": "sentence-transformers/all-MiniLM-L6-v2",
@@ -1275,9 +1124,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1291,7 +1137,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 23
+      "size_mb": 21.6
     },
     {
       "model_id": "sentence-transformers/all-MiniLM-L6-v2",
@@ -1301,9 +1147,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1317,7 +1160,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 23
+      "size_mb": 21.6
     },
     {
       "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -1327,9 +1170,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1340,7 +1180,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 118
+      "size_mb": 112.2
     },
     {
       "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -1350,9 +1190,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1363,7 +1200,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 118
+      "size_mb": 112.2
     },
     {
       "model_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
@@ -1373,9 +1210,6 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
-          "GPU"
-        ],
         "QNNExecutionProvider": [
           "GPU",
           "NPU"
@@ -1389,7 +1223,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 278
+      "size_mb": 265.2
     },
     {
       "model_id": "w11wo/indonesian-roberta-base-posp-tagger",
@@ -1399,7 +1233,7 @@
         "CPUExecutionProvider": [
           "CPU"
         ],
-        "DmlExecutionProvider": [
+        "QNNExecutionProvider": [
           "GPU"
         ],
         "OpenVINOExecutionProvider": [
@@ -1411,7 +1245,7 @@
           "NPU"
         ]
       },
-      "num_parameters": 125
+      "size_mb": 118.3
     }
   ]
 }

@@ -227,21 +227,21 @@ def _make_ep_col_fn_for_device(
     return "EPs", cell_fn
 
 
-def _fmt_size(num_params: int | None) -> str:
-    """Format a parameter count (in millions) as a human-readable string.
+def _fmt_size(size_mb: float | None) -> str:
+    """Format a model size in MB as a human-readable string.
 
     Args:
-        num_params: Parameter count in millions, or ``None`` if unknown.
+        size_mb: Model size in megabytes, or ``None`` if unknown.
 
     Returns:
-        ``"<n>M"`` for sub-billion counts, ``"<n.1f>B"`` for billions, or
+        ``"<n>MB"`` for sub-gigabyte sizes, ``"<n.1f>GB"`` for gigabytes, or
         ``"—"`` when the value is absent.
     """
-    if num_params is None:
+    if size_mb is None:
         return "\u2014"
-    if num_params >= 1000:
-        return f"{num_params / 1000:.1f}B"
-    return f"{num_params}M"
+    if size_mb >= 1024:
+        return f"{size_mb / 1024:.1f}GB"
+    return f"{size_mb:.0f}MB"
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +290,7 @@ def _build_list_renderable(
         row: list[Any] = [
             _fmt_model_id(m["model_id"]),
             m["task"],
-            _fmt_size(m.get("num_parameters")),
+            _fmt_size(m.get("size_mb")),
             Text(m["model_type"], style=color),
         ]
         if ep_col_header is not None and ep_col_fn is not None:
