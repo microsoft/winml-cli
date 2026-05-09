@@ -111,7 +111,7 @@ def _filter_by_ep(
 ) -> list[dict[str, Any]]:
     """Filter models by --ep (execution provider).
 
-    ``supported_eps`` entries are ``[ep_name, device]`` tuples.
+    ``supported_eps`` is a ``{ep_name: [device, ...]}`` dict.
 
     Args:
         models: Model list to filter.
@@ -125,7 +125,7 @@ def _filter_by_ep(
     ep_full = normalize_ep_name(ep)
     if ep_full in _ALWAYS_ON_EPS:
         return models  # DML/MLAS always supported by every catalog model
-    return [m for m in models if any(e[0] == ep_full for e in (m.get("supported_eps") or []))]
+    return [m for m in models if ep_full in (m.get("supported_eps") or {})]
 
 
 def _filter_by_device(
@@ -134,7 +134,7 @@ def _filter_by_device(
 ) -> list[dict[str, Any]]:
     """Filter models by --device (CPU / GPU / NPU).
 
-    ``supported_eps`` entries are ``[ep_name, device]`` tuples.
+    ``supported_eps`` is a ``{ep_name: [device, ...]}`` dict.
 
     Args:
         models: Model list to filter.
@@ -153,7 +153,7 @@ def _filter_by_device(
     return [
         m
         for m in models
-        if any(e[1].upper() == device_upper for e in (m.get("supported_eps") or []))
+        if any(device_upper in devs for devs in (m.get("supported_eps") or {}).values())
     ]
 
 
@@ -217,7 +217,7 @@ def _make_ep_col_fn_for_ep(
         return "Devices", cell_fn_always
 
     def cell_fn(m: dict[str, Any]) -> str:
-        devices = sorted({e[1] for e in (m.get("supported_eps") or []) if e[0] == ep_full})
+        devices = sorted((m.get("supported_eps") or {}).get(ep_full, []))
         return " / ".join(devices) if devices else "\u2014"
 
     return "Devices", cell_fn
@@ -243,7 +243,8 @@ def _make_ep_col_fn_for_device(
 
     def cell_fn(m: dict[str, Any]) -> str:
         labels: list[str] = ["MLAS"] if device_upper == "CPU" else []
-        present = {e[0] for e in (m.get("supported_eps") or []) if e[1].upper() == device_upper}
+        supported = m.get("supported_eps") or {}
+        present = {ep for ep, devs in supported.items() if device_upper in devs}
         labels.extend(lbl for ep, lbl in _EP_SHORT_LABEL.items() if ep in present)
         return " / ".join(labels) if labels else "\u2014"
 

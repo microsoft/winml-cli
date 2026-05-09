@@ -40,26 +40,20 @@ MINIMAL_CATALOG = {
             "model_type": "bert",
             "num_parameters": 110,
             "task": "fill-mask",
-            "supported_eps": [
-                ["OpenVINOExecutionProvider", "CPU"],
-                ["OpenVINOExecutionProvider", "GPU"],
-                ["OpenVINOExecutionProvider", "NPU"],
-                ["QNNExecutionProvider", "GPU"],
-                ["QNNExecutionProvider", "NPU"],
-            ],
+            "supported_eps": {
+                "QNNExecutionProvider": ["GPU", "NPU"],
+                "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
+            },
         },
         {
             "model_id": "dslim/bert-base-NER",
             "model_type": "bert",
             "num_parameters": 110,
             "task": "token-classification",
-            "supported_eps": [
-                ["OpenVINOExecutionProvider", "CPU"],
-                ["OpenVINOExecutionProvider", "GPU"],
-                ["OpenVINOExecutionProvider", "NPU"],
-                ["QNNExecutionProvider", "GPU"],
-                ["QNNExecutionProvider", "NPU"],
-            ],
+            "supported_eps": {
+                "QNNExecutionProvider": ["GPU", "NPU"],
+                "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
+            },
         },
         {
             # OV only (no QNN, no VitisAI)
@@ -67,11 +61,9 @@ MINIMAL_CATALOG = {
             "model_type": "detr",
             "num_parameters": 41,
             "task": "object-detection",
-            "supported_eps": [
-                ["OpenVINOExecutionProvider", "CPU"],
-                ["OpenVINOExecutionProvider", "GPU"],
-                ["OpenVINOExecutionProvider", "NPU"],
-            ],
+            "supported_eps": {
+                "OpenVINOExecutionProvider": ["CPU", "GPU", "NPU"],
+            },
         },
         {
             # VitisAI only
@@ -79,9 +71,9 @@ MINIMAL_CATALOG = {
             "model_type": "clip",
             "num_parameters": 151,
             "task": "zero-shot-image-classification",
-            "supported_eps": [
-                ["VitisAIExecutionProvider", "NPU"],
-            ],
+            "supported_eps": {
+                "VitisAIExecutionProvider": ["NPU"],
+            },
         },
     ],
 }
@@ -314,14 +306,14 @@ def test_filter_by_ep_qnn_alias():
     # bert models have QNN; detr (OV only) and clip (VitisAI only) do not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "qnn")
     assert len(result) == 2
-    assert all(any(e[0] == "QNNExecutionProvider" for e in m["supported_eps"]) for m in result)
+    assert all("QNNExecutionProvider" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_ov_alias():
     # bert (x2) and detr have OV; clip does not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "ov")
     assert len(result) == 3
-    assert all(any(e[0] == "OpenVINOExecutionProvider" for e in m["supported_eps"]) for m in result)
+    assert all("OpenVINOExecutionProvider" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_vitisai_alias():
@@ -503,12 +495,12 @@ def test_make_ep_col_fn_for_device_cpu_without_ov():
 
 def test_make_ep_col_fn_for_device_no_eps_returns_dash():
     _, fn = _make_ep_col_fn_for_device("NPU")
-    assert fn({"supported_eps": []}) == "\u2014"
+    assert fn({"supported_eps": {}}) == "\u2014"
 
 
 def test_make_ep_col_fn_for_device_gpu_no_eps_returns_dash():
     _, fn = _make_ep_col_fn_for_device("GPU")
-    assert fn({"supported_eps": []}) == "\u2014"
+    assert fn({"supported_eps": {}}) == "\u2014"
 
 
 # ---------------------------------------------------------------------------
