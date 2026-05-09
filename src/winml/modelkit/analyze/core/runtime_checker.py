@@ -265,7 +265,10 @@ class RuntimeChecker:
                 )
             patterns = self._patterns
 
-        logger.info("Checking subgraph-level runtime support for %d patterns", len(patterns))
+        logger.info(
+            "Checking subgraph pattern support via per-node operator aggregation for %d patterns",
+            len(patterns),
+        )
 
         total_start = time.perf_counter()
         query_pattern_total_ms = 0
