@@ -69,6 +69,15 @@ logger = logging.getLogger(__name__)
 )
 @cli_utils.ep_option(required=False)
 @click.option(
+    "--precision",
+    type=str,
+    default="auto",
+    show_default=True,
+    help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
+    "Applied during model build (fp16/fp32 skip quantization). "
+    "Ignored for pre-built ONNX inputs (precision is already baked in).",
+)
+@click.option(
     "--samples",
     type=int,
     default=100,
@@ -145,6 +154,7 @@ def eval(
     dataset_name: str | None,
     task: str | None,
     device: str,
+    precision: str,
     ep: str | None,
     samples: int,
     split: str,
@@ -203,6 +213,13 @@ def eval(
     _resolve_device(cfg)
     _resolve_label_mapping(cfg)
     _run_dataset_script(cfg, trust_remote_code)
+
+    if cfg.model_path is not None and cfg.precision != "auto":
+        logger.warning(
+            "--precision %s is ignored for pre-built ONNX inputs "
+            "(precision is already baked into the model).",
+            cfg.precision,
+        )
 
     logger.debug("Effective eval config: %s", cfg.to_dict())
 

@@ -1312,7 +1312,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                _DEFAULT_PRECISION,
+                entry.precision or _DEFAULT_PRECISION,
                 args.timeout,
                 model_dir,
                 ep=args.ep,
