@@ -40,30 +40,48 @@ MINIMAL_CATALOG = {
             "model_type": "bert",
             "num_parameters": 110,
             "task": "fill-mask",
-            "supported_eps": ["QNNExecutionProvider", "OpenVINOExecutionProvider"],
+            "supported_eps": [
+                ["OpenVINOExecutionProvider", "CPU"],
+                ["OpenVINOExecutionProvider", "GPU"],
+                ["OpenVINOExecutionProvider", "NPU"],
+                ["QNNExecutionProvider", "GPU"],
+                ["QNNExecutionProvider", "NPU"],
+            ],
         },
         {
             "model_id": "dslim/bert-base-NER",
             "model_type": "bert",
             "num_parameters": 110,
             "task": "token-classification",
-            "supported_eps": ["QNNExecutionProvider", "OpenVINOExecutionProvider"],
+            "supported_eps": [
+                ["OpenVINOExecutionProvider", "CPU"],
+                ["OpenVINOExecutionProvider", "GPU"],
+                ["OpenVINOExecutionProvider", "NPU"],
+                ["QNNExecutionProvider", "GPU"],
+                ["QNNExecutionProvider", "NPU"],
+            ],
         },
         {
-            # OV EP only (no QNN, no VitisAI)
+            # OV only (no QNN, no VitisAI)
             "model_id": "facebook/detr-resnet-50",
             "model_type": "detr",
             "num_parameters": 41,
             "task": "object-detection",
-            "supported_eps": ["OpenVINOExecutionProvider"],
+            "supported_eps": [
+                ["OpenVINOExecutionProvider", "CPU"],
+                ["OpenVINOExecutionProvider", "GPU"],
+                ["OpenVINOExecutionProvider", "NPU"],
+            ],
         },
         {
-            # VitisAI EP only
+            # VitisAI only
             "model_id": "openai/clip-vit-base-patch32",
             "model_type": "clip",
             "num_parameters": 151,
             "task": "zero-shot-image-classification",
-            "supported_eps": ["VitisAIExecutionProvider"],
+            "supported_eps": [
+                ["VitisAIExecutionProvider", "NPU"],
+            ],
         },
     ],
 }
@@ -296,14 +314,14 @@ def test_filter_by_ep_qnn_alias():
     # bert models have QNN; detr (OV only) and clip (VitisAI only) do not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "qnn")
     assert len(result) == 2
-    assert all("QNNExecutionProvider" in m["supported_eps"] for m in result)
+    assert all(any(e[0] == "QNNExecutionProvider" for e in m["supported_eps"]) for m in result)
 
 
 def test_filter_by_ep_ov_alias():
     # bert (x2) and detr have OV; clip does not
     result = _filter_by_ep(MINIMAL_CATALOG["models"], "ov")
     assert len(result) == 3
-    assert all("OpenVINOExecutionProvider" in m["supported_eps"] for m in result)
+    assert all(any(e[0] == "OpenVINOExecutionProvider" for e in m["supported_eps"]) for m in result)
 
 
 def test_filter_by_ep_vitisai_alias():
@@ -388,26 +406,32 @@ def test_make_ep_col_fn_for_ep_header():
 
 
 def test_make_ep_col_fn_for_ep_qnn_devices():
+    # Devices are read from the model's supported_eps tuples
     _, fn = _make_ep_col_fn_for_ep("QNNExecutionProvider")
-    assert fn({}) == "GPU / NPU"
+    bert = MINIMAL_CATALOG["models"][0]  # has QNN on GPU and NPU
+    assert fn(bert) == "GPU / NPU"
 
 
 def test_make_ep_col_fn_for_ep_ov_devices():
     _, fn = _make_ep_col_fn_for_ep("OpenVINOExecutionProvider")
-    assert fn({}) == "CPU / GPU / NPU"
+    bert = MINIMAL_CATALOG["models"][0]  # has OV on CPU, GPU, NPU
+    assert fn(bert) == "CPU / GPU / NPU"
 
 
 def test_make_ep_col_fn_for_ep_vitisai_devices():
     _, fn = _make_ep_col_fn_for_ep("VitisAIExecutionProvider")
-    assert fn({}) == "NPU"
+    clip = MINIMAL_CATALOG["models"][3]  # has VitisAI on NPU only
+    assert fn(clip) == "NPU"
 
 
 def test_make_ep_col_fn_for_ep_dml_devices():
+    # DML is always-on: device string is fixed regardless of model
     _, fn = _make_ep_col_fn_for_ep("DmlExecutionProvider")
     assert fn({}) == "GPU"
 
 
 def test_make_ep_col_fn_for_ep_cpu_devices():
+    # CPU EP is always-on: device string is fixed regardless of model
     _, fn = _make_ep_col_fn_for_ep("CPUExecutionProvider")
     assert fn({}) == "CPU"
 

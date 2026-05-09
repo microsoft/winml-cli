@@ -85,17 +85,23 @@ def _filter_models(
     return result
 
 
-# EPs always supported by every catalog model (no supported_eps entry needed)
+# EPs always supported by every catalog model (not stored in supported_eps tuples)
 _ALWAYS_ON_EPS: frozenset[str] = frozenset({"DmlExecutionProvider", "CPUExecutionProvider"})
 
-# Maps device (uppercase) → optional EP full names that target that device.
-# An empty frozenset means the device is covered by an always-on EP → all models match.
-_DEVICE_TO_EPS: dict[str, frozenset[str]] = {
-    "CPU": frozenset(),  # MLAS always-on → all models
-    "GPU": frozenset(),  # DML always-on → all models
-    "NPU": frozenset(
-        {"QNNExecutionProvider", "OpenVINOExecutionProvider", "VitisAIExecutionProvider"}
-    ),
+# Always-on EP → its target device string (for --ep column display)
+_ALWAYS_ON_EP_DEVICES: dict[str, str] = {
+    "DmlExecutionProvider": "GPU",
+    "CPUExecutionProvider": "CPU",
+}
+
+# Devices whose always-on EPs mean every catalog model is supported
+_ALWAYS_ON_DEVICES: frozenset[str] = frozenset({"CPU", "GPU"})
+
+# Short display labels for optional EPs, in canonical column order
+_EP_SHORT_LABEL: dict[str, str] = {
+    "OpenVINOExecutionProvider": "OV",
+    "QNNExecutionProvider": "QNN",
+    "VitisAIExecutionProvider": "VitisAI",
 }
 
 
@@ -104,6 +110,8 @@ def _filter_by_ep(
     ep: str | None,
 ) -> list[dict[str, Any]]:
     """Filter models by --ep (execution provider).
+
+    ``supported_eps`` entries are ``[ep_name, device]`` tuples.
 
     Args:
         models: Model list to filter.
@@ -117,9 +125,7 @@ def _filter_by_ep(
     ep_full = normalize_ep_name(ep)
     if ep_full in _ALWAYS_ON_EPS:
         return models  # DML/MLAS always supported by every catalog model
-    if ep_full not in _DEVICE_TO_EPS["NPU"]:
-        return []  # EP not represented in catalog
-    return [m for m in models if ep_full in (m.get("supported_eps") or [])]
+    return [m for m in models if any(e[0] == ep_full for e in (m.get("supported_eps") or []))]
 
 
 def _filter_by_device(
@@ -127,6 +133,8 @@ def _filter_by_device(
     device: str | None,
 ) -> list[dict[str, Any]]:
     """Filter models by --device (CPU / GPU / NPU).
+
+    ``supported_eps`` entries are ``[ep_name, device]`` tuples.
 
     Args:
         models: Model list to filter.
@@ -137,12 +145,16 @@ def _filter_by_device(
     """
     if device is None:
         return models
-    if device.upper() not in _DEVICE_TO_EPS:
+    device_upper = device.upper()
+    if device_upper not in {"CPU", "GPU", "NPU"}:
         return []
-    ep_keys = _DEVICE_TO_EPS[device.upper()]
-    if not ep_keys:
-        return models  # always-on EP covers this device (CPU → MLAS, GPU → DML)
-    return [m for m in models if any(k in (m.get("supported_eps") or []) for k in ep_keys)]
+    if device_upper in _ALWAYS_ON_DEVICES:
+        return models  # DML/MLAS covers CPU and GPU for every catalog model
+    return [
+        m
+        for m in models
+        if any(e[1].upper() == device_upper for e in (m.get("supported_eps") or []))
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -180,35 +192,15 @@ def _type_color(model_type: str) -> str:
     return _TYPE_PALETTE[idx]
 
 
-# Maps normalized full EP name → slash-separated target devices (for --ep column)
-_EP_TO_DEVICES_STR: dict[str, str] = {
-    "DmlExecutionProvider": "GPU",
-    "CPUExecutionProvider": "CPU",
-    "QNNExecutionProvider": "GPU / NPU",
-    "OpenVINOExecutionProvider": "CPU / GPU / NPU",
-    "VitisAIExecutionProvider": "NPU",
-}
-
-# Maps device (uppercase) → ordered (short_label, ep_full_name_or_None) pairs
-# used to build per-model EP strings in --device column mode.
-_DEVICE_EP_LABELS: dict[str, list[tuple[str, str | None]]] = {
-    "CPU": [("MLAS", None), ("OV", "OpenVINOExecutionProvider")],
-    "GPU": [("OV", "OpenVINOExecutionProvider"), ("QNN", "QNNExecutionProvider")],
-    "NPU": [
-        ("OV", "OpenVINOExecutionProvider"),
-        ("QNN", "QNNExecutionProvider"),
-        ("VitisAI", "VitisAIExecutionProvider"),
-    ],
-}
-
-
 def _make_ep_col_fn_for_ep(
     ep_full: str,
 ) -> tuple[str, Callable[[dict[str, Any]], str]]:
     """Build the column header and per-model cell function for *--ep* mode.
 
-    Returns a column header of ``"Devices"`` and a function that, for any
-    model, returns the slash-separated devices targeted by *ep_full*.
+    Returns a column header of ``"Devices"`` and a function that returns the
+    slash-separated devices for *ep_full* for a given model.  For always-on EPs
+    the device is fixed; for optional EPs it is read from the model's
+    ``supported_eps`` tuples (``[ep_name, device]``).
 
     Args:
         ep_full: Normalised full EP name (e.g. ``"QNNExecutionProvider"``).
@@ -216,10 +208,17 @@ def _make_ep_col_fn_for_ep(
     Returns:
         ``("Devices", cell_fn)`` tuple.
     """
-    devices_str = _EP_TO_DEVICES_STR.get(ep_full, "")
+    if ep_full in _ALWAYS_ON_EP_DEVICES:
+        device_str = _ALWAYS_ON_EP_DEVICES[ep_full]
+
+        def cell_fn_always(m: dict[str, Any]) -> str:
+            return device_str
+
+        return "Devices", cell_fn_always
 
     def cell_fn(m: dict[str, Any]) -> str:
-        return devices_str
+        devices = sorted({e[1] for e in (m.get("supported_eps") or []) if e[0] == ep_full})
+        return " / ".join(devices) if devices else "\u2014"
 
     return "Devices", cell_fn
 
@@ -230,7 +229,9 @@ def _make_ep_col_fn_for_device(
     """Build the column header and per-model cell function for *--device* mode.
 
     Returns a column header of ``"EPs"`` and a function that, for a given
-    model, returns the slash-separated EP short names that support *device*.
+    model, returns the slash-separated EP short names whose
+    ``supported_eps`` tuples (``[ep_name, device]``) include *device*.
+    CPU always prepends ``"MLAS"`` (always-on).
 
     Args:
         device: Device string (case-insensitive, e.g. ``"NPU"``).
@@ -238,12 +239,13 @@ def _make_ep_col_fn_for_device(
     Returns:
         ``("EPs", cell_fn)`` tuple.
     """
-    labels = _DEVICE_EP_LABELS.get(device.upper(), [])
+    device_upper = device.upper()
 
     def cell_fn(m: dict[str, Any]) -> str:
-        eps_present = m.get("supported_eps") or []
-        active = [lbl for lbl, key in labels if key is None or key in eps_present]
-        return " / ".join(active) if active else "\u2014"
+        labels: list[str] = ["MLAS"] if device_upper == "CPU" else []
+        present = {e[0] for e in (m.get("supported_eps") or []) if e[1].upper() == device_upper}
+        labels.extend(lbl for ep, lbl in _EP_SHORT_LABEL.items() if ep in present)
+        return " / ".join(labels) if labels else "\u2014"
 
     return "EPs", cell_fn
 
