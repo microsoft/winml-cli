@@ -365,63 +365,17 @@ class WinMLSession:
             )
 
         except Exception as ep_err:
-            # When an explicit EP was bound and the session creation failed,
-            # retry using the device policy alone (no EP binding).  This
-            # handles the case where the EP's registered device does not match
-            # the hardware the model was compiled for — e.g. OpenVINO-CPU
-            # receiving an NPU EPContext blob and raising INVALID_GRAPH.
-            if self._ep and self._ep != "cpu":
-                logger.warning(
-                    "EP '%s' failed for device '%s', retrying via device policy: %s",
-                    self._ep,
-                    target_device,
-                    ep_err,
-                )
-                try:
-                    fallback_opts = ort.SessionOptions()
-                    fallback_opts.set_provider_selection_policy(
-                        DEVICE_POLICY_MAP.get(
-                            target_device.lower(),
-                            ort.OrtExecutionProviderDevicePolicy.PREFER_CPU,
-                        )
-                    )
-                    with _suppress_native_output(compile_log, suppress_stderr=True):
-                        session = ort.InferenceSession(
-                            str(model_path),
-                            sess_options=fallback_opts,
-                        )
-                    actual_providers = session.get_providers()
-                    logger.info(
-                        "Fallback session for device '%s': providers %s",
-                        target_device,
-                        actual_providers,
-                    )
-                except Exception as fallback_err:
-                    self._state = SessionState.ERROR
-                    self._last_error = fallback_err
-                    raise CompilationError(
-                        message=f"Failed to compile for {target_device} (EP and policy fallback both failed)",
-                        context={
-                            "device": target_device,
-                            "onnx_path": str(self._onnx_path),
-                            "ep": self._ep,
-                            "ep_error": str(ep_err),
-                            "fallback_error": str(fallback_err),
-                        },
-                        suggestion=self._get_compile_suggestion(target_device, fallback_err),
-                    ) from fallback_err
-            else:
-                self._state = SessionState.ERROR
-                self._last_error = ep_err
-                raise CompilationError(
-                    message=f"Failed to compile for {target_device}",
-                    context={
-                        "device": target_device,
-                        "onnx_path": str(self._onnx_path),
-                        "error": str(ep_err),
-                    },
-                    suggestion=self._get_compile_suggestion(target_device, ep_err),
-                ) from ep_err
+            self._state = SessionState.ERROR
+            self._last_error = ep_err
+            raise CompilationError(
+                message=f"Failed to compile for {target_device}",
+                context={
+                    "device": target_device,
+                    "onnx_path": str(self._onnx_path),
+                    "error": str(ep_err),
+                },
+                suggestion=self._get_compile_suggestion(target_device, ep_err),
+            ) from ep_err
 
         # Store session
         self._session = session

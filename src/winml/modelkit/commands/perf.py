@@ -76,6 +76,7 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
+    no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
     monitor: bool = False
@@ -317,14 +318,10 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..sysinfo import resolve_device
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
-
-        # Resolve device once -- "auto" becomes concrete (e.g., "npu")
-        resolved_device, _ = resolve_device(device=self.config.device)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -338,7 +335,7 @@ class PerfBenchmark:
         common_kwargs = {
             "task": self.config.task,
             "config": override,
-            "device": resolved_device,
+            "device": self.config.device,
             "precision": self.config.precision,
             "ep": self.config.ep,
             "use_cache": use_cache,
@@ -354,6 +351,7 @@ class PerfBenchmark:
         else:
             self._model = WinMLAutoModel.from_pretrained(
                 model_id,
+                no_compile=self.config.no_compile,
                 **common_kwargs,
             )
 
@@ -1109,6 +1107,13 @@ def _run_onnx_benchmark(
     help="Skip quantization during model build",
 )
 @click.option(
+    "--no-compile/--compile",
+    "no_compile",
+    default=True,
+    show_default=True,
+    help="Skip EPContext compilation during build (use --compile to enable)",
+)
+@click.option(
     "--rebuild",
     is_flag=True,
     default=False,
@@ -1170,6 +1175,7 @@ def perf(
     batch_size: int,
     shape_config_path: Path | None,
     no_quantize: bool,
+    no_compile: bool,
     rebuild: bool,
     ignore_cache: bool,
     module_class: str | None,
@@ -1310,6 +1316,7 @@ def perf(
         batch_size=batch_size,
         output_path=output,
         no_quantize=no_quantize,
+        no_compile=no_compile,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         monitor=monitor,
@@ -1333,13 +1340,9 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..sysinfo import resolve_device
-
-            resolved_device, _ = resolve_device(device=config.device)
-
             result = _run_onnx_benchmark(
                 model_path,
-                device=resolved_device,
+                device=config.device,
                 iterations=iterations,
                 warmup=warmup,
                 batch_size=batch_size,

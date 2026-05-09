@@ -246,6 +246,7 @@ class WinMLAutoModel:
         force_rebuild: bool = False,
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
+        no_compile: bool = False,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel:
         """Load appropriate WinML model based on task detection.
@@ -361,6 +362,7 @@ class WinMLAutoModel:
             precision=precision,
             trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
+            no_compile=no_compile,
         )
 
         resolved_task = build_config.loader.task

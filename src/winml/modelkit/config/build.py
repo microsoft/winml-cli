@@ -331,7 +331,7 @@ def resolve_quant_compile_config(
         quant_config.activation_type = policy.activation_type
 
     # Compile config
-    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider)
+    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
 
     return quant_config, compile_config
 
@@ -442,6 +442,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
 
@@ -460,6 +461,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
 
@@ -477,6 +479,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
 
@@ -628,6 +631,7 @@ def generate_hf_build_config(
         # Compile config
         parent_config.compile = WinMLCompileConfig.for_provider(
             policy.compile_provider,
+            device=policy.device,
         )
     else:
         # Even in auto/auto mode, set compile provider from detected hardware
@@ -641,6 +645,10 @@ def generate_hf_build_config(
             )
         # When hw_provider is None (CPU-only), keep the default compile config
         # so the pipeline still has a valid compile section.
+
+    # no_compile overrides policy — applied last so it always wins
+    if no_compile:
+        parent_config.compile = None
 
     # =========================================================================
     # STEP 5: Specialize for submodules if requested

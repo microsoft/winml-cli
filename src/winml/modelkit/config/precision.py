@@ -292,12 +292,8 @@ def resolve_precision(
                 task,
             )
 
-    # CPU never needs EPContext compilation regardless of which EP runs inference.
-    # For NPU/GPU, an explicit ep overrides the device→provider default.
-    if resolved_device == "cpu":
-        compile_provider = None
-    else:
-        compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
+    # Explicit --ep overrides the device→provider default (including CPU).
+    compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):
