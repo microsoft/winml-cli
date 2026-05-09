@@ -1,0 +1,22 @@
+ocal\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\utils\hub.py", line 322, in cached_file
+    file = cached_files(path_or_repo_id=path_or_repo_id, filenames=[filename], **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\utils\hub.py", line 563, in cached_files
+    raise OSError(f"There was a specific connection error when trying to load {path_or_repo_id}:\n{e}") from e
+OSError: There was a specific connection error when trying to load google/siglip-base-patch16-224:
+500 Server Error: Internal Server Error for url: https://huggingface.co/api/models/google/siglip-base-patch16-224/xet-read-token/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed (Request ID: Root=1-69fe2a2a-4841810c6bd8a2775618c311;2a23b2cc-47d1-4a0b-a515-4bbefeb893c3)
+
+Internal Error - We're working hard to fix this as soon as possible!
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\quant\quantizer.py", line 111, in quantize_onnx
+    data_reader = DatasetCalibrationReader(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 193, in __init__
+    self._dataset = universal_calib_dataset(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 125, in universal_calib_dataset
+    raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
+RuntimeError: Failed to create feature-extraction dataset: There was a specific connection error when trying to load google/siglip-base-patch16-224:
+500 Server Error: Internal Server Error for url: https://huggingface.co/api/models/google/siglip-base-patch16-224/xet-read-token/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed (Request ID: Root=1-69fe2a2a-4841810c6bd8a2775618c311;2a23b2cc-47d1-4a0b-a515-4bbefeb893c3)
+
+Internal Error - We're working hard to fix this as soon as possible!

@@ -1,0 +1,20 @@
+equested API version [24] is not available, only API versions [1, 23] are supported in this build. Current ORT Version is: 1.23.5
+The requested API version [24] is not available, only API versions [1, 23] are supported in this build. Current ORT Version is: 1.23.5
+[0;93m2026-05-09 04:18:40.5745258 [W:onnxruntime:, ov_factory.cc:301 onnxruntime::openvino_ep_plugin::OpenVINOEpPluginFactory::CreateEp] OpenVINO EP factory 'OpenVINOExecutionProvider' is not a meta device but 2 OpenVINO devices were specified. Using first ov_device only: NPU[m
+[0;93m2026-05-09 04:20:58.8325940 [W:onnxruntime:, ov_factory.cc:301 onnxruntime::openvino_ep_plugin::OpenVINOEpPluginFactory::CreateEp] OpenVINO EP factory 'OpenVINOExecutionProvider' is not a meta device but 2 OpenVINO devices were specified. Using first ov_device only: NPU[m
+
+Device:      npu
+Task:        image-segmentation
+Inputs:      pixel_values         [1, 3, 640, 640]       float32
+Outputs:     logits               [1, 150, 160, 160]
+
+[1;31m2026-05-09 04:22:37.7574595 [E:onnxruntime:, ov_utils.h:301 onnxruntime::openvino_ep_plugin::ApiEntry] Exception from src\inference\src\cpp\infer_request.cpp:224:
+Exception from src\plugins\intel_npu\src\utils\src\zero\zero_wrappers.cpp:227:
+L0 zeCommandQueueExecuteCommandLists result: ZE_RESULT_ERROR_DEVICE_LOST, code 0x70000001 - device hung, reset, was removed, or driver update occurred
+
+[m
+[1;31m2026-05-09 04:22:37.7590279 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running OpenVINOExecutionProvider_6372071479821484338_0 node. Name:'OpenVINOExecutionProvider_OpenVINOExecutionProvider_6372071479821484338_0_0' Status Message: Exception from src\inference\src\cpp\infer_request.cpp:224:
+Exception from src\plugins\intel_npu\src\utils\src\zero\zero_wrappers.cpp:227:
+L0 zeCommandQueueExecuteCommandLists result: ZE_RESULT_ERROR_DEVICE_LOST, code 0x70000001 - device hung, reset, was removed, or driver update occurred
+
+[m

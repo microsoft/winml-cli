@@ -1,0 +1,24 @@
+lib\site-packages\requests\sessions.py", line 727, in send
+    history = [resp for resp in gen]
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\requests\sessions.py", line 727, in <listcomp>
+    history = [resp for resp in gen]
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\requests\sessions.py", line 266, in resolve_redirects
+    resp = self.send(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\requests\sessions.py", line 706, in send
+    r = adapter.send(request, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\huggingface_hub\utils\_http.py", line 96, in send
+    return super().send(request, *args, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\requests\adapters.py", line 691, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: (ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 675b306b-da86-40d3-8044-89d1e88256b9)')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\quant\quantizer.py", line 111, in quantize_onnx
+    data_reader = DatasetCalibrationReader(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 193, in __init__
+    self._dataset = universal_calib_dataset(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\datasets\__init__.py", line 125, in universal_calib_dataset
+    raise RuntimeError(f"Failed to create {task} dataset: {e}") from e
+RuntimeError: Failed to create feature-extraction dataset: (ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 675b306b-da86-40d3-8044-89d1e88256b9)')
