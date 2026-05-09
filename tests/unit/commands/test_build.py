@@ -369,6 +369,24 @@ class TestBuildConfigOverrides:
         assert result.exit_code != 0
         assert "compile" in result.output.lower()
 
+    def test_compile_flag_on_config_with_compile_succeeds(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--compile on a config that already has a compile section succeeds and preserves it."""
+        from winml.modelkit.commands.build import build
+
+        runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path), "--compile"],
+            obj={"debug": False},
+        )
+        config = mock_build_api.call_args.kwargs["config"]
+        assert config.compile is not None
+
 
 # =============================================================================
 # REUSE REPORTING TESTS

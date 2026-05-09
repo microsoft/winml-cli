@@ -11,7 +11,7 @@ auto-detects ONNX vs HF input, calls the appropriate API, and reports results.
 Usage:
     winml build -c config.json -m microsoft/resnet-50 -o output/
     winml build -c config.json -m model.onnx -o output/
-    winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
+    winml build -c config.json -m bert-base-uncased -o output/ --no-quant
     winml build -c config.json -o output/ --use-cache
     winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild -v
 """
@@ -327,7 +327,7 @@ def build(
     use_cache: bool,
     rebuild: bool,
     no_quant: bool,
-    no_compile: bool,
+    no_compile: bool | None,
     no_optimize: bool,
     ep: str | None,
     device: str | None,
@@ -353,7 +353,7 @@ def build(
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
 
-        # Export + optimize only
+        # Export + optimize only (config must have compile=null, or pass --no-compile to force skip)
         winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
 
         # Random-weight build (no download)
