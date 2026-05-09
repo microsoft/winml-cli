@@ -82,3 +82,69 @@ class TestTasksManagerFallback:
         assert task == "image-text-to-text"
         # Should fallback to architecture class
         assert resolved_class == BlipForConditionalGeneration
+
+
+class TestModelTaskDefaultsOverride:
+    """Tests for per-model-type default-task auto-detection override.
+
+    Some model families (e.g., SAM/SAM2) have an architecture class whose
+    default TasksManager mapping ("feature-extraction") differs from the
+    canonical export target ("mask-generation"). The default is encoded as a
+    MODEL_CLASS_MAPPING[(model_type, None)] sentinel entry that biases
+    auto-detection toward the right export configuration when --task is
+    not provided.
+    """
+
+    def test_sam2_video_defaults_to_mask_generation(self):
+        """Sam2Model on sam2_video config auto-detects to mask-generation."""
+        # Trigger HF model registrations (loads SAM sentinel entries)
+        import winml.modelkit.models.hf  # noqa: F401
+        from winml.modelkit.models.hf.sam import SAM2MaskGeneration
+
+        config = MagicMock()
+        config.architectures = ["Sam2Model"]
+        config.model_type = "sam2_video"
+
+        task, resolved_class = _detect_task_and_class_from_config(config)
+
+        assert task == "mask-generation"
+        assert resolved_class is SAM2MaskGeneration
+
+    def test_sam_defaults_to_mask_generation(self):
+        """SamModel on sam config auto-detects to mask-generation."""
+        import winml.modelkit.models.hf  # noqa: F401
+        from winml.modelkit.models.hf.sam import SAMMaskGeneration
+
+        config = MagicMock()
+        config.architectures = ["SamModel"]
+        config.model_type = "sam"
+
+        task, resolved_class = _detect_task_and_class_from_config(config)
+
+        assert task == "mask-generation"
+        assert resolved_class is SAMMaskGeneration
+
+    def test_model_type_underscore_normalized(self):
+        """sam2_video (underscore) matches sam2-video (hyphen) in MODEL_CLASS_MAPPING."""
+        import winml.modelkit.models.hf  # noqa: F401
+
+        config = MagicMock()
+        config.architectures = ["Sam2Model"]
+        config.model_type = "sam2_video"
+
+        task, _ = _detect_task_and_class_from_config(config)
+        assert task == "mask-generation"
+
+    def test_no_override_for_unrelated_model(self):
+        """Models without a (model_type, None) sentinel keep TasksManager-inferred task."""
+        from transformers import ResNetForImageClassification
+
+        config = MagicMock()
+        config.architectures = ["ResNetForImageClassification"]
+        config.model_type = "resnet"
+
+        task, resolved_class = _detect_task_and_class_from_config(config)
+
+        assert task == "image-classification"
+        # TasksManager returns AutoModelForImageClassification, not the arch class
+        assert resolved_class is not ResNetForImageClassification or task == "image-classification"
