@@ -56,10 +56,11 @@ class WinMLModelForSequenceClassification(WinMLPreTrainedModel):
             SequenceClassifierOutput with logits
         """
         # Build inputs dict - only include non-None values
+        accepted_inputs = set(self.io_config.get("input_names", []))
         inputs: dict[str, Any] = {"input_ids": input_ids}
-        if attention_mask is not None:
+        if attention_mask is not None and "attention_mask" in accepted_inputs:
             inputs["attention_mask"] = attention_mask
-        if token_type_ids is not None:
+        if token_type_ids is not None and "token_type_ids" in accepted_inputs:
             inputs["token_type_ids"] = token_type_ids
 
         # Use base class helpers for validation, formatting, and inference
