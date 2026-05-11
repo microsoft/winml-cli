@@ -7,6 +7,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from ..models.ihv_type import IHVType
@@ -28,10 +29,6 @@ _DEFAULT_RUNTIME_RULES_DIR: Path = (
     Path(__file__).resolve().parent.parent / "rules" / "runtime_check_rules"
 )
 
-# Track directories already auto-checked in this process to avoid repeated scans/expands.
-_EXPAND_CHECKED_DIRS: set[str] = set()
-
-
 def _resolve_env_rules_dir_entry(entry: str) -> Path:
     """Resolve a MODELKIT_RULES_DIR entry into an absolute directory path.
 
@@ -44,58 +41,8 @@ def _resolve_env_rules_dir_entry(entry: str) -> Path:
     return (_RULE_LOADER_DIR / entry_path).resolve()
 
 
-def _has_non_temp_zip_files(rules_dir: Path, glob_pattern: str = "*.zip") -> bool:
-    """Return whether the directory contains at least one non-temp zip."""
-    return any(
-        path.is_file() and ".materialized." not in path.name
-        for path in rules_dir.glob(glob_pattern)
-    )
-
-
-def _ensure_rules_dir_expanded_once(rules_dir: Path) -> None:
-    """Auto-expand rule zips once if marker is missing.
-
-    Behavior:
-      1. Skip when directory does not exist.
-      2. Skip when marker file already exists.
-      3. If directory has zip files and marker is missing, run in-place expand.
-    """
-    resolved_dir = rules_dir.resolve()
-    dir_key = str(resolved_dir).casefold()
-    if dir_key in _EXPAND_CHECKED_DIRS:
-        return
-
-    _EXPAND_CHECKED_DIRS.add(dir_key)
-
-    if not resolved_dir.exists() or not resolved_dir.is_dir():
-        return
-
-    try:
-        from .rule_expander import EXPANDED_MARKER_FILE, expand_rules_zip_dir
-
-        marker_path = resolved_dir / EXPANDED_MARKER_FILE
-        if marker_path.exists():
-            return
-
-        if not _has_non_temp_zip_files(resolved_dir):
-            return
-
-        logger.info(
-            "!!! [RULES INIT] One-time runtime rules initialization is required for %s; "
-            "initializing now (may take up to 30 minutes).",
-            resolved_dir,
-        )
-        expand_rules_zip_dir(resolved_dir)
-    except Exception:
-        logger.exception(
-            "Failed to auto-expand runtime rule zips in %s; "
-            "please check the zip files and expand manually if needed.",
-            resolved_dir,
-        )
-
-
 def get_runtime_rules_search_dirs() -> list[Path]:
-    """Return ordered list of directories to search for runtime check rule zips.
+    """Return ordered list of directories to search for runtime rule artifacts.
 
     The search order is:
         1. Any extra directories listed in the :data:`MODELKIT_RULES_DIR` env var
@@ -117,27 +64,51 @@ def get_runtime_rules_search_dirs() -> list[Path]:
     return dirs
 
 
-def resolve_rule_zip_path(zip_filename: str) -> Path:
-    """Resolve a runtime-check rule zip by searching known directories.
-
-    Searches :func:`get_runtime_rules_search_dirs` in order and returns the
-    first existing match.  If none is found, returns the path under the
-    default embedded directory (so callers get the usual "not found" warning).
+def resolve_rule_parquet_path(parquet_filename: str) -> Path:
+    """Resolve a parquet runtime-rule artifact by searching known directories.
 
     Args:
-        zip_filename: Bare file name, e.g. ``QNN_NPU_ai_onnx_opset13.zip``
+        parquet_filename: Bare file name, e.g.
+            ``Split_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet``
 
     Returns:
-        Resolved ``Path`` to the zip file.
+        Resolved Path to the parquet file if found. If not found, returns the
+        path under the first search directory to preserve deterministic debug output.
     """
-    for search_dir in get_runtime_rules_search_dirs():
-        # Disabled by default: one-time rules initialization can be expensive.
-        # _ensure_rules_dir_expanded_once(search_dir)
-        candidate = search_dir / zip_filename
+
+    def _infer_ep_device_subdir(filename: str) -> str | None:
+        # Filename layout:
+        # <op>_<ep_name>_<DEVICE>_<domain>_opset<ver>[_qdq].parquet
+        match = re.match(
+            r"^.+_(?P<ep>[^_]+)_(?P<device>CPU|GPU|NPU)_.+_opset\d+(?:_qdq)?\.parquet$",
+            filename,
+        )
+        if not match:
+            return None
+        return f"{match.group('ep')}_{match.group('device')}"
+
+    search_dirs = get_runtime_rules_search_dirs()
+    ep_device_subdir = _infer_ep_device_subdir(parquet_filename)
+
+    for search_dir in search_dirs:
+        candidate = search_dir / parquet_filename
         if candidate.exists():
             return candidate
-    # Fallback: return the default path so downstream code emits its normal warning.
-    return _DEFAULT_RUNTIME_RULES_DIR / zip_filename
+
+        if ep_device_subdir is not None:
+            candidate_in_subdir = search_dir / ep_device_subdir / parquet_filename
+            if candidate_in_subdir.exists():
+                return candidate_in_subdir
+
+        # Backward-compatible fallback for any one-level nested layout.
+        nested_matches = sorted(search_dir.glob(f"*/{parquet_filename}"))
+        if nested_matches:
+            return nested_matches[0]
+
+    if search_dirs:
+        return search_dirs[0] / parquet_filename
+
+    return _DEFAULT_RUNTIME_RULES_DIR / parquet_filename
 
 
 class RuleLoader:
@@ -197,6 +168,7 @@ class RuleLoader:
                 "QC": "qc",
                 "Intel": "intel",
                 "AMD": "amd",
+                "NVIDIA": "nvidia",
             }
 
             # Find files matching the prefix pattern (e.g., qc_*.json)

@@ -442,9 +442,13 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
         # Even-kernel upsample patterns (stride == kernel, group=1, C_in==C_out).
         # Common in depth-estimation / segmentation decoders (e.g. DPT).
         # Shapes from depth-anything ConvTranspose nodes.
+        # Include odd/even exact-stride and even non-exact-stride patterns to keep
+        # finite derived-property states fully covered.
         for x_shape, w_shape, b_shape, k_shape, strides in [
             ((1, 96, 37, 37), (96, 96, 2, 2), (96,), (2, 2), [2, 2]),
             ((1, 48, 37, 37), (48, 48, 4, 4), (48,), (4, 4), [4, 4]),
+            ((2, 6, 10, 10), (6, 6, 3, 3), (6,), (3, 3), [3, 3]),
+            ((1, 96, 37, 37), (96, 96, 2, 2), (96,), (2, 2), [1, 1]),
         ]:
             pads = [0, 0, 0, 0]
             dilations = [1, 1]
@@ -471,6 +475,25 @@ class ConvTransposeInputGenerator(ConvInputGenerator):
                     combinations.append(comb)
 
         return combinations
+
+    def derive_properties(self, properties: dict) -> dict:
+        """Derive ConvTranspose-specific finite properties for rule grouping."""
+        item = super().derive_properties(properties)
+
+        kernel_shape = item.get("attr_kernel_shape")
+        strides = item.get("attr_strides")
+        if kernel_shape is None:
+            item["kernel_all_even"] = None
+        else:
+            kernel_tuple = tuple(kernel_shape)
+            item["kernel_all_even"] = all((int(dim) % 2) == 0 for dim in kernel_tuple)
+
+        if kernel_shape is None or strides is None:
+            item["kernel_equals_stride"] = None
+        else:
+            item["kernel_equals_stride"] = tuple(kernel_shape) == tuple(strides)
+
+        return item
 
     def get_infinite_property_names(self) -> list[str]:
         """Get list of attribute names and input names that have infinite value sets.
