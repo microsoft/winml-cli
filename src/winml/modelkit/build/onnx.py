@@ -122,6 +122,9 @@ def build_onnx_model(
         for old in output_dir.glob("*.onnx"):
             old.unlink()
             logger.debug("Removed old artifact: %s", old.name)
+        for old in output_dir.glob("*.onnx.data"):
+            old.unlink()
+            logger.debug("Removed old external data sidecar: %s", old.name)
 
     stages_completed: list[str] = []
     stages_skipped: list[str] = []

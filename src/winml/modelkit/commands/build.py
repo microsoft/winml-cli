@@ -1159,6 +1159,8 @@ def _build_onnx_pipeline(
     if rebuild:
         for old in output_dir.glob("*.onnx"):
             old.unlink()
+        for old in output_dir.glob("*.onnx.data"):
+            old.unlink()
 
     # Copy input ONNX to output dir
     current_path = output_dir / onnx_path.name
