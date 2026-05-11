@@ -182,6 +182,127 @@ class TestExtractPredictedDepth:
 
 
 # ---------------------------------------------------------------------------
+# prepare_pipeline — image processor alignment to ONNX input shape
+# ---------------------------------------------------------------------------
+
+
+class _FakeImageProcessor:
+    """Stand-in for HF AutoImageProcessor with attribute-based knobs."""
+
+    def __init__(
+        self,
+        size=None,
+        keep_aspect_ratio: bool | None = None,
+        do_pad: bool | None = None,
+    ):
+        self.size = size if size is not None else {"height": 0, "width": 0}
+        if keep_aspect_ratio is not None:
+            self.keep_aspect_ratio = keep_aspect_ratio
+        if do_pad is not None:
+            self.do_pad = do_pad
+
+
+class _FakePreparedPipe:
+    """Stand-in for the parent ``prepare_pipeline()`` return value."""
+
+    def __init__(self, image_processor):
+        self.image_processor = image_processor
+
+
+class TestPreparePipeline:
+    """Verify processor is forced to the static ONNX shape exactly."""
+
+    @staticmethod
+    def _patch_super_pipeline(monkeypatch, processor):
+        """Make ``WinMLEvaluator.prepare_pipeline`` return a pipe with `processor`."""
+        from winml.modelkit.eval import base_evaluator
+
+        monkeypatch.setattr(
+            base_evaluator.WinMLEvaluator,
+            "prepare_pipeline",
+            lambda self: _FakePreparedPipe(processor),
+        )
+
+    def test_sets_size_from_io_config(self, monkeypatch):
+        """ONNX (h, w) is written into ``image_processor.size``."""
+        proc = _FakeImageProcessor(size={"height": 0, "width": 0})
+        self._patch_super_pipeline(monkeypatch, proc)
+
+        ev = make_evaluator()
+        ev.model = type(
+            "M", (), {"io_config": {"input_shapes": [[1, 3, 518, 518]]}}
+        )()
+
+        pipe = ev.prepare_pipeline()
+        assert pipe.image_processor.size == {"height": 518, "width": 518}
+
+    def test_disables_keep_aspect_ratio_when_present(self, monkeypatch):
+        """``keep_aspect_ratio`` is turned off so the resize hits the exact target."""
+        proc = _FakeImageProcessor(
+            size={"height": 0, "width": 0},
+            keep_aspect_ratio=True,
+        )
+        self._patch_super_pipeline(monkeypatch, proc)
+
+        ev = make_evaluator()
+        ev.model = type(
+            "M", (), {"io_config": {"input_shapes": [[1, 3, 518, 518]]}}
+        )()
+
+        pipe = ev.prepare_pipeline()
+        assert pipe.image_processor.keep_aspect_ratio is False
+
+    def test_disables_do_pad_when_present(self, monkeypatch):
+        """``do_pad`` is turned off so the processor doesn't pad past target."""
+        proc = _FakeImageProcessor(
+            size={"height": 0, "width": 0},
+            do_pad=True,
+        )
+        self._patch_super_pipeline(monkeypatch, proc)
+
+        ev = make_evaluator()
+        ev.model = type(
+            "M", (), {"io_config": {"input_shapes": [[1, 3, 384, 384]]}}
+        )()
+
+        pipe = ev.prepare_pipeline()
+        assert pipe.image_processor.do_pad is False
+
+    def test_no_attrs_does_not_raise(self, monkeypatch):
+        """Processors without keep_aspect_ratio / do_pad work unchanged."""
+        proc = _FakeImageProcessor(size={"height": 0, "width": 0})
+        # No keep_aspect_ratio, no do_pad attributes.
+        assert not hasattr(proc, "keep_aspect_ratio")
+        assert not hasattr(proc, "do_pad")
+        self._patch_super_pipeline(monkeypatch, proc)
+
+        ev = make_evaluator()
+        ev.model = type(
+            "M", (), {"io_config": {"input_shapes": [[1, 3, 224, 224]]}}
+        )()
+
+        pipe = ev.prepare_pipeline()
+        assert pipe.image_processor.size == {"height": 224, "width": 224}
+        assert not hasattr(pipe.image_processor, "keep_aspect_ratio")
+        assert not hasattr(pipe.image_processor, "do_pad")
+
+    def test_missing_io_config_is_noop(self, monkeypatch):
+        """If model lacks io_config, processor is not modified."""
+        proc = _FakeImageProcessor(
+            size={"height": 0, "width": 0}, keep_aspect_ratio=True
+        )
+        self._patch_super_pipeline(monkeypatch, proc)
+
+        ev = make_evaluator()
+        ev.model = type("M", (), {})()  # no io_config
+
+        pipe = ev.prepare_pipeline()
+        # Untouched
+        assert pipe.image_processor.size == {"height": 0, "width": 0}
+        assert pipe.image_processor.keep_aspect_ratio is True
+
+
+# ---------------------------------------------------------------------------
 # align_labels
 # ---------------------------------------------------------------------------
 

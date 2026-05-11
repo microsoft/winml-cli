@@ -100,14 +100,28 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
-        """Create pipeline and match image processor size to ONNX input shape."""
+        """Create pipeline and match image processor size to ONNX input shape.
+
+        Image processors for depth and detection models often default to
+        aspect-preserving resize and/or padding (e.g. Depth-Anything sets
+        ``keep_aspect_ratio=True`` with ``ensure_multiple_of=14``), which
+        produces a per-image output shape that does not match the static
+        ONNX input shape. We override these flags so the processor produces
+        exactly the target ``(h, w)`` for every input.
+
+        Models without these attributes are unaffected.
+        """
         pipe = super().prepare_pipeline()
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [])
-        if input_shapes and len(input_shapes[0]) == 4 and pipe.image_processor is not None:
+        if input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
             pipe.image_processor.size = {"height": h, "width": w}
+            if hasattr(pipe.image_processor, "keep_aspect_ratio"):
+                pipe.image_processor.keep_aspect_ratio = False
+            if hasattr(pipe.image_processor, "do_pad"):
+                pipe.image_processor.do_pad = False
 
         return pipe
 
