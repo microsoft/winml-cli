@@ -241,6 +241,26 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     """
     from optimum.exporters.tasks import TasksManager
 
+    # Base models may omit "architectures" (e.g., encoder-only backbones).
+    # Fall back to feature-extraction so documented examples work out of box.
+    architectures = getattr(config, "architectures", None)
+    if not architectures:
+        task = "feature-extraction"
+        try:
+            model_class = TasksManager.get_model_class_for_task(task)
+        except Exception as e:
+            raise ValueError(
+                "Cannot detect task: config has no 'architectures' field and "
+                "feature-extraction fallback failed. Please specify task explicitly."
+            ) from e
+
+        logger.info(
+            "No config.architectures; defaulting to %s with TasksManager class %s",
+            task,
+            model_class.__name__,
+        )
+        return task, model_class
+
     # [1] Resolve architecture class from config
     arch_model_class = _resolve_model_class_from_config(config)
     arch_name = arch_model_class.__name__

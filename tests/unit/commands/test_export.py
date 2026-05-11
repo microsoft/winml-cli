@@ -13,6 +13,8 @@ This test module validates that export command:
 from __future__ import annotations
 
 import json
+import shlex
+from inspect import getdoc
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -69,6 +71,49 @@ class TestExportCLIInterface:
         assert "--torch-module" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
+
+    def test_export_help_examples_run(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Every command example in export help should execute without crashing."""
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        doc = getdoc(export) or ""
+        examples = [
+            line.strip()
+            for line in doc.splitlines()
+            if line.strip().startswith("winml export")
+        ]
+        assert examples, "Expected at least one winml export example in help docstring"
+
+        specs_file = tmp_path / "inputs.json"
+        specs_file.write_text(json.dumps({"input_ids": {"dtype": "int64", "shape": [1, 8]}}))
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"opset_version": 17}))
+
+        mock_export_cfg = WinMLExportConfig()
+        mock_loader_cfg = WinMLLoaderConfig(task="feature-extraction", model_type="bert")
+
+        with (
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch("winml.modelkit.export.export_pytorch", return_value=tmp_path / "ok.onnx"),
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                return_value=(mock_export_cfg, mock_loader_cfg),
+            ),
+        ):
+            mock_model = MagicMock()
+            mock_load.return_value = (mock_model, None, "feature-extraction")
+
+            for example in examples:
+                tokens = shlex.split(example)
+                args = tokens[2:]  # drop "winml export"
+                args = [str(specs_file) if arg == "inputs.json" else arg for arg in args]
+                args = [str(config_file) if arg == "config.json" else arg for arg in args]
+                args = [str(tmp_path / arg) if arg.endswith(".onnx") else arg for arg in args]
+
+                result = runner.invoke(export, args, obj={"debug": False})
+                assert result.exit_code == 0, f"Example failed: {example}\n{result.output}"
 
     def test_export_requires_model(self, runner: CliRunner) -> None:
         """Test export fails without --model argument."""
@@ -460,6 +505,51 @@ class TestExportErrorHandling:
 
             assert result.exit_code != 0
             assert "Export failed" in result.output
+
+    def test_export_logs_error_without_traceback_when_not_debug(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Non-debug mode should log a plain error instead of exception traceback."""
+        from winml.modelkit.commands.export import export
+
+        with (
+            patch("winml.modelkit.loader.load_hf_model", side_effect=ValueError("boom")),
+            patch("winml.modelkit.commands.export.logger") as mock_logger,
+        ):
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                ["--model", "test-model", "--output", str(output_path)],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        mock_logger.error.assert_called_once()
+        mock_logger.exception.assert_not_called()
+
+    def test_export_logs_traceback_when_debug_enabled(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Debug mode should keep traceback logging for diagnosis."""
+        from winml.modelkit.commands.export import export
+
+        with (
+            patch("winml.modelkit.loader.load_hf_model", side_effect=ValueError("boom")),
+            patch("winml.modelkit.commands.export.logger") as mock_logger,
+        ):
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                ["--model", "test-model", "--output", str(output_path)],
+                obj={"debug": True},
+            )
+
+        assert result.exit_code != 0
+        mock_logger.exception.assert_called_once_with("Export failed")
 
 
 class TestExportAutoResolveInputTensors:

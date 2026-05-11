@@ -404,5 +404,9 @@ def export(
 
     except Exception as e:
         console.print(f"\n[bold red]Export failed:[/bold red] {e}")
-        logger.exception("Export failed")
+        debug_mode = bool((ctx.obj or {}).get("debug"))
+        if debug_mode:
+            logger.exception("Export failed")
+        else:
+            logger.error("Export failed: %s", e)
         raise click.ClickException(f"Export failed: {e}") from e
