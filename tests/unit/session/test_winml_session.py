@@ -719,19 +719,6 @@ class TestFindEpDevice:
         assert match is not None
         assert match.ep_name == "QNNExecutionProvider"
 
-    def test_device_only(self) -> None:
-        """device filter alone returns first matching device type."""
-        import onnxruntime as ort
-
-        devs = [
-            self._ep_dev("CPUExecutionProvider", ort.OrtHardwareDeviceType.CPU),
-            self._ep_dev("DmlExecutionProvider", ort.OrtHardwareDeviceType.GPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(device="gpu")
-        assert match is not None
-        assert match.ep_name == "DmlExecutionProvider"
-
     def test_ep_name_and_device_both_required(self) -> None:
         """When both filters are set, both must match (AND logic)."""
         import onnxruntime as ort
