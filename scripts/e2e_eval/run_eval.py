@@ -847,6 +847,9 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
         args += ["--columns-mapping", json.dumps(ds_config["columns_mapping"])]
     if ds_config.get("label_mapping_file"):
         args += ["--label-mapping-file", ds_config["label_mapping_file"]]
+    winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
+    if winml_key:
+        args += ["--winml-metric-key", winml_key]
 
     proc = _run_subprocess(args, timeout)
     metric = _parse_metric_from_stdout(proc["stdout"]) if proc["exit_code"] == 0 else None

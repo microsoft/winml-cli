@@ -51,24 +51,6 @@ def _emit_result(metric: str, value: float, num_samples: int) -> None:
     print(json.dumps({"metric": metric, "value": round(value, 6), "num_samples": num_samples}))
 
 
-# Primary metric key returned by the HuggingFace ``evaluate`` library per task.
-_TASK_HF_METRIC_KEY: dict[str, str] = {
-    "image-classification": "accuracy",
-    "text-classification": "accuracy",
-    "sequence-classification": "accuracy",
-    "automatic-speech-recognition": "wer",
-    "token-classification": "overall_f1",
-    "question-answering": "f1",
-    "object-detection": "map",
-    "image-segmentation": "mean_iou",
-    "feature-extraction": "cosine_spearman",
-    "sentence-similarity": "cosine_spearman",
-    "image-feature-extraction": "knn_top1_accuracy",
-    "fill-mask": "pseudo_perplexity",
-    "zero-shot-image-classification": "top1_accuracy",
-}
-
-
 # ---------------------------------------------------------------------------
 # Model and dataset helpers
 # ---------------------------------------------------------------------------
@@ -121,24 +103,6 @@ def _build_dataset_config(ds_dict: dict, num_samples: int):
     )
 
 
-def _extract_metric(metrics: dict, task: str, metric_label: str) -> tuple[str, float]:
-    """Return (label, value) for the primary metric of this task.
-
-    Uses ``_TASK_HF_METRIC_KEY`` to locate the value inside the HF evaluator
-    dict, then emits it under the label from the registry config.
-    """
-    hf_key = _TASK_HF_METRIC_KEY.get(task, "accuracy")
-    if hf_key in metrics:
-        return metric_label, float(metrics[hf_key])
-    # Fallback: first score-range value (0-1), skipping timing/throughput fields
-    # that HF evaluator injects (total_time_in_seconds, samples_per_second, etc.).
-    skip_keys = {"total_time_in_seconds", "samples_per_second", "latency_in_seconds"}
-    for k, v in metrics.items():
-        if k not in skip_keys and isinstance(v, (int, float)) and 0.0 <= v <= 1.0:
-            return metric_label, float(v)
-    raise ValueError(f"No score metric found in evaluator output for task '{task}': {metrics}")
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -178,6 +142,14 @@ def parse_args() -> argparse.Namespace:
         "--label-mapping-file",
         default=None,
         help="Path to JSON label mapping file (dataset label -> model ID)",
+    )
+    parser.add_argument(
+        "--winml-metric-key",
+        required=True,
+        help="Lookup key for the primary metric in the evaluator output dict. "
+        "Used as both the lookup key and the emitted label. Mirrors registry's "
+        "``dataset_config.winml_metric_key`` (or ``dataset_config.metric`` when "
+        "the former is absent).",
     )
     return parser.parse_args()
 
@@ -219,6 +191,7 @@ def main() -> None:
             **({"dataset_config": args.dataset_config} if args.dataset_config else {}),
             **({"columns_mapping": columns_mapping} if columns_mapping else {}),
             **({"label_mapping_file": args.label_mapping_file} if args.label_mapping_file else {}),
+            "winml_metric_key": args.winml_metric_key,
         }
     else:
         ds_config_dict = get_dataset_config(args.model, task)
@@ -231,7 +204,11 @@ def main() -> None:
         sys.exit(1)
 
     num_samples = args.num_samples or ds_config_dict.get("num_samples") or 100
-    metric_label = ds_config_dict.get("metric", _TASK_HF_METRIC_KEY.get(task, "accuracy"))
+    winml_metric_key = (
+        ds_config_dict.get("winml_metric_key")
+        or ds_config_dict.get("metric")
+        or args.winml_metric_key
+    )
 
     _out(f"Task: {task} | Model: {model_id} | Device: {args.device} | Samples: {num_samples}")
     ds_name = ds_config_dict.get("dataset")
@@ -260,9 +237,9 @@ def main() -> None:
 
         metrics = task_evaluator.compute()
 
-        metric_name, value = _extract_metric(metrics, task, metric_label)
+        value = float(metrics[winml_metric_key])
         # Emit result as last stdout line (parsed by run_eval.py accuracy phase)
-        _emit_result(metric_name, value, num_samples)
+        _emit_result(winml_metric_key, value, num_samples)
     except Exception as exc:
         _out(f"ERROR: evaluation failed: {exc}")
         import traceback
