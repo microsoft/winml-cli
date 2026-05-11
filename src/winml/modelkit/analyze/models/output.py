@@ -25,7 +25,7 @@ class EPSupport(BaseModel):
     """Execution Provider support information.
 
     Attributes:
-        ihv_type: IHV type (QC, Intel, AMD)
+        ihv_type: IHV type (QC, Intel, AMD, NVIDIA)
         ep_type: Execution Provider name (e.g., 'QNNExecutionProvider')
         device_type: Device type (e.g., 'CPU', 'GPU', 'NPU')
         ep_version: Execution provider version (optional)
@@ -115,7 +115,7 @@ class AnalysisOutput(BaseModel):
     )
     metadata: ModelStats = Field(..., description="Model metadata and statistics")
     results: list[EPSupport] = Field(
-        ..., max_length=3, description="Execution Provider support results (max 3)"
+        ..., max_length=4, description="Execution Provider support results (max 4)"
     )
 
     @field_validator("results")

@@ -52,23 +52,29 @@ jobs:
           Write-Host "Agent.BuildDirectory : $(Agent.BuildDirectory)"
           Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
           $repoDir = "$(Agent.BuildDirectory)/artifacts"
-          if (-not (Test-Path "$repoDir/rules_zip")) {
+          if (-not (Test-Path "$repoDir/rules")) {
             $repoDir = "$(Agent.BuildDirectory)/ModelKitArtifacts"
           }
-          $src = "$repoDir/rules_zip"
+          $src = "$repoDir/rules"
           $dst = "$(Build.SourcesDirectory)/src/winml/modelkit/analyze/rules/runtime_check_rules"
           if (Test-Path $src) {
             New-Item -ItemType Directory -Path $dst -Force | Out-Null
-            $zips = Copy-Item "$src/*.zip" $dst -Force -PassThru
-            Write-Host "Copied $($zips.Count) rule zips to $dst"
+            $parquets = Get-ChildItem "$src" -Filter "*.parquet" -Recurse
+            foreach ($parquet in $parquets) {
+              $relativePath = $parquet.FullName.Substring($src.Length).TrimStart('\\')
+              $targetPath = Join-Path $dst $relativePath
+              New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+              Copy-Item $parquet.FullName -Destination $targetPath -Force
+            }
+            Write-Host "Copied $($parquets.Count) rule parquet file(s) to $dst"
             # Verify files are real data, not LFS pointers (~130 bytes)
-            $bad = $zips | Where-Object { $_.Length -lt 1024 }
+            $bad = $parquets | Where-Object { $_.Length -lt 1024 }
             if ($bad) {
-              Write-Error "The following zip files are suspiciously small (likely unresolved LFS pointers):"
+              Write-Error "The following parquet files are suspiciously small (likely unresolved LFS pointers):"
               $bad | ForEach-Object { Write-Host "  $($_.Name): $($_.Length) bytes" }
               exit 1
             }
-            $zips | ForEach-Object { Write-Host "  $($_.Name): $([math]::Round($_.Length / 1KB, 1)) KB" }
+            $parquets | ForEach-Object { Write-Host "  $($_.Name): $([math]::Round($_.Length / 1KB, 1)) KB" }
           } else {
             Write-Error "Rules source not found at: $src"
             Write-Host "Contents of $repoDir :"
