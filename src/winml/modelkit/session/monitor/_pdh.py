@@ -560,11 +560,6 @@ class PdhPoller:
         return self._device_kind
 
     @property
-    def npu_luid(self) -> str | None:
-        """NPU LUID string, or None if not monitoring an NPU."""
-        return self._adapter_luid if self._device_kind == "npu" else None
-
-    @property
     def mean_utilization_pct(self) -> float:
         """Mean adapter (NPU/GPU) utilization % during polling period."""
         with self._lock:

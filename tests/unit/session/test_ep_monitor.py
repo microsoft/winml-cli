@@ -475,17 +475,28 @@ class TestHWMonitor:
         assert "ram" in d
         assert "used_mb" in d["ram"]
         assert "peak_mb" in d["ram"]
-        # NPU section
-        assert "npu" in d
-        assert "mean_pct" in d["npu"]
-        assert "peak_pct" in d["npu"]
-        assert "sample_count" in d["npu"]
+        # Adapter section: only present when the resolved kind matches.
+        kind = d["device_kind"]
+        if kind == "npu":
+            assert "npu" in d
+            assert "mean_pct" in d["npu"]
+            assert "peak_pct" in d["npu"]
+            assert "sample_count" in d["npu"]
+            assert "gpu" not in d
+        elif kind == "gpu":
+            assert "gpu" in d
+            assert "mean_pct" in d["gpu"]
+            assert "peak_pct" in d["gpu"]
+            assert "sample_count" in d["gpu"]
+            assert "npu" not in d
+        else:
+            assert "npu" not in d
+            assert "gpu" not in d
         # Device memory + running time
         assert "device_memory" in d
         assert "local_peak_mb" in d["device_memory"]
         assert "shared_peak_mb" in d["device_memory"]
         assert "running_time_ns" in d
-        assert "npu_luid" in d
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_idle_shows_low_utilization(self):
@@ -1220,8 +1231,8 @@ class TestHWMonitorDeviceRouting:
         d = hw.to_dict()
         assert d["device_kind"] == "gpu"
         assert "gpu" in d
-        assert "npu" in d  # back-compat: always present, zeros here
-        assert d["npu"]["mean_pct"] == 0.0
+        # npu block is omitted when the resolved kind isn't "npu".
+        assert "npu" not in d
         assert d["adapter_luid"] == "0x0_0xCAFE"
         # JSON-serializable
         assert isinstance(json.dumps(d), str)

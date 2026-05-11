@@ -164,10 +164,9 @@ class HWMonitor:
     def to_dict(self) -> dict[str, Any]:
         """JSON-serializable summary of all collected metrics.
 
-        Emits an adapter block keyed by the resolved device kind (``"npu"``
-        or ``"gpu"``). The ``"npu"`` key is always present for backward
-        compatibility — when only a GPU is being monitored, it contains
-        zeros while the live data is in the ``"gpu"`` block.
+        Emits an adapter block keyed by the resolved device kind: ``"npu"``
+        when an NPU is being monitored, ``"gpu"`` when a GPU is. Neither key
+        is present when only CPU/RAM samples are collected.
         """
         kind = self._pdh.device_kind  # "npu", "gpu", or None
         adapter_block = {
@@ -175,13 +174,10 @@ class HWMonitor:
             "peak_pct": round(self._pdh.peak_utilization_pct, 2),
             "sample_count": self._pdh.utilization_sample_count,
         }
-        zero_block = {"mean_pct": 0.0, "peak_pct": 0.0, "sample_count": 0}
         result: dict[str, Any] = {
             "monitor": "HWMonitor",
             "device_kind": kind,
             "adapter_luid": self._pdh.adapter_luid,
-            # Back-compat alias for callers that read "npu_luid" directly.
-            "npu_luid": self._pdh.npu_luid,
             "cpu": {
                 "mean_pct": round(self._pdh.mean_cpu_pct, 2),
                 "peak_pct": round(self._pdh.peak_cpu_pct, 2),
@@ -191,16 +187,14 @@ class HWMonitor:
                 "used_mb": round(self._pdh.ram_used_mb, 2),
                 "peak_mb": round(self._pdh.peak_ram_used_mb, 2),
             },
-            # "npu" key is always present; populated when device_kind=="npu".
-            "npu": adapter_block if kind == "npu" else zero_block,
             "device_memory": {
                 "local_peak_mb": round(self._pdh.peak_memory_local_mb, 2),
                 "shared_peak_mb": round(self._pdh.peak_memory_shared_mb, 2),
             },
             "running_time_ns": self._pdh.running_time_delta_ns,
         }
-        if kind == "gpu":
-            result["gpu"] = adapter_block
+        if kind in ("npu", "gpu"):
+            result[kind] = adapter_block
         return result
 
     # --- Chart-compatible properties ---
