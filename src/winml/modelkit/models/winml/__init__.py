@@ -59,6 +59,10 @@ WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {
     # - Specific OPSET requirements
     # - Input remapping (non-standard tensor names)
     # - Custom pre/post-processing
+    #
+    # ESRGAN adds a patch-based predict() that runs the (shape-specialised)
+    # ONNX session over overlapping patches and stitches the results back.
+    ("esrgan", "image-to-image"): "WinMLESRGANForImageToImage",
 }
 
 
@@ -75,6 +79,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         ImportError: If class is not implemented yet
     """
     from .base import WinMLModelForGenericTask
+    from .esrgan import WinMLESRGANForImageToImage
     from .feature_extraction import WinMLModelForFeatureExtraction
     from .image_classification import WinMLModelForImageClassification
     from .image_segmentation import (
@@ -88,6 +93,7 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
 
     # Map class names to modules
     class_map: dict[str, type] = {
+        "WinMLESRGANForImageToImage": WinMLESRGANForImageToImage,
         "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
@@ -186,6 +192,7 @@ from .composite_model import (
 )
 from .decoder_only import WinMLDecoderOnlyModel
 from .encoder_decoder import WinMLEncoderDecoderModel
+from .esrgan import WinMLESRGANForImageToImage
 from .feature_extraction import WinMLModelForFeatureExtraction
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
@@ -213,6 +220,7 @@ __all__ = [
     "WinMLCache",
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
+    "WinMLESRGANForImageToImage",
     "WinMLEncoderDecoderModel",
     "WinMLModelForFeatureExtraction",
     "WinMLModelForGenericTask",
