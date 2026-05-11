@@ -745,6 +745,54 @@ def _run_subprocess(args: list[str], timeout: int, monitor: bool = False) -> dic
 # ---------------------------------------------------------------------------
 
 
+# Number of calibration samples used when the upcoming run will NOT score
+# accuracy. The full default (10) is wasted work for perf-only models — each
+# extra sample is a forward pass on the float graph that contributes nothing
+# to perf numbers but keeps activations resident, inflating peak RAM during
+# quantization. Composite vision-encoder-decoder models (e.g. Donut) feel
+# this most because every calibration forward has to materialize the full
+# encoder activation tensor.
+_PERF_ONLY_CALIBRATION_SAMPLES = 1
+
+
+def _patch_calibration_samples(config_path: Path, samples: int) -> bool:
+    """Rewrite ``quant.samples`` in a build_config.json in place.
+
+    Returns True iff the file was actually modified. Silently no-ops when:
+
+    * the file is missing or unreadable,
+    * the JSON does not declare a ``quant`` block (model isn't quantized),
+    * ``quant.samples`` already matches ``samples`` (idempotent),
+    * the value can't be cleanly written back (best-effort).
+
+    Best-effort by design: we never want a config-rewrite failure to abort
+    the actual build. When patching fails we just log and let the build
+    proceed with the original sample count.
+    """
+    try:
+        with config_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        safe_print(f"    [calib] could not read {config_path.name}: {exc}")
+        return False
+
+    quant = data.get("quant")
+    if not isinstance(quant, dict):
+        return False  # No quantization configured — nothing to patch
+    current = quant.get("samples")
+    if current == samples:
+        return False  # Already at target value
+
+    quant["samples"] = samples
+    try:
+        with config_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except OSError as exc:
+        safe_print(f"    [calib] could not write {config_path.name}: {exc}")
+        return False
+    return True
+
+
 def _run_build(
     entry: ModelEntry,
     device: str,
@@ -1862,6 +1910,15 @@ def main() -> None:
                     monitor=args.monitor,
                 )
             elif args.eval_type == "perf":
+                # Perf-only branch: persist a slimmer calibration sample count
+                # to the on-disk build_config.json. This does NOT influence
+                # the build that just ran above (it has already consumed the
+                # original config) — it only updates the config files so the
+                # perf-only intent is reflected on disk for future inspection
+                # and re-runs.
+                for _cfg in sorted(model_dir.glob("build_config*.json")):
+                    _patch_calibration_samples(_cfg, _PERF_ONLY_CALIBRATION_SAMPLES)
+
                 perf_proc = run_model(
                     entry,
                     args.device,
