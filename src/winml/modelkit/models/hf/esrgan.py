@@ -66,6 +66,13 @@ class ESRGANConfig(PretrainedConfig):
         num_block: Number of RRDB blocks in the body.
         num_grow_ch: Growth channel count inside ResidualDenseBlock.
         scale: Upscaling factor (1, 2, 4, or 8).
+        weight_file_format: ``str.format``-style template for the ``.pth``
+            filename to download from the Hub repo. Receives the current
+            :attr:`scale` as the ``scale`` keyword. Defaults to the
+            sberbank-ai / ai-forever naming convention
+            (``"RealESRGAN_x{scale}.pth"``); override e.g. via
+            ``loader_config_overrides`` to point at a fork that uses a
+            different filename.
     """
 
     model_type = "ESRGAN"
@@ -78,6 +85,7 @@ class ESRGANConfig(PretrainedConfig):
         num_block: int = 23,
         num_grow_ch: int = 32,
         scale: int = 4,
+        weight_file_format: str = "RealESRGAN_x{scale}.pth",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -87,6 +95,7 @@ class ESRGANConfig(PretrainedConfig):
         self.num_block = num_block
         self.num_grow_ch = num_grow_ch
         self.scale = scale
+        self.weight_file_format = weight_file_format
 
 
 # =============================================================================
@@ -254,9 +263,7 @@ class ESRGANForImageSuperResolution(ESRGANPreTrainedModel):
         """
         if return_dict is None:
             return_dict = (
-                self.config.use_return_dict
-                if hasattr(self.config, "use_return_dict")
-                else True
+                self.config.use_return_dict if hasattr(self.config, "use_return_dict") else True
             )
 
         feat = pixel_values
@@ -330,7 +337,7 @@ class ESRGANForImageSuperResolution(ESRGANPreTrainedModel):
         if scale_hint is not None:
             config.scale = int(scale_hint)
 
-        weight_file = f"RealESRGAN_x{config.scale}.pth"
+        weight_file = config.weight_file_format.format(scale=config.scale)
         with tempfile.TemporaryDirectory(prefix="esrgan-weights-") as tmpdir:
             logger.info(
                 "Downloading %s from %s (scale=%d) to %s",
@@ -403,5 +410,3 @@ class ESRGANIOConfig(OnnxConfig):
     def outputs(self) -> dict[str, dict[int, str]]:
         """Return output tensor names and their dynamic axes."""
         return {"reconstruction": {0: "batch_size", 2: "height", 3: "width"}}
-
-

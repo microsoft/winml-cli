@@ -60,6 +60,7 @@ class TestESRGANConfig:
         assert default_config.num_block == 23
         assert default_config.num_grow_ch == 32
         assert default_config.scale == 4
+        assert default_config.weight_file_format == "RealESRGAN_x{scale}.pth"
 
     def test_custom_params(self) -> None:
         """Custom overrides propagate correctly."""
@@ -70,6 +71,18 @@ class TestESRGANConfig:
         assert cfg.num_in_ch == 3
         assert cfg.num_feat == 64
 
+    def test_weight_file_format_renders_default_filename(self) -> None:
+        """Default template + scale produces the upstream ``RealESRGAN_xN.pth`` filename."""
+        for scale in (2, 4, 8):
+            cfg = ESRGANConfig(scale=scale)
+            assert cfg.weight_file_format.format(scale=cfg.scale) == (f"RealESRGAN_x{scale}.pth")
+
+    def test_weight_file_format_override(self) -> None:
+        """A caller-supplied template is honored and produces the rendered filename."""
+        cfg = ESRGANConfig(scale=4, weight_file_format="fork_x{scale}_v2.bin")
+        assert cfg.weight_file_format == "fork_x{scale}_v2.bin"
+        assert cfg.weight_file_format.format(scale=cfg.scale) == "fork_x4_v2.bin"
+
     def test_config_serialization_roundtrip(self, tmp_path) -> None:
         """save_pretrained -> from_pretrained preserves all values."""
         original = ESRGANConfig(
@@ -79,6 +92,7 @@ class TestESRGANConfig:
             num_block=4,
             num_grow_ch=16,
             scale=2,
+            weight_file_format="custom_{scale}x.bin",
         )
         original.save_pretrained(str(tmp_path))
         loaded = ESRGANConfig.from_pretrained(str(tmp_path))
@@ -90,6 +104,7 @@ class TestESRGANConfig:
         assert loaded.num_block == original.num_block
         assert loaded.num_grow_ch == original.num_grow_ch
         assert loaded.scale == original.scale
+        assert loaded.weight_file_format == original.weight_file_format
 
 
 # =============================================================================
@@ -120,9 +135,7 @@ class TestESRGANModelConstruction:
 
         assert out.reconstruction.shape == (1, 3, h * scale, w * scale)
 
-    def test_output_is_image_super_resolution_output(
-        self, fast_config: ESRGANConfig
-    ) -> None:
+    def test_output_is_image_super_resolution_output(self, fast_config: ESRGANConfig) -> None:
         """Forward returns ImageSuperResolutionOutput."""
         model = ESRGANForImageSuperResolution(fast_config)
         model.eval()
@@ -147,9 +160,7 @@ class TestESRGANModelConstruction:
         assert len(out) == 1
         assert out[0].shape[1] == 3  # channels
 
-    def test_save_and_load_pretrained(
-        self, fast_config: ESRGANConfig, tmp_path
-    ) -> None:
+    def test_save_and_load_pretrained(self, fast_config: ESRGANConfig, tmp_path) -> None:
         """save_pretrained -> from_pretrained roundtrip on a local dir.
 
         Verifies the overridden ``from_pretrained`` still delegates to
