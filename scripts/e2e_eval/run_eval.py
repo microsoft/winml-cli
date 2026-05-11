@@ -1265,6 +1265,7 @@ def main() -> None:
                 device=args.device,
                 eval_types_run=[args.eval_type],
                 accuracy_result=None,
+                ep=args.ep,
             )
             write_result_json(timeout_result, result_path)
             results.append(timeout_result)
@@ -1311,7 +1312,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                _DEFAULT_PRECISION,
+                entry.precision or _DEFAULT_PRECISION,
                 args.timeout,
                 model_dir,
                 ep=args.ep,
@@ -1360,7 +1361,9 @@ def main() -> None:
             interrupted = True
             break
 
-        result = build_eval_result(entry, perf_proc, args.device, eval_types_run, accuracy_result)
+        result = build_eval_result(
+            entry, perf_proc, args.device, eval_types_run, accuracy_result, ep=args.ep
+        )
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)
