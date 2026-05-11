@@ -71,30 +71,47 @@ jobs:
           }
           $src = "$repoDir/rules"
           $dst = "$(Build.SourcesDirectory)/src/winml/modelkit/analyze/rules/runtime_check_rules"
-          if (Test-Path $src) {
-            New-Item -ItemType Directory -Path $dst -Force | Out-Null
-            $parquets = Get-ChildItem "$src" -Filter "*.parquet" -Recurse
-            foreach ($parquet in $parquets) {
-              $relativePath = $parquet.FullName.Substring($src.Length).TrimStart('\\')
-              $targetPath = Join-Path $dst $relativePath
-              New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
-              Copy-Item $parquet.FullName -Destination $targetPath -Force
-            }
-            Write-Host "Copied $($parquets.Count) rule parquet file(s) to $dst"
-            # Verify files are real data, not LFS pointers (~130 bytes)
-            $bad = $parquets | Where-Object { $_.Length -lt 1024 }
-            if ($bad) {
-              Write-Error "The following parquet files are suspiciously small (likely unresolved LFS pointers):"
-              $bad | ForEach-Object { Write-Host "  $($_.Name): $($_.Length) bytes" }
-              exit 1
-            }
-            $parquets | ForEach-Object { Write-Host "  $($_.Name): $([math]::Round($_.Length / 1KB, 1)) KB" }
-          } else {
+          if (-not (Test-Path $src)) {
             Write-Error "Rules source not found at: $src"
             Write-Host "Contents of $repoDir :"
             Get-ChildItem $repoDir -Recurse -Depth 2 | Select-Object FullName
             exit 1
           }
+          New-Item -ItemType Directory -Path $dst -Force | Out-Null
+          # Bulk copy parquet files preserving the per-EP/device subdirectory layout
+          # produced by the artifacts repo, e.g.:
+          #   rules/QNNExecutionProvider_NPU/Abs_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet
+          # robocopy is dramatically faster than a per-file Copy-Item loop and
+          # natively walks subdirectories with /E. Exit codes 0-7 are success.
+          $srcWin = (Resolve-Path $src).Path
+          robocopy $srcWin $dst *.parquet /E /NFL /NDL /NJH /NJS /MT:8 | Out-Null
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) {
+            Write-Error "robocopy failed copying parquet rules (exit=$rc)"
+            exit 1
+          }
+          $global:LASTEXITCODE = 0
+          $parquets = Get-ChildItem $dst -Filter "*.parquet" -Recurse
+          if (-not $parquets -or $parquets.Count -eq 0) {
+            Write-Error "No parquet rule files were copied from $src"
+            exit 1
+          }
+          Write-Host "Copied $($parquets.Count) rule parquet file(s) to $dst"
+          # Verify files are real data, not LFS pointers (~130 bytes)
+          $bad = $parquets | Where-Object { $_.Length -lt 1024 }
+          if ($bad) {
+            Write-Error "The following parquet files are suspiciously small (likely unresolved LFS pointers):"
+            $bad | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.FullName): $($_.Length) bytes" }
+            exit 1
+          }
+          # Per-EP/device folder summary (avoids one log line per parquet).
+          $parquets |
+            Group-Object { Split-Path -Leaf $_.Directory.FullName } |
+            Sort-Object Name |
+            ForEach-Object {
+              $totalKB = [math]::Round((($_.Group | Measure-Object Length -Sum).Sum) / 1KB, 1)
+              Write-Host ("  {0}: {1} file(s), {2} KB" -f $_.Name, $_.Count, $totalKB)
+            }
         displayName: 'Copy runtime check rules from ModelKitArtifacts'
 
       - powershell: |
