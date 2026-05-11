@@ -104,16 +104,26 @@ class TestExportCLIInterface:
         ):
             mock_model = MagicMock()
             mock_load.return_value = (mock_model, None, "feature-extraction")
+            saw_input_specs_example = False
+            saw_export_config_example = False
 
             for example in examples:
-                tokens = shlex.split(example)
+                try:
+                    tokens = shlex.split(example)
+                except ValueError as e:
+                    pytest.fail(f"Unable to parse example command: {example!r} ({e})")
                 args = tokens[2:]  # drop "winml export"
                 args = [str(specs_file) if arg == "inputs.json" else arg for arg in args]
                 args = [str(config_file) if arg == "config.json" else arg for arg in args]
                 args = [str(tmp_path / arg) if arg.endswith(".onnx") else arg for arg in args]
+                saw_input_specs_example |= str(specs_file) in args
+                saw_export_config_example |= str(config_file) in args
 
                 result = runner.invoke(export, args, obj={"debug": False})
                 assert result.exit_code == 0, f"Example failed: {example}\n{result.output}"
+
+        assert saw_input_specs_example
+        assert saw_export_config_example
 
     def test_export_requires_model(self, runner: CliRunner) -> None:
         """Test export fails without --model argument."""

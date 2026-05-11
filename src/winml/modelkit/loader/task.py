@@ -248,7 +248,7 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
         task = "feature-extraction"
         try:
             model_class = TasksManager.get_model_class_for_task(task)
-        except Exception as e:
+        except (KeyError, ValueError) as e:
             raise ValueError(
                 "Cannot detect task: config has no 'architectures' field and "
                 "feature-extraction fallback failed. Please specify task explicitly."
