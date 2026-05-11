@@ -1792,9 +1792,10 @@ class TestDevicePrecisionIntegration:
             ("cpu", "int16", True, "int16", "uint16", None),
             ("cpu", "fp16", False, None, None, None),
             # auto device + explicit precision picks first compatible device
-            ("auto", "fp16", False, None, None, "dml"),
-            ("auto", "int8", True, "uint8", "uint8", "dml"),
-            ("auto", "int16", True, "int16", "uint16", "dml"),
+            # DML has enable_ep_context=False, so for_provider("dml") returns None
+            ("auto", "fp16", False, None, None, None),
+            ("auto", "int8", True, "uint8", "uint8", None),
+            ("auto", "int16", True, "int16", "uint16", None),
         ],
     )
     def test_config_gen_device_precision(
@@ -1873,6 +1874,10 @@ class TestDevicePrecisionIntegration:
                 return_value=self._mock_export_config,
             ),
             patch("winml.modelkit.models.hf.MODEL_BUILD_CONFIGS", {}),
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("npu", ["npu", "gpu", "cpu"]),
+            ),
         ):
             result = generate_build_config(
                 "bert-base-uncased",
@@ -1880,14 +1885,13 @@ class TestDevicePrecisionIntegration:
                 precision="auto",
             )
 
-        # Both auto: quant and compile should be at dataclass defaults
-        # (not None -- they come from _assemble_config defaults)
+        # Both auto: precision policy is no-op, quant stays at _assemble_config defaults
         assert result.quant is not None, "auto+auto should preserve default quant"
         assert result.compile is not None, "auto+auto should preserve default compile"
-        # Default quant: NPU auto-precision is w8a16 (uint8 weights, uint16 activations)
+        # Default quant from WinMLQuantizationConfig() — NOT from auto-precision policy
         assert result.quant.weight_type == "uint8"
-        assert result.quant.activation_type == "uint16"
-        # Default compile provider is "qnn" (from WinMLCompileConfig -> EPConfig)
+        assert result.quant.activation_type == "uint8"
+        # Compile provider set from detected hardware (NPU → qnn)
         assert result.compile.ep_config.provider == "qnn"
 
     def test_auto_auto_still_calls_resolve_device(self) -> None:
@@ -2085,7 +2089,8 @@ class TestDevicePrecisionCli:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
         # int8 isn't supported on NPU preset mapping, so auto falls back to GPU.
-        assert data["compile"]["execution_provider"] == "dml"
+        # DML has enable_ep_context=False, so for_provider("dml") returns None.
+        assert data["compile"] is None
         assert data["quant"] is not None
 
 
@@ -2745,13 +2750,16 @@ class TestResolveQuantCompileConfig:
 
     def test_explicit_int8_precision_on_npu(self) -> None:
         """Explicit precision=int8 on npu is rejected."""
-        with patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("npu", ["npu", "cpu"]),
-        ), pytest.raises(
-            ValueError,
-            match=r"--precision int8 not supported on --device npu\. "
-            r"Supported: auto, fp16, w8a8, w8a16\.",
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("npu", ["npu", "cpu"]),
+            ),
+            pytest.raises(
+                ValueError,
+                match=r"--precision int8 not supported on --device npu\. "
+                r"Supported: auto, fp16, w8a8, w8a16\.",
+            ),
         ):
             resolve_quant_compile_config(
                 device="npu",
