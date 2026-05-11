@@ -171,7 +171,7 @@ If no NPU is detected, you can still use ModelKit with `--device auto` for most 
 <details>
 <summary><strong>Utilities</strong> — catalog, cache, and environment</summary>
 
-**`winml hub`** — Browse the curated built-in model catalog.
+**`winml catalog`** — Browse the curated built-in model catalog.
 
 **`winml cache`** — Manage built model artifacts and pipeline outputs. View, clean, or selectively remove cached models and intermediate files.
 
@@ -334,7 +334,7 @@ Each arrow is a ModelKit command. You can enter the pipeline at any stage (for e
 
 ## :clipboard: Built-in Models
 
-Run `winml hub` to browse the full catalog interactively.
+Run `winml catalog` to browse the full catalog interactively.
 
 <details>
 <summary><strong>Click to expand the full model catalog</strong></summary>
@@ -412,7 +412,7 @@ Supported tasks include:
 **Q1 2026 — Early Access**
 - Pipeline commands: `config`, `build`, `perf`, `eval`
 - Analyzer with auto-configuration loop
-- Built-in model catalog (`winml hub`)
+- Built-in model catalog (`winml catalog`)
 - Live hardware monitoring (`--monitor`)
 
 **Q2 2026 — Public Beta**
