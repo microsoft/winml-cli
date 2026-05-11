@@ -33,6 +33,10 @@ parameters:
     displayName: 'HF task for the single model (e.g. image-to-text). Only used together with modelId.'
     type: string
     default: ''
+  - name: memoryLimitGB
+    displayName: 'Per-subprocess RAM cap in GB (Windows Job Object). 0 disables. Recommended: 24 on 16 GB agents to avoid thrashing.'
+    type: number
+    default: 24
   - name: qnnPairs
     displayName: 'NPU-QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
     type: object
@@ -66,6 +70,7 @@ stages:
           continueRun: ${{ parameters.continueRun }}
           modelId: ${{ parameters.modelId }}
           task: ${{ parameters.task }}
+          memoryLimitGB: ${{ parameters.memoryLimitGB }}
           pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
@@ -80,6 +85,7 @@ stages:
           continueRun: ${{ parameters.continueRun }}
           modelId: ${{ parameters.modelId }}
           task: ${{ parameters.task }}
+          memoryLimitGB: ${{ parameters.memoryLimitGB }}
           pairNames: ${{ parameters.ovPairs }}
 
   - stage: NPU_AMD
@@ -94,4 +100,5 @@ stages:
           continueRun: ${{ parameters.continueRun }}
           modelId: ${{ parameters.modelId }}
           task: ${{ parameters.task }}
+          memoryLimitGB: ${{ parameters.memoryLimitGB }}
           pairNames: ${{ parameters.amdPairs }}

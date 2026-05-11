@@ -23,6 +23,12 @@ parameters:
   - name: task
     type: string
     default: ''
+  # Per-subprocess Windows Job Object memory cap (GB). 0 disables. When the
+  # cap is exceeded the OS refuses further commits so the host stays responsive
+  # instead of thrashing into total unresponsiveness on low-RAM agents.
+  - name: memoryLimitGB
+    type: number
+    default: 24
   # pairNames: list of EP/device pair keys defined in the catalog below.
   # Each name resolves to {ep, device, displayName} at runtime in PowerShell.
   # Catalog (kept in sync across all PowerShell blocks in this template):
@@ -349,6 +355,10 @@ jobs:
               )
               if ($pair.ep) {
                   $uvArgs += @("--ep", $pair.ep)
+              }
+              # Forward the per-subprocess memory cap when configured (>0).
+              if ([double]'${{ parameters.memoryLimitGB }}' -gt 0) {
+                  $uvArgs += @("--memory-limit-gb", '${{ parameters.memoryLimitGB }}')
               }
               if ($isLast) {
                   # Only clean cache after the LAST pair so HF download and

@@ -215,6 +215,224 @@ def _kill_process_tree(pid: int) -> None:
                 pass  # Process already exited; nothing to kill
 
 
+# ---------------------------------------------------------------------------
+# Windows Job Object — caps a subprocess tree's committed memory so a
+# runaway model build (e.g. QNN w8a16 calibration on a vision-encoder-decoder)
+# can't thrash a low-RAM host into total unresponsiveness.
+# ---------------------------------------------------------------------------
+
+# Module-level cap. Set once from CLI args via _set_subprocess_memory_limit_gb.
+_SUBPROCESS_MEMORY_LIMIT_BYTES: int | None = None
+
+
+def _set_subprocess_memory_limit_gb(gb: float | None) -> None:
+    """Set (or clear) the per-subprocess Windows Job Object memory cap.
+
+    When set on Windows, every subprocess launched via ``_run_subprocess`` is
+    wrapped in a Job Object with ``JOB_OBJECT_LIMIT_JOB_MEMORY``.  If the
+    process tree exceeds the cap, the OS refuses further commits — the
+    offender typically crashes with a clean OOM, and the host stays
+    responsive so the next model can run.
+
+    Passing ``None`` (or a non-positive value) disables the cap.  No-op on
+    non-Windows.
+    """
+    global _SUBPROCESS_MEMORY_LIMIT_BYTES
+    _SUBPROCESS_MEMORY_LIMIT_BYTES = None if gb is None or gb <= 0 else int(gb * (1024**3))
+
+
+class _JobMemoryCap:
+    """Best-effort Windows Job Object that caps a subprocess tree's commit.
+
+    Gracefully degrades to a no-op when:
+      * The host is not Windows;
+      * ``ctypes`` / kernel32 setup fails;
+      * The parent process already lives in a non-nestable Job Object (e.g.
+        some ADO Agent configurations) and ``AssignProcessToJobObject``
+        returns ``ERROR_ACCESS_DENIED``;
+      * The target process has already exited before we can assign.
+
+    Detection via ``query_peak_bytes()`` reads ``PeakJobMemoryUsed`` from
+    ``JobObjectExtendedLimitInformation`` (works on all supported Windows
+    versions).
+    """
+
+    # JobObjectInformationClass enum values
+    _JobObjectExtendedLimitInformation = 9
+    # LimitFlags bits
+    _JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
+    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+    # OpenProcess access rights
+    _PROCESS_SET_QUOTA = 0x0100
+    _PROCESS_TERMINATE = 0x0001
+
+    def __init__(self, limit_bytes: int) -> None:
+        self.limit_bytes = limit_bytes
+        self.assign_failed = False
+        self.assign_error: str | None = None
+        self._job_handle: int | None = None
+        self._proc_handle: int | None = None
+        self._kernel32 = None
+        self._info_class = None
+
+        if platform.system() != "Windows":
+            return
+
+        try:
+            import ctypes
+            from ctypes import wintypes
+        except ImportError:
+            return
+
+        class _IO_COUNTERS(ctypes.Structure):  # noqa: N801 (Win32 struct name)
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_ulonglong),
+                ("WriteOperationCount", ctypes.c_ulonglong),
+                ("OtherOperationCount", ctypes.c_ulonglong),
+                ("ReadTransferCount", ctypes.c_ulonglong),
+                ("WriteTransferCount", ctypes.c_ulonglong),
+                ("OtherTransferCount", ctypes.c_ulonglong),
+            ]
+
+        class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801 (Win32 struct name)
+            _fields_ = [
+                ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+                ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_void_p),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801 (Win32 struct name)
+            _fields_ = [
+                ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo", _IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        self._info_class = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        try:
+            self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        except OSError:
+            return
+
+        self._kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        self._kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        self._kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        self._kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        self._kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+        self._kernel32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+        ]
+        self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        self._kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        self._kernel32.OpenProcess.restype = wintypes.HANDLE
+        self._kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        self._kernel32.CloseHandle.restype = wintypes.BOOL
+        self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        h = self._kernel32.CreateJobObjectW(None, None)
+        if not h:
+            self.assign_error = f"CreateJobObjectW failed (err={ctypes.get_last_error()})"
+            return
+
+        info = self._info_class()
+        info.BasicLimitInformation.LimitFlags = (
+            self._JOB_OBJECT_LIMIT_JOB_MEMORY | self._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        )
+        info.JobMemoryLimit = ctypes.c_size_t(limit_bytes)
+        ok = self._kernel32.SetInformationJobObject(
+            h,
+            self._JobObjectExtendedLimitInformation,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        )
+        if not ok:
+            self.assign_error = f"SetInformationJobObject failed (err={ctypes.get_last_error()})"
+            self._kernel32.CloseHandle(h)
+            return
+
+        self._job_handle = h
+
+    @property
+    def active(self) -> bool:
+        """True when the job is created and ready for assign()."""
+        return self._job_handle is not None
+
+    def assign(self, pid: int) -> bool:
+        """Open the process by PID and add it to the job. Returns False on failure."""
+        if self._job_handle is None or self._kernel32 is None:
+            return False
+        import ctypes
+
+        proc_h = self._kernel32.OpenProcess(
+            self._PROCESS_SET_QUOTA | self._PROCESS_TERMINATE,
+            False,
+            pid,
+        )
+        if not proc_h:
+            self.assign_error = f"OpenProcess({pid}) failed (err={ctypes.get_last_error()})"
+            self.assign_failed = True
+            return False
+        ok = self._kernel32.AssignProcessToJobObject(self._job_handle, proc_h)
+        if not ok:
+            self.assign_error = (
+                f"AssignProcessToJobObject failed (err={ctypes.get_last_error()})"
+            )
+            self.assign_failed = True
+            self._kernel32.CloseHandle(proc_h)
+            return False
+        self._proc_handle = proc_h
+        return True
+
+    def query_peak_bytes(self) -> int | None:
+        """Read ``PeakJobMemoryUsed`` from the job. Returns ``None`` on failure."""
+        if self._job_handle is None or self._kernel32 is None or self._info_class is None:
+            return None
+        import ctypes
+
+        info = self._info_class()
+        ok = self._kernel32.QueryInformationJobObject(
+            self._job_handle,
+            self._JobObjectExtendedLimitInformation,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+            None,
+        )
+        if not ok:
+            return None
+        return int(info.PeakJobMemoryUsed)
+
+    def close(self) -> None:
+        """Close handles. ``KILL_ON_JOB_CLOSE`` reaps any survivors."""
+        if self._kernel32 is None:
+            return
+        if self._proc_handle is not None:
+            with contextlib.suppress(OSError):
+                self._kernel32.CloseHandle(self._proc_handle)
+            self._proc_handle = None
+        if self._job_handle is not None:
+            with contextlib.suppress(OSError):
+                self._kernel32.CloseHandle(self._job_handle)
+            self._job_handle = None
+
+
 def _start_hw_monitor() -> object | None:
     """Start an HWMonitor for the duration of a subprocess. Returns the live monitor or None.
 
@@ -378,6 +596,23 @@ def _run_subprocess(args: list[str], timeout: int, monitor: bool = False) -> dic
         popen_kwargs["start_new_session"] = True
     proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
 
+    # Wrap the subprocess tree in a Job Object with a memory cap so a runaway
+    # build can't thrash the host. Must happen ASAP after Popen so the cap
+    # applies to (almost) all grandchildren — they only inherit job membership
+    # if the parent is in the job at the moment of CreateProcess.
+    job_cap: _JobMemoryCap | None = None
+    if _SUBPROCESS_MEMORY_LIMIT_BYTES is not None:
+        job_cap = _JobMemoryCap(_SUBPROCESS_MEMORY_LIMIT_BYTES)
+        if job_cap.active:
+            if not job_cap.assign(proc.pid):
+                safe_print(
+                    f"  [memory-cap] WARNING: could not enforce "
+                    f"{_SUBPROCESS_MEMORY_LIMIT_BYTES / (1024**3):.1f} GB cap "
+                    f"({job_cap.assign_error}). Continuing without cap."
+                )
+        elif job_cap.assign_error:
+            safe_print(f"  [memory-cap] disabled: {job_cap.assign_error}")
+
     # Read pipes in background threads so communicate() timeout works even
     # when grandchild processes keep pipe handles alive (Windows issue).
     stdout_chunks: list[bytes] = []
@@ -456,6 +691,12 @@ def _run_subprocess(args: list[str], timeout: int, monitor: bool = False) -> dic
         # the metrics so the post-finally code can attach them to the result.
         _hw_metrics_final = _stop_hw_monitor(hw_handle)
         hw_handle = None
+        # Read peak commit and release the job handle here too — KILL_ON_JOB_CLOSE
+        # will reap any survivors so the parent never leaks them.
+        _peak_bytes_final: int | None = None
+        if job_cap is not None:
+            _peak_bytes_final = job_cap.query_peak_bytes()
+            job_cap.close()
 
     stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
     stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
@@ -472,6 +713,22 @@ def _run_subprocess(args: list[str], timeout: int, monitor: bool = False) -> dic
     }
     if hw_metrics is not None:
         result["hw_monitor"] = hw_metrics
+    if _SUBPROCESS_MEMORY_LIMIT_BYTES is not None:
+        mem_info: dict = {"limit_bytes": _SUBPROCESS_MEMORY_LIMIT_BYTES}
+        if _peak_bytes_final is not None:
+            mem_info["peak_bytes"] = _peak_bytes_final
+            # Heuristic: peak >= 95% of cap implies the cap was very likely
+            # the cause of a non-zero exit (commits were rejected).
+            if (
+                exit_code != 0
+                and _peak_bytes_final >= int(_SUBPROCESS_MEMORY_LIMIT_BYTES * 0.95)
+            ):
+                mem_info["limit_hit"] = True
+        if job_cap is not None and job_cap.assign_failed:
+            mem_info["assign_failed"] = True
+            if job_cap.assign_error:
+                mem_info["assign_error"] = job_cap.assign_error
+        result["memory_cap"] = mem_info
 
     # Retry once after clearing caches if the failure was due to disk full.
     if exit_code != 0 and not timed_out and _is_no_space_error(result):
@@ -1250,6 +1507,21 @@ def parse_args() -> argparse.Namespace:
             "<model_dir>/<slug>_op_trace.json. Default: disabled."
         ),
     )
+    parser.add_argument(
+        "--memory-limit-gb",
+        dest="memory_limit_gb",
+        type=float,
+        default=None,
+        metavar="GB",
+        help=(
+            "Cap each subprocess tree's committed memory via a Windows Job "
+            "Object. When the cap is exceeded the OS refuses further commits "
+            "so the host stays responsive instead of thrashing. The offender "
+            "typically crashes with a clean OOM and the next model can run. "
+            "Recommended for low-RAM agents (e.g. 24 on a 16 GB machine). "
+            "No-op on non-Windows. Default: disabled."
+        ),
+    )
     parser.add_argument("--list", action="store_true", help="List filtered models and exit")
     parser.add_argument(
         "--list-json",
@@ -1459,6 +1731,20 @@ def main() -> None:
                 "  [warn] --op-tracing has no effect with --eval-type accuracy "
                 "(only the perf phase invokes wmk perf)."
             )
+    if args.memory_limit_gb:
+        _set_subprocess_memory_limit_gb(args.memory_limit_gb)
+        if platform.system() == "Windows":
+            safe_print(
+                f"Memory cap: {args.memory_limit_gb:.1f} GB per subprocess tree "
+                "(Windows Job Object)"
+            )
+        else:
+            safe_print(
+                f"Memory cap: REQUESTED ({args.memory_limit_gb:.1f} GB) but "
+                "non-Windows host — ignored"
+            )
+    else:
+        _set_subprocess_memory_limit_gb(None)
     if retry_types is not None:
         if retry_types:
             safe_print(f"Retry mode: {', '.join(sorted(retry_types))}")
