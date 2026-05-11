@@ -194,6 +194,18 @@ def inspect(
         if not _p.exists():
             raise click.ClickException(f"Local path '{model_id}' does not exist.")
 
+    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+    # is not downloadable for inspect (which targets HF architecture
+    # metadata, not raw ONNX graphs), but surfacing the same friendly
+    # error keeps the UX consistent with local .onnx inputs.
+    from ..loader import is_hf_onnx_path
+
+    if model_id and is_hf_onnx_path(model_id):
+        raise click.ClickException(
+            "ONNX file inspection is not yet supported. "
+            "Use 'winml config -m model.onnx' for ONNX build config."
+        )
+
     # Merge top-level -v/-q with subcommand-level flags so either position
     # works, once and up front. The banner decision below needs the merged
     # --quiet (so both `winml --quiet inspect …` and `winml inspect -q`

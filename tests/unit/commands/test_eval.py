@@ -106,6 +106,37 @@ class TestSinglePlain:
         with pytest.raises(click.BadParameter, match="ONNX file not found"):
             _resolve_model_path(model=(str(missing),), model_id="some/id")
 
+    def test_hub_onnx_ref_is_resolved(self, tmp_path):
+        """Hub-style ONNX refs (``<org>/<repo>/<path>.onnx``) must be
+        downloaded once and treated as the resolved local path -- not
+        rejected by the ``ONNX file not found`` validation that fires
+        for missing local files.
+
+        Regression test for ``winml eval`` on Hub refs like
+        ``onnx-community/sam3-tracker-ONNX/onnx/...``.
+        """
+        from unittest.mock import patch
+
+        local = tmp_path / "vision_encoder_int8.onnx"
+        local.write_bytes(b"")
+        hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+
+        # eval.py does ``from ..loader import resolve_hf_onnx_path``, which
+        # binds the helper name lazily INSIDE _resolve_model_path. Patch on
+        # the loader package re-export so the lazy import sees the mock.
+        with patch(
+            "winml.modelkit.loader.resolve_hf_onnx_path",
+            return_value=local,
+        ) as mock_resolve:
+            path, mid = _resolve_model_path(
+                model=(hub_ref,),
+                model_id="facebook/sam3-tracker",
+            )
+        mock_resolve.assert_called_once()
+        # The Hub ref was resolved to the local path; eval can now load it.
+        assert path == str(local)
+        assert mid == "facebook/sam3-tracker"
+
     def test_multiple_plain_raises(self, onnx_file):
         """Multiple plain -m values without role=path are ambiguous."""
         with pytest.raises(click.UsageError, match="role=path"):

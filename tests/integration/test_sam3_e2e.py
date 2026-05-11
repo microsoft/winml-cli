@@ -36,6 +36,13 @@ if TYPE_CHECKING:
 # while still exercising the is_quantized_onnx branch (skips optimize+quantize).
 SAM3_ONNX_REF = "onnx-community/sam3-tracker-ONNX/onnx/prompt_encoder_mask_decoder_int8.onnx"
 
+# Vision encoder: ~60 MB QOperator-quantized ViT backbone with ConvInteger
+# (no CPU kernel) and 192 MatMulInteger nodes. Exercises the
+# is_quantized_onnx (QOperator detection) + skip_optimize fixes that the
+# decoder above does NOT cover -- the decoder happens to lack ConvInteger
+# so the original "always run optimize" bug went unnoticed for it.
+SAM3_ENCODER_ONNX_REF = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+
 
 @pytest.mark.slow
 @pytest.mark.network
@@ -45,16 +52,24 @@ class TestSam3E2E:
 
     @pytest.fixture(scope="class")
     def sam3_onnx_path(self) -> Path:
-        """Download the SAM 3 Tracker decoder ONNX once for the test class."""
-        pytest.importorskip("huggingface_hub", reason="huggingface_hub required")
+        """Download the SAM 3 Tracker decoder ONNX once for the test class.
+
+        ``huggingface_hub`` is a hard transitive dep (via ``transformers`` /
+        ``optimum``) so we do NOT ``importorskip`` it -- a missing import
+        is a real packaging bug. Network-related download failures are
+        narrowed to the HF Hub error hierarchy + ``OSError`` (DNS, TLS,
+        connection reset) and ONLY those become a skip; any other
+        exception is allowed to surface as a real test failure.
+        """
+        from huggingface_hub.utils import HfHubHTTPError
 
         from winml.modelkit.loader import is_hf_onnx_path, resolve_hf_onnx_path
 
         assert is_hf_onnx_path(SAM3_ONNX_REF)
         try:
             return resolve_hf_onnx_path(SAM3_ONNX_REF)
-        except Exception as e:
-            pytest.skip(f"Could not download {SAM3_ONNX_REF}: {e}")
+        except (HfHubHTTPError, OSError) as e:
+            pytest.skip(f"Network unavailable to download {SAM3_ONNX_REF}: {e}")
 
     def test_resolves_to_local_onnx_file(self, sam3_onnx_path: Path) -> None:
         """The Hub reference resolves to an on-disk .onnx file."""
@@ -68,7 +83,8 @@ class TestSam3E2E:
         from winml.modelkit.onnx import is_quantized_onnx
 
         assert is_quantized_onnx(sam3_onnx_path), (
-            "Expected the int8 variant to contain QuantizeLinear / DequantizeLinear nodes."
+            "Expected the int8 variant to be detected as quantized "
+            "(QDQ pairs and/or QOperator integer ops such as MatMulInteger)."
         )
 
         config = generate_onnx_build_config(
@@ -85,7 +101,14 @@ class TestSam3E2E:
     def test_build_onnx_model_produces_final_artifact(
         self, sam3_onnx_path: Path, tmp_path: Path
     ) -> None:
-        """build_onnx_model runs end-to-end and emits model.onnx."""
+        """build_onnx_model runs end-to-end and emits model.onnx.
+
+        Build failures are NOT silently skipped. A ``RuntimeError`` from
+        ``build_onnx_model`` here means a real regression in the SAM 3
+        pipeline (e.g. the ``ConvInteger`` / ``skip_optimize`` bug fixed
+        in this PR). Letting that surface as a hard failure is precisely
+        the value of an integration test.
+        """
         from winml.modelkit.build import build_onnx_model
         from winml.modelkit.config import generate_onnx_build_config
 
@@ -101,16 +124,13 @@ class TestSam3E2E:
 
         output_dir = tmp_path / "sam3_build"
 
-        try:
-            result = build_onnx_model(
-                onnx_path=sam3_onnx_path,
-                config=config,
-                output_dir=output_dir,
-                rebuild=True,
-                hack_max_optim_iterations=0,  # skip analyzer to keep test fast
-            )
-        except Exception as e:
-            pytest.skip(f"build_onnx_model failed (likely missing runtime dep): {e}")
+        result = build_onnx_model(
+            onnx_path=sam3_onnx_path,
+            config=config,
+            output_dir=output_dir,
+            rebuild=True,
+            hack_max_optim_iterations=0,  # skip analyzer to keep test fast
+        )
 
         final = result.final_onnx_path
         assert final.exists(), f"Expected final artifact at {final}"
@@ -119,3 +139,127 @@ class TestSam3E2E:
         # Validate the final artifact is a structurally valid ONNX model.
         model = onnx.load(str(final), load_external_data=False)
         assert len(model.graph.node) > 0
+
+    def test_analyze_autoconf_runs(self, sam3_onnx_path: Path) -> None:
+        """Analyzer autoconf produces an optimization config for SAM 3.
+
+        Issue #324 explicitly requires verifying that the analyzer's
+        autoconf loop discovers the correct fusion flags. The build test
+        above disables the analyze<->optimize loop with
+        ``hack_max_optim_iterations=0`` to keep CI fast, so this test
+        exercises the autoconf path directly via ``analyze_onnx``.
+
+        ``winml.modelkit.analyze`` is part of this package, so a missing
+        import is a real packaging bug -- not skipped. Analyzer
+        ``RuntimeError`` is a real regression and surfaces loudly.
+        """
+        from winml.modelkit.analyze import analyze_onnx
+
+        result = analyze_onnx(sam3_onnx_path, ep="cpu", autoconf=True)
+
+        # autoconf=True must yield an optimization_config (may be empty
+        # if the model needs no further optimization, but must be present).
+        assert result.optimization_config is not None, (
+            "Expected analyzer to produce an optimization_config when autoconf=True; "
+            "got None which signals the autoconf loop did not run."
+        )
+
+
+@pytest.mark.slow
+@pytest.mark.network
+@pytest.mark.integration
+class TestSam3EncoderE2E:
+    """SAM 3 vision encoder (QOperator format with ConvInteger) end-to-end.
+
+    Regression test for two bugs found while wiring SAM 3 support:
+
+    1. ``is_quantized_onnx`` only detected QDQ format and missed
+       ``QuantFormat.QOperator`` exports (``ConvInteger`` /
+       ``MatMulInteger`` / ``QLinear*``). The encoder was therefore
+       routed through the optimize + quantize stages.
+    2. The pre-quantized branches in ``build_onnx_model`` and
+       ``_build_onnx_pipeline`` named themselves "skip optimize" but
+       still invoked ``optimize_onnx`` -> ``ort_graph``, which loads the
+       model into an ORT session and crashes for QOperator models on
+       hosts (e.g. CPU-only) without a ``ConvInteger`` kernel.
+
+    The fix wires a real ``skip_optimize=True`` knob through both
+    pipelines. This test downloads the ~60 MB encoder and asserts the
+    full pipeline succeeds without invoking the optimizer.
+    """
+
+    @pytest.fixture(scope="class")
+    def encoder_onnx_path(self) -> Path:
+        """Download the SAM 3 Tracker vision encoder ONNX once for the class.
+
+        Network failures are narrowed to the HF Hub error hierarchy +
+        ``OSError`` and only those become a skip; any other exception
+        surfaces as a real test failure.
+        """
+        from huggingface_hub.utils import HfHubHTTPError
+
+        from winml.modelkit.loader import is_hf_onnx_path, resolve_hf_onnx_path
+
+        assert is_hf_onnx_path(SAM3_ENCODER_ONNX_REF)
+        try:
+            return resolve_hf_onnx_path(SAM3_ENCODER_ONNX_REF)
+        except (HfHubHTTPError, OSError) as e:
+            pytest.skip(f"Network unavailable to download {SAM3_ENCODER_ONNX_REF}: {e}")
+
+    def test_encoder_is_detected_as_quantized(self, encoder_onnx_path: Path) -> None:
+        """The QOperator-quantized encoder is recognized by is_quantized_onnx."""
+        from winml.modelkit.onnx import is_quantized_onnx
+
+        assert is_quantized_onnx(encoder_onnx_path), (
+            "Expected QOperator-quantized encoder to be detected by "
+            "is_quantized_onnx (regression: previously only QDQ format was checked)."
+        )
+
+    def test_build_encoder_skips_optimize_and_succeeds(
+        self, encoder_onnx_path: Path, tmp_path: Path
+    ) -> None:
+        """``build_onnx_model`` runs end-to-end on the encoder without optimize.
+
+        Build failures are NOT silently skipped -- a ``RuntimeError`` here
+        means a regression in the QOperator detection / skip_optimize fix
+        that this test exists to lock down.
+        """
+        from winml.modelkit.build import build_onnx_model
+        from winml.modelkit.config import generate_onnx_build_config
+
+        config = generate_onnx_build_config(
+            encoder_onnx_path,
+            task="image-feature-extraction",
+            device="cpu",
+            precision="auto",
+        )
+        # Sanity: pre-quantized models must skip the quant stage.
+        assert config.quant is None, (
+            "Expected pre-quantized encoder to set config.quant=None; "
+            "got a quant config which would re-quantize an already-int8 model."
+        )
+        config.compile = None  # No NPU on the test host.
+
+        output_dir = tmp_path / "sam3_encoder_build"
+
+        result = build_onnx_model(
+            onnx_path=encoder_onnx_path,
+            config=config,
+            output_dir=output_dir,
+            rebuild=True,
+            hack_max_optim_iterations=0,
+        )
+
+        final = result.final_onnx_path
+        assert final.exists(), f"Expected final artifact at {final}"
+        assert final.stat().st_size > 0
+
+        # Validate the final artifact is structurally a valid ONNX model
+        # and still contains the QOperator ops (proof we did not strip them
+        # by accidentally running graph optimization).
+        model = onnx.load(str(final), load_external_data=False)
+        op_types = {n.op_type for n in model.graph.node}
+        assert "ConvInteger" in op_types, (
+            "Final encoder should still contain ConvInteger nodes -- "
+            "presence proves optimize was correctly skipped."
+        )

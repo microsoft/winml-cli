@@ -374,6 +374,45 @@ class TestPerfUnifiedPipeline:
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
+    def test_cli_hub_onnx_ref_is_resolved(self, runner: CliRunner, tmp_path: Path) -> None:
+        """CLI with a Hub-style ONNX ref must download once before the
+        ``Path(...).suffix == '.onnx' and exists()`` check, otherwise the
+        ref string is mistaken for a missing local file and rejected with
+        ``FileNotFoundError`` before any HF Hub call happens.
+
+        Regression test for ``winml perf -m
+        onnx-community/sam3-tracker-ONNX/onnx/...``.
+        """
+        local = tmp_path / "vision_encoder_int8.onnx"
+        local.write_bytes(b"fake onnx")
+        hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+
+        with (
+            patch(
+                "winml.modelkit.loader.maybe_resolve_hf_onnx_path",
+                return_value=str(local),
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.commands.perf._run_onnx_benchmark",
+                return_value=MagicMock(),
+            ) as mock_run,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                ["-m", hub_ref, "-o", str(tmp_path / "out.json")],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_resolve.assert_called_once_with(hub_ref)
+        # After resolution, the Hub ref reaches _run_onnx_benchmark as
+        # the LOCAL path -- not the original Hub ref string.
+        mock_run.assert_called_once()
+        called_path = mock_run.call_args.args[0]
+        assert called_path == local
+
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
         """EP argument should be forwarded to from_onnx."""
         onnx_file = tmp_path / "model.onnx"

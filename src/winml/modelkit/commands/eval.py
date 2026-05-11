@@ -482,7 +482,13 @@ def _resolve_model_path(
 
     value = plain[0]
     if Path(value).suffix.lower() == ".onnx":
-        if not Path(value).exists():
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is downloaded once and treated as a local .onnx path thereafter.
+        from ..loader import is_hf_onnx_path, resolve_hf_onnx_path
+
+        if is_hf_onnx_path(value):
+            value = str(resolve_hf_onnx_path(value))
+        elif not Path(value).exists():
             raise click.BadParameter(
                 f"ONNX file not found: {value}",
                 param_hint="-m/--model",

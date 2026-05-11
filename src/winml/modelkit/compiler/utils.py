@@ -19,6 +19,40 @@ if TYPE_CHECKING:
 QDQ_OP_TYPES: frozenset[str] = frozenset({"QuantizeLinear", "DequantizeLinear"})
 
 
+# Canonical definition of ONNX QOperator-style quantization op types.
+# QOperator format encodes quantization directly in fused integer ops
+# (e.g. ``ConvInteger``, ``MatMulInteger``, ``QLinearConv``) rather than
+# the explicit QuantizeLinear/DequantizeLinear pairs used by QDQ format.
+# Models exported through ``onnxruntime.quantization`` with
+# ``QuantFormat.QOperator`` (or sourced from Hub repos like
+# ``onnx-community/sam3-tracker-ONNX``) use this format.
+QOPERATOR_OP_TYPES: frozenset[str] = frozenset(
+    {
+        # Direct integer ops (input is already int8, weights are int8)
+        "ConvInteger",
+        "MatMulInteger",
+        # QLinear-prefixed ops (input + output are int8 with scale/zero-point)
+        "QLinearConv",
+        "QLinearMatMul",
+        "QLinearAdd",
+        "QLinearMul",
+        "QLinearLeakyRelu",
+        "QLinearSigmoid",
+        "QLinearGlobalAveragePool",
+        "QLinearAveragePool",
+        "QLinearReduceMean",
+        "QLinearConcat",
+        "QLinearSoftmax",
+    }
+)
+
+
+# Union of all quantization op types (QDQ + QOperator). Use this for
+# "is the model already quantized?" detection regardless of which format
+# the producer used.
+QUANTIZATION_OP_TYPES: frozenset[str] = QDQ_OP_TYPES | QOPERATOR_OP_TYPES
+
+
 def needs_format_conversion(model_path: Path, ep: EPAlias) -> bool:
     """Check if model's quant format is compatible with target EP.
 

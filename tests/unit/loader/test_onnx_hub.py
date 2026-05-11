@@ -18,6 +18,7 @@ import pytest
 from winml.modelkit.loader.onnx_hub import (
     _split_hf_onnx_path,
     is_hf_onnx_path,
+    maybe_resolve_hf_onnx_path,
     resolve_hf_onnx_path,
 )
 
@@ -141,3 +142,83 @@ class TestResolveHfOnnxPath:
             result = resolve_hf_onnx_path("org/repo/onnx/vision_encoder.onnx")
 
         assert result == downloaded
+
+    def test_sidecar_oserror_warns_loudly(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Sidecar download OSError is logged at WARNING (not silently ignored).
+
+        Regression: a previous implementation swallowed any
+        ``OSError`` (disk full, permission denied, network blip) at
+        ``logger.debug`` level. That hid real environmental problems and
+        led to confusing failures later when the model loader tried to
+        resolve missing external initializers. This test verifies the
+        warning is emitted so the user sees something is wrong.
+        """
+        import logging
+
+        downloaded = tmp_path / "vision_encoder.onnx"
+        downloaded.write_bytes(b"")
+
+        def _fake_download(*, repo_id, filename, revision, cache_dir, token):
+            if filename.endswith(".onnx_data"):
+                raise OSError("disk full")
+            return str(downloaded)
+
+        with (
+            patch("huggingface_hub.hf_hub_download", side_effect=_fake_download),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.loader.onnx_hub"),
+        ):
+            result = resolve_hf_onnx_path("org/repo/onnx/vision_encoder.onnx")
+
+        # Main download still succeeds even when the sidecar fails.
+        assert result == downloaded
+        # Critically: the OSError must surface as a WARNING.
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        warning_messages = [r.getMessage() for r in warning_records]
+        assert any("disk full" in m for m in warning_messages), (
+            f"Expected a WARNING containing 'disk full'; got {warning_messages}"
+        )
+
+
+class TestMaybeResolveHfOnnxPath:
+    """Convenience wrapper that combines is_hf_onnx_path + resolve_hf_onnx_path."""
+
+    def test_none_passes_through(self) -> None:
+        """``None`` returns ``None`` without touching the network."""
+        with patch("huggingface_hub.hf_hub_download") as mock:
+            assert maybe_resolve_hf_onnx_path(None) is None
+            mock.assert_not_called()
+
+    def test_plain_hf_model_id_passes_through(self) -> None:
+        """An HF model id (e.g. ``microsoft/resnet-50``) is returned unchanged."""
+        with patch("huggingface_hub.hf_hub_download") as mock:
+            assert maybe_resolve_hf_onnx_path("microsoft/resnet-50") == "microsoft/resnet-50"
+            mock.assert_not_called()
+
+    def test_local_path_passes_through(self, tmp_path: Path) -> None:
+        """Existing local ``.onnx`` paths take precedence over Hub interpretation."""
+        local = tmp_path / "model.onnx"
+        local.write_bytes(b"")
+        with patch("huggingface_hub.hf_hub_download") as mock:
+            assert maybe_resolve_hf_onnx_path(str(local)) == str(local)
+            mock.assert_not_called()
+
+    def test_hub_ref_is_resolved(self, tmp_path: Path) -> None:
+        """A Hub-style ONNX ref triggers ``resolve_hf_onnx_path``."""
+        from huggingface_hub.utils import EntryNotFoundError
+
+        downloaded = tmp_path / "vision_encoder_int8.onnx"
+        downloaded.write_bytes(b"")
+
+        def _fake_download(*, repo_id, filename, revision, cache_dir, token):
+            if filename.endswith(".onnx_data"):
+                raise EntryNotFoundError(filename)
+            return str(downloaded)
+
+        with patch("huggingface_hub.hf_hub_download", side_effect=_fake_download):
+            result = maybe_resolve_hf_onnx_path(
+                "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+            )
+
+        assert result == str(downloaded)

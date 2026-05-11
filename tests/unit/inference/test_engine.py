@@ -366,6 +366,34 @@ class TestLoadSchemaOnly:
         engine.load_schema_only(tmp_path, task="image-classification")
         assert engine._task == "image-classification"
 
+    def test_hub_onnx_ref_is_resolved_before_routing(self, tmp_path: Any) -> None:
+        """A Hub-style ONNX ref (``<org>/<repo>/<path>.onnx``) must be
+        resolved to a local path BEFORE the .onnx-suffix-and-exists check,
+        otherwise it falls through to the HF model-id branch and tries to
+        load a Hub-ONNX path string as if it were a transformers config.
+
+        Regression test for ``winml run`` and ``winml serve`` on Hub refs
+        like ``onnx-community/sam3-tracker-ONNX/onnx/...``.
+        """
+        from unittest.mock import patch
+
+        local = tmp_path / "vision_encoder_int8.onnx"
+        local.write_bytes(b"fake-onnx")
+        hub_ref = "onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx"
+
+        engine = InferenceEngine()
+        with patch(
+            "winml.modelkit.loader.maybe_resolve_hf_onnx_path",
+            return_value=str(local),
+        ) as mock_resolve:
+            engine.load_schema_only(hub_ref, task="mask-generation")
+        mock_resolve.assert_called_once()
+        # After resolution the engine should treat the input as a local
+        # ONNX file (not as an HF model id), which means _model_id is the
+        # resolved local path string, not the original Hub ref.
+        assert engine._model_id == str(local)
+        assert engine._task == "mask-generation"
+
 
 # ---------------------------------------------------------------------------
 # _sanitize_numpy

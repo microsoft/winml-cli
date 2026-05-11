@@ -37,6 +37,7 @@ def run_optimize_analyze_loop(
     device: str | None = None,
     max_optim_iterations: int = 0,
     allow_unsupported_nodes: bool = False,
+    skip_optimize: bool = False,
     on_ep_start: Any = None,
     on_node_result: Any = None,
     on_iteration_start: Any = None,
@@ -48,7 +49,7 @@ def run_optimize_analyze_loop(
     """Optimize an ONNX model, analyze, and optionally re-optimize via autoconf.
 
     Flow:
-        1. Optimize with ``config.optim`` flags
+        1. Optimize with ``config.optim`` flags (skipped if ``skip_optimize=True``)
         2. Analyze the result (lint + autoconf discovery)
         3. For up to ``max_optim_iterations``: if autoconf found new flags,
            re-optimize and re-analyze
@@ -69,6 +70,11 @@ def run_optimize_analyze_loop(
         analyze_output_path: Optional path to write the full analysis result as
             JSON. Written after every analyze pass; each pass overwrites the
             previous one so the file always reflects the most recent analysis.
+        skip_optimize: When True, skip the initial ``optimize_onnx`` call and
+            just copy the input model to ``optimized_path``. Used for
+            pre-quantized models (QDQ or QOperator format) where ORT-based
+            graph optimization would fail because the runtime lacks kernels
+            for ops like ``ConvInteger`` on the host EP.
         **onnx_kwargs: Additional ONNX-level kwargs.
 
     Returns:
@@ -83,13 +89,21 @@ def run_optimize_analyze_loop(
 
     t0 = time.monotonic()
 
-    # 1. Optimize
-    optimize_onnx(
-        model=model_path,
-        output=optimized_path,
-        **onnx_kwargs,
-        **config.optim,
-    )
+    # 1. Optimize (or skip for pre-quantized models)
+    if skip_optimize:
+        # Pre-quantized models (QOperator format with ConvInteger /
+        # MatMulInteger) cannot pass through ORT graph optimization on
+        # hosts that lack kernels for those integer ops. Simply forward
+        # the input as the "optimized" artifact.
+        if model_path.resolve() != optimized_path.resolve():
+            copy_onnx_model(model_path, optimized_path)
+    else:
+        optimize_onnx(
+            model=model_path,
+            output=optimized_path,
+            **onnx_kwargs,
+            **config.optim,
+        )
     current_path = optimized_path
 
     # Autoconf: analyze model, discover missing optimizations, re-optimize
