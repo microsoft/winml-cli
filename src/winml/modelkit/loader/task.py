@@ -257,6 +257,43 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
             "Please specify model_class explicitly."
         )
 
+    # [3a] Per-model-type default task override.
+    # Some model families (e.g., SAM/SAM2) have an architecture class whose
+    # default TasksManager mapping ("feature-extraction") differs from the
+    # canonical export target ("mask-generation"). The default is encoded as
+    # a sentinel entry MODEL_CLASS_MAPPING[(model_type, None)] = <class>;
+    # we reverse-lookup the task name from the matching
+    # (model_type, default_task) -> same_class entry. This keeps the data in
+    # one table and structurally enforces that the matching class entry exists.
+    from ..models.hf import MODEL_CLASS_MAPPING
+
+    model_type_normalized = model_type.lower().replace("_", "-")
+    default_class = MODEL_CLASS_MAPPING.get((model_type_normalized, None))
+    if default_class is not None:
+        default_task = next(
+            (
+                t
+                for (mt, t), cls in MODEL_CLASS_MAPPING.items()
+                if mt == model_type_normalized and t is not None and cls is default_class
+            ),
+            None,
+        )
+        if default_task is None:
+            raise ValueError(
+                f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
+                f"-> {default_class.__name__}, but no matching "
+                f"({model_type_normalized!r}, <task>) entry maps to that class. "
+                f"Add the corresponding (model_type, task) entry."
+            )
+        if default_task != task:
+            logger.info(
+                "Overriding auto-detected task %r with model-type default %r for %s",
+                task,
+                default_task,
+                model_type_normalized,
+            )
+        return default_task, default_class
+
     # [4] Check specializations first (CLIP, SAM2, etc.) - highest priority
     model_class = _get_custom_model_class(model_type, task)
     if model_class:
