@@ -40,6 +40,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MODEL_TASK_DEFAULTS: dict[str, str] = {
+    "prajjwal1/bert-tiny": "feature-extraction",
+}
+
 # Priority-ordered list of HF ecosystem modules to search for model classes.
 # transformers first (most common), then specialized libraries.
 _HF_MODEL_MODULES = [
@@ -218,6 +222,11 @@ def load_hf_model(
         # Detect task if not provided
         task = _detect_task_from_config(hf_config) if task is None else normalize_task(task)
     else:
+        if task is None and model_class is None:
+            task = _MODEL_TASK_DEFAULTS.get(model_name_or_path.strip().lower())
+            if task is not None:
+                logger.info("Using model-specific default task %s for %s", task, model_name_or_path)
+
         # Standard resolution via resolve_task_and_model_class()
         try:
             task, resolved_class = resolve_task_and_model_class(

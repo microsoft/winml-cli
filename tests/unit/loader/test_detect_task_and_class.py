@@ -22,41 +22,21 @@ from winml.modelkit.loader.task import _detect_task_and_class_from_config
 class TestDetectTaskAndClassFromConfig:
     """Tests for _detect_task_and_class_from_config function."""
 
-    def test_missing_architectures_defaults_to_feature_extraction(self):
-        """Config without architectures should fallback to feature-extraction."""
+    def test_missing_architectures_raises_error(self):
+        """Test ValueError when config has no architectures field."""
         config = MagicMock()
         config.architectures = None
-        config.model_type = "bert"
-        mock_class = MagicMock()
-        mock_class.__name__ = "AutoModel"
 
-        with patch(
-            "optimum.exporters.tasks.TasksManager.get_model_class_for_task",
-            return_value=mock_class,
-        ) as mock_get_model_class:
-            task, resolved_class = _detect_task_and_class_from_config(config)
+        with pytest.raises(ValueError, match="no 'architectures' field"):
+            _detect_task_and_class_from_config(config)
 
-        assert task == "feature-extraction"
-        assert resolved_class is mock_class
-        mock_get_model_class.assert_called_once_with("feature-extraction")
-
-    def test_empty_architectures_defaults_to_feature_extraction(self):
-        """Empty architectures list should fallback to feature-extraction."""
+    def test_empty_architectures_raises_error(self):
+        """Test ValueError when config.architectures is empty list."""
         config = MagicMock()
         config.architectures = []
-        config.model_type = "bert"
-        mock_class = MagicMock()
-        mock_class.__name__ = "AutoModel"
 
-        with patch(
-            "optimum.exporters.tasks.TasksManager.get_model_class_for_task",
-            return_value=mock_class,
-        ) as mock_get_model_class:
-            task, resolved_class = _detect_task_and_class_from_config(config)
-
-        assert task == "feature-extraction"
-        assert resolved_class is mock_class
-        mock_get_model_class.assert_called_once_with("feature-extraction")
+        with pytest.raises(ValueError, match="no 'architectures' field"):
+            _detect_task_and_class_from_config(config)
 
     def test_invalid_architecture_raises_error(self):
         """Test ValueError when architecture cannot be imported from transformers."""
