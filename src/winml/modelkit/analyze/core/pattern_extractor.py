@@ -10,12 +10,14 @@ Implements FR-003 (Extract patterns), FR-011 (Pattern detection), FR-004 (Subgra
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, TypedDict
 
 from ...pattern.base import InvalidPatternMatcherModelError, PatternMatcher
 from ...pattern.config import UnifiedPatternConfig
 from ..models.onnx_model import ONNXModel
 from ..models.output import extract_model_stats
+from ..utils.timing_utils import make_timing_logger
 
 
 if TYPE_CHECKING:
@@ -38,6 +40,7 @@ class PatternSummary(TypedDict):
 HTPMetadata = dict[str, dict[str, str] | dict[str, object]]
 
 logger = logging.getLogger(__name__)
+_log_timing = make_timing_logger(logger)
 
 
 class PatternExtractor:
@@ -128,18 +131,36 @@ class PatternExtractor:
                 - subgraph_patterns: List[PatternMatchResult] (from extract_subgraph_patterns())
         """
         logger.info("Generating pattern analysis summary")
+        total_start = time.perf_counter()
 
         # Extract subgraph patterns
+        subgraph_start = time.perf_counter()
         subgraph_patterns = self.extract_subgraph_patterns()
+        subgraph_ms = int((time.perf_counter() - subgraph_start) * 1000)
 
         # Build pattern count dict: pattern_id -> count
+        count_dict_start = time.perf_counter()
         pattern_count_dict: dict[str, int] = {}
         for pattern_match in subgraph_patterns:
             pattern_id = pattern_match.pattern.pattern_id
             pattern_count_dict[pattern_id] = pattern_count_dict.get(pattern_id, 0) + 1
+        count_dict_ms = int((time.perf_counter() - count_dict_start) * 1000)
 
         # Generate model summary with pattern count dict
+        model_summary_start = time.perf_counter()
         metadata = self.model_summary(detected_pattern_count=pattern_count_dict)
+        model_summary_ms = int((time.perf_counter() - model_summary_start) * 1000)
+
+        _log_timing(
+            "pattern_extractor.summary",
+            model=self._model.model_path,
+            detected_subgraph_patterns=len(subgraph_patterns),
+            unique_pattern_ids=len(pattern_count_dict),
+            extract_subgraph_ms=subgraph_ms,
+            build_count_dict_ms=count_dict_ms,
+            model_summary_ms=model_summary_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
+        )
 
         return {
             "summary": metadata,
@@ -167,12 +188,16 @@ class PatternExtractor:
             - Actual node names from the model graph as values
         """
         logger.info("Extracting subgraph patterns from model")
+        total_start = time.perf_counter()
 
         # Get available subgraph pattern definitions
+        get_pattern_defs_start = time.perf_counter()
         pattern_defs = self.get_subgraph_patterns()
+        get_pattern_defs_ms = int((time.perf_counter() - get_pattern_defs_start) * 1000)
 
         # Match patterns against model graph
         detected_matches: list[PatternMatchResult] = []
+        metadata_tag_match_start = time.perf_counter()
 
         for pattern_def in pattern_defs:
             # Try HTP metadata-based matching first if available
@@ -185,14 +210,18 @@ class PatternExtractor:
             # Fall back to hierarchy_tag attribute-based matching
             matches = self._match_subgraph_pattern_from_model_tags(pattern_def)
             detected_matches.extend(matches)
+        metadata_tag_match_ms = int((time.perf_counter() - metadata_tag_match_start) * 1000)
 
         # Use PatternMatcher for skeleton-based pattern detection
         logger.info("Using PatternMatcher for skeleton-based pattern detection")
+        pattern_matcher_start = time.perf_counter()
         pattern_matcher_matches = self.extract_subgraph_patterns_with_pattern_matcher()
+        pattern_matcher_ms = int((time.perf_counter() - pattern_matcher_start) * 1000)
 
         # Deduplicate PatternMatcher results against existing matches
         # Priority: HTP metadata > hierarchy_tag > PatternMatcher
         # Collect node sets from existing matches (from HTP/tag)
+        dedup_start = time.perf_counter()
         existing_node_sets: set[frozenset[str]] = {
             frozenset(match.matched_nodes) for match in detected_matches
         }
@@ -221,11 +250,26 @@ class PatternExtractor:
 
         # Add filtered PatternMatcher matches
         detected_matches.extend(filtered_matcher_matches)
+        dedup_ms = int((time.perf_counter() - dedup_start) * 1000)
 
         logger.info(
             "Detected %d total subgraph pattern matches (including %d unique from PatternMatcher)",
             len(detected_matches),
             len(filtered_matcher_matches),
+        )
+        _log_timing(
+            "pattern_extractor.extract_subgraph_patterns",
+            model=self._model.model_path,
+            pattern_defs=len(pattern_defs),
+            matches_before_matcher=len(existing_node_sets),
+            matcher_matches=len(pattern_matcher_matches),
+            matcher_unique_added=len(filtered_matcher_matches),
+            matcher_dropped_as_duplicate=dropped_count,
+            get_pattern_defs_ms=get_pattern_defs_ms,
+            metadata_tag_match_ms=metadata_tag_match_ms,
+            pattern_matcher_ms=pattern_matcher_ms,
+            dedup_ms=dedup_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
         return detected_matches
 
@@ -245,36 +289,65 @@ class PatternExtractor:
             4. Return all detected pattern matches
         """
         logger.info("Extracting subgraph patterns using PatternMatcher")
+        total_start = time.perf_counter()
 
         # Get model proto for PatternMatcher
+        get_model_start = time.perf_counter()
         model_proto = self._model.get_model()
+        get_model_ms = int((time.perf_counter() - get_model_start) * 1000)
 
         # Create PatternMatcher instance - may raise InvalidPatternMatcherModelError
         try:
+            matcher_init_start = time.perf_counter()
             matcher = PatternMatcher(model_proto, model_path=self._model.model_path)
+            matcher_init_ms = int((time.perf_counter() - matcher_init_start) * 1000)
         except InvalidPatternMatcherModelError as e:
             # Model is invalid for pattern matching (e.g., nodes with empty names)
             logger.warning("Model validation failed for pattern matching: %s", str(e))
             # Mark model with the exception's associated tag and error message
             self._model.model_tags[e.error_tag] = str(e)
+            _log_timing(
+                "pattern_extractor.pattern_matcher",
+                model=self._model.model_path,
+                failed=True,
+                error_tag=e.error_tag,
+                get_model_ms=get_model_ms,
+                total_ms=int((time.perf_counter() - total_start) * 1000),
+            )
             return []
 
         # Register patterns from the unified pattern config
+        load_patterns_start = time.perf_counter()
         config = UnifiedPatternConfig()
         patterns_to_register = config.get_skeleton_patterns()
+        load_patterns_ms = int((time.perf_counter() - load_patterns_start) * 1000)
 
         if not patterns_to_register:
             logger.warning("No patterns available in config")
+            _log_timing(
+                "pattern_extractor.pattern_matcher",
+                model=self._model.model_path,
+                failed=True,
+                reason="no_patterns_in_config",
+                get_model_ms=get_model_ms,
+                matcher_init_ms=matcher_init_ms,
+                load_patterns_ms=load_patterns_ms,
+                total_ms=int((time.perf_counter() - total_start) * 1000),
+            )
             return []
 
+        register_start = time.perf_counter()
         for pattern in patterns_to_register:
             matcher.register_pattern(pattern)
+        register_ms = int((time.perf_counter() - register_start) * 1000)
 
         logger.info("Registered %d patterns for matching", len(patterns_to_register))
 
         # Perform pattern matching
         logger.info("Calling PatternMatcher.match()...")
+        match_start = time.perf_counter()
         pattern_matches = matcher.match()
+        match_ms = int((time.perf_counter() - match_start) * 1000)
         logger.info("PatternMatcher found %d matches", len(pattern_matches))
 
         if not pattern_matches:
@@ -297,6 +370,18 @@ class PatternExtractor:
         logger.info(
             "Extracted %d subgraph patterns using PatternMatcher",
             len(pattern_matches),
+        )
+        _log_timing(
+            "pattern_extractor.pattern_matcher",
+            model=self._model.model_path,
+            patterns_registered=len(patterns_to_register),
+            matches=len(pattern_matches),
+            get_model_ms=get_model_ms,
+            matcher_init_ms=matcher_init_ms,
+            load_patterns_ms=load_patterns_ms,
+            register_ms=register_ms,
+            match_ms=match_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
         return pattern_matches
 
