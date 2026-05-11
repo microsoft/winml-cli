@@ -121,7 +121,7 @@ include = [ "winml", "winml.*" ]
 "winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
   "rules/**/*.json",
-  "rules/**/*.zip",
+  "rules/**/*.parquet",
   "runtime_checker/need_rerun_errors.json",
 ]
 "winml.modelkit.export" = [
