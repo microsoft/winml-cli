@@ -466,7 +466,7 @@ canvas.spark{width:100%;height:60px;display:block}
       <!-- ── HUB CATALOG ── -->
       <div>
         <div class="section-hd">
-          <h3>Hub Catalog</h3>
+          <h3>ModelKit Catalog</h3>
           <span class="section-hd-count" id="hubCount">—</span>
           <div class="section-hd-spacer"></div>
           <div class="hub-toolbar" style="margin:0">
@@ -1510,6 +1510,13 @@ function renderHubCards() {
   }).join('');
 }
 
+function _typeColor(modelType) {
+  const palette = ['#5b8dee','#3ecf8e','#f5a623','#c47ee8','#4ecdc4','#f06070'];
+  let hash = 0;
+  for (let i = 0; i < modelType.length; i++) hash += modelType.charCodeAt(i);
+  return palette[hash % palette.length];
+}
+
 function _renderHubCard(m) {
   const isRunning = _loadedModelIds.has(m.model_id);
   const [org, name] = m.model_id.includes('/') ? m.model_id.split('/', 2) : ['', m.model_id];
@@ -1527,13 +1534,14 @@ function _renderHubCard(m) {
                      : overallVerdict === 'AT_RISK' ? 'verdict-risk' : 'verdict-fail';
   const verdictLabel = overallVerdict === 'PASS' ? 'PASS' : overallVerdict === 'AT_RISK' ? 'AT RISK' : 'REGRESSION';
 
-  return `<div class="hub-card${isRunning?' running':''}">
+  const typeColor = m.model_type ? _typeColor(m.model_type) : 'var(--border)';
+  return `<div class="hub-card${isRunning?' running':''}" style="border-left:3px solid ${typeColor}">
     <div>
       <div class="hub-card-org">${escHtml(org)}/</div>
       <div class="hub-card-name" title="${escHtml(m.model_id)}">${escHtml(name)}</div>
     </div>
     <div class="hub-card-meta">
-      ${m.model_type ? `<span class="tag" style="font-size:9px;background:var(--surface2);color:var(--text2)">${escHtml(m.model_type)}</span>` : ''}
+      ${m.model_type ? `<span class="tag" style="font-size:9px;background:${typeColor}22;color:${typeColor}">${escHtml(m.model_type)}</span>` : ''}
       ${(m.source||'').includes('built-in') ? '<span class="tag" style="font-size:9px;background:rgba(62,207,142,.15);color:var(--green)">built-in</span>' : ''}
       ${(m.source||'').includes('cache') ? '<span class="tag" style="font-size:9px;background:rgba(246,185,59,.15);color:var(--yellow)">cached</span>' : ''}
     </div>
