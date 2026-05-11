@@ -359,19 +359,31 @@ class SAMMaskGeneration(torch.nn.Module):
 
 # (model_type, task) -> HuggingFace model class
 #
-# Why SAM2 needs class mapping:
-# TasksManager detects "feature-extraction" by default for Sam2VideoModel.
-# We override to Sam2VisionEncoder for encoder-only export (loads parent
-# Sam2VideoModel and extracts vision_encoder to get correct weights).
-# "image-feature-extraction" routes perf pipeline to ImageDataset.
-# Users wanting the full model use --task image-segmentation.
+# A sentinel entry with task=None encodes the per-model-type default task
+# applied during auto-detection (when the user does not pass --task). Its
+# value is the default *class*; the resolver reverse-looks-up the task name
+# from the matching (model_type, default_task) -> same_class entry. Encoding
+# the default inside MODEL_CLASS_MAPPING — instead of a parallel
+# MODEL_TASK_DEFAULTS table — keeps the data in one place and structurally
+# enforces that a matching class entry must exist (else reverse lookup fails).
+#
+# Why SAM/SAM2 need this:
+# TasksManager.infer_task_from_model() returns "feature-extraction" for
+# SamModel / Sam2Model, but the canonical export target for these
+# architectures is the mask-generation decoder wrapper. Encoder-only entries
+# remain so users can opt in via --task feature-extraction /
+# image-feature-extraction (the latter routes perf pipeline to ImageDataset).
+# Users wanting the full encoder+decoder monolith use --task image-segmentation.
 
-MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
+    ("sam", None): SAMMaskGeneration,
     ("sam", "mask-generation"): SAMMaskGeneration,
+    ("sam2", None): SAM2MaskGeneration,
     ("sam2", "image-segmentation"): Sam2Model,
     ("sam2", "feature-extraction"): Sam2VisionEncoder,
     ("sam2", "image-feature-extraction"): Sam2VisionEncoder,
     ("sam2", "mask-generation"): SAM2MaskGeneration,
+    ("sam2-video", None): SAM2MaskGeneration,
     ("sam2-video", "image-segmentation"): Sam2Model,
     ("sam2-video", "feature-extraction"): Sam2VisionEncoder,
     ("sam2-video", "image-feature-extraction"): Sam2VisionEncoder,
@@ -1023,6 +1035,7 @@ class SamMaskGenerationIOConfig(OnnxConfig):
 
 
 __all__ = [
+    "MODEL_CLASS_MAPPING",
     "SAM2MaskGeneration",
     "SAMMaskGeneration",
     "Sam2IOConfig",

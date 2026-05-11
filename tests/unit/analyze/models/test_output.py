@@ -271,9 +271,9 @@ class TestAnalysisOutputValidation:
                 ],
             )
 
-    def test_max_three_ihv_results(self):
-        """Test that results list has max 3 items."""
-        # Valid: 3 results
+    def test_max_four_ihv_results(self):
+        """Test that results list has max 4 items."""
+        # Valid: 4 results
         output = AnalysisOutput(
             analyzer_version="1.0.0",
             metadata=ModelStats(
@@ -321,9 +321,21 @@ class TestAnalysisOutputValidation:
                     has_errors=False,
                     has_warnings=False,
                 ),
+                EPSupport(
+                    ihv_type=IHVType.NVIDIA,
+                    ep_type="NvTensorRTRTXExecutionProvider",
+                    runtime_support=True,
+                    classification={
+                        SupportLevel.SUPPORTED: [],
+                        SupportLevel.PARTIAL: [],
+                        SupportLevel.UNSUPPORTED: [],
+                    },
+                    has_errors=False,
+                    has_warnings=False,
+                ),
             ],
         )
-        assert len(output.results) == 3
+        assert len(output.results) == 4
 
     def test_model_dump_json_serialization(self):
         """Test that model_dump_json() produces valid JSON."""
