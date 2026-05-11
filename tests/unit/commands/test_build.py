@@ -324,6 +324,69 @@ class TestBuildConfigOverrides:
         assert config.quant is None
         assert config.compile is None
 
+    def test_compile_inherited_from_config_when_no_flag(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """No --compile/--no-compile → compile section from config is preserved."""
+        from winml.modelkit.commands.build import build
+
+        runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path)],
+            obj={"debug": False},
+        )
+        config = mock_build_api.call_args.kwargs["config"]
+        assert config.compile is not None
+
+    def test_compile_flag_on_config_without_compile_raises(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """--compile on a config that has no compile section raises a UsageError."""
+        from winml.modelkit.commands.build import build
+
+        cfg = tmp_path / "no_compile.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "loader": {"task": "image-classification"},
+                    "export": {"opset_version": 17, "batch_size": 1},
+                    "optim": {},
+                    "compile": None,
+                }
+            )
+        )
+        result = runner.invoke(
+            build,
+            ["-c", str(cfg), "-m", "test", "-o", str(tmp_path), "--compile"],
+            obj={"debug": False},
+        )
+        assert result.exit_code != 0
+        assert "compile" in result.output.lower()
+
+    def test_compile_flag_on_config_with_compile_succeeds(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--compile on a config that already has a compile section succeeds and preserves it."""
+        from winml.modelkit.commands.build import build
+
+        runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path), "--compile"],
+            obj={"debug": False},
+        )
+        config = mock_build_api.call_args.kwargs["config"]
+        assert config.compile is not None
+
 
 # =============================================================================
 # REUSE REPORTING TESTS
