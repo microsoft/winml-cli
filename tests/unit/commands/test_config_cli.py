@@ -375,7 +375,7 @@ class TestConfigOnnxQdqDetection:
         assert data.get("quant") is None, "QDQ detection should take precedence over -d npu -p w8a8"
 
     def test_non_qdq_onnx_has_default_quant(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Config for non-QDQ ONNX should have default quant settings (not null)."""
+        """Config for non-QDQ ONNX with explicit device should have quant settings (not null)."""
         from winml.modelkit.commands.config import config
 
         onnx_file = tmp_path / "normal.onnx"
@@ -385,11 +385,11 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=False),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file)])
+            result = runner.invoke(config, ["-m", str(onnx_file), "-d", "npu"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)
-        # Default ONNX config should have quant as a dict (not null)
+        # Non-QDQ ONNX with explicit device should have quant as a dict (not null)
         assert data.get("quant") is not None, (
             f"Non-QDQ model should have default quant settings, got: {data.get('quant')}"
         )
