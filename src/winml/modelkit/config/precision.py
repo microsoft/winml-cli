@@ -104,6 +104,14 @@ _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
 # Regex for mixed precision: w{weight_bits}a{activation_bits}
 _MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
 
+# Device-specific supported precision combinations.
+# Reject unsupported combinations instead of silently coercing quant types.
+_DEVICE_SUPPORTED_PRECISIONS: dict[str, tuple[str, ...]] = {
+    "npu": ("auto", "fp16", "w8a8", "w8a16"),
+    "gpu": ("auto", "fp32", "fp16", "int8", "int16", "w8a8", "w8a16", "w16a16"),
+    "cpu": ("auto", "fp32", "fp16", "int8", "int16", "w8a8", "w8a16", "w16a16"),
+}
+
 
 def resolve_quant_types(precision: str) -> tuple[str, str]:
     """Resolve a precision string to (weight_type, activation_type).
@@ -237,6 +245,10 @@ def resolve_precision(
     # Normalize inputs
     device = device.lower()
     resolved_precision = precision.lower() if precision != "auto" else "auto"
+    m = _MIXED_RE.match(resolved_precision)
+    if m:
+        # Canonicalize mixed precision (e.g., "w08a16" -> "w8a16").
+        resolved_precision = f"w{int(m.group(1))}a{int(m.group(2))}"
 
     # Validate: must be a named preset, w{x}a{y} format, or "auto"
     if resolved_precision != "auto" and not _is_valid_precision(resolved_precision):
@@ -292,6 +304,14 @@ def resolve_precision(
                 task,
             )
 
+    supported_precisions = _DEVICE_SUPPORTED_PRECISIONS[resolved_device]
+    if resolved_precision not in supported_precisions:
+        supported = ", ".join(supported_precisions)
+        raise ValueError(
+            f"--precision {resolved_precision} not supported on --device {resolved_device}. "
+            f"Supported: {supported}."
+        )
+
     # EP override takes precedence over device→provider mapping
     compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
 
@@ -323,16 +343,25 @@ def _pick_device_for_precision(
         quantized (int8/int16/w{x}a{y}) → prefer NPU, fall back to first available
         float (fp16/fp32)               → prefer GPU, fall back to first available
     """
+    compatible_devices = [
+        d
+        for d in available_devices
+        if precision in _DEVICE_SUPPORTED_PRECISIONS.get(d, ())
+    ]
+
     if is_quantized_precision(precision):
-        # Prefer NPU for quantized models
-        for d in available_devices:
+        # Prefer NPU for quantized models when the precision is supported on NPU.
+        for d in compatible_devices:
             if d == "npu":
                 return d
     elif precision in ("fp16", "fp32"):
         # Prefer GPU for float models
-        for d in available_devices:
+        for d in compatible_devices:
             if d == "gpu":
                 return d
+
+    if compatible_devices:
+        return compatible_devices[0]
 
     # Fallback: first available device
     return available_devices[0] if available_devices else "cpu"

@@ -40,13 +40,9 @@ class TestResolvePrecision:
         [
             # device   precision  exp_device  exp_prec  weight    act      provider
             ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "qnn"),
-            ("npu", "int8", "npu", "int8", "uint8", "uint8", "qnn"),
-            ("npu", "int16", "npu", "int16", "int16", "uint16", "qnn"),
             ("npu", "fp16", "npu", "fp16", None, None, "qnn"),
-            ("npu", "fp32", "npu", "fp32", None, None, "qnn"),
             ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "qnn"),
             ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "qnn"),
-            ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "qnn"),
             ("gpu", "auto", "gpu", "fp16", None, None, "dml"),
             ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "dml"),
             ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "dml"),
@@ -82,12 +78,12 @@ class TestResolvePrecision:
     @pytest.mark.parametrize(
         "precision,available,exp_device",
         [
-            ("int8", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU for int8
+            ("int8", ["npu", "gpu", "cpu"], "gpu"),  # NPU doesn't support int8 preset
             ("int8", ["gpu", "cpu"], "gpu"),  # no NPU, falls to first
             ("fp16", ["npu", "gpu", "cpu"], "gpu"),  # prefers GPU for fp16
             ("fp16", ["npu", "cpu"], "npu"),  # no GPU, falls to first
             ("fp32", ["cpu"], "cpu"),  # only CPU
-            ("int16", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU for int16
+            ("int16", ["npu", "gpu", "cpu"], "gpu"),  # NPU doesn't support int16 preset
         ],
     )
     def test_auto_device_picks_best(
@@ -124,6 +120,15 @@ class TestResolvePrecision:
         """Unknown precision name raises ValueError."""
         with pytest.raises(ValueError, match="Unknown precision"):
             resolve_precision(device="cpu", precision="bfloat16")
+
+    def test_npu_int8_raises_unsupported_combo(self) -> None:
+        """NPU + int8 preset is rejected instead of silently converting to uint8/uint8."""
+        with pytest.raises(
+            ValueError,
+            match=r"--precision int8 not supported on --device npu\. "
+            r"Supported: auto, fp16, w8a8, w8a16\.",
+        ):
+            resolve_precision(device="npu", precision="int8")
 
 
 # =============================================================================
@@ -417,10 +422,10 @@ class TestIsQuantizedPrecision:
 
 
 class TestMixedPrecisionAutoDevice:
-    """Test that w{x}a{y} precisions route to NPU when device='auto'.
+    """Test that w{x}a{y} precisions route to a compatible device when device='auto'.
 
     The _pick_device_for_precision function uses is_quantized_precision()
-    to decide NPU preference. Mixed precisions must behave like int8/int16.
+    to decide preference, while honoring device support constraints.
     """
 
     @pytest.mark.parametrize(
@@ -429,7 +434,7 @@ class TestMixedPrecisionAutoDevice:
             ("w8a16", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU
             ("w8a16", ["gpu", "cpu"], "gpu"),  # no NPU, falls to first
             ("w8a8", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU
-            ("w16a16", ["npu", "cpu"], "npu"),  # prefers NPU
+            ("w16a16", ["npu", "cpu"], "cpu"),  # NPU does not support w16a16
             ("w8a16", ["cpu"], "cpu"),  # only CPU available
         ],
     )
@@ -498,7 +503,7 @@ class TestMixedPrecisionInvalidInputs:
     def test_leading_zeros_via_resolve_precision(self) -> None:
         """w08a16 should be accepted by resolve_precision (leading zeros)."""
         policy = resolve_precision(device="npu", precision="w08a16")
-        assert policy.precision == "w08a16"
+        assert policy.precision == "w8a16"
         assert policy.weight_type == "uint8"
         assert policy.activation_type == "uint16"
 

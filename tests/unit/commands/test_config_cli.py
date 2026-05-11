@@ -358,7 +358,7 @@ class TestConfigOnnxQdqDetection:
         assert data.get("quant") is None, "QDQ ONNX build should have quant=null"
 
     def test_qdq_overrides_device_precision(self, runner: CliRunner, tmp_path: Path) -> None:
-        """QDQ detection should keep quant=null even with -d npu -p int8."""
+        """QDQ detection should keep quant=null even with -d npu -p w8a8."""
         from winml.modelkit.commands.config import config
 
         onnx_file = tmp_path / "quantized.onnx"
@@ -368,11 +368,11 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file), "-d", "npu", "-p", "int8"])
+            result = runner.invoke(config, ["-m", str(onnx_file), "-d", "npu", "-p", "w8a8"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)
-        assert data.get("quant") is None, "QDQ detection should take precedence over -d npu -p int8"
+        assert data.get("quant") is None, "QDQ detection should take precedence over -d npu -p w8a8"
 
     def test_non_qdq_onnx_has_default_quant(self, runner: CliRunner, tmp_path: Path) -> None:
         """Config for non-QDQ ONNX should have default quant settings (not null)."""

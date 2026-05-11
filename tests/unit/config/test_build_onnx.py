@@ -743,19 +743,19 @@ class TestResolveQuantCompileConfig:
         assert mock_prec.call_args.kwargs.get("task") == "text-generation"
 
     def test_explicit_int8_precision_on_npu(self) -> None:
-        """Explicit precision=int8 on npu produces uint8 quant."""
+        """Explicit precision=int8 on npu is rejected."""
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "cpu"]),
+        ), pytest.raises(
+            ValueError,
+            match=r"--precision int8 not supported on --device npu\. "
+            r"Supported: auto, fp16, w8a8, w8a16\.",
         ):
-            quant, _compile_cfg = resolve_quant_compile_config(
+            resolve_quant_compile_config(
                 device="npu",
                 precision="int8",
             )
-
-        assert quant is not None
-        assert quant.weight_type == "uint8"
-        assert quant.activation_type == "uint8"
 
     def test_explicit_fp32_precision_no_quant(self) -> None:
         """Explicit precision=fp32 produces no quantization."""

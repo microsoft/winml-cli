@@ -1784,7 +1784,6 @@ class TestDevicePrecisionIntegration:
         [
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
             ("npu", "fp16", False, None, None, "qnn"),
-            ("npu", "int8", True, "uint8", "uint8", "qnn"),
             ("gpu", "auto", False, None, None, None),
             ("gpu", "int8", True, "uint8", "uint8", None),
             ("gpu", "fp16", False, None, None, None),
@@ -1792,10 +1791,10 @@ class TestDevicePrecisionIntegration:
             ("cpu", "int8", True, "uint8", "uint8", None),
             ("cpu", "int16", True, "int16", "uint16", None),
             ("cpu", "fp16", False, None, None, None),
-            # auto device + explicit precision → picks NPU (mock returns npu first)
-            ("auto", "fp16", False, None, None, "qnn"),
-            ("auto", "int8", True, "uint8", "uint8", "qnn"),
-            ("auto", "int16", True, "int16", "uint16", "qnn"),
+            # auto device + explicit precision picks first compatible device
+            ("auto", "fp16", False, None, None, "dml"),
+            ("auto", "int8", True, "uint8", "uint8", "dml"),
+            ("auto", "int16", True, "int16", "uint16", "dml"),
         ],
     )
     def test_config_gen_device_precision(
@@ -2053,6 +2052,19 @@ class TestDevicePrecisionCli:
         assert data["quant"] is None
         assert data["compile"] is None
 
+    def test_device_npu_precision_int8_rejected(self, tmp_path) -> None:
+        """--device npu --precision int8 is rejected with a compatibility error."""
+        result, _output_file = self._invoke(
+            tmp_path,
+            ["--device", "npu", "--precision", "int8"],
+        )
+
+        assert result.exit_code != 0
+        assert (
+            "--precision int8 not supported on --device npu. "
+            "Supported: auto, fp16, w8a8, w8a16." in result.output
+        )
+
     def test_default_no_flags_preserves_defaults(self, tmp_path) -> None:
         """No --device/--precision flags preserves default config."""
         result, output_file = self._invoke(tmp_path)
@@ -2072,8 +2084,8 @@ class TestDevicePrecisionCli:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Mock resolve_device returns "npu" → qnn
-        assert data["compile"]["execution_provider"] == "qnn"
+        # int8 isn't supported on NPU preset mapping, so auto falls back to GPU.
+        assert data["compile"]["execution_provider"] == "dml"
         assert data["quant"] is not None
 
 
@@ -2732,19 +2744,19 @@ class TestResolveQuantCompileConfig:
         assert mock_prec.call_args.kwargs.get("task") == "text-generation"
 
     def test_explicit_int8_precision_on_npu(self) -> None:
-        """Explicit precision=int8 on npu produces uint8 quant."""
+        """Explicit precision=int8 on npu is rejected."""
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "cpu"]),
+        ), pytest.raises(
+            ValueError,
+            match=r"--precision int8 not supported on --device npu\. "
+            r"Supported: auto, fp16, w8a8, w8a16\.",
         ):
-            quant, _compile_cfg = resolve_quant_compile_config(
+            resolve_quant_compile_config(
                 device="npu",
                 precision="int8",
             )
-
-        assert quant is not None
-        assert quant.weight_type == "uint8"
-        assert quant.activation_type == "uint8"
 
     def test_explicit_fp32_precision_no_quant(self) -> None:
         """Explicit precision=fp32 produces no quantization."""

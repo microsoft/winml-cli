@@ -307,7 +307,7 @@ def resolve_quant_compile_config(
     )
 
     policy = resolve_precision(
-        device=resolved_device,
+        device=device,
         precision=precision,
         ep=ep,
         available_devices=available_devices,
@@ -601,7 +601,7 @@ def generate_hf_build_config(
     )
 
     policy = resolve_precision(
-        device=resolved_device,
+        device=device,
         precision=precision,
         ep=ep,
         available_devices=available_devices,
