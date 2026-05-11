@@ -151,11 +151,12 @@ def build_onnx_model(
 
     if is_pre_quantized:
         logger.info(
-            "Pre-quantized model detected (QDQ nodes present). "
+            "Pre-quantized model detected (QDQ or QOperator nodes present). "
             "Skipping optimize + quantize, running analyze-only."
         )
         stages_skipped.append("optimize")
-        # Optimize+analyze only, no autoconf re-optimization
+        # Analyze-only: skip ORT-based graph optimization (no kernel for
+        # QOperator ops like ConvInteger on the host EP), no autoconf loop.
         current_path, _, analyze_iters, analyze_unsupported, analyze_details = (
             run_optimize_analyze_loop(
                 model_path=current_path,
@@ -163,6 +164,7 @@ def build_onnx_model(
                 config=config,
                 ep=ep,
                 device=device,
+                skip_optimize=True,
                 **onnx_kwargs,
             )
         )

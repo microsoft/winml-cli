@@ -402,10 +402,9 @@ def build(
         # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
         # is downloaded once and treated as a local .onnx file thereafter.
         if model_id is not None:
-            from ..loader import is_hf_onnx_path, resolve_hf_onnx_path
+            from ..loader import maybe_resolve_hf_onnx_path
 
-            if is_hf_onnx_path(model_id):
-                model_id = str(resolve_hf_onnx_path(model_id))
+            model_id = maybe_resolve_hf_onnx_path(model_id)
 
         # Load config first (needed for both output modes)
         config_or_configs = _load_config(
@@ -718,6 +717,7 @@ def _run_optimize_stage(
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
+    skip_optimize: bool = False,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -734,6 +734,9 @@ def _run_optimize_stage(
         stage_timings: List to append (stage_name, elapsed) tuple to.
         show_io_first: If True, show I/O tensors at the start of the stage
             (used in ONNX mode where there is no export stage).
+        skip_optimize: When True, skip the ORT graph-optimization pass.
+            Used for pre-quantized models (QDQ or QOperator format) whose
+            integer ops have no kernel on the host EP.
 
     Returns:
         Tuple of (current_path, opt_elapsed).
@@ -814,6 +817,7 @@ def _run_optimize_stage(
             ep=ep,
             device=device,
             max_optim_iterations=max_iters,
+            skip_optimize=skip_optimize,
             on_ep_start=_on_ep_start,
             on_node_result=_on_node_result,
             on_iteration_start=_on_iteration_start,
@@ -1148,7 +1152,7 @@ def _build_onnx_pipeline(
     Returns list of (stage_name, elapsed_seconds | None) for summary,
     or None if build was reused.
     """
-    from ..onnx import copy_onnx_model
+    from ..onnx import copy_onnx_model, is_quantized_onnx
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
 
@@ -1187,6 +1191,14 @@ def _build_onnx_pipeline(
     if current_path.resolve() != onnx_path.resolve():
         copy_onnx_model(onnx_path, current_path)
 
+    # Pre-quantized models (QDQ or QOperator format) cannot pass through
+    # ORT-based graph optimization on hosts that lack kernels for ops like
+    # ``ConvInteger``. Skip the optimize pass and the autoconf re-optim
+    # loop; analyze still runs lint-only.
+    is_pre_quantized = is_quantized_onnx(current_path)
+    if is_pre_quantized:
+        max_iters = 0
+
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(
         config=config,
@@ -1197,6 +1209,7 @@ def _build_onnx_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=True,
+        skip_optimize=is_pre_quantized,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))

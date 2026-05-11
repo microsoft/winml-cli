@@ -82,7 +82,7 @@ def resolve_hf_onnx_path(
             components.
     """
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
+    from huggingface_hub.utils import EntryNotFoundError
 
     repo_id, filename = _split_hf_onnx_path(model_id)
     logger.info("Downloading ONNX from Hub: repo=%s file=%s", repo_id, filename)
@@ -98,8 +98,13 @@ def resolve_hf_onnx_path(
     )
 
     # External-data sidecars (used for >2 GiB models) live next to the .onnx
-    # file with a ``.onnx_data`` suffix. Fetch best-effort: many ONNX exports
-    # inline all weights and have no sidecar at all.
+    # file with a ``.onnx_data`` suffix. The main download above just
+    # succeeded for the same repo, so the only expected reason the sidecar
+    # is missing is that the model inlined its weights -- catch
+    # ``EntryNotFoundError`` quietly. Any other failure (disk full,
+    # permissions, network blip, etc.) is real and surfaced as a warning
+    # so the user is not left with a half-downloaded model that fails
+    # later at load time with a confusing error.
     sidecar_filename = f"{filename}_data"
     try:
         sidecar_path = Path(
@@ -112,10 +117,19 @@ def resolve_hf_onnx_path(
             )
         )
         logger.info("Downloaded external-data sidecar: %s", sidecar_path.name)
-    except (EntryNotFoundError, RepositoryNotFoundError, OSError) as e:
-        # The common case for small inline-weight models that don't ship
-        # a separate data file.
-        logger.debug("No external-data sidecar at %s (%s)", sidecar_filename, e)
+    except EntryNotFoundError:
+        # Expected: model has no separate weights file (weights are inlined).
+        logger.debug("No external-data sidecar at %s (weights inlined)", sidecar_filename)
+    except OSError as e:
+        # Unexpected: disk/permission/network problem. Warn loudly --
+        # silent failure here would make the model unloadable later.
+        logger.warning(
+            "Failed to download external-data sidecar %s for %s: %s. "
+            "If the model uses external weights, loading will fail.",
+            sidecar_filename,
+            repo_id,
+            e,
+        )
 
     return local_path
 
@@ -130,7 +144,44 @@ def _split_hf_onnx_path(model_id: str) -> tuple[str, str]:
     return "/".join(parts[:2]), "/".join(parts[2:])
 
 
+def maybe_resolve_hf_onnx_path(
+    model_id: str | None,
+    *,
+    revision: str | None = None,
+    cache_dir: str | Path | None = None,
+    token: str | bool | None = None,
+) -> str | None:
+    """Resolve ``model_id`` to a local ONNX path if it is a Hub ONNX reference.
+
+    Convenience wrapper that combines :func:`is_hf_onnx_path` and
+    :func:`resolve_hf_onnx_path`. Non-Hub inputs (HF model IDs, local
+    paths, ``None``) are returned unchanged so callers can use this as a
+    transparent normalization step before dispatching to existing code.
+
+    Args:
+        model_id: HF model ID, local path, Hub ONNX ref, or ``None``.
+        revision: Optional Hub revision (forwarded when downloading).
+        cache_dir: Optional cache override (forwarded when downloading).
+        token: Optional auth token (forwarded when downloading).
+
+    Returns:
+        Local ``.onnx`` path string when ``model_id`` was a Hub ref; the
+        original ``model_id`` otherwise.
+    """
+    if not is_hf_onnx_path(model_id):
+        return model_id
+    return str(
+        resolve_hf_onnx_path(
+            model_id,  # type: ignore[arg-type]  # is_hf_onnx_path() rejects None
+            revision=revision,
+            cache_dir=cache_dir,
+            token=token,
+        )
+    )
+
+
 __all__ = [
     "is_hf_onnx_path",
+    "maybe_resolve_hf_onnx_path",
     "resolve_hf_onnx_path",
 ]
