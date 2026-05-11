@@ -173,12 +173,16 @@ gh issue edit <number> --repo microsoft/WinML-ModelKit --add-label "<label1>,<la
 
 ### 6. Assign owners
 
+Look up the issue's component in `docs/context/assignments.json`. Use the **`github` field** (not the `aliases` field) to get the GitHub handles to assign. The `github` field lists the correct handles in priority order — assign the first 1–2.
+
 **UX routing rule**: If the issue has the `dev experience` label, assign `hi-brenda` (yiba, PM) for confirmation — do NOT assign an engineering owner yet.
 
-Otherwise, assign 1–2 engineering handles from the component table:
+Otherwise, assign the engineering handles from `assignments.json` → `github` for that component:
 ```
 gh issue edit <number> --repo microsoft/WinML-ModelKit --add-assignee "<handle1>,<handle2>"
 ```
+
+**Important**: If the issue already has assignees, check whether the correct component owners are already assigned. If not, ADD the missing component owners even though the issue is already assigned to someone. Only skip assignment if all correct component owners are already present.
 
 ### 7. Post triage comment
 
@@ -274,5 +278,6 @@ Rules:
 - Only use **existing labels** — never create new ones
 - Do not close issues
 - Do not modify issue title or body
-- If an issue is already assigned or has a priority set, keep existing values and only add missing ones
+- If an issue already has a priority set, keep the existing priority (do not downgrade)
+- If an issue already has assignees, ADD the correct component owners from `docs/context/assignments.json` → `github` if they are not already among the assignees; do NOT leave incorrect or missing owners just because someone else is already assigned
 - Process issues one at a time (not in parallel) to avoid rate limits
