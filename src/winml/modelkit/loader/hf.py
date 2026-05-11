@@ -31,7 +31,12 @@ from typing import TYPE_CHECKING
 
 from transformers import AutoConfig
 
-from .task import _detect_task_from_config, normalize_task, resolve_task_and_model_class
+from .task import (
+    _detect_task_from_config,
+    get_default_task_for_model_id,
+    normalize_task,
+    resolve_task_and_model_class,
+)
 
 
 if TYPE_CHECKING:
@@ -39,11 +44,6 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
 logger = logging.getLogger(__name__)
-
-# Keys must be normalized as model_id.strip().lower().
-_MODEL_TASK_DEFAULTS: dict[str, str] = {
-    "prajjwal1/bert-tiny": "feature-extraction",
-}
 
 # Priority-ordered list of HF ecosystem modules to search for model classes.
 # transformers first (most common), then specialized libraries.
@@ -224,7 +224,7 @@ def load_hf_model(
         task = _detect_task_from_config(hf_config) if task is None else normalize_task(task)
     else:
         if task is None and model_class is None:
-            task = _MODEL_TASK_DEFAULTS.get(model_name_or_path.strip().lower())
+            task = get_default_task_for_model_id(model_name_or_path)
             if task is not None:
                 logger.info("Using model-specific default task %s for %s", task, model_name_or_path)
 

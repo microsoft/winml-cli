@@ -101,10 +101,23 @@ HF_TASK_DEFAULTS: dict[str, str] = {
     "next-sentence-prediction": "AutoModelForNextSentencePrediction",
 }
 
+# Model-specific task defaults for known model IDs that need explicit routing
+# when users do not pass --task or model_class.
+# Sentinel key (model_id, None) mirrors MODEL_CLASS_MAPPING's default pattern.
+MODEL_TASK_MAPPING: dict[tuple[str, str | None], str] = {
+    ("prajjwal1/bert-tiny", None): "feature-extraction",
+}
+
 
 # =============================================================================
 # Internal Helpers
 # =============================================================================
+
+
+def get_default_task_for_model_id(model_name_or_path: str) -> str | None:
+    """Get model-specific default task for a model ID/path if configured."""
+    model_id = model_name_or_path.strip().lower()
+    return MODEL_TASK_MAPPING.get((model_id, None))
 
 
 def _resolve_model_class_from_config(config: PretrainedConfig) -> type:

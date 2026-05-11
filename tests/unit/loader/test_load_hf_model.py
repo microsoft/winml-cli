@@ -205,7 +205,7 @@ class TestModelArchitectureOverrideFast:
         monkeypatch.setattr(hf_module, "resolve_task_and_model_class", mock_resolve)
         monkeypatch.setattr(hf_module, "AutoConfig", MagicMock(from_pretrained=mock_load_hf_config))
 
-        load_hf_model("prajjwal1/bert-tiny")
+        load_hf_model("  PRAJJWAL1/BERT-TINY  ")
 
         assert len(resolve_calls) > 0
         call = resolve_calls[-1]
