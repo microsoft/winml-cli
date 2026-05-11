@@ -69,6 +69,7 @@ class TestExportCLIInterface:
         assert "--torch-module" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
+        assert "--loader-config-overrides" in result.output
 
     def test_export_requires_model(self, runner: CliRunner) -> None:
         """Test export fails without --model argument."""
@@ -358,6 +359,214 @@ class TestExportConfigFiles:
 
         assert result.exit_code != 0
         assert "Failed to load export config" in result.output
+
+
+class TestExportLoaderConfigOverrides:
+    """Tests for the ``--loader-config-overrides`` CLI flag."""
+
+    def test_no_flag_passes_none_to_loader(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Without --loader-config-overrides, load_hf_model receives ``None``."""
+        from winml.modelkit.commands.export import export
+
+        runner.invoke(
+            export,
+            ["--model", "m", "--output", str(tmp_path / "m.onnx")],
+            obj={"debug": False},
+        )
+
+        assert mock_load_hf_model.called
+        assert mock_load_hf_model.call_args.kwargs.get("loader_config_overrides") is None
+
+    def test_flag_loads_json_and_forwards(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """JSON file content is parsed and passed as ``loader_config_overrides``."""
+        from winml.modelkit.commands.export import export
+
+        overrides_file = tmp_path / "overrides.json"
+        overrides_file.write_text(json.dumps({"scale": 2}))
+
+        runner.invoke(
+            export,
+            [
+                "--model",
+                "m",
+                "--output",
+                str(tmp_path / "m.onnx"),
+                "--loader-config-overrides",
+                str(overrides_file),
+            ],
+            obj={"debug": False},
+        )
+
+        kwargs = mock_load_hf_model.call_args.kwargs
+        assert kwargs["loader_config_overrides"] == {"scale": 2}
+
+    def test_flag_invalid_json_raises(
+        self,
+        runner: CliRunner,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Malformed JSON exits non-zero with a clear ``Invalid JSON`` message."""
+        from winml.modelkit.commands.export import export
+
+        overrides_file = tmp_path / "bad.json"
+        overrides_file.write_text("{ not json }")
+
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "m",
+                "--output",
+                str(tmp_path / "m.onnx"),
+                "--loader-config-overrides",
+                str(overrides_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code != 0
+        assert "Invalid JSON" in result.output
+
+    def test_flag_non_object_raises(
+        self,
+        runner: CliRunner,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A top-level JSON array (not an object) is rejected."""
+        from winml.modelkit.commands.export import export
+
+        overrides_file = tmp_path / "arr.json"
+        overrides_file.write_text("[1, 2, 3]")
+
+        result = runner.invoke(
+            export,
+            [
+                "--model",
+                "m",
+                "--output",
+                str(tmp_path / "m.onnx"),
+                "--loader-config-overrides",
+                str(overrides_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code != 0
+        assert "must contain a JSON object" in result.output
+
+    def test_cli_deep_merges_with_build_config(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``-c`` build config supplies a base; CLI flag deep-merges on top
+        (CLI wins on conflicts, sibling keys preserved)."""
+        from winml.modelkit.commands.export import export
+
+        build_cfg_file = tmp_path / "build.json"
+        build_cfg_file.write_text(
+            json.dumps(
+                {
+                    "loader": {
+                        "task": "image-to-image",
+                        "loader_config_overrides": {
+                            "scale": 4,
+                            "from_build": "stays",
+                            "vision_config": {"image_size": 320},
+                        },
+                    }
+                }
+            )
+        )
+
+        cli_overrides_file = tmp_path / "cli.json"
+        cli_overrides_file.write_text(
+            json.dumps(
+                {
+                    "scale": 2,  # overrides build_cfg's 4
+                    "vision_config": {"hidden_size": 128},  # merges with build's image_size
+                }
+            )
+        )
+
+        runner.invoke(
+            export,
+            [
+                "--model",
+                "m",
+                "--output",
+                str(tmp_path / "m.onnx"),
+                "--config",
+                str(build_cfg_file),
+                "--loader-config-overrides",
+                str(cli_overrides_file),
+            ],
+            obj={"debug": False},
+        )
+
+        merged = mock_load_hf_model.call_args.kwargs["loader_config_overrides"]
+        assert merged["scale"] == 2  # CLI wins on conflict
+        assert merged["from_build"] == "stays"  # build-config-only key preserved
+        assert merged["vision_config"] == {
+            "image_size": 320,
+            "hidden_size": 128,
+        }  # deep-merged
+
+    def test_build_config_overrides_used_without_cli_flag(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        mock_load_hf_model: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``loader.loader_config_overrides`` in --config is honored even with
+        no --loader-config-overrides flag."""
+        from winml.modelkit.commands.export import export
+
+        build_cfg_file = tmp_path / "build.json"
+        build_cfg_file.write_text(
+            json.dumps(
+                {
+                    "loader": {
+                        "task": "image-to-image",
+                        "loader_config_overrides": {"scale": 8},
+                    }
+                }
+            )
+        )
+
+        runner.invoke(
+            export,
+            [
+                "--model",
+                "m",
+                "--output",
+                str(tmp_path / "m.onnx"),
+                "--config",
+                str(build_cfg_file),
+            ],
+            obj={"debug": False},
+        )
+
+        assert mock_load_hf_model.call_args.kwargs["loader_config_overrides"] == {
+            "scale": 8
+        }
 
 
 class TestExportWarnings:
