@@ -1165,12 +1165,6 @@ def _run_onnx_benchmark(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
 )
 @click.option(
-    "--compare-devices",
-    type=str,
-    default=None,
-    help="Compare benchmark across devices (e.g., 'cpu,npu'). Not yet implemented.",
-)
-@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -1197,7 +1191,6 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    compare_devices: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -1247,13 +1240,6 @@ def perf(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     console = Console()
-
-    if compare_devices:
-        console.print(
-            "[yellow]--compare-devices is not yet implemented. "
-            "Run benchmarks separately and compare JSON outputs.[/yellow]"
-        )
-        return
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark
