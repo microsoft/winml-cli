@@ -3,13 +3,11 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import json
-import zipfile
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from colorama import Fore, Style
 from onnx.defs import SchemaError, onnx_opset_version
 
 from ...onnx import ONNXDomain
@@ -19,7 +17,11 @@ from ...pattern.op_input_gen import (
     get_runtime_checker_op,
     normalize_constraint_dict,
 )
-from ..utils.model_utils import get_op_since_version, make_hashable
+from ..utils.model_utils import (
+    encode_rule_condition_value_for_parquet,
+    get_op_since_version,
+    make_hashable,
+)
 from ..utils.rule_loader import get_runtime_rules_search_dirs
 
 
@@ -604,71 +606,9 @@ def get_opset_version_range(op_name: str, start_opset_version: int, op_domain: s
     return versions
 
 
-if __name__ == "__main__":
-    import argparse
-    import sys
-    import traceback
-
-    parser = argparse.ArgumentParser(
-        description=(
-            "Process runtime checker results and generate negative rules for "
-            "ai.onnx opset 12-22 and com.microsoft opset 1"
-        )
-    )
-    parser.add_argument("input_dir", type=str, help="Input directory containing JSON result files")
-    parser.add_argument(
-        "--output-dir", type=str, help="Output directory for negative rules (defaults to input_dir)"
-    )
-    parser.add_argument(
-        "-uz",
-        "--update-zip",
-        action="store_true",
-        help="Zip rule files and update the zip rules files in modelkit/analyze/rules",
-    )
-    parser.add_argument(
-        "--append",
-        action="store_true",
-        help="When updating zip, keep existing files not in the new output; "
-        "if a file exists in both, merge JSON dicts "
-        "(new values override old keys, old-only keys are preserved) and sort.",
-    )
-    parser.add_argument(
-        "--rules-dir",
-        type=str,
-        default=None,
-        help="Directory where rule zip files are written when --update-zip is set. "
-        "Defaults to the runtime_check_rules folder relative to this script "
-        "(../rules/runtime_check_rules).",
-    )
-    parser.add_argument(
-        "--domains",
-        type=str,
-        default="ai.onnx,com.microsoft",
-        help=(
-            "Comma-separated domains to process from defaults (ai.onnx,com.microsoft). "
-            "Invalid or unsupported values are ignored."
-        ),
-    )
-    args = parser.parse_args()
-
-    input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir) if args.output_dir else input_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    json_files = list(input_dir.glob("*.json"))
-
-    if not json_files:
-        print(f"No JSON files found in {input_dir}")
-        exit(1)
-
-    import re
-
-    domain_plans: dict[str, list[int]] = {
-        "ai.onnx": list(range(12, 23)),
-        "com.microsoft": [1],
-    }
-
-    requested_domains = [part.strip() for part in args.domains.split(",") if part.strip()]
+def _parse_requested_domains(domains_arg: str) -> list[str]:
+    """Parse and validate --domains values."""
+    requested_domains = [part.strip() for part in domains_arg.split(",") if part.strip()]
     if not requested_domains:
         requested_domains = ["ai.onnx", "com.microsoft"]
 
@@ -689,329 +629,330 @@ if __name__ == "__main__":
         if mapped_domain not in domains_to_process:
             domains_to_process.append(mapped_domain)
 
+    return domains_to_process
+
+
+def _build_op_rule_dataframe(
+    check_results: list[dict[str, Any]],
+    input_generator: OpInputGenerator,
+    use_qdq: bool,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Build per-case rule rows for one op file.
+
+    Returns:
+        tuple[pd.DataFrame, list[str]]:
+            - DataFrame with per-case properties and compile/run outputs
+            - Infinite property names that should be ignored for matching
+    """
+    input_constraint_types = _get_input_constraint_types(check_results)
+    all_attr_names = _get_all_attr_names(check_results)
+
+    def get_row(item: dict[str, Any]) -> dict[str, Any]:
+        row = item_to_row(
+            item,
+            input_constraint_types,
+            all_attr_names,
+            input_generator.replace_float_with_dummy_in_query,
+            use_qdq=use_qdq,
+        )
+        try:
+            row = input_generator.derive_properties(row)
+        except NotImplementedError:
+            # Some OpInputGenerator implementations do not provide derived
+            # properties; keep the base row unchanged in that case.
+            pass
+        return row
+
+    rows = [get_row(item) for item in check_results]
+    df = pd.DataFrame(rows, dtype=object).replace({np.nan: None})
+    infinite_properties = input_generator.get_infinite_property_names()
+
+    return df, infinite_properties
+
+
+def _deduplicate_rule_rows(
+    df: pd.DataFrame,
+    condition_cols: list[str],
+    output_cols: list[str],
+    compare_output_cols: list[str] | None = None,
+    case_index_col: str = "case_index",
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """Deduplicate rows by condition columns and detect conflicts.
+
+    A conflict means the same condition set maps to multiple values
+    in compare_output_cols.
+
+    When compare_output_cols is None, output_cols is used for both
+    conflict detection and conflict display.
+    """
+    if df.empty:
+        return df.copy(), None
+
+    compare_cols = compare_output_cols if compare_output_cols is not None else output_cols
+    if not compare_cols:
+        raise ValueError("compare_output_cols cannot be empty")
+
+    dedup_rows: list[pd.Series] = []
+    conflict_parts: list[pd.DataFrame] = []
+    conflict_group_id = 0
+
+    grouped: Any = (
+        df.groupby(condition_cols, dropna=False, sort=False) if condition_cols else [((), df)]
+    )
+
+    for _, group_df in grouped:
+        unique_outputs = group_df.loc[:, compare_cols].drop_duplicates(ignore_index=True)
+        if len(unique_outputs) > 1:
+            conflict_group_id += 1
+
+            cols_to_show = [case_index_col, *condition_cols, *output_cols]
+            cols_to_show = [c for c in cols_to_show if c in group_df.columns]
+            conflict_group_df = group_df.loc[:, cols_to_show].copy()
+
+            if case_index_col not in conflict_group_df.columns:
+                conflict_group_df.insert(0, case_index_col, list(group_df.index))
+
+            conflict_group_df.insert(0, "groupid", conflict_group_id)
+            conflict_parts.append(conflict_group_df)
+            continue
+
+        row = group_df.iloc[0].copy()
+        row["rule_row_count"] = len(group_df)
+        dedup_rows.append(row)
+
+    dedup_df = pd.DataFrame(dedup_rows, dtype=object)
+    conflict_df = pd.concat(conflict_parts, ignore_index=True) if conflict_parts else None
+    return dedup_df, conflict_df
+
+
+def _json_safe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Convert dataframe records to JSON-safe Python objects."""
+    if df.empty:
+        return []
+    return json.loads(df.to_json(orient="records", force_ascii=False))
+
+
+def _encode_condition_columns_for_parquet(
+    df: pd.DataFrame,
+    condition_cols: list[str],
+) -> pd.DataFrame:
+    """Return a parquet-write dataframe with condition columns encoded as strings."""
+    if df.empty or not condition_cols:
+        return df.copy()
+
+    encoded_df = df.copy()
+    for col in condition_cols:
+        if col in encoded_df.columns:
+            raw = encoded_df[col].to_numpy()
+            encoded_df[col] = [encode_rule_condition_value_for_parquet(v) for v in raw]
+    return encoded_df
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    import traceback
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Process runtime checker per-op result files and generate "
+            "deduplicated per-op rule artifacts."
+        )
+    )
+    parser.add_argument("input_dir", type=str, help="Input directory containing JSON result files")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        help=(
+            "Output directory for per-op JSON rule files "
+            "(defaults to input_dir)."
+        ),
+    )
+    parser.add_argument(
+        "--rules-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory where per-op parquet rule files are written. "
+            "Defaults to first entry from rule search dirs."
+        ),
+    )
+    parser.add_argument(
+        "--domains",
+        type=str,
+        default="ai.onnx,com.microsoft",
+        help="Comma-separated domains to process: ai.onnx,com.microsoft",
+    )
+    parser.add_argument(
+        "--stop-on-conflict",
+        action="store_true",
+        help=(
+            "Stop immediately when the first per-op conflict is detected. "
+            "Useful for auto-resolve workflows that process one conflict file per round."
+        ),
+    )
+    args = parser.parse_args()
+
+    input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir) if args.output_dir else input_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    json_files = list(input_dir.glob("*.json"))
+
+    if not json_files:
+        print(f"No JSON files found in {input_dir}")
+        exit(1)
+
+    domains_to_process = _parse_requested_domains(args.domains)
     if not domains_to_process:
         print("No valid domains selected to process.")
         exit(1)
 
-    for domain_str_for_filename in domains_to_process:
-        target_domain = "" if domain_str_for_filename == "ai.onnx" else domain_str_for_filename
-        opset_versions_to_process = domain_plans[domain_str_for_filename]
+    selected_domain_set = set(domains_to_process)
+    parquet_dir = Path(args.rules_dir) if args.rules_dir else get_runtime_rules_search_dirs()[0]
+    parquet_dir.mkdir(parents=True, exist_ok=True)
 
-        # Extract unique (op_name, ep_name, device, is_qdq)
-        # combinations from filenames for the target domain
-        # Filename format: <op_name>_<ep_name>_<device>_<domain>_opset<N>[_qdq].json
-        op_info_set: set[tuple[str, str, str, bool]] = set()
-        for json_file in json_files:
-            is_qdq = json_file.stem.endswith("_qdq")
-            # Remove opset suffix to get base info
-            opset_match = re.search(r"_opset(\d+)(?:_qdq)?$", json_file.stem)
-            if opset_match:
-                filename_without_opset = json_file.stem[: opset_match.start()]
-                parts = filename_without_opset.split("_")
-                if len(parts) == 4:
-                    op_name, ep_name, device, file_domain = parts[:4]
-                    if file_domain == domain_str_for_filename:
-                        op_info_set.add((op_name, ep_name, device, is_qdq))
+    qdq_generator = None
+    processed = 0
+    skipped = 0
+    conflict_skipped = 0
 
-        print(
-            f"Found {len(op_info_set)} unique operators to process "
-            f"for domain '{domain_str_for_filename}'"
-        )
+    output_cols = ["compile_run_success"]
+    compare_output_cols = ["compile_run_success"]
+    internal_cols = ["has_not_run_placeholder_reason", "compile_reason", "run_reason"]
 
-        if not op_info_set:
-            print(f"No operators found for domain '{domain_str_for_filename}', skipping.")
+    for json_file in sorted(json_files):
+        try:
+            op_domain, op_name, ep_name, device, opset_version, is_qdq = _parse_filename(
+                json_file.stem
+            )
+        except AssertionError:
+            skipped += 1
             continue
 
-        qdq_generator = None
-        if any(is_qdq for _, _, _, is_qdq in op_info_set):
-            from ...pattern.op_input_gen.qdq_gen import QDQGenerator
+        domain_str = op_domain if op_domain else "ai.onnx"
+        if domain_str not in selected_domain_set:
+            skipped += 1
+            continue
 
-            qdq_generator = QDQGenerator(1, ONNXDomain.COM_MICROSOFT)
+        if json_file.stat().st_size == 0:
+            print(f"SKIPPED empty file: {json_file.name}")
+            skipped += 1
+            continue
 
-        # Keep previous full payload per (ep, device, domain, is_qdq) for delta generation.
-        previous_negative_rules_payloads: dict[
-            tuple[str, str, str, bool], tuple[int, dict[str, Any]]
-        ] = {}
-        previous_tables_payloads: dict[tuple[str, str, str, bool], tuple[int, dict[str, Any]]] = {}
-        previous_columns_payloads: dict[tuple[str, str, str, bool], tuple[int, dict[str, Any]]] = {}
+        output_json = output_dir / json_file.name
+        parquet_file = parquet_dir / f"{json_file.stem}.parquet"
 
-        for current_opset_version in opset_versions_to_process:
-            if len(opset_versions_to_process) > 1:
-                print(f"\n{'=' * 60}")
-                print(f"Processing domain {domain_str_for_filename}, opset {current_opset_version}")
-                print(f"{'=' * 60}")
+        print(f"Processing {json_file.name} ...", end=" ")
 
-            # Group results by (EP, device, domain, opset, is_qdq)
-            results_by_ep_domain_opset: dict[tuple[str, str, str, int, bool], dict[str, Any]] = {}
-            tables_by_ep_domain_opset: dict[tuple[str, str, str, int, bool], dict[str, Any]] = {}
-            table_columns_by_ep_domain_opset: dict[
-                tuple[str, str, str, int, bool], dict[str, list[str]]
-            ] = {}
+        try:
+            with open(json_file, encoding="utf-8") as f:  # noqa: PTH123
+                data = json.load(f)
 
-            for op_name, ep_name, device, is_qdq in sorted(op_info_set):
-                # Get the since_version for this operator based on
-                # the current opset_version. Handle Op and Pattern.
-                # TODO: build a since_version list for
-                # PatternSchemas based on since_version of
-                # included ops
-                try:
-                    since_version = get_op_since_version(
-                        op_name,
-                        current_opset_version,
-                        target_domain,
-                    )
-                except SchemaError:
-                    since_version = current_opset_version
+            check_results = data.get("check_results", [])
+            if not check_results:
+                print("SKIPPED (no check_results)")
+                skipped += 1
+                continue
 
-                # Build the expected filename with since_version
-                qdq_suffix = "_qdq" if is_qdq else ""
-                expected_filename = (
-                    f"{op_name}_{ep_name}_{device}"
-                    f"_{domain_str_for_filename}"
-                    f"_opset{since_version}{qdq_suffix}.json"
+            domain = ONNXDomain.from_str(op_domain)
+            if is_qdq and qdq_generator is None:
+                from ...pattern.op_input_gen.qdq_gen import QDQGenerator
+
+                qdq_generator = QDQGenerator(1, ONNXDomain.COM_MICROSOFT)
+
+            try:
+                schema = domain.get_op_schema(op_name, opset_version)
+                input_generator = get_runtime_checker_op(op_name, domain=op_domain)(
+                    schema, qdq_generator=qdq_generator if is_qdq else None
                 )
-                json_file = input_dir / expected_filename
-                print(f"Processing {expected_filename}...", end=" ")
+            except SchemaError:
+                domain_versions = {
+                    op_domain: opset_version,
+                    ONNXDomain.COM_MICROSOFT: 1,
+                }
+                input_generator = get_pattern_input_generator(op_name)(domain_versions)
 
-                if not json_file.exists():
-                    print(f"{Fore.YELLOW}SKIPPED: File not found. {Style.RESET_ALL}")
-                    continue
+            rule_df, infinite_properties = _build_op_rule_dataframe(
+                check_results, input_generator, use_qdq=is_qdq
+            )
+            rule_df = rule_df.drop(columns=internal_cols, errors="ignore")
 
-                if json_file.stat().st_size == 0:
-                    print(f"{Fore.YELLOW}SKIPPED: Empty JSON file. {Style.RESET_ALL}")
-                    continue
+            condition_cols = [
+                c
+                for c in rule_df.columns
+                if c not in output_cols and c not in infinite_properties and c != "case_index"
+            ]
 
-                try:
-                    with open(json_file, encoding="utf-8") as f:  # noqa: PTH123
-                        data = json.load(f)
-
-                    op_domain, op_name, ep_name, device, opset_version, is_qdq = _parse_filename(
-                        json_file.stem
-                    )
-
-                    check_results = data.get("check_results", [])
-
-                    if not check_results:
-                        print(f"{Fore.RED}Error: No check_results found, skipping{Style.RESET_ALL}")
-                        continue
-
-                    # Build negative rules and get DataFrame
-                    domain = ONNXDomain.from_str(op_domain)
-                    try:
-                        schema = domain.get_op_schema(op_name, opset_version)
-                        input_generator = get_runtime_checker_op(op_name, domain=op_domain)(
-                            schema, qdq_generator=qdq_generator if is_qdq else None
-                        )
-                    except SchemaError:
-                        # pattern case
-                        # TODO: if a pattern depends on multiple
-                        # domains, the filename currently contains
-                        # only AI_ONNX; need to recover all domains
-                        domain_versions = {
-                            op_domain: opset_version,
-                            ONNXDomain.COM_MICROSOFT: 1,  # safeguard
-                        }
-                        input_generator = get_pattern_input_generator(op_name)(domain_versions)
-
-                    op_negative_rules, df = build_op_query_negative_rules_and_table(
-                        check_results,
-                        input_generator,
-                        use_qdq=is_qdq,
-                        op_version=opset_version,
-                        device=device,
-                        ep_name=ep_name,
-                        op_domain=op_domain,
-                    )
-
-                    # Group by (EP, domain, current opset_version, is_qdq)
-                    key = (ep_name, device, target_domain, current_opset_version, is_qdq)
-                    if key not in results_by_ep_domain_opset:
-                        results_by_ep_domain_opset[key] = {}
-                        tables_by_ep_domain_opset[key] = {}
-                        table_columns_by_ep_domain_opset[key] = {}
-
-                    results_by_ep_domain_opset[key][op_name] = op_negative_rules
-
-                    # Convert DataFrame to JSON-serializable format
-                    tables_by_ep_domain_opset[key][op_name] = df.to_dict()
-                    table_columns_by_ep_domain_opset[key][op_name] = [
-                        col_name
-                        for col_name in df.columns.to_list()
-                        if col_name != "compile_run_success"
-                    ]
-
-                    print(f"OK ({len(check_results)} results)")
-
-                except Exception as e:
-                    print(f"{Fore.RED}ERROR: {e}{Style.RESET_ALL}")
-                    traceback.print_exc()
-                    sys.exit(1)
-
-            zip_group = {}
-            # Save negative rules
-            for (
-                ep_name,
-                device,
-                op_domain,
-                opset_version,
-                is_qdq,
-            ), op_results in results_by_ep_domain_opset.items():
-                # Create domain-specific filename
-                domain_str = op_domain if op_domain else "ai.onnx"
-                qdq_suffix = "_qdq" if is_qdq else ""
-                output_file = output_dir / (
-                    f"{ep_name}_{device}_{domain_str}"
-                    f"_opset{opset_version}"
-                    f"_negative_rules{qdq_suffix}.json"
-                )
-
-                snapshot_key = (ep_name, device, op_domain, is_qdq)
-                previous_snapshot = previous_negative_rules_payloads.get(snapshot_key)
-                snapshot_payload = _build_snapshot_payload(
-                    op_results,
-                    opset_version,
-                    previous_snapshot[1] if previous_snapshot else None,
-                    previous_snapshot[0] if previous_snapshot else None,
-                )
-
-                with open(output_file, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
-                    json.dump(snapshot_payload, f, indent=2)
-
-                previous_negative_rules_payloads[snapshot_key] = (opset_version, op_results)
-
-                print(f"\nSaved {len(op_results)} operators to {output_file}")
-                zip_group.setdefault(f"{ep_name}_{device}", []).append(output_file)
-
-            # Save tables
-            for (
-                ep_name,
-                device,
-                op_domain,
-                opset_version,
-                is_qdq,
-            ), op_tables in tables_by_ep_domain_opset.items():
-                # Create domain-specific filename
-                domain_str = op_domain if op_domain else "ai.onnx"
-                qdq_suffix = "_qdq" if is_qdq else ""
-                output_file = (
-                    output_dir
-                    / (
-                        f"{ep_name}_{device}_{domain_str}_opset{opset_version}_tables"
-                        f"{qdq_suffix}.json"
-                    )
-                )
-
-                snapshot_key = (ep_name, device, op_domain, is_qdq)
-                previous_snapshot = previous_tables_payloads.get(snapshot_key)
-                snapshot_payload = _build_snapshot_payload(
-                    op_tables,
-                    opset_version,
-                    previous_snapshot[1] if previous_snapshot else None,
-                    previous_snapshot[0] if previous_snapshot else None,
-                )
-
-                with open(output_file, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
-                    json.dump(snapshot_payload, f, indent=2)
-
-                previous_tables_payloads[snapshot_key] = (opset_version, op_tables)
-
-                print(f"Saved {len(op_tables)} operator tables to {output_file}")
-                zip_group.setdefault(f"{ep_name}_{device}", []).append(output_file)
-
-            # Save table column names
-            for (
-                ep_name,
-                device,
-                op_domain,
-                opset_version,
-                is_qdq,
-            ), op_columns in table_columns_by_ep_domain_opset.items():
-                domain_str = op_domain if op_domain else "ai.onnx"
-                qdq_suffix = "_qdq" if is_qdq else ""
-                output_file = output_dir / (
-                    f"{ep_name}_{device}_{domain_str}"
-                    f"_opset{opset_version}_table_columns{qdq_suffix}.json"
-                )
-
-                snapshot_key = (ep_name, device, op_domain, is_qdq)
-                previous_snapshot = previous_columns_payloads.get(snapshot_key)
-                snapshot_payload = _build_snapshot_payload(
-                    op_columns,
-                    opset_version,
-                    previous_snapshot[1] if previous_snapshot else None,
-                    previous_snapshot[0] if previous_snapshot else None,
-                )
-
-                with open(output_file, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
-                    json.dump(snapshot_payload, f, indent=2)
-
-                previous_columns_payloads[snapshot_key] = (opset_version, op_columns)
-
-                print(f"Saved {len(op_columns)} operator table column sets to {output_file}")
-                zip_group.setdefault(f"{ep_name}_{device}", []).append(output_file)
-
-            print(
-                f"\nDomain '{domain_str_for_filename}' processing complete! Generated "
-                f"{len(results_by_ep_domain_opset)} "
-                f"negative rule file(s) "
-                f"and {len(tables_by_ep_domain_opset)} table file(s), "
-                f"plus {len(table_columns_by_ep_domain_opset)} table-column file(s)."
+            dedup_df, conflict_df = _deduplicate_rule_rows(
+                rule_df,
+                condition_cols,
+                output_cols,
+                compare_output_cols=compare_output_cols,
             )
 
-            if args.update_zip:
-                rules_dir = (
-                    Path(args.rules_dir) if args.rules_dir else get_runtime_rules_search_dirs()[0]
-                )
-                rules_dir.mkdir(parents=True, exist_ok=True)
-                for group_name, file_list in zip_group.items():
-                    rule_zip_path = (
-                        rules_dir
-                        / f"{group_name}_{domain_str_for_filename}_opset{current_opset_version}.zip"
-                    )
+            if conflict_df is not None and not conflict_df.empty:
+                # Conflict is detected before any rule artifacts are written for this file,
+                # so skip only this op file and continue processing remaining files.
+                conflict_dir = output_dir / "conflicts"
+                conflict_dir.mkdir(parents=True, exist_ok=True)
+                conflict_file = conflict_dir / f"{json_file.stem}_conflicts.csv"
+                conflict_df.to_csv(conflict_file, index=False)
+                conflict_skipped += 1
+                skipped += 1
+                print(f"CONFLICT (saved: {conflict_file})")
 
-                    # In append mode, load existing zip entries to preserve files not being updated
-                    existing_content: dict[str, bytes] = {}
-                    if args.append and rule_zip_path.exists():
-                        with zipfile.ZipFile(rule_zip_path, mode="r") as existing_zf:
-                            for name in existing_zf.namelist():
-                                existing_content[name] = existing_zf.read(name)
+                if args.stop_on_conflict:
+                    sys.exit(2)
 
-                    new_arcnames = {Path(f).name for f in file_list}
+                continue
 
-                    with zipfile.ZipFile(
-                        rule_zip_path, mode="w", compression=zipfile.ZIP_DEFLATED
-                    ) as rule_zf:
-                        # Keep existing entries not covered by the new output
-                        for name, data in existing_content.items():
-                            if name not in new_arcnames:
-                                rule_zf.writestr(name, data)
+            parquet_df = dedup_df.loc[:, [*condition_cols, *output_cols]].copy()
 
-                        for filename in file_list:
-                            arcname = Path(filename).name
-                            if args.append and arcname in existing_content:
-                                # Legacy append merge is only valid for plain full snapshots.
-                                with open(filename, encoding="utf-8") as f:  # noqa: PTH123
-                                    new_text = f.read()
-                                try:
-                                    old_payload = json.loads(
-                                        existing_content[arcname].decode("utf-8")
-                                    )
-                                    new_payload = json.loads(new_text)
-                                except Exception:
-                                    rule_zf.writestr(arcname, new_text)
-                                    continue
+            parquet_write_df = _encode_condition_columns_for_parquet(
+                parquet_df,
+                condition_cols,
+            )
 
-                                if _can_append_merge(old_payload, new_payload):
-                                    merged = dict(sorted({**old_payload, **new_payload}.items()))
-                                    rule_zf.writestr(arcname, json.dumps(merged, indent=2))
-                                else:
-                                    rule_zf.writestr(arcname, new_text)
-                            else:
-                                rule_zf.write(filename, arcname=arcname)
+            json_payload = {
+                "format": "per_op_rules_v1",
+                "op_name": op_name,
+                "ep_name": ep_name,
+                "device": device,
+                "domain": domain_str,
+                "opset_version": opset_version,
+                "is_qdq": is_qdq,
+                "condition_columns": condition_cols,
+                "rows": _json_safe_records(parquet_df),
+            }
 
-                    print(
-                        f"Rule zip file {group_name}"
-                        f"_{domain_str_for_filename}"
-                        f"_opset{current_opset_version}.zip "
-                        f"updated with {len(file_list)} files."
-                    )
+            with open(output_json, "w", encoding="utf-8", newline="\n") as f:  # noqa: PTH123
+                json.dump(json_payload, f, indent=2, ensure_ascii=False)
+
+            try:
+                parquet_write_df.to_parquet(parquet_file, index=False, compression="snappy")
+            except Exception as e:
+                raise RuntimeError(
+                    "Failed to write parquet file. Ensure a parquet engine "
+                    "(for example pyarrow) is installed."
+                ) from e
+
+            processed += 1
+            print(f"OK ({len(check_results)} cases -> {len(parquet_df)} dedup rules)")
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+            traceback.print_exc()
+            sys.exit(1)
+
+    print(
+        "Completed per-op rule generation. "
+        f"processed={processed}, skipped={skipped}, conflict_skipped={conflict_skipped}, "
+        f"output_dir={output_dir}"
+    )
+    print(f"Parquet rule files written to: {parquet_dir}")
+
+    if conflict_skipped > 0:
+        # Exit with a dedicated code so batch scripts can treat conflicts differently
+        # from hard failures while still detecting that conflicts occurred.
+        sys.exit(2)

@@ -36,6 +36,9 @@ from .bart import BartDecoderIOConfig as _BartDecoderIOConfig  # triggers regist
 from .bart import BartEncoderIOConfig as _BartEncoderIOConfig  # triggers registration
 from .bert import BERT_CONFIG
 from .blip import BLIP_CONFIG
+from .blip import MODEL_CLASS_MAPPING as _BLIP_CLASS_MAPPING
+from .blip import BlipDecoderIOConfig as _BlipDecoderIOConfig  # triggers registration
+from .blip import BlipVisionEncoderIOConfig as _BlipVisionEncoderIOConfig  # triggers registration
 from .clip import CLIP_CONFIG
 from .clip import MODEL_CLASS_MAPPING as _CLIP_CLASS_MAPPING
 from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registration
@@ -70,7 +73,12 @@ from .t5 import MODEL_CLASS_MAPPING as _T5_CLASS_MAPPING
 from .t5 import T5_CONFIG
 from .t5 import T5DecoderIOConfig as _T5DecoderIOConfig  # triggers registration
 from .t5 import T5EncoderIOConfig as _T5EncoderIOConfig  # triggers registration
+from .vision_encoder_decoder import MODEL_CLASS_MAPPING as _VED_CLASS_MAPPING
 from .vision_encoder_decoder import VISION_ENCODER_DECODER_CONFIG
+from .vision_encoder_decoder import (
+    VisionDecoderIOConfig as _VisionDecoderIOConfig,  # triggers registration
+)
+from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
@@ -90,6 +98,7 @@ AutoConfig.register("ESRGAN", ESRGANConfig, exist_ok=True)
 # SAM/SAM2).
 MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     **_BART_CLASS_MAPPING,
+    **_BLIP_CLASS_MAPPING,
     **_CLIP_CLASS_MAPPING,
     **_ESRGAN_CLASS_MAPPING,
     **_MARIAN_CLASS_MAPPING,
@@ -99,6 +108,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     **_SEGFORMER_CLASS_MAPPING,
     **_SIGLIP_CLASS_MAPPING,
     **_T5_CLASS_MAPPING,
+    **_VED_CLASS_MAPPING,
 }
 
 
