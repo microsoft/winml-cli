@@ -1062,14 +1062,6 @@ def _run_onnx_benchmark(
     help="Model identifier: HuggingFace model ID or local .onnx file.",
 )
 @click.option(
-    "--hf-model",
-    "hf_model_deprecated",
-    type=str,
-    default=None,
-    hidden=True,
-    help="[Deprecated] Use -m/--model instead.",
-)
-@click.option(
     "--task",
     type=str,
     default=None,
@@ -1190,7 +1182,6 @@ def _run_onnx_benchmark(
 def perf(
     ctx: click.Context,
     model_id: str | None,
-    hf_model_deprecated: str | None,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1238,21 +1229,6 @@ def perf(
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
-    # Resolve deprecated --hf-model alias
-    if hf_model_deprecated and model_id:
-        raise click.UsageError(
-            "Cannot use both -m/--model and --hf-model. Use -m/--model (--hf-model is deprecated)."
-        )
-    if hf_model_deprecated:
-        import warnings
-
-        warnings.warn(
-            "--hf-model is deprecated. Use -m/--model instead.",
-            DeprecationWarning,
-            stacklevel=1,
-        )
-        model_id = hf_model_deprecated
-
     if not model_id:
         raise click.UsageError("A model is required via -m/--model.")
 

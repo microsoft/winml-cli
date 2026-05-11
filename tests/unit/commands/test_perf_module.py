@@ -29,8 +29,8 @@ class TestPerfModuleFlag:
         assert result.exit_code == 0
         assert "--module" in result.output
 
-    def test_module_flag_requires_hf_model(self) -> None:
-        """--module without --hf-model should fail."""
+    def test_module_flag_requires_model(self) -> None:
+        """--module without -m/--model should fail."""
         runner = CliRunner()
         result = runner.invoke(main, ["perf", "--module", "BertAttention"])
         assert result.exit_code != 0
