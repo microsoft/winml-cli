@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Keys must be normalized as model_id.strip().lower().
 _MODEL_TASK_DEFAULTS: dict[str, str] = {
     "prajjwal1/bert-tiny": "feature-extraction",
 }

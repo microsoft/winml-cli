@@ -241,7 +241,9 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     """
     from optimum.exporters.tasks import TasksManager
 
-    # [1] Resolve architecture class from config
+    # [1] Resolve architecture class from config.
+    # If config.architectures is missing/empty, this raises ValueError and the
+    # caller should provide task explicitly.
     arch_model_class = _resolve_model_class_from_config(config)
     arch_name = arch_model_class.__name__
 
