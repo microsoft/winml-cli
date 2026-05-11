@@ -69,11 +69,11 @@ def _load_config(
     Args:
         config_file: Path to JSON config file.
         no_quant: If True, set config.quant = None (skip quantization).
-        no_compile: Tristate compile override.
-            True  → --no-compile: force skip compilation.
-            False → --compile: force enable compilation; raises UsageError if
-                    config has no compile section.
-            None  → neither flag: inherit compile settings from config file.
+        no_compile: ``bool | None`` compile override.
+            ``True``  → ``--no-compile``: force skip compilation.
+            ``False`` → ``--compile``: force enable compilation; raises UsageError if
+                        config has no compile section.
+            ``None``  → neither flag passed: inherit compile settings from config file.
 
     Returns:
         Single WinMLBuildConfig for normal mode, or list for module mode.
