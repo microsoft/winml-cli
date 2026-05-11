@@ -15,6 +15,8 @@ from typing import Any
 from rich.console import Console
 from rich.panel import Panel
 
+from ..session.monitor.hw_monitor import adapter_label
+
 
 # Moving window size for the x-axis (seconds)
 _CHART_WINDOW_SECONDS = 10.0
@@ -40,8 +42,6 @@ class LiveMonitorDisplay:
         poll_interval_ms: int = 100,
         device_kind: str | None = None,
     ) -> None:
-        from ..session.monitor.hw_monitor import adapter_label
-
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id

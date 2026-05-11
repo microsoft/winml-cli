@@ -405,7 +405,7 @@ class TestPdhPoller:
 
         assert poller.running_time_delta_ns >= 0
 
-    def test_npu_luid_populated_after_start(self):
+    def test_adapter_luid_populated_after_start(self):
         from winml.modelkit.session.monitor._pdh import PdhPoller
         from winml.modelkit.sysinfo.pdh_adapters import discover_npu_luid
 
@@ -413,10 +413,10 @@ class TestPdhPoller:
         if luid is None:
             pytest.skip("No NPU detected")
 
-        poller = PdhPoller(poll_interval_ms=50)
+        poller = PdhPoller(poll_interval_ms=50, device="npu")
         poller.start()
         poller.stop()
-        assert poller.npu_luid == luid
+        assert poller.adapter_luid == luid
 
     def test_memory_samples_mb_returns_list(self):
         from winml.modelkit.session.monitor._pdh import PdhPoller
@@ -692,7 +692,6 @@ class TestPdhPollerGracefulDegradation:
         assert poller.mean_utilization_pct == 0.0
         assert poller.peak_utilization_pct == 0.0
         assert poller.peak_memory_mb == 0.0
-        assert poller.npu_luid is None
         assert poller.adapter_luid is None
         assert poller.running_time_delta_ns == 0
         assert poller.is_active is False
@@ -1065,8 +1064,6 @@ class TestPollerDeviceRouting:
         mock_build_npu.assert_not_called()
         assert poller.device_kind == "gpu"
         assert poller.adapter_luid == "0x00000000_0xDEADBEEF"
-        # npu_luid is the back-compat property; should be None for GPU mode.
-        assert poller.npu_luid is None
 
     def test_auto_prefers_npu_then_gpu(self):
         """device='auto' must probe NPU first, then GPU."""
@@ -1166,7 +1163,6 @@ class TestPollerDeviceRouting:
         ]
         assert poller.device_kind is None
         assert poller.adapter_luid is None
-        assert poller.npu_luid is None
 
     def test_resolved_luid_missing_from_pdh_degrades_gracefully(self):
         """If the resolver returns a LUID but build_*_query then raises
