@@ -45,8 +45,8 @@ from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registra
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
-from .esrgan import ESRGANConfig, ESRGANForImageSuperResolution
 from .esrgan import MODEL_CLASS_MAPPING as _ESRGAN_CLASS_MAPPING
+from .esrgan import ESRGANConfig, ESRGANForImageSuperResolution
 from .esrgan import ESRGANIOConfig as _ESRGANIOConfig  # triggers registration
 from .marian import MARIAN_CONFIG
 from .marian import MODEL_CLASS_MAPPING as _MARIAN_CLASS_MAPPING

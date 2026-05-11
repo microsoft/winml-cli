@@ -139,9 +139,9 @@ def _deep_merge_dicts(base: dict, top: dict) -> dict:
 
 
 def apply_loader_config_overrides(
-    hf_config: "PretrainedConfig",
+    hf_config: PretrainedConfig,
     overrides: dict[str, Any] | None,
-) -> "PretrainedConfig":
+) -> PretrainedConfig:
     """Return a new HF config with ``overrides`` deep-merged onto ``hf_config``.
 
     Serializes the original config via :meth:`PretrainedConfig.to_dict`,
