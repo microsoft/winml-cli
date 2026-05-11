@@ -304,7 +304,11 @@ def resolve_precision(
                 task,
             )
 
-    supported_precisions = _DEVICE_SUPPORTED_PRECISIONS[resolved_device]
+    supported_precisions = _DEVICE_SUPPORTED_PRECISIONS.get(resolved_device)
+    if supported_precisions is None:
+        raise ValueError(
+            f"Unknown device '{resolved_device}'. Expected one of: {sorted(_VALID_DEVICES)}"
+        )
     if resolved_precision not in supported_precisions:
         supported = ", ".join(supported_precisions)
         raise ValueError(
@@ -363,5 +367,7 @@ def _pick_device_for_precision(
     if compatible_devices:
         return compatible_devices[0]
 
-    # Fallback: first available device
-    return available_devices[0] if available_devices else "cpu"
+    available = ", ".join(available_devices) if available_devices else "(none)"
+    raise ValueError(
+        f"No available device supports precision '{precision}'. Available: {available}"
+    )

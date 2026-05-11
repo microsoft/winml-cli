@@ -121,6 +121,14 @@ class TestResolvePrecision:
         with pytest.raises(ValueError, match="Unknown precision"):
             resolve_precision(device="cpu", precision="bfloat16")
 
+    def test_auto_device_no_compatible_precision_raises(self) -> None:
+        """device='auto' + unsupported available devices should raise clearly."""
+        with pytest.raises(
+            ValueError,
+            match=r"No available device supports precision 'int8'\. Available: npu",
+        ):
+            resolve_precision(device="auto", precision="int8", available_devices=["npu"])
+
     def test_npu_int8_raises_unsupported_combo(self) -> None:
         """NPU + int8 preset is rejected instead of silently converting to uint8/uint8."""
         with pytest.raises(
