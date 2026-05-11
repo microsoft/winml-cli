@@ -285,7 +285,7 @@ class _JobMemoryCap:
             return
 
         class _IO_COUNTERS(ctypes.Structure):  # noqa: N801 (Win32 struct name)
-            _fields_ = [
+            _fields_ = [  # noqa: RUF012 (ctypes Structure API requires a plain list)
                 ("ReadOperationCount", ctypes.c_ulonglong),
                 ("WriteOperationCount", ctypes.c_ulonglong),
                 ("OtherOperationCount", ctypes.c_ulonglong),
@@ -295,7 +295,7 @@ class _JobMemoryCap:
             ]
 
         class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801 (Win32 struct name)
-            _fields_ = [
+            _fields_ = [  # noqa: RUF012 (ctypes Structure API requires a plain list)
                 ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
                 ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
                 ("LimitFlags", wintypes.DWORD),
@@ -308,7 +308,7 @@ class _JobMemoryCap:
             ]
 
         class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801 (Win32 struct name)
-            _fields_ = [
+            _fields_ = [  # noqa: RUF012 (ctypes Structure API requires a plain list)
                 ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
                 ("IoInfo", _IO_COUNTERS),
                 ("ProcessMemoryLimit", ctypes.c_size_t),
@@ -392,9 +392,7 @@ class _JobMemoryCap:
             return False
         ok = self._kernel32.AssignProcessToJobObject(self._job_handle, proc_h)
         if not ok:
-            self.assign_error = (
-                f"AssignProcessToJobObject failed (err={ctypes.get_last_error()})"
-            )
+            self.assign_error = f"AssignProcessToJobObject failed (err={ctypes.get_last_error()})"
             self.assign_failed = True
             self._kernel32.CloseHandle(proc_h)
             return False
@@ -719,10 +717,7 @@ def _run_subprocess(args: list[str], timeout: int, monitor: bool = False) -> dic
             mem_info["peak_bytes"] = _peak_bytes_final
             # Heuristic: peak >= 95% of cap implies the cap was very likely
             # the cause of a non-zero exit (commits were rejected).
-            if (
-                exit_code != 0
-                and _peak_bytes_final >= int(_SUBPROCESS_MEMORY_LIMIT_BYTES * 0.95)
-            ):
+            if exit_code != 0 and _peak_bytes_final >= int(_SUBPROCESS_MEMORY_LIMIT_BYTES * 0.95):
                 mem_info["limit_hit"] = True
         if job_cap is not None and job_cap.assign_failed:
             mem_info["assign_failed"] = True
@@ -801,6 +796,7 @@ def _run_build(
     model_dir: Path,
     ep: str | None = None,
     monitor: bool = False,
+    perf_only: bool = False,
 ) -> dict:
     """Run winml config + winml build for one model. Returns build result dict.
 
@@ -809,6 +805,14 @@ def _run_build(
     Single models produce one config; composite models (e.g., T5 translation)
     produce one per sub-component (suffixed names). Both go through the same
     build loop — single model is just the list-of-1 case.
+
+    When ``perf_only`` is True, each freshly-emitted sub-config is patched
+    in place to use ``_PERF_ONLY_CALIBRATION_SAMPLES`` calibration samples
+    BEFORE the build step runs. This is the only point at which the override
+    can actually shrink the build's quantization memory footprint — patching
+    after the build is purely cosmetic and, worse, never runs if the build
+    crashes on the original sample count (OOM during calibration on big
+    vision encoders such as Donut).
     """
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -855,6 +859,18 @@ def _run_build(
     sub_configs = sorted(config_path.parent.glob(f"{config_path.stem}_*.json"))
     if not sub_configs:
         sub_configs = [config_path]
+
+    # Perf-only: shrink calibration samples on disk BEFORE building so the
+    # actual quantization step (which reads the JSON) uses the smaller value.
+    # Doing this here — between `winml config` and `winml build` — is the
+    # only ordering that affects the upcoming build.
+    if perf_only:
+        for _cfg in sub_configs:
+            if _patch_calibration_samples(_cfg, _PERF_ONLY_CALIBRATION_SAMPLES):
+                safe_print(
+                    f"    [calib] {_cfg.name}: samples → "
+                    f"{_PERF_ONLY_CALIBRATION_SAMPLES} (perf-only)"
+                )
 
     # Step 2: build each sub-config
     # Map component label → ONNX path. Single model uses "" as label.
@@ -1877,6 +1893,10 @@ def main() -> None:
 
             # Build phase: winml config + winml build → list of ONNX paths
             # Build is shared by perf and eval, avoiding redundant builds.
+            # For perf-only runs we ask `_run_build` to shrink calibration
+            # samples on disk between `winml config` and `winml build`, so
+            # the build itself benefits from the smaller sample count
+            # (memory savings, not just cosmetic on-disk values).
             build_result = _run_build(
                 entry,
                 args.device,
@@ -1885,6 +1905,7 @@ def main() -> None:
                 model_dir,
                 ep=args.ep,
                 monitor=args.monitor,
+                perf_only=(args.eval_type == "perf"),
             )
             onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
 
@@ -1910,15 +1931,10 @@ def main() -> None:
                     monitor=args.monitor,
                 )
             elif args.eval_type == "perf":
-                # Perf-only branch: persist a slimmer calibration sample count
-                # to the on-disk build_config.json. This does NOT influence
-                # the build that just ran above (it has already consumed the
-                # original config) — it only updates the config files so the
-                # perf-only intent is reflected on disk for future inspection
-                # and re-runs.
-                for _cfg in sorted(model_dir.glob("build_config*.json")):
-                    _patch_calibration_samples(_cfg, _PERF_ONLY_CALIBRATION_SAMPLES)
-
+                # Note: calibration samples were already patched inside
+                # `_run_build` (perf_only=True) before the build ran, so the
+                # build itself used the smaller sample count. Nothing to do
+                # here besides launching the perf run.
                 perf_proc = run_model(
                     entry,
                     args.device,
