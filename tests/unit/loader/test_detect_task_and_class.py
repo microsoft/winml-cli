@@ -33,11 +33,12 @@ class TestDetectTaskAndClassFromConfig:
         with patch(
             "optimum.exporters.tasks.TasksManager.get_model_class_for_task",
             return_value=mock_class,
-        ):
+        ) as mock_get_model_class:
             task, resolved_class = _detect_task_and_class_from_config(config)
 
         assert task == "feature-extraction"
         assert resolved_class is mock_class
+        mock_get_model_class.assert_called_once_with("feature-extraction")
 
     def test_empty_architectures_defaults_to_feature_extraction(self):
         """Empty architectures list should fallback to feature-extraction."""
@@ -50,11 +51,12 @@ class TestDetectTaskAndClassFromConfig:
         with patch(
             "optimum.exporters.tasks.TasksManager.get_model_class_for_task",
             return_value=mock_class,
-        ):
+        ) as mock_get_model_class:
             task, resolved_class = _detect_task_and_class_from_config(config)
 
         assert task == "feature-extraction"
         assert resolved_class is mock_class
+        mock_get_model_class.assert_called_once_with("feature-extraction")
 
     def test_invalid_architecture_raises_error(self):
         """Test ValueError when architecture cannot be imported from transformers."""

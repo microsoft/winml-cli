@@ -112,6 +112,8 @@ class TestExportCLIInterface:
                     tokens = shlex.split(example)
                 except ValueError as e:
                     pytest.fail(f"Unable to parse example command: {example!r} ({e})")
+                if len(tokens) < 2 or tokens[0] != "winml" or tokens[1] != "export":
+                    pytest.fail(f"Malformed export example command: {example!r}")
                 args = tokens[2:]  # drop "winml export"
                 args = [str(specs_file) if arg == "inputs.json" else arg for arg in args]
                 args = [str(config_file) if arg == "config.json" else arg for arg in args]
