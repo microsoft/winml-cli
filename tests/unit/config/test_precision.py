@@ -515,6 +515,23 @@ class TestMixedPrecisionInvalidInputs:
         assert policy.weight_type == "uint8"
         assert policy.activation_type == "uint16"
 
+    @pytest.mark.parametrize(
+        "device,raw_precision,canonical_precision",
+        [
+            ("npu", "w08a08", "w8a8"),
+            ("cpu", "w016a016", "w16a16"),
+        ],
+    )
+    def test_leading_zero_mixed_precision_is_canonicalized(
+        self,
+        device: str,
+        raw_precision: str,
+        canonical_precision: str,
+    ) -> None:
+        """Mixed precision values with leading zeros are canonicalized."""
+        policy = resolve_precision(device=device, precision=raw_precision)
+        assert policy.precision == canonical_precision
+
 
 # =============================================================================
 # TestQuantizeCliResolveQuant - quantize CLI _resolve_quant_types()
