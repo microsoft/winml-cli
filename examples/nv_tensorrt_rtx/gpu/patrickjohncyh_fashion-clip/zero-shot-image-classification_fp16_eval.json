@@ -1,0 +1,20 @@
+{
+  "model_id": "patrickjohncyh/fashion-clip",
+  "task": "zero-shot-image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "zalando-datasets/fashion_mnist",
+    "columns_mapping": {
+      "input_column": "image"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\nv_tensorrt_rtx\\gpu\\patrickjohncyh_fashion-clip\\zero-shot-image-classification_fp16_eval.json",
+  "metrics": {
+    "top1_accuracy": 74.3,
+    "top5_accuracy": 99.8
+  }
+}
