@@ -86,6 +86,7 @@ extends:
                 displayName: 'Copy runtime check rules'
 
               - powershell: |
+                  Add-Type -AssemblyName System.IO.Compression
                   Add-Type -AssemblyName System.IO.Compression.FileSystem
 
                   $rulesRoot = "$(Build.SourcesDirectory)\src\winml\modelkit\analyze\rules\runtime_check_rules"
@@ -159,6 +160,7 @@ extends:
               # of each archive directly catches build-cache / ordering
               # bugs that disk-only checks would miss.
               - powershell: |
+                  Add-Type -AssemblyName System.IO.Compression
                   Add-Type -AssemblyName System.IO.Compression.FileSystem
 
                   function Read-ConstantsFromArchive($archivePath) {
