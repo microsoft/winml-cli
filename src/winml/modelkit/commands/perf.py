@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -565,22 +564,21 @@ def _perf_modules(
             ep=ep,
         )
     except Exception as e:
-        console.print(f"[red]Error generating module configs: {e}[/red]")
         if verbose:
             logger.exception("Module config generation failed")
-        sys.exit(3)
+        raise click.ClickException(f"Error generating module configs: {e}") from e
 
     if not module_configs:
-        console.print(f"[yellow]No modules matching '{module_class}' found[/yellow]")
-        sys.exit(0)
+        # User-error: --module pattern didn't match. Exit non-zero so CI
+        # doesn't silently treat a typo'd module name as success.
+        raise click.UsageError(f"No modules matching '{module_class}' found")
 
     console.print(f"[dim]Found {len(module_configs)} {module_class} instances[/dim]")
 
     # Instantiate parent with init weights (no pretrained download)
     model_type = module_configs[0].loader.model_type
     if not model_type:
-        console.print("[red]Error: module configs missing model_type[/red]")
-        sys.exit(3)
+        raise click.ClickException("module configs missing model_type")
     parent_model = _instantiate_parent_model(model_type, task=task)
 
     all_results: list[dict[str, Any]] = []
@@ -1053,14 +1051,7 @@ def _run_onnx_benchmark(
 
 
 @click.command("perf")
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
-    type=str,
-    default=None,
-    help="Model identifier: HuggingFace model ID or local .onnx file.",
-)
+@cli_utils.model_option(required=False)
 @click.option(
     "--task",
     type=str,
@@ -1069,25 +1060,19 @@ def _run_onnx_benchmark(
 )
 @click.option(
     "--iterations",
-    type=int,
+    type=click.IntRange(min=1),
     default=100,
     show_default=True,
-    help="Number of benchmark iterations",
+    help="Number of benchmark iterations (must be > 0)",
 )
 @click.option(
     "--warmup",
-    type=int,
+    type=click.IntRange(min=0),
     default=10,
     show_default=True,
-    help="Number of warmup iterations (excluded from statistics)",
+    help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
-@click.option(
-    "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
-    default="auto",
-    show_default=True,
-    help="Device to run benchmark on",
-)
+@cli_utils.device_option(required=False, default="auto", include_auto=True)
 @click.option(
     "--precision",
     type=str,
@@ -1095,14 +1080,9 @@ def _run_onnx_benchmark(
     show_default=True,
     help="Precision mode: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16).",
 )
-@click.option(
-    "--ep",
-    "ep",
-    type=str,
-    default=None,
-    help="Force specific execution provider "
-    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
-    "Overrides device-to-provider mapping.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping.",
 )
 @click.option(
     "--output",
@@ -1175,7 +1155,7 @@ def _run_onnx_benchmark(
 @click.pass_context
 def perf(
     ctx: click.Context,
-    model_id: str | None,
+    model: str | None,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1222,10 +1202,10 @@ def perf(
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
-    if not model_id:
+    if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
-    hf_model = model_id
+    hf_model = model
 
     # Apply build config defaults (CLI explicit options take precedence)
     if config_file is not None:
@@ -1412,11 +1392,11 @@ def perf(
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] Model not found: {e}")
-        sys.exit(3)
+        # User-error: bad model path. UsageError so the exit code (2) matches
+        # the convention used by Click for argument problems.
+        raise click.UsageError(f"Model not found: {e}") from e
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] Benchmark failed: {e}")
         if verbose:
             logger.exception("Benchmark failed")
-        sys.exit(4)
+        raise click.ClickException(f"Benchmark failed: {e}") from e
