@@ -65,7 +65,11 @@ def _configure() -> None:
             msg = record.getMessage()
             return not any(s in msg for s in self._SUPPRESSED)
 
-    logging.getLogger("transformers.pipelines.base").addFilter(_PipelineNoiseFilter())
+    for logger_name in (
+        "transformers.pipelines.base",
+        "transformers.models.auto.image_processing_auto",
+    ):
+        logging.getLogger(logger_name).addFilter(_PipelineNoiseFilter())
 
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
