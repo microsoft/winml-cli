@@ -1062,14 +1062,6 @@ def _run_onnx_benchmark(
     help="Model identifier: HuggingFace model ID or local .onnx file.",
 )
 @click.option(
-    "--hf-model",
-    "hf_model_deprecated",
-    type=str,
-    default=None,
-    hidden=True,
-    help="[Deprecated] Use -m/--model instead.",
-)
-@click.option(
     "--task",
     type=str,
     default=None,
@@ -1173,12 +1165,6 @@ def _run_onnx_benchmark(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
 )
 @click.option(
-    "--compare-devices",
-    type=str,
-    default=None,
-    help="Compare benchmark across devices (e.g., 'cpu,npu'). Not yet implemented.",
-)
-@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -1190,7 +1176,6 @@ def _run_onnx_benchmark(
 def perf(
     ctx: click.Context,
     model_id: str | None,
-    hf_model_deprecated: str | None,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1206,7 +1191,6 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    compare_devices: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -1238,21 +1222,6 @@ def perf(
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
-    # Resolve deprecated --hf-model alias
-    if hf_model_deprecated and model_id:
-        raise click.UsageError(
-            "Cannot use both -m/--model and --hf-model. Use -m/--model (--hf-model is deprecated)."
-        )
-    if hf_model_deprecated:
-        import warnings
-
-        warnings.warn(
-            "--hf-model is deprecated. Use -m/--model instead.",
-            DeprecationWarning,
-            stacklevel=1,
-        )
-        model_id = hf_model_deprecated
-
     if not model_id:
         raise click.UsageError("A model is required via -m/--model.")
 
@@ -1271,13 +1240,6 @@ def perf(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     console = Console()
-
-    if compare_devices:
-        console.print(
-            "[yellow]--compare-devices is not yet implemented. "
-            "Run benchmarks separately and compare JSON outputs.[/yellow]"
-        )
-        return
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark

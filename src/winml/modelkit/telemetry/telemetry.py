@@ -117,6 +117,9 @@ class Telemetry:
         must never propagate to the CLI.
         """
         try:
+            if not constants.TELEMETRY_ENABLED:
+                _clear_cache_quietly()
+                return
             if not constants.INSTRUMENTATION_KEY:
                 _clear_cache_quietly()
                 return
