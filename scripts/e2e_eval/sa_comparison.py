@@ -61,9 +61,11 @@ def run_sa_with_info(
     classifications: dict[str, str] = {}
     info_items: list[dict] = []
 
+    ep_found = False
     for ep_result in result.output.results:
         if ep_result.ep_type != ep:
             continue
+        ep_found = True
         for level_enum, pid_list in ep_result.classification.items():
             level = level_enum.value.upper()
             for pid in pid_list:
@@ -77,6 +79,18 @@ def run_sa_with_info(
             for info in ep_result.information
         )
         break
+
+    if not ep_found:
+        # No rule data for this EP/device — SA skipped the EP entirely.
+        # Return empty classifications so callers can proceed without SA-driven
+        # optimization (perf comparison across stages still works).
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "SA produced no results for EP=%s — no runtime rule data available. "
+            "Returning empty classifications.",
+            ep,
+        )
 
     # Get optimization config from SA recommendations
     optim_config = dict(result.get_optimization_config(ep))
