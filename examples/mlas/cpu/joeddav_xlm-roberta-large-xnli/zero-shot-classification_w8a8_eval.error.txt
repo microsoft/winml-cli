@@ -1,0 +1,22 @@
+y", line 51, in __init__
+    self.pipe = self.prepare_pipeline()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\zero_shot_classification_evaluator.py", line 108, in prepare_pipeline
+    pipe = pipeline(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\__init__.py", line 1078, in pipeline
+    raise e
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\pipelines\__init__.py", line 1073, in pipeline
+    tokenizer = AutoTokenizer.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\models\auto\tokenization_auto.py", line 1175, in from_pretrained
+    return tokenizer_class_fast.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\tokenization_utils_base.py", line 2113, in from_pretrained
+    return cls._from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\tokenization_utils_base.py", line 2359, in _from_pretrained
+    tokenizer = cls(*init_inputs, **init_kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\models\xlm_roberta\tokenization_xlm_roberta_fast.py", line 108, in __init__
+    super().__init__(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\tokenization_utils_fast.py", line 139, in __init__
+    fast_tokenizer = convert_slow_tokenizer(self, from_tiktoken=True)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\convert_slow_tokenizer.py", line 1857, in convert_slow_tokenizer
+    elif transformer_tokenizer.vocab_file.endswith("tekken.json"):
+AttributeError: 'NoneType' object has no attribute 'endswith'
+Error: Evaluation failed: 'NoneType' object has no attribute 'endswith'
