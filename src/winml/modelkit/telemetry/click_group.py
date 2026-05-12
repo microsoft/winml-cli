@@ -7,11 +7,11 @@
 
 On subcommand invocation:
 
-  * Emits ``ModelKitHeartbeat`` once per CLI invocation, just before the
+  * Emits ``WinMLCLIHeartbeat`` once per CLI invocation, just before the
     subcommand body runs.
   * Wraps the subcommand's ``invoke`` to time execution and emit
-    ``ModelKitAction`` on completion (success or failure) and
-    ``ModelKitError`` on unhandled exception.
+    ``WinMLCLIAction`` on completion (success or failure) and
+    ``WinMLCLIError`` on unhandled exception.
 
 No per-command decoration is needed; any command registered on an
 ``ActionGroup`` is instrumented automatically.
@@ -32,8 +32,8 @@ import click
 from .telemetry import Telemetry
 
 
-_INSTRUMENTED_ATTR = "_modelkit_instrumented"
-_HEARTBEAT_FLAG = "_modelkit_heartbeat_sent"
+_INSTRUMENTED_ATTR = "_winmlcli_instrumented"
+_HEARTBEAT_FLAG = "_winmlcli_heartbeat_sent"
 
 
 class ActionGroup(click.Group):
@@ -48,10 +48,10 @@ class ActionGroup(click.Group):
 
 
 def _instrument(cmd: click.Command) -> click.Command:
-    """Wrap ``cmd.invoke`` with ModelKit telemetry emission.
+    """Wrap ``cmd.invoke`` with WinML CLI telemetry emission.
 
-    Every call emits ``ModelKitHeartbeat`` (once per CLI invocation),
-    ``ModelKitAction`` on completion, and ``ModelKitError`` on
+    Every call emits ``WinMLCLIHeartbeat`` (once per CLI invocation),
+    ``WinMLCLIAction`` on completion, and ``WinMLCLIError`` on
     exception. Idempotent via a marker attribute so repeated resolutions
     don't stack wrappers.
     """
@@ -86,7 +86,7 @@ def _instrument(cmd: click.Command) -> click.Command:
         except click.exceptions.Exit as exc:
             # ``ctx.exit(N)`` raises this; it inherits from RuntimeError
             # so the Exception handler below would otherwise mis-fire
-            # ``log_error`` and emit a ``ModelKitError`` event for what
+            # ``log_error`` and emit a ``WinMLCLIError`` event for what
             # is really a clean intentional exit. Mirror SystemExit:
             # success reflects the exit code, no log_error.
             if exc.exit_code != 0:
@@ -112,7 +112,7 @@ def _instrument(cmd: click.Command) -> click.Command:
 
 
 def _emit_heartbeat_once(ctx: click.Context, telemetry: Telemetry) -> None:
-    """Emit ``ModelKitHeartbeat`` once per CLI invocation.
+    """Emit ``WinMLCLIHeartbeat`` once per CLI invocation.
 
     Subsequent calls (e.g. nested ``ActionGroup`` chain) are no-ops. The
     flag lives on the root Click context so it is naturally scoped to

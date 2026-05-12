@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 
 """Tests for ``ActionGroup`` — the Click ``Group`` subclass that
-auto-instruments every registered subcommand with ModelKit telemetry."""
+auto-instruments every registered subcommand with WinML CLI telemetry."""
 
 from unittest.mock import MagicMock
 
@@ -66,7 +66,7 @@ def test_heartbeat_and_action_emitted_on_success(enabled_telemetry):
 
     emit_calls = mock_logger.emit.call_args_list
     event_names = [str(c.args[0].body) for c in emit_calls]
-    assert event_names == ["ModelKitHeartbeat", "ModelKitAction"]
+    assert event_names == ["WinMLCLIHeartbeat", "WinMLCLIAction"]
 
     action_record = emit_calls[1].args[0]
     attrs = dict(action_record.attributes)
@@ -115,7 +115,7 @@ def test_exception_emits_error_and_action_failure(enabled_telemetry):
     assert isinstance(result.exception, ValueError)
 
     event_names = [str(c.args[0].body) for c in mock_logger.emit.call_args_list]
-    assert event_names == ["ModelKitHeartbeat", "ModelKitError", "ModelKitAction"]
+    assert event_names == ["WinMLCLIHeartbeat", "WinMLCLIError", "WinMLCLIAction"]
 
     action_record = mock_logger.emit.call_args_list[2].args[0]
     assert dict(action_record.attributes)["success"] is False
@@ -151,9 +151,9 @@ def test_systemexit_marks_success_by_exit_code(enabled_telemetry, exit_code, exp
     result = runner.invoke(cli, ["cmd"])
     assert result.exit_code == exit_code
 
-    # No ModelKitError — SystemExit is an intentional exit, not a crash.
+    # No WinMLCLIError — SystemExit is an intentional exit, not a crash.
     event_names = [str(c.args[0].body) for c in mock_logger.emit.call_args_list]
-    assert event_names == ["ModelKitHeartbeat", "ModelKitAction"]
+    assert event_names == ["WinMLCLIHeartbeat", "WinMLCLIAction"]
     action_record = mock_logger.emit.call_args_list[1].args[0]
     assert dict(action_record.attributes)["success"] is expected_success
 
@@ -164,7 +164,7 @@ def test_systemexit_marks_success_by_exit_code(enabled_telemetry, exit_code, exp
 )
 def test_click_ctx_exit_marks_success_by_exit_code(enabled_telemetry, exit_code, expected_success):
     """``ctx.exit(N)`` must behave like ``sys.exit(N)``: clean intentional
-    exit, success reflects the exit code, and no ``ModelKitError`` event.
+    exit, success reflects the exit code, and no ``WinMLCLIError`` event.
 
     ``click.exceptions.Exit`` inherits from ``RuntimeError`` (i.e. is an
     ``Exception``), so without a dedicated handler it falls through to
@@ -188,7 +188,7 @@ def test_click_ctx_exit_marks_success_by_exit_code(enabled_telemetry, exit_code,
     assert result.exit_code == exit_code
 
     event_names = [str(c.args[0].body) for c in mock_logger.emit.call_args_list]
-    assert event_names == ["ModelKitHeartbeat", "ModelKitAction"]
+    assert event_names == ["WinMLCLIHeartbeat", "WinMLCLIAction"]
     action_record = mock_logger.emit.call_args_list[1].args[0]
     assert dict(action_record.attributes)["success"] is expected_success
 

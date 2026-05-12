@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Model-aware cache operations for ModelKit.
+"""Model-aware cache operations for WinML CLI.
 
 Adds model_id to slug mapping, model directory resolution, and
 directory scanning for cached artifact enumeration.
@@ -94,14 +94,16 @@ def list_cached_models(cache_dir: Path | None = None) -> list[dict[str, str]]:
             if parsed is None:
                 continue
             task_abbrev, config_hash, stage = parsed
-            results.append({
-                "model_slug": model_slug,
-                "task_abbrev": task_abbrev,
-                "config_hash": config_hash,
-                "stage": stage,
-                "filename": artifact.name,
-                "path": str(artifact),
-            })
+            results.append(
+                {
+                    "model_slug": model_slug,
+                    "task_abbrev": task_abbrev,
+                    "config_hash": config_hash,
+                    "stage": stage,
+                    "filename": artifact.name,
+                    "path": str(artifact),
+                }
+            )
     return results
 
 
@@ -120,7 +122,7 @@ def _parse_artifact_filename(
     last_sep = stem.rfind("_")
     if last_sep < 0:
         return None
-    stage = stem[last_sep + 1:]
+    stage = stem[last_sep + 1 :]
     prefix = stem[:last_sep]
 
     # prefix = "{task_abbrev}_{config_hash}"
