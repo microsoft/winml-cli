@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 def _levenshtein(a: str, b: str) -> int:
-    """Levenshtein edit distance via ``python-Levenshtein`` (fast C implementation)."""
-    import Levenshtein
+    """Levenshtein edit distance via ``rapidfuzz`` (MIT-licensed, fast C++ implementation)."""
+    from rapidfuzz.distance import Levenshtein
 
     return Levenshtein.distance(a, b)
 
