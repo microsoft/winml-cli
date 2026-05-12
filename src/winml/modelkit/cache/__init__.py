@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Cache management for ModelKit.
+"""Cache management for WinML CLI.
 
 Provides deterministic path computation for cached build artifacts.
 Both ``from_pretrained()`` and ``winml build --use-cache`` use these

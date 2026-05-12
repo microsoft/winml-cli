@@ -5,7 +5,7 @@
 
 """Regression tests for lazy loading and import-time tracking.
 
-These tests ensure that importing ModelKit modules and running CLI commands
+These tests ensure that importing WinML CLI modules and running CLI commands
 do not pull in heavy ML dependencies (torch, transformers, optimum, etc.)
 unless the functionality actually requires them.
 

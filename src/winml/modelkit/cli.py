@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML ModelKit CLI - Universal ONNX export from command line.
+"""WinML CLI - Universal ONNX export from command line.
 
-This module provides the main CLI entry point for ModelKit with lazy
+This module provides the main entry point for WinML CLI with lazy
 command discovery from the commands/ directory.
 
 Usage:
@@ -161,7 +161,7 @@ class LazyGroup(ActionGroup):
     parsing (no module execution).
 
     Extends :class:`ActionGroup` so every resolved subcommand is also
-    auto-instrumented with ModelKit telemetry.
+    auto-instrumented with WinML CLI telemetry.
     """
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -251,7 +251,7 @@ class LazyGroup(ActionGroup):
 )
 @click.pass_context
 def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
-    """WML ModelKit - Accelerate Model Deployment on WinML.
+    """WinML CLI - Accelerate Model Deployment on WinML.
 
     Universal ONNX export with QNN and OpenVINO backend support.
     """

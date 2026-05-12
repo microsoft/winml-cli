@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Config generation command (v2, Rich UI) for ModelKit CLI.
+"""Config generation command (v2, Rich UI) for WinML CLI.
 
 Generates WinMLBuildConfig for a HuggingFace model or a pre-exported ONNX file
 by auto-detecting task, model class, and I/O specifications.
