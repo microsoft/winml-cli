@@ -26,9 +26,13 @@ class DepthMetric:
     same 2D shape; resampling is the caller's responsibility.
     """
 
+    _VALID_ALIGN = ("none", "median", "affine")
+    _VALID_DEPTH_KIND = ("depth", "disparity")
+
     def __init__(
         self,
-        align: str = "median",
+        align: str = "affine",
+        depth_kind: str = "depth",
         min_depth: float = 1e-3,
         max_depth: float | None = 10.0,
         delta_threshold: float = 1.25,
@@ -37,8 +41,17 @@ class DepthMetric:
 
         Args:
             align: Per-image alignment of predictions to ground truth.
-                ``"median"`` rescales by ``median(gt) / median(pred)``;
-                ``"none"`` evaluates predictions as-is.
+                ``"affine"`` (default) fits ``s * pred + t`` via
+                least-squares — standard for relative-depth models
+                (MiDaS, Depth-Anything, Marigold). ``"median"`` rescales
+                by ``median(gt) / median(pred)`` (scale only, no shift).
+                ``"none"`` evaluates predictions as-is — for metric-depth
+                models like ZoeDepth and DepthPro.
+            depth_kind: Output space of ``prediction``. ``"depth"``
+                (default) treats values as forward depth/distance.
+                ``"disparity"`` first inverts the prediction to depth
+                (``1 / pred``) — for DPT/MiDaS-style models whose
+                output is inverse depth.
             min_depth: Lower bound (inclusive) for valid ground-truth
                 pixels in the same units as ``gt``.
             max_depth: Upper bound (inclusive) for valid ground-truth
@@ -46,12 +59,19 @@ class DepthMetric:
                 (NYU indoor convention).
             delta_threshold: Threshold for delta1 accuracy.
         """
-        if align not in ("none", "median"):
-            raise ValueError(f"align must be 'none' or 'median', got {align!r}.")
+        if align not in self._VALID_ALIGN:
+            raise ValueError(
+                f"align must be one of {self._VALID_ALIGN}, got {align!r}.",
+            )
+        if depth_kind not in self._VALID_DEPTH_KIND:
+            raise ValueError(
+                f"depth_kind must be one of {self._VALID_DEPTH_KIND}, got {depth_kind!r}.",
+            )
         if delta_threshold <= 1.0:
             raise ValueError(f"delta_threshold must be > 1, got {delta_threshold}.")
 
         self._align = align
+        self._depth_kind = depth_kind
         self._min_depth = float(min_depth)
         self._max_depth = float(max_depth) if max_depth is not None else None
         self._delta_threshold = float(delta_threshold)
@@ -67,11 +87,10 @@ class DepthMetric:
 
         Args:
             prediction: ``(H, W)`` array-like of predicted depth (or
-                disparity, when ``align="median"`` rescales it).
+                disparity, when ``depth_kind="disparity"``).
                 Negative or non-finite values are treated as invalid.
             reference: ``(H, W)`` array-like of ground-truth depth in
-                the same units as ``prediction`` (or arbitrary units
-                when ``align="median"``).
+                the same units as the aligned prediction.
         """
         pred = self._to_numpy(prediction)
         gt = self._to_numpy(reference)
@@ -79,6 +98,10 @@ class DepthMetric:
             raise ValueError(
                 f"prediction and reference must share shape; got {pred.shape} vs {gt.shape}.",
             )
+
+        if self._depth_kind == "disparity":
+            with np.errstate(divide="ignore", invalid="ignore"):
+                pred = np.where(pred > 0, 1.0 / pred, np.nan)
 
         valid = self._valid_mask(pred, gt)
         if not valid.any():
@@ -91,6 +114,23 @@ class DepthMetric:
         if self._align == "median":
             scale = np.median(gt_v) / np.median(pred_v)
             pred_v = pred_v * scale
+        elif self._align == "affine":
+            # Least-squares fit of (s, t) such that s * pred + t ~ gt.
+            # Standard scale-and-shift alignment for relative-depth models
+            # (MiDaS, Depth-Anything, Marigold).
+            ones = np.ones_like(pred_v)
+            a = np.stack([pred_v, ones], axis=1)
+            (scale, shift), *_ = np.linalg.lstsq(a, gt_v, rcond=None)
+            pred_v = pred_v * scale + shift
+            # Drop pixels that fall below min_depth after alignment;
+            # leaving them in would dominate abs_rel via tiny gt-side ratios
+            # only when gt is small (already gated by _valid_mask).
+            pos = pred_v > self._min_depth
+            if not pos.any():
+                self._image_count += 1
+                return
+            pred_v = pred_v[pos]
+            gt_v = gt_v[pos]
 
         diff = pred_v - gt_v
         ratio = np.maximum(pred_v / gt_v, gt_v / pred_v)

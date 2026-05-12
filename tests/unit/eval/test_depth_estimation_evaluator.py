@@ -33,7 +33,8 @@ class MockModel:
 def make_evaluator(
     input_col: str = "image",
     depth_col: str = "depth_map",
-    align: str = "median",
+    align: str = "affine",
+    depth_kind: str = "depth",
     min_depth: float = 1e-3,
     max_depth=10.0,
 ):
@@ -43,6 +44,7 @@ def make_evaluator(
     ev._input_col = input_col
     ev._depth_col = depth_col
     ev._align = align
+    ev._depth_kind = depth_kind
     ev._min_depth = float(min_depth)
     ev._max_depth = None if max_depth is None else float(max_depth)
     return ev
@@ -103,6 +105,20 @@ class TestSchemaInfo:
         assert cols["depth_map"].override == "depth_column"
         assert cols["image"].required is True
         assert cols["depth_map"].required is True
+
+    def test_schema_info_exposes_align_and_depth_kind_options(self):
+        cols = {c.override: c for c in WinMLDepthEstimationEvaluator.schema_info()}
+        assert "align" in cols
+        assert "depth_kind" in cols
+        assert cols["align"].type == "option"
+        assert cols["depth_kind"].type == "option"
+        assert cols["align"].required is False
+        assert cols["depth_kind"].required is False
+
+    def test_schema_info_default_align_is_affine(self):
+        cols = {c.override: c for c in WinMLDepthEstimationEvaluator.schema_info()}
+        assert cols["align"].name == "affine"
+        assert cols["depth_kind"].name == "depth"
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +245,7 @@ class TestPreparePipeline:
         self._patch_super_pipeline(monkeypatch, proc)
 
         ev = make_evaluator()
-        ev.model = type(
-            "M", (), {"io_config": {"input_shapes": [[1, 3, 518, 518]]}}
-        )()
+        ev.model = type("M", (), {"io_config": {"input_shapes": [[1, 3, 518, 518]]}})()
 
         pipe = ev.prepare_pipeline()
         assert pipe.image_processor.size == {"height": 518, "width": 518}
@@ -245,9 +259,7 @@ class TestPreparePipeline:
         self._patch_super_pipeline(monkeypatch, proc)
 
         ev = make_evaluator()
-        ev.model = type(
-            "M", (), {"io_config": {"input_shapes": [[1, 3, 518, 518]]}}
-        )()
+        ev.model = type("M", (), {"io_config": {"input_shapes": [[1, 3, 518, 518]]}})()
 
         pipe = ev.prepare_pipeline()
         assert pipe.image_processor.keep_aspect_ratio is False
@@ -261,9 +273,7 @@ class TestPreparePipeline:
         self._patch_super_pipeline(monkeypatch, proc)
 
         ev = make_evaluator()
-        ev.model = type(
-            "M", (), {"io_config": {"input_shapes": [[1, 3, 384, 384]]}}
-        )()
+        ev.model = type("M", (), {"io_config": {"input_shapes": [[1, 3, 384, 384]]}})()
 
         pipe = ev.prepare_pipeline()
         assert pipe.image_processor.do_pad is False
@@ -277,9 +287,7 @@ class TestPreparePipeline:
         self._patch_super_pipeline(monkeypatch, proc)
 
         ev = make_evaluator()
-        ev.model = type(
-            "M", (), {"io_config": {"input_shapes": [[1, 3, 224, 224]]}}
-        )()
+        ev.model = type("M", (), {"io_config": {"input_shapes": [[1, 3, 224, 224]]}})()
 
         pipe = ev.prepare_pipeline()
         assert pipe.image_processor.size == {"height": 224, "width": 224}
@@ -288,9 +296,7 @@ class TestPreparePipeline:
 
     def test_missing_io_config_is_noop(self, monkeypatch):
         """If model lacks io_config, processor is not modified."""
-        proc = _FakeImageProcessor(
-            size={"height": 0, "width": 0}, keep_aspect_ratio=True
-        )
+        proc = _FakeImageProcessor(size={"height": 0, "width": 0}, keep_aspect_ratio=True)
         self._patch_super_pipeline(monkeypatch, proc)
 
         ev = make_evaluator()

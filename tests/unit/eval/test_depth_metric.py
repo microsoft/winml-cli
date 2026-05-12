@@ -239,3 +239,108 @@ class TestMedianAlignment:
         m.update(pred, gt)
         result = m.compute()
         assert result["abs_rel"] > 0.4
+
+
+# ---------------------------------------------------------------------------
+# Affine alignment (scale + shift)
+# ---------------------------------------------------------------------------
+
+
+class TestAffineAlignment:
+    def test_affine_recovers_perfect_under_scale(self):
+        rng = np.random.default_rng(1)
+        gt = rng.uniform(1.0, 10.0, size=(8, 8)).astype(np.float32)
+        pred = gt * 0.25  # scale only
+        m = DepthMetric(align="affine", min_depth=0.0, max_depth=None)
+        m.update(pred, gt)
+        result = m.compute()
+        assert result["abs_rel"] == pytest.approx(0.0, abs=1e-5)
+        assert result["delta1"] == pytest.approx(1.0)
+
+    def test_affine_recovers_perfect_under_scale_and_shift(self):
+        """Affine alignment must recover pred = s * gt + t exactly."""
+        rng = np.random.default_rng(2)
+        gt = rng.uniform(1.0, 10.0, size=(8, 8)).astype(np.float32)
+        pred = gt * 0.3 + 2.5
+        m = DepthMetric(align="affine", min_depth=0.0, max_depth=None)
+        m.update(pred, gt)
+        result = m.compute()
+        assert result["abs_rel"] == pytest.approx(0.0, abs=1e-5)
+        assert result["rmse"] == pytest.approx(0.0, abs=1e-5)
+
+    def test_affine_beats_median_when_shift_present(self):
+        rng = np.random.default_rng(3)
+        gt = rng.uniform(1.0, 10.0, size=(16, 16)).astype(np.float32)
+        pred = gt * 0.5 + 4.0
+        m_aff = DepthMetric(align="affine", min_depth=0.0, max_depth=None)
+        m_med = DepthMetric(align="median", min_depth=0.0, max_depth=None)
+        m_aff.update(pred, gt)
+        m_med.update(pred, gt)
+        assert m_aff.compute()["abs_rel"] < m_med.compute()["abs_rel"]
+
+    def test_affine_is_default(self):
+        m = DepthMetric()
+        assert m._align == "affine"
+
+    def test_invalid_align_lists_all_options(self):
+        with pytest.raises(ValueError, match="align must be one of"):
+            DepthMetric(align="bogus")
+
+
+# ---------------------------------------------------------------------------
+# Disparity prediction
+# ---------------------------------------------------------------------------
+
+
+class TestDisparity:
+    def test_disparity_inverts_then_aligns(self):
+        """pred = k / gt (disparity); after invert + affine should be perfect."""
+        rng = np.random.default_rng(4)
+        gt = rng.uniform(1.0, 10.0, size=(8, 8)).astype(np.float32)
+        disparity = 2.0 / gt  # scale-free disparity
+        m = DepthMetric(
+            align="affine",
+            depth_kind="disparity",
+            min_depth=0.0,
+            max_depth=None,
+        )
+        m.update(disparity, gt)
+        result = m.compute()
+        assert result["abs_rel"] == pytest.approx(0.0, abs=1e-5)
+
+    def test_disparity_with_align_none_is_bad(self):
+        """Sanity: forgetting to invert disparity yields a poor score."""
+        gt = np.array([[1.0, 2.0, 5.0]], dtype=np.float32)
+        disparity = 1.0 / gt
+        m = DepthMetric(
+            align="none",
+            depth_kind="depth",  # WRONG kind on purpose
+            min_depth=0.0,
+            max_depth=None,
+        )
+        m.update(disparity, gt)
+        assert m.compute()["abs_rel"] > 0.5
+
+    def test_disparity_default_is_depth(self):
+        m = DepthMetric()
+        assert m._depth_kind == "depth"
+
+    def test_invalid_depth_kind_raises(self):
+        with pytest.raises(ValueError, match="depth_kind must be one of"):
+            DepthMetric(depth_kind="invalid")
+
+    def test_disparity_zero_pixels_excluded(self):
+        """Zero disparity yields infinite depth — must be excluded as invalid."""
+        gt = np.array([[1.0, 2.0]], dtype=np.float32)
+        disparity = np.array([[0.0, 0.5]], dtype=np.float32)
+        m = DepthMetric(
+            align="none",
+            depth_kind="disparity",
+            min_depth=0.0,
+            max_depth=None,
+        )
+        m.update(disparity, gt)
+        # 1/0.5 = 2.0 matches gt[1] = 2.0; first pixel must be dropped.
+        result = m.compute()
+        assert result["num_valid_pixels"] == 1
+        assert result["abs_rel"] == pytest.approx(0.0)

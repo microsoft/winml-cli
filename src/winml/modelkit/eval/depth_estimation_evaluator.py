@@ -48,18 +48,32 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
                 "Image",
                 "depth_column",
                 description=(
-                    "single-channel depth image; any unit when align=median, "
-                    "otherwise must match the model's predicted unit (e.g. metres)"
+                    "single-channel ground-truth depth image; units must match "
+                    "the prediction after alignment (e.g. metres for NYU)"
                 ),
             ),
             SchemaColumn(
-                "median",
+                "affine",
                 "option",
                 "align",
                 required=False,
                 description=(
-                    'per-image scaling: "median" (relative-depth models) '
-                    'or "none" (metric models like ZoeDepth/DepthPro)'
+                    'how to align prediction to GT: "affine" (default; fits '
+                    "scale+shift via least-squares — Depth-Anything/MiDaS/Marigold), "
+                    '"median" (scale only), "none" (no alignment — metric models '
+                    "like ZoeDepth/DepthPro)"
+                ),
+            ),
+            SchemaColumn(
+                "depth",
+                "option",
+                "depth_kind",
+                required=False,
+                description=(
+                    'prediction output space: "depth" (default; distance) or '
+                    '"disparity" (inverse depth; DPT/MiDaS-style). When '
+                    '"disparity", the evaluator inverts predictions (1/pred) '
+                    "before alignment."
                 ),
             ),
             SchemaColumn(
@@ -68,8 +82,7 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
                 "min_depth",
                 required=False,
                 description=(
-                    "GT pixels at or below this are excluded "
-                    "(sensor noise floor; NYU default)"
+                    "GT pixels at or below this are excluded (sensor noise floor; NYU default)"
                 ),
             ),
             SchemaColumn(
@@ -89,7 +102,8 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
         mapping = config.dataset.columns_mapping
         self._input_col = mapping.get("input_column", "image")
         self._depth_col = mapping.get("depth_column", "depth_map")
-        self._align = mapping.get("align", "median")
+        self._align = mapping.get("align", "affine")
+        self._depth_kind = mapping.get("depth_kind", "depth")
         self._min_depth = float(mapping.get("min_depth", 1e-3))
         max_depth_raw = mapping.get("max_depth", 10.0)
         self._max_depth: float | None
@@ -138,6 +152,7 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
         """Run depth evaluation over all samples."""
         metric = DepthMetric(
             align=self._align,
+            depth_kind=self._depth_kind,
             min_depth=self._min_depth,
             max_depth=self._max_depth,
         )
