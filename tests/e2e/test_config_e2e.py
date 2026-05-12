@@ -21,6 +21,7 @@ Markers:
     e2e: Full end-to-end test with real models
     network: Requires network access to HuggingFace Hub
 """
+
 from __future__ import annotations
 
 import json
@@ -43,9 +44,17 @@ pytestmark = [pytest.mark.e2e, pytest.mark.network]
 @pytest.fixture(autouse=True)
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in CI/test environments."""
+
+    def _resolve_device_mock(device: str = "auto") -> tuple[str, list[str]]:
+        # Keep tests deterministic while preserving explicit device requests.
+        normalized = (device or "auto").lower()
+        if normalized in {"cpu", "gpu", "npu"}:
+            return normalized, [normalized, "cpu"]
+        return "cpu", ["cpu"]
+
     with patch(
         "winml.modelkit.sysinfo.resolve_device",
-        return_value=("cpu", ["cpu"]),
+        side_effect=_resolve_device_mock,
     ):
         yield
 
@@ -62,15 +71,16 @@ def _extract_json(output: str) -> dict | list:
     (stdout) in CliRunner output. Find the first '{' or '[' that
     starts a valid JSON payload.
     """
-    # Try to find the start of JSON object
-    for start_char in ("{", "["):
-        idx = output.find(start_char)
-        if idx >= 0:
-            candidate = output[idx:]
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
+    # Try every potential JSON start token because Rich output may contain
+    # non-JSON '[' or '{' before the actual payload (e.g., tensor shapes).
+    for idx, ch in enumerate(output):
+        if ch not in "[{":
+            continue
+        candidate = output[idx:]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
     msg = f"No valid JSON found in output:\n{output[:500]}"
     raise ValueError(msg)
 
@@ -79,9 +89,7 @@ def _run_config(*args: str) -> dict:
     """Invoke the config command and return parsed JSON output."""
     runner = CliRunner()
     result = runner.invoke(config, list(args), catch_exceptions=False)
-    assert result.exit_code == 0, (
-        f"config failed (exit {result.exit_code}):\n{result.output}"
-    )
+    assert result.exit_code == 0, f"config failed (exit {result.exit_code}):\n{result.output}"
     return _extract_json(result.output)
 
 
@@ -110,6 +118,7 @@ def _assert_onnx_config_structure(data: dict) -> None:
 # ===========================================================================
 # BERT
 # ===========================================================================
+
 
 class TestConfigBert:
     """Config generation for bert-base-uncased."""
@@ -166,6 +175,7 @@ class TestConfigBert:
 # Vision models
 # ===========================================================================
 
+
 class TestConfigVision:
     """Config generation for vision models."""
 
@@ -189,6 +199,7 @@ class TestConfigVision:
 # CLIP
 # ===========================================================================
 
+
 class TestConfigCLIP:
     """Config generation for CLIP."""
 
@@ -199,15 +210,45 @@ class TestConfigCLIP:
         _assert_hf_config_structure(data)
         assert data["loader"]["task"] == "feature-extraction"
 
-    def test_zero_shot_image_classification(self):
-        data = _run_config("-m", self.MODEL, "-t", "zero-shot-image-classification")
-        _assert_hf_config_structure(data)
-        assert data["loader"]["task"] == "zero-shot-image-classification"
+    def test_zero_shot_image_classification(self, tmp_path: Path):
+        """CLIP zero-shot-image-classification is a composite model.
+
+        The config command emits one config per sub-component (image-encoder,
+        text-encoder), writing ``<stem>_<component>.json`` files when ``-o``
+        is provided. Validate that each component produced a well-formed
+        HF config.
+        """
+        outfile = tmp_path / "config.json"
+        runner = CliRunner()
+        result = runner.invoke(
+            config,
+            [
+                "-m",
+                self.MODEL,
+                "-t",
+                "zero-shot-image-classification",
+                "-o",
+                str(outfile),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"config failed: {result.output}"
+
+        # Composite models split output into per-component files.
+        component_files = sorted(tmp_path.glob("config_*.json"))
+        assert component_files, (
+            f"Expected per-component config files in {tmp_path}, got: {list(tmp_path.iterdir())}"
+        )
+        for path in component_files:
+            data = json.loads(path.read_text())
+            _assert_hf_config_structure(data)
+            assert data["loader"]["task"] is not None
 
 
 # ===========================================================================
 # DETR
 # ===========================================================================
+
 
 class TestConfigDETR:
     """Config generation for DETR."""
@@ -223,6 +264,7 @@ class TestConfigDETR:
 # ===========================================================================
 # ONNX input
 # ===========================================================================
+
 
 class TestConfigONNX:
     """Config generation for pre-exported ONNX files."""
@@ -290,11 +332,7 @@ class TestConfigBadPath:
         assert result.exit_code != 0
         combined = (result.output or "") + (str(result.exception) if result.exception else "")
         # Either Click's missing-option message OR our UsageError hint.
-        assert (
-            "--model" in combined
-            or "--model-type" in combined
-            or "--model-class" in combined
-        )
+        assert "--model" in combined or "--model-type" in combined or "--model-class" in combined
 
     @pytest.mark.parametrize("bad_device", ["tpu", "fpga", "xpu", "DSP"])
     def test_invalid_device_rejected(self, bad_device: str) -> None:
@@ -309,8 +347,12 @@ class TestConfigBadPath:
         # --model-type bert avoids a network round-trip while still exercising
         # the precision validation path inside generate_hf_build_config.
         result = _invoke_config(
-            "--model-type", "bert", "--task", "fill-mask",
-            "--precision", bad_precision,
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--precision",
+            bad_precision,
         )
         assert result.exit_code != 0
         assert "Traceback (most recent call last)" not in result.output
@@ -319,8 +361,12 @@ class TestConfigBadPath:
     def test_invalid_ep_rejected(self, bad_ep: str) -> None:
         """Unknown --ep values must produce a UsageError, not a traceback."""
         result = _invoke_config(
-            "--model-type", "bert", "--task", "fill-mask",
-            "--ep", bad_ep,
+            "--model-type",
+            "bert",
+            "--task",
+            "fill-mask",
+            "--ep",
+            bad_ep,
         )
         assert result.exit_code != 0
         assert "Traceback (most recent call last)" not in result.output
@@ -383,8 +429,10 @@ class TestConfigBadPath:
     def test_module_with_onnx_file_rejected(self, onnx_model_path: Path) -> None:
         """--module is mutually exclusive with .onnx input."""
         result = _invoke_config(
-            "-m", str(onnx_model_path),
-            "--module", "ResNetConvLayer",
+            "-m",
+            str(onnx_model_path),
+            "--module",
+            "ResNetConvLayer",
         )
         assert result.exit_code != 0
         assert "Traceback (most recent call last)" not in result.output
@@ -414,8 +462,14 @@ class TestConfigFlagVariations:
         # device with a precision known to be compatible across devices.
         precision = "fp32" if device == "cpu" else "auto"
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "-d", device, "-p", precision,
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "-d",
+            device,
+            "-p",
+            precision,
         )
         _assert_hf_config_structure(data)
 
@@ -427,8 +481,14 @@ class TestConfigFlagVariations:
         # narrow precision matrix (which would reject fp32/int8 by design).
         device = "cpu" if precision in ("fp32", "fp16") else "npu"
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "-p", precision, "-d", device,
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "-p",
+            precision,
+            "-d",
+            device,
         )
         _assert_hf_config_structure(data)
 
@@ -436,8 +496,14 @@ class TestConfigFlagVariations:
     def test_mixed_precision(self, mixed: str) -> None:
         """Mixed precision w{x}a{y} should be accepted on NPU."""
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "-p", mixed, "-d", "npu",
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "-p",
+            mixed,
+            "-d",
+            "npu",
         )
         _assert_hf_config_structure(data)
 
@@ -450,8 +516,14 @@ class TestConfigFlagVariations:
         """Every documented --ep alias should be accepted."""
         # Use auto precision so device-specific constraints don't bite.
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "--ep", ep, "-p", "auto",
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "--ep",
+            ep,
+            "-p",
+            "auto",
         )
         _assert_hf_config_structure(data)
 
@@ -464,8 +536,14 @@ class TestConfigFlagVariations:
     def test_no_quant_absent(self) -> None:
         """Without --no-quant a quantized device should keep quant settings."""
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "-d", "npu", "-p", "int8",
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "-d",
+            "npu",
+            "-p",
+            "int8",
         )
         assert data.get("quant") is not None
 
@@ -477,8 +555,13 @@ class TestConfigFlagVariations:
     def test_compile_enabled(self) -> None:
         """--compile (negated default) should produce a compile section."""
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "--compile", "-d", "npu",
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "--compile",
+            "-d",
+            "npu",
         )
         # When --compile is requested the section must not be null.
         assert data.get("compile") is not None
@@ -489,8 +572,12 @@ class TestConfigFlagVariations:
         shapes = tmp_path / "shapes.json"
         shapes.write_text(json.dumps({"sequence_length": 32}))
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "--shape-config", str(shapes),
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "--shape-config",
+            str(shapes),
         )
         _assert_hf_config_structure(data)
 
@@ -503,8 +590,12 @@ class TestConfigFlagVariations:
     def test_library_explicit(self) -> None:
         """Passing --library transformers explicitly should be accepted."""
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "--library", "transformers",
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "--library",
+            "transformers",
         )
         _assert_hf_config_structure(data)
 
@@ -532,8 +623,12 @@ class TestConfigFlagVariations:
         override = tmp_path / "override.json"
         override.write_text(json.dumps({"export": {"opset_version": 18}}))
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
-            "-c", str(override),
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
+            "-c",
+            str(override),
         )
         _assert_hf_config_structure(data)
         assert data["export"]["opset_version"] == 18
@@ -542,7 +637,10 @@ class TestConfigFlagVariations:
     def test_trust_remote_code_flag(self) -> None:
         """--trust-remote-code should be accepted on a normal HF model."""
         data = _run_config(
-            "-m", self.MODEL, "-t", self.TASK,
+            "-m",
+            self.MODEL,
+            "-t",
+            self.TASK,
             "--trust-remote-code",
         )
         _assert_hf_config_structure(data)
@@ -551,8 +649,10 @@ class TestConfigFlagVariations:
     def test_module_flag_returns_list(self) -> None:
         """--module mode should emit a JSON list of per-submodule configs."""
         data = _run_config(
-            "-m", "microsoft/resnet-50",
-            "--module", "ResNetConvLayer",
+            "-m",
+            "microsoft/resnet-50",
+            "--module",
+            "ResNetConvLayer",
         )
         assert isinstance(data, list), f"Expected JSON list for --module, got {type(data)}"
         assert len(data) > 0
