@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from winml.modelkit.commands.config import config
 
@@ -268,7 +268,7 @@ class TestConfigONNX:
 # ===========================================================================
 
 
-def _invoke_config(*args: str) -> object:
+def _invoke_config(*args: str) -> Result:
     """Invoke the config command; do NOT raise on non-zero exit."""
     runner = CliRunner()
     return runner.invoke(config, list(args))
