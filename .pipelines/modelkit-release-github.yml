@@ -84,14 +84,72 @@ extends:
             displayName: 'Extract version from pyproject.toml'
 
           - powershell: |
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+
               $artifactDir = "$(Pipeline.Workspace)"
               $outDir = "$(ob_outputDirectory)"
+              $rulesZipPath = Join-Path $outDir "rules.zip"
+              $rulesRootMarker = "src\winml\modelkit\analyze\rules\runtime_check_rules\"
+
               New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
               $wheels = Get-ChildItem "$artifactDir" -Filter "*.whl" -Recurse
-              $parquets = Get-ChildItem "$artifactDir" -Filter "*.parquet" -Recurse
-              Write-Host "Found $($wheels.Count) wheel(s) and $($parquets.Count) parquet file(s)"
-              $wheels | Copy-Item -Destination $outDir
-              $parquets | Copy-Item -Destination $outDir
+              if (-not $wheels) {
+                throw "No wheel files found under $artifactDir"
+              }
+              $wheels | Copy-Item -Destination $outDir -Force
+
+              $parquets = Get-ChildItem "$artifactDir" -Filter "*.parquet" -Recurse | Where-Object {
+                $_.FullName -like "*$rulesRootMarker*"
+              }
+              if (-not $parquets) {
+                throw "No runtime rule parquet files found under '$rulesRootMarker' in $artifactDir"
+              }
+
+              $entries = [ordered]@{}
+              foreach ($parquet in $parquets) {
+                $fullPath = [System.IO.Path]::GetFullPath($parquet.FullName)
+                $markerIndex = $fullPath.IndexOf($rulesRootMarker, [System.StringComparison]::OrdinalIgnoreCase)
+                if ($markerIndex -lt 0) {
+                  continue
+                }
+                $entryName = $fullPath.Substring($markerIndex + $rulesRootMarker.Length).Replace('\', '/')
+                if (-not $entryName) {
+                  continue
+                }
+                if ($entries.Contains($entryName)) {
+                  Write-Host "Skipping duplicate parquet entry '$entryName' from $fullPath"
+                  continue
+                }
+                $entries[$entryName] = $fullPath
+              }
+
+              if ($entries.Count -eq 0) {
+                throw "No parquet entries matched runtime rules root marker '$rulesRootMarker'"
+              }
+
+              if (Test-Path $rulesZipPath) {
+                Remove-Item -Path $rulesZipPath -Force
+              }
+
+              $zip = [System.IO.Compression.ZipFile]::Open($rulesZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+              try {
+                foreach ($entryName in $entries.Keys) {
+                  $sourcePath = $entries[$entryName]
+                  [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $zip,
+                    $sourcePath,
+                    $entryName,
+                    [System.IO.Compression.CompressionLevel]::Optimal
+                  ) | Out-Null
+                }
+              }
+              finally {
+                $zip.Dispose()
+              }
+
+              Write-Host "Found $($wheels.Count) wheel(s)"
+              Write-Host "Packed $($entries.Count) runtime rule parquet file(s) into $rulesZipPath"
             displayName: 'Stage release assets'
 
           - task: GitHubRelease@1
@@ -106,7 +164,7 @@ extends:
               title: 'ModelKit $(ReleaseTag)'
               assets: |
                 $(ob_outputDirectory)\*.whl
-                $(ob_outputDirectory)\*.parquet
+                $(ob_outputDirectory)\rules.zip
               isDraft: false
               isPreRelease: true
               addChangeLog: false
