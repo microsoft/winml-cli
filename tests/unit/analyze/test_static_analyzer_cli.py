@@ -16,13 +16,16 @@ Tests verify:
 from __future__ import annotations
 
 import json
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
-from winml.modelkit.commands.analyze import analyze
+from winml.modelkit.analyze import DEFAULT_EPS_TO_ANALYZE
+from winml.modelkit.commands.analyze import _render_omitted_eps_note, analyze
 
 
 @pytest.fixture(autouse=True)
@@ -898,41 +901,33 @@ class TestOmittedEPsNote:
     """Test the explanatory note for default EPs missing from analyze output."""
 
     def _make_console(self):
-        from io import StringIO
-
-        from rich.console import Console
-
         buf = StringIO()
         # ``no_color`` strips ANSI styling so the text is easy to assert on.
         return Console(file=buf, width=120, no_color=True, force_terminal=False), buf
 
-    def _ep_support(self, ep_type: str) -> Mock:
+    def _mock_ep_support(self, ep_type: str) -> Mock:
         m = Mock()
         m.ep_type = ep_type
         return m
 
     def test_no_note_when_ep_explicit(self) -> None:
         """When --ep is given, omitted-EP notes must not be shown."""
-        from winml.modelkit.commands.analyze import _render_omitted_eps_note
-
         console, buf = self._make_console()
         _render_omitted_eps_note(
             console,
-            [self._ep_support("QNNExecutionProvider")],
+            [self._mock_ep_support("QNNExecutionProvider")],
             ep="QNNExecutionProvider",
         )
         assert "not shown" not in buf.getvalue()
 
     def test_note_for_missing_vitis(self) -> None:
         """Vitis AI absence is surfaced when analyzing all EPs."""
-        from winml.modelkit.commands.analyze import _render_omitted_eps_note
-
         console, buf = self._make_console()
         _render_omitted_eps_note(
             console,
             [
-                self._ep_support("QNNExecutionProvider"),
-                self._ep_support("OpenVINOExecutionProvider"),
+                self._mock_ep_support("QNNExecutionProvider"),
+                self._mock_ep_support("OpenVINOExecutionProvider"),
             ],
             ep=None,
         )
@@ -945,13 +940,10 @@ class TestOmittedEPsNote:
 
     def test_no_note_when_all_default_eps_present(self) -> None:
         """No note when every default EP appears in results."""
-        from winml.modelkit.analyze.analyzer import DEFAULT_EPS_TO_ANALYZE
-        from winml.modelkit.commands.analyze import _render_omitted_eps_note
-
         console, buf = self._make_console()
         _render_omitted_eps_note(
             console,
-            [self._ep_support(name) for name in DEFAULT_EPS_TO_ANALYZE],
+            [self._mock_ep_support(name) for name in DEFAULT_EPS_TO_ANALYZE],
             ep=None,
         )
         assert buf.getvalue() == ""

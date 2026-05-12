@@ -24,7 +24,7 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.text import Text
 
-from ..analyze import QDQ_SUFFIX
+from ..analyze import DEFAULT_EPS_TO_ANALYZE, QDQ_SUFFIX
 from ..utils import cli as cli_utils
 from ..utils.constants import normalize_ep_name
 from ..utils.logging import configure_logging
@@ -441,8 +441,6 @@ def _render_omitted_eps_note(
     if ep is not None:
         # User explicitly requested a single EP; nothing to note.
         return
-
-    from ..analyze.analyzer import DEFAULT_EPS_TO_ANALYZE
 
     present = {ep_support.ep_type for ep_support in results}
     missing = [name for name in DEFAULT_EPS_TO_ANALYZE if name not in present]

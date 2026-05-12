@@ -9,6 +9,7 @@ runtime support across NPU execution providers (QNN, Intel OpenVINO, AMD Quark).
 """
 
 from .analyzer import (
+    DEFAULT_EPS_TO_ANALYZE,
     AnalysisResult,
     AnalyzerConfig,
     AnalyzeResult,
@@ -44,6 +45,7 @@ from .utils.rule_loader import RuleLoader
 
 
 __all__ = [
+    "DEFAULT_EPS_TO_ANALYZE",
     "QDQ_SUFFIX",
     "Action",
     "ActionItem",
