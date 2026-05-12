@@ -11,7 +11,7 @@ identical inputs.
 
 Dataset config is read from ``utils/dataset_config.py`` — the authoritative
 source shared with run_eval.py.  When ``winml eval`` is implemented inside
-ModelKit, it should import from the same location.
+WinML CLI, it should import from the same location.
 
 Output: prints a single JSON object as the last line on stdout:
     {"metric": "<name>", "value": <float>, "num_samples": <int>}
@@ -59,8 +59,8 @@ def _emit_result(metric: str, value: float, num_samples: int) -> None:
 def _load_pytorch_model(model_id: str, task: str, device_str: str):
     """Load a native PyTorch model with the task-appropriate AutoModel class."""
     import torch
-
     from transformers import AutoConfig
+
     from winml.modelkit.loader.task import resolve_task_and_model_class
 
     config = AutoConfig.from_pretrained(model_id)

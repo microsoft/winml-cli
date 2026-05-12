@@ -151,7 +151,7 @@ def create_app(
         app.state.manager.shutdown()
 
     app = FastAPI(
-        title="ModelKit Inference Server",
+        title="WinML CLI Inference Server",
         version=__version__,
         description=(
             "Local REST API for WinML model inference.\n\n"
@@ -417,7 +417,7 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
             return {
                 "tools": mcp_tools,
                 "server_info": {
-                    "name": "ModelKit Inference",
+                    "name": "WinML CLI Inference",
                     "version": __version__,
                     "models": [
                         {"model_id": mid, "task": t}
@@ -840,7 +840,7 @@ def print_startup_banner(
 
     console = Console()
     console.print()
-    console.print("[bold]ModelKit Inference Server[/bold]")
+    console.print("[bold]WinML CLI Inference Server[/bold]")
     console.print(f"Model:   {model_path or '(none — load via POST /v1/models)'}")
     if task:
         console.print(f"Task:    {task}")

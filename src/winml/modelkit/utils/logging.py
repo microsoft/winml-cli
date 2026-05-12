@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Logging utilities for ModelKit.
+"""Logging utilities for WinML CLI.
 
 Verbosity Convention (adopted from pip, ansible, pytest):
 =========================================================

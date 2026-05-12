@@ -90,10 +90,10 @@ optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
 ]
-urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
-urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
-urls.Homepage = "https://github.com/microsoft/ModelKit"
-urls.Repository = "https://github.com/microsoft/ModelKit.git"
+urls."Bug Tracker" = "https://github.com/microsoft/WinML-ModelKit/issues"
+urls.Documentation = "https://github.com/microsoft/WinML-ModelKit/blob/main/README.md"
+urls.Homepage = "https://github.com/microsoft/WinML-ModelKit"
+urls.Repository = "https://github.com/microsoft/WinML-ModelKit.git"
 # =============================================================================
 # SETUPTOOLS - Package Configuration (Flat Layout with Namespace Prefix)
 # =============================================================================

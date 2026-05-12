@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""System information command for ModelKit CLI.
+"""System information command for WinML CLI.
 
 Displays detailed information about the system environment, including:
 - Python and OS information
@@ -230,7 +230,7 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     # Title
     console.print(
         Panel.fit(
-            "[bold]ModelKit System Information[/bold]",
+            "[bold]WinML CLI System Information[/bold]",
             border_style="blue",
         )
     )
@@ -550,7 +550,7 @@ def sysinfo(
     list_device: bool,
     list_ep: bool,
 ) -> None:
-    r"""Display system information for ModelKit export.
+    r"""Display system information for WinML CLI export.
 
     This command gathers and displays information relevant to ONNX model
     export, including Python version, library versions, hardware

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Device detection, prioritization, and EP-aware resolution for ModelKit."""
+"""Device detection, prioritization, and EP-aware resolution for WinML CLI."""
 
 from __future__ import annotations
 

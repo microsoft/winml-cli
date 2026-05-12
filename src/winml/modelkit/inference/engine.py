@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""InferenceEngine — core inference component for ModelKit.
+"""InferenceEngine — core inference component for WinML CLI.
 
 Uses HF ``transformers.pipeline`` for preprocessing and postprocessing,
 sharing the same code path as ``winml eval``.  The WinMLPreTrainedModel

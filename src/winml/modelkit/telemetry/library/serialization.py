@@ -49,7 +49,7 @@ def _build_envelope(
 
     Fields:
         ver: schema version, always "4.0"
-        name: event name (e.g. "ModelKitAction")
+        name: event name (e.g. "WinMLCLIAction")
         time: ISO8601 UTC, millisecond precision, trailing Z
         iKey: envelope iKey value -- caller is responsible for supplying
             it in the ``o:<tenant_token>`` form (use
