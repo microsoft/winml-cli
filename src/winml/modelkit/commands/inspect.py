@@ -141,7 +141,17 @@ def inspect(
     # Handle ONNX file input
     from pathlib import Path
 
-    if model_id and model_id.endswith(".onnx") and Path(model_id).is_file():
+    from ..loader import is_hf_onnx_path
+
+    is_onnx_input = model_id and (
+        (model_id.endswith(".onnx") and Path(model_id).is_file())
+        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+        # is not downloadable for inspect (which targets HF architecture
+        # metadata, not raw ONNX graphs), but surfacing the same friendly
+        # error keeps the UX consistent with local .onnx inputs.
+        or is_hf_onnx_path(model_id)
+    )
+    if is_onnx_input:
         raise click.ClickException(
             "ONNX file inspection is not yet supported. "
             "Use 'winml config -m model.onnx' for ONNX build config."

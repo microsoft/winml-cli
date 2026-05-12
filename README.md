@@ -63,6 +63,7 @@
 
 - **HuggingFace model ID** (e.g., `microsoft/resnet-50`) — weights are downloaded on first run
 - **Local ONNX file** (e.g., `model.onnx`) — from `winml export`, `winml build`, or any ONNX you already have
+- **Hub-hosted ONNX file** (e.g., `onnx-community/sam3-tracker-ONNX/onnx/vision_encoder_int8.onnx`) — a pre-exported ONNX referenced by `<org>/<repo>/<path/to/file>.onnx`. Used for models whose `transformers` requirement is newer than what `optimum-onnx` currently pins. Supported by `winml config`, `winml build`, `winml run`, `winml serve`, `winml perf`, and `winml eval`.
 
 ### The Golden Rule: Inspect First
 

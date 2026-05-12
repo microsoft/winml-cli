@@ -1225,6 +1225,14 @@ def perf(
     if not model_id:
         raise click.UsageError("A model is required via -m/--model.")
 
+    # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
+    # is downloaded once and treated as a local .onnx path thereafter.
+    # Must run BEFORE the ``Path(hf_model).suffix == ".onnx"`` check below
+    # so a Hub ref is not mistaken for a missing local file.
+    from ..loader import maybe_resolve_hf_onnx_path
+
+    model_id = maybe_resolve_hf_onnx_path(model_id)
+
     hf_model = model_id
 
     # Apply build config defaults (CLI explicit options take precedence)
