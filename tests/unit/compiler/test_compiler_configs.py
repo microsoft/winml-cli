@@ -4,8 +4,6 @@
 # --------------------------------------------------------------------------
 """Tests for compiler configuration classes."""
 
-import warnings
-
 import pytest
 
 from winml.modelkit.compiler import (
@@ -163,30 +161,6 @@ class TestCompileConfig:
         assert config.ep_config.enable_ep_context is True
         assert config.validate is True
 
-    def test_from_dict_ignores_legacy_fields(self):
-        """Test from_dict silently ignores legacy quant fields."""
-        data = {
-            "execution_provider": "qnn",
-            "quantize": True,
-            "weight_type": "uint8",
-            "activation_type": "uint8",
-            "per_channel": False,
-            "calibration_method": "minmax",
-            "calibration_samples": 100,
-            "calibration_load_path": "calibration_data.json",
-            "calibration_save_path": "calibration_out.json",
-            "validate": True,
-        }
-        config = WinMLCompileConfig.from_dict(data)
-
-        # EP fields parsed correctly
-        assert config.ep_config.provider == "qnn"
-        assert config.validate is True
-
-        # No quant attributes created
-        assert not hasattr(config, "qdq_config")
-        assert not hasattr(config, "calibration_config")
-
     def test_roundtrip(self):
         """Test to_dict -> from_dict roundtrip."""
         original = WinMLCompileConfig.for_qnn()
@@ -196,80 +170,6 @@ class TestCompileConfig:
         assert restored.ep_config.provider == original.ep_config.provider
         assert restored.ep_config.enable_ep_context == original.ep_config.enable_ep_context
         assert restored.validate == original.validate
-
-
-class TestDeprecationWarnings:
-    """Test deprecation warnings for quantize parameter."""
-
-    @pytest.mark.parametrize(
-        "factory_method",
-        [
-            "for_qnn",
-            "for_cpu",
-            "for_cuda",
-            "for_dml",
-            "for_nv_tensorrt_rtx",
-            "for_openvino",
-            "for_vitisai",
-            "for_migraphx",
-        ],
-    )
-    def test_quantize_true_emits_deprecation(self, factory_method: str):
-        """Passing quantize=True emits DeprecationWarning."""
-        factory = getattr(WinMLCompileConfig, factory_method)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            config = factory(quantize=True)
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "quantize" in str(w[0].message).lower()
-            assert "deprecated" in str(w[0].message).lower()
-            # Config is still created successfully
-            assert config is not None
-
-    @pytest.mark.parametrize(
-        "factory_method",
-        [
-            "for_qnn",
-            "for_cpu",
-            "for_cuda",
-            "for_dml",
-            "for_nv_tensorrt_rtx",
-            "for_openvino",
-            "for_vitisai",
-            "for_migraphx",
-        ],
-    )
-    def test_quantize_false_emits_deprecation(self, factory_method: str):
-        """Passing quantize=False also emits DeprecationWarning."""
-        factory = getattr(WinMLCompileConfig, factory_method)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            factory(quantize=False)
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-
-    @pytest.mark.parametrize(
-        "factory_method",
-        [
-            "for_qnn",
-            "for_cpu",
-            "for_cuda",
-            "for_dml",
-            "for_nv_tensorrt_rtx",
-            "for_openvino",
-            "for_vitisai",
-            "for_migraphx",
-        ],
-    )
-    def test_no_quantize_no_warning(self, factory_method: str):
-        """Not passing quantize param emits no warning."""
-        factory = getattr(WinMLCompileConfig, factory_method)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            factory()
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) == 0
 
 
 class TestCompileConfigUsagePatterns:

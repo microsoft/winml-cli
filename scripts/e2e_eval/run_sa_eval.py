@@ -10,7 +10,7 @@ SA pre-check, capability-driven optimization, SA post-check, and optional
 EPContext diff against cached compiled ONNX.
 
 Pipeline per model:
-  Stage 1: wmk export + Python optimize_onnx (default)
+  Stage 1: winml export + Python optimize_onnx (default)
            → graph_optimized.onnx
   Stage 2: ONNXStaticAnalyzer (enable_information=True)
            → sa_pre.json + optim_config
@@ -82,8 +82,8 @@ def is_cached(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
-def run_wmk_export(hf_id: str, task: str, output: Path) -> tuple[int, str]:
-    """Run wmk export via subprocess. Returns (rc, stderr_tail)."""
+def run_winmlcli_export(hf_id: str, task: str, output: Path) -> tuple[int, str]:
+    """Run winml export via subprocess. Returns (rc, stderr_tail)."""
     args = [
         sys.executable,
         "-m",
@@ -134,7 +134,7 @@ def stage1_export_optimize(
         safe_print("  [Stage 1a] Export (cached)")
     else:
         safe_print(f"  [Stage 1a] Exporting {hf_id}...")
-        rc, stderr = run_wmk_export(hf_id, task, exported_path)
+        rc, stderr = run_winmlcli_export(hf_id, task, exported_path)
         if rc != 0 or not is_cached(exported_path):
             safe_print(f"  [ERROR] Export failed (rc={rc}): {stderr}")
             return None, "SKIP_EXPORT"
@@ -286,7 +286,7 @@ def _run_compile(
     device: str = "npu",
     ep: str | None = None,
 ) -> tuple[int, str]:
-    """Run wmk compile --device <device> --no-quantize. Returns (rc, stderr_tail)."""
+    """Run winml compile --device <device> --no-quantize. Returns (rc, stderr_tail)."""
     cmd = [
         sys.executable,
         "-m",

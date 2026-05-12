@@ -1064,14 +1064,7 @@ def _run_onnx_benchmark(
 
 
 @click.command("perf")
-@click.option(
-    "-m",
-    "--model",
-    "model_id",
-    type=str,
-    default=None,
-    help="Model identifier: HuggingFace model ID or local .onnx file.",
-)
+@cli_utils.model_option(required=False)
 @click.option(
     "--task",
     type=str,
@@ -1080,25 +1073,19 @@ def _run_onnx_benchmark(
 )
 @click.option(
     "--iterations",
-    type=int,
+    type=click.IntRange(min=1),
     default=100,
     show_default=True,
-    help="Number of benchmark iterations",
+    help="Number of benchmark iterations (must be > 0)",
 )
 @click.option(
     "--warmup",
-    type=int,
+    type=click.IntRange(min=0),
     default=10,
     show_default=True,
-    help="Number of warmup iterations (excluded from statistics)",
+    help="Number of warmup iterations (excluded from statistics; must be >= 0)",
 )
-@click.option(
-    "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
-    default="auto",
-    show_default=True,
-    help="Device to run benchmark on",
-)
+@cli_utils.device_option(required=False, default="auto", include_auto=True)
 @click.option(
     "--precision",
     type=str,
@@ -1106,14 +1093,9 @@ def _run_onnx_benchmark(
     show_default=True,
     help="Precision mode: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16).",
 )
-@click.option(
-    "--ep",
-    "ep",
-    type=str,
-    default=None,
-    help="Force specific execution provider "
-    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
-    "Overrides device-to-provider mapping.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping.",
 )
 @click.option(
     "--output",
@@ -1176,12 +1158,6 @@ def _run_onnx_benchmark(
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
 )
 @click.option(
-    "--compare-devices",
-    type=str,
-    default=None,
-    help="Compare benchmark across devices (e.g., 'cpu,npu'). Not yet implemented.",
-)
-@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -1192,7 +1168,7 @@ def _run_onnx_benchmark(
 @click.pass_context
 def perf(
     ctx: click.Context,
-    model_id: str | None,
+    model: str | None,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1208,7 +1184,6 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    compare_devices: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -1240,10 +1215,10 @@ def perf(
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
-    if not model_id:
+    if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
-    hf_model = model_id
+    hf_model = model
 
     # Apply build config defaults (CLI explicit options take precedence)
     if config_file is not None:
@@ -1258,13 +1233,6 @@ def perf(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     console = Console()
-
-    if compare_devices:
-        console.print(
-            "[yellow]--compare-devices is not yet implemented. "
-            "Run benchmarks separately and compare JSON outputs.[/yellow]"
-        )
-        return
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark

@@ -84,7 +84,6 @@ class TestAnalysisResult:
         )
 
         return AnalysisOutput(
-            analyzer_version="0.1.0",
             metadata=metadata,
             results=[ihv_support],
         )
@@ -126,7 +125,6 @@ class TestAnalysisResult:
             detected_pattern_count={},
         )
         output = AnalysisOutput(
-            analyzer_version="0.1.0",
             metadata=metadata,
             results=[],
         )
@@ -164,7 +162,6 @@ class TestAnalysisResult:
             detected_pattern_count={},
         )
         output = AnalysisOutput(
-            analyzer_version="0.1.0",
             metadata=metadata,
             results=[],
         )
@@ -202,7 +199,6 @@ class TestAnalysisResult:
             detected_pattern_count={},
         )
         output = AnalysisOutput(
-            analyzer_version="0.1.0",
             metadata=metadata,
             results=[],
         )
@@ -324,7 +320,6 @@ class TestAnalysisResult:
             detected_pattern_count={},
         )
         output = AnalysisOutput(
-            analyzer_version="0.1.0",
             metadata=metadata,
             results=[],
         )
@@ -439,15 +434,14 @@ class TestAnalysisResult:
         result = AnalysisResult(output=mock_output)
         json_str = result.to_json()
         assert isinstance(json_str, str)
-        assert "analyzer_version" in json_str
-        assert "0.1.0" in json_str
+        assert "metadata" in json_str
+        assert "results" in json_str
 
     def test_to_dict(self, mock_output: AnalysisOutput) -> None:
         """Test to_dict exports dictionary."""
         result = AnalysisResult(output=mock_output)
         data = result.to_dict()
         assert isinstance(data, dict)
-        assert data["analyzer_version"] == "0.1.0"
         assert data["metadata"]["opset_version"] == 13
 
     def test_get_optimization_config_no_actions(self, mock_output: AnalysisOutput) -> None:

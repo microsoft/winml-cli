@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Precision resolution for ModelKit.
+"""Precision resolution for WinML CLI.
 
 Pure decision logic: given a device, precision, and available devices,
 produce a PrecisionPolicy. No I/O, no config mutation, no sysinfo dependency.

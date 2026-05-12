@@ -5,7 +5,7 @@
 """Inspect module for analyzing HuggingFace models.
 
 Provides the inspect_model() function to analyze model compatibility
-with ModelKit and display loader/exporter/WinML configurations.
+with WinML CLI and display loader/exporter/WinML configurations.
 
 Usage:
     from winml.modelkit.inspect import inspect_model

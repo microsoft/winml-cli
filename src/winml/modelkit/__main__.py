@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Module execution entry point: python -m winml.modelkit.
 
-This module enables running ModelKit CLI via Python module execution:
+This module enables running WinML CLI via Python module execution:
     python -m winml.modelkit --version
     python -m winml.modelkit export --model MODEL --output PATH
 """
