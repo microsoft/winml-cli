@@ -576,12 +576,23 @@ def _perf_modules(
 
     console.print(f"[dim]Found {len(module_configs)} {module_class} instances[/dim]")
 
-    # Instantiate parent with init weights (no pretrained download)
+    # Instantiate parent with init weights (no pretrained download).
+    # Submodule configs intentionally drop `loader.task`, so re-resolve the
+    # parent task from the model_id — the same path `generate_hf_build_config`
+    # used to compute module_path. Without this, models whose architectures
+    # field differs from the first supported task for their model_type (e.g.
+    # microsoft/resnet-50: architectures=ResNetForImageClassification but
+    # supported_tasks[0]=feature-extraction) instantiate the wrong parent
+    # class and get_submodule() raises AttributeError.
     model_type = module_configs[0].loader.model_type
     if not model_type:
         console.print("[red]Error: module configs missing model_type[/red]")
         sys.exit(3)
-    parent_model = _instantiate_parent_model(model_type, task=task)
+
+    from ..loader import resolve_loader_config
+
+    parent_loader_cfg, _, _ = resolve_loader_config(model_id=hf_model, task=task)
+    parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
