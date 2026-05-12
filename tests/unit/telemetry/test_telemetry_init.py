@@ -23,6 +23,41 @@ def test_empty_ikey_makes_telemetry_disabled(clean_env, isolated_config, monkeyp
     assert t._logger is None
 
 
+def test_telemetry_enabled_false_makes_telemetry_disabled(clean_env, isolated_config, monkeypatch):
+    """The in-source master switch must short-circuit even when iKey and
+    stored consent would otherwise enable emission."""
+    monkeypatch.setattr(
+        "winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "test-tenant-1234"
+    )
+    monkeypatch.setattr("winml.modelkit.telemetry.constants.TELEMETRY_ENABLED", False)
+    consent_mod._write_stored_consent("enabled")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    t = Telemetry.get_or_init()
+    assert t.disabled is True
+    assert t._logger is None
+
+
+def test_telemetry_enabled_false_skips_consent_prompt(clean_env, isolated_config, monkeypatch):
+    """The master switch must short-circuit before any consent prompt
+    so a hotfix kill-switch can't accidentally hang a TTY."""
+    monkeypatch.setattr(
+        "winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "test-tenant-1234"
+    )
+    monkeypatch.setattr("winml.modelkit.telemetry.constants.TELEMETRY_ENABLED", False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    prompt_calls: list[int] = []
+    monkeypatch.setattr(
+        consent_mod,
+        "_prompt_for_consent",
+        lambda: prompt_calls.append(1) or "enabled",
+    )
+
+    t = Telemetry.get_or_init()
+    assert t.disabled is True
+    assert prompt_calls == []
+
+
 def test_consent_disabled_makes_telemetry_disabled(clean_env, isolated_config, monkeypatch):
     monkeypatch.setattr(
         "winml.modelkit.telemetry.constants.INSTRUMENTATION_KEY", "test-tenant-1234"
