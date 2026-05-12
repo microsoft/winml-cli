@@ -58,7 +58,6 @@ def mock_analyzer_result() -> Mock:
     mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
-            "analyzer_version": "0.1.0",
             "analysis_timestamp": "2025-12-05T12:00:00",
             "metadata": {
                 "model_path": "test.onnx",
@@ -82,7 +81,6 @@ def mock_analyzer_partial_support() -> Mock:
     mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
-            "analyzer_version": "0.1.0",
             "analysis_timestamp": "2025-12-05T12:00:00",
             "metadata": {
                 "model_path": "test.onnx",
@@ -520,7 +518,7 @@ class TestAnalyzeCommandOutput:
 
         # Verify file contains valid JSON
         content = json.loads(output_file.read_text())
-        assert "analyzer_version" in content
+        assert "metadata" in content
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_output_file_not_written_on_error(
