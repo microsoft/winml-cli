@@ -1,0 +1,24 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "task": "text-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "mrpc",
+    "columns_mapping": {
+      "input_column": "sentence1",
+      "second_input_column": "sentence2"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\gpu\\Intel_bert-base-uncased-mrpc\\text-classification_w8a16_eval.json",
+  "metrics": {
+    "accuracy": 0.9,
+    "total_time_in_seconds": 5.263652800000273,
+    "samples_per_second": 1.8998213559981543,
+    "latency_in_seconds": 0.5263652800000272
+  }
+}

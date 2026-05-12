@@ -1,0 +1,23 @@
+uggingface.co', port=443) at 0x1bc944cfdc0>, 'Connection to huggingface.co timed out. (connect timeout=10)'))"), '(Request ID: 6126381a-df37-4d52-b159-71a150d65d9b)')' thrown while requesting HEAD https://huggingface.co/BAAI/bge-large-en-v1.5/resolve/main/pytorch_model.bin.index.json
+[2026-05-09T12:58:27] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 211, in eval
+    result = evaluate(cfg)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 226, in evaluate
+    model = _load_model(config)
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 194, in _load_model
+    return WinMLAutoModel.from_pretrained(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 375, in from_pretrained
+    pytorch_model, hf_config, _ = load_hf_model(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\loader\hf.py", line 235, in load_hf_model
+    model = resolved_class.from_pretrained(
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\models\auto\auto_factory.py", line 604, in from_pretrained
+    return model_class.from_pretrained(
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\modeling_utils.py", line 277, in _wrapper
+    return func(*args, **kwargs)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\modeling_utils.py", line 4900, in from_pretrained
+    checkpoint_files, sharded_metadata = _get_resolved_checkpoint_files(
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\modeling_utils.py", line 1148, in _get_resolved_checkpoint_files
+    raise OSError(
+OSError: BAAI/bge-large-en-v1.5 does not appear to have a file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt or flax_model.msgpack.
+Error: Evaluation failed: BAAI/bge-large-en-v1.5 does not appear to have a file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt or flax_model.msgpack.

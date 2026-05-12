@@ -1,0 +1,20 @@
+upport them in C:\Users\shzhen\.cache\huggingface\hub\models--openai--clip-vit-large-patch14-336. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+
+Evaluating:   0%|          | 0/1000 [00:00<?, ?sample/s]
+Evaluating:   0%|          | 1/1000 [00:18<5:05:23, 18.34s/sample]
+Evaluating:   0%|          | 2/1000 [00:30<4:08:04, 14.91s/sample]
+Evaluating:   0%|          | 3/1000 [00:43<3:49:01, 13.78s/sample]
+Evaluating:   0%|          | 4/1000 [00:55<3:40:04, 13.26s/sample]
+Evaluating:   0%|          | 5/1000 [01:08<3:35:36, 13.00s/sample]
+Evaluating:   1%|          | 6/1000 [01:20<3:33:20, 12.88s/sample]
+Evaluating:   1%|          | 7/1000 [01:33<3:33:21, 12.89s/sample]
+Evaluating:   1%|          | 8/1000 [01:46<3:30:58, 12.76s/sample]
+Evaluating:   1%|          | 9/1000 [01:58<3:28:44, 12.64s/sample]
+Evaluating:   1%|          | 10/1000 [02:11<3:27:23, 12.57s/sample]
+Evaluating:   1%|          | 11/1000 [02:23<3:24:16, 12.39s/sample]
+Evaluating:   1%|          | 12/1000 [02:35<3:22:27, 12.29s/sample]
+Evaluating:   1%|¨‡         | 13/1000 [02:47<3:21:16, 12.24s/sample]
+Evaluating:   1%|¨‡         | 14/1000 [02:59<3:21:12, 12.24s/sample]
