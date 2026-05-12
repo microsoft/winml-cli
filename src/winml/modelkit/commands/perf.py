@@ -1225,6 +1225,17 @@ def perf(
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
+        # Reject --module on a pre-exported ONNX path. Submodule discovery
+        # walks a live nn.Module graph (torchinfo), which an ONNX file does
+        # not carry. Without this guard, the user sees a misleading
+        # "not a valid JSON file" error from AutoConfig.from_pretrained
+        # trying to load the .onnx as an HF config dir (issue #553).
+        if Path(hf_model).suffix.lower() == ".onnx":
+            raise click.UsageError(
+                f"--module is not supported for ONNX files. "
+                f"Submodule benchmarking requires a HuggingFace model ID "
+                f"(e.g., 'microsoft/resnet-50'), not '{hf_model}'."
+            )
         if shape_config_path:
             console.print(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "

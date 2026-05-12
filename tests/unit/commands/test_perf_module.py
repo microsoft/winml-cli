@@ -35,6 +35,26 @@ class TestPerfModuleFlag:
         result = runner.invoke(main, ["perf", "--module", "BertAttention"])
         assert result.exit_code != 0
 
+    def test_module_with_onnx_path_rejected(self, tmp_path: Path) -> None:
+        """--module on a .onnx path must fail with a clear UsageError.
+
+        Regression guard for #553: previously the CLI tried to load the
+        ONNX file as an HF config and surfaced a confusing "not a valid
+        JSON file" error.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            ["perf", "-m", str(onnx_file), "--module", "NoSuchClass"],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--module is not supported for ONNX files" in result.output
+        # Specifically must NOT blame the model file with a JSON-config error.
+        assert "valid JSON" not in result.output
+
     def test_module_no_match_exits_nonzero(self) -> None:
         """--module CLASSNAME matching no submodules must exit non-zero.
 
