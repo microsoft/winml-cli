@@ -185,6 +185,28 @@ def run_winml_perf(
 
 
 # ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+
+
+def cleanup_onnx_artifacts(model_dir: Path) -> None:
+    """Delete intermediate ONNX files after eval, keeping only JSON/log results.
+
+    Removes all ``*.onnx`` and ``*.onnx.data`` files (exported, graph_optimized,
+    sa_optimized, quantized, compiled EPContext). JSON result files and perf
+    logs are preserved so --report-only and --use-cache still work for the
+    JSON-driven stages.
+    """
+    freed = 0
+    for pattern in ("*.onnx", "*.onnx.data"):
+        for f in model_dir.glob(pattern):
+            size = f.stat().st_size
+            f.unlink()
+            freed += size
+    safe_print(f"  [cleanup] Freed {freed / 1024**2:.1f} MB of ONNX artifacts")
+
+
+# ---------------------------------------------------------------------------
 # Stage implementations
 # ---------------------------------------------------------------------------
 
@@ -555,6 +577,7 @@ def evaluate_model(
     run_quantize: bool = True,
     quantize_precision: str = "int8",
     quantize_samples: int = 10,
+    cleanup: bool = False,
 ) -> dict | None:
     """Run the 4+1+1 stage SA eval pipeline for a single model."""
     hf_id = model_entry["hf_id"]
@@ -747,6 +770,9 @@ def evaluate_model(
     out_file = model_dir / "sa_eval_result.json"
     out_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     safe_print(f"  Written: {out_file}")
+
+    if cleanup:
+        cleanup_onnx_artifacts(model_dir)
 
     return result
 
@@ -956,6 +982,12 @@ def main() -> None:
         help="Number of calibration samples for quantize (default: 10)",
     )
     parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Delete intermediate ONNX files after each model completes to free disk space. "
+        "JSON result and perf files are preserved.",
+    )
+    parser.add_argument(
         "--report-only",
         action="store_true",
         help=(
@@ -1019,6 +1051,7 @@ def main() -> None:
             run_quantize=not args.no_quantize,
             quantize_precision=args.quantize_precision,
             quantize_samples=args.quantize_samples,
+            cleanup=args.cleanup,
         )
         if result:
             all_results.append(result)
