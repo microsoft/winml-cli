@@ -79,7 +79,8 @@ class TestHWMonitorIntegration:
         # Monitor should have collected metrics without errors
         d = hw.to_dict()
         assert d["monitor"] == "HWMonitor"
-        assert d["npu_luid"] is not None  # NPU was discovered
+        assert d["device_kind"] == "npu"  # NPU was discovered
+        assert d["adapter_luid"] is not None
 
         # Verify JSON serializability
         serialized = json.dumps(d)

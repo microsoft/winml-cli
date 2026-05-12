@@ -403,7 +403,19 @@ class PerfBenchmark:
             )
             return self._run_benchmark_simple()
 
-        hw_monitor = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+        # Track the device actually being benchmarked so the monitor polls
+        # GPU when --device gpu is specified, NPU when --device npu, etc.
+        # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
+        # metadata so we follow the adapter the session actually binds to.
+        from ..utils.constants import normalize_ep_name
+
+        monitor_device = self._model.device or self.config.device or "auto"
+        ep_name = normalize_ep_name(self.config.ep) if self.config.ep else None
+        hw_monitor = HWMonitor(
+            poll_interval_ms=_HW_POLL_INTERVAL_MS,
+            device=monitor_device,
+            ep_name=ep_name,
+        )
 
         # EP-specific proof-of-execution monitor.
         # When QNN/OpenVINO monitors become real, add entries here.
@@ -428,7 +440,7 @@ class PerfBenchmark:
                 total_iterations=total_iterations,
                 warmup=self.config.warmup,
                 model_id=self.config.model_id,
-                device=self.config.device,
+                device=monitor_device,
             )
 
             # Store hardware metrics
@@ -624,9 +636,14 @@ def _perf_modules(
 
                 if monitor:
                     from ..session.monitor.hw_monitor import HWMonitor
+                    from ..utils.constants import normalize_ep_name
 
                     if HWMonitor.is_available():
-                        hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+                        hw_ctx = HWMonitor(
+                            poll_interval_ms=_HW_POLL_INTERVAL_MS,
+                            device=resolved_device,
+                            ep_name=normalize_ep_name(ep) if ep else None,
+                        )
 
                 if hw_ctx:
                     with session.perf(warmup=warmup) as stats, hw_ctx as hw:
@@ -778,20 +795,28 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     if result.hw_monitor:
         console.print()
         console.print("[bold]Hardware (during benchmark)[/bold]")
-        npu = result.hw_monitor.get("npu", {})
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
         dev_mem = result.hw_monitor.get("device_memory", {})
-        console.print(
-            f"  NPU: {npu.get('mean_pct', 0):.1f}% avg, "
-            f"{npu.get('peak_pct', 0):.1f}% peak  |  "
-            f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
-        )
-        console.print(
-            f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
-            f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
-            f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
-        )
+        # to_dict() emits both "npu" (always) and "gpu" (when monitoring GPU).
+        # device_kind is None when CPU/RAM-only — drop the adapter line entirely
+        # rather than printing zeroed "NPU: 0.0% avg".
+        device_kind = result.hw_monitor.get("device_kind")
+        if device_kind in ("npu", "gpu"):
+            adapter = result.hw_monitor.get(device_kind, {})
+            console.print(
+                f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
+                f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
+            )
+            console.print(
+                f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
+                f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
+                f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
+            )
+        else:
+            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg")
+            console.print(f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB")
 
     console.print()
 
@@ -884,6 +909,7 @@ def _run_monitored_loop(
         warmup=warmup,
         model_id=model_id,
         device=device,
+        device_kind=getattr(hw, "device_kind", None),
     )
     with display:
         for i in range(total_iterations):
@@ -959,9 +985,14 @@ def _run_onnx_benchmark(
     # Determine if hardware monitoring is available
     if config.monitor:
         from ..session.monitor.hw_monitor import HWMonitor
+        from ..utils.constants import normalize_ep_name
 
         if HWMonitor.is_available():
-            hw_ctx = HWMonitor(poll_interval_ms=_HW_POLL_INTERVAL_MS)
+            hw_ctx = HWMonitor(
+                poll_interval_ms=_HW_POLL_INTERVAL_MS,
+                device=session.device or device,
+                ep_name=normalize_ep_name(config.ep) if config.ep else None,
+            )
         else:
             Console(stderr=True).print(
                 "[yellow]Warning:[/yellow] HWMonitor unavailable. "
@@ -1029,14 +1060,6 @@ def _run_onnx_benchmark(
     type=str,
     default=None,
     help="Model identifier: HuggingFace model ID or local .onnx file.",
-)
-@click.option(
-    "--hf-model",
-    "hf_model_deprecated",
-    type=str,
-    default=None,
-    hidden=True,
-    help="[Deprecated] Use -m/--model instead.",
 )
 @click.option(
     "--task",
@@ -1132,7 +1155,7 @@ def _run_onnx_benchmark(
     "--monitor",
     is_flag=True,
     default=False,
-    help="Show live NPU utilization chart during benchmark",
+    help="Show live hardware utilization chart for the benchmarked device (NPU, GPU, or CPU)",
 )
 @click.option(
     "--op-tracing",
@@ -1140,12 +1163,6 @@ def _run_onnx_benchmark(
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
-)
-@click.option(
-    "--compare-devices",
-    type=str,
-    default=None,
-    help="Compare benchmark across devices (e.g., 'cpu,npu'). Not yet implemented.",
 )
 @click.option(
     "--verbose",
@@ -1159,7 +1176,6 @@ def _run_onnx_benchmark(
 def perf(
     ctx: click.Context,
     model_id: str | None,
-    hf_model_deprecated: str | None,
     task: str | None,
     iterations: int,
     warmup: int,
@@ -1175,7 +1191,6 @@ def perf(
     module_class: str | None,
     monitor: bool,
     op_tracing: str | None,
-    compare_devices: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -1207,21 +1222,6 @@ def perf(
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
     """
-    # Resolve deprecated --hf-model alias
-    if hf_model_deprecated and model_id:
-        raise click.UsageError(
-            "Cannot use both -m/--model and --hf-model. Use -m/--model (--hf-model is deprecated)."
-        )
-    if hf_model_deprecated:
-        import warnings
-
-        warnings.warn(
-            "--hf-model is deprecated. Use -m/--model instead.",
-            DeprecationWarning,
-            stacklevel=1,
-        )
-        model_id = hf_model_deprecated
-
     if not model_id:
         raise click.UsageError("A model is required via -m/--model.")
 
@@ -1240,13 +1240,6 @@ def perf(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     console = Console()
-
-    if compare_devices:
-        console.print(
-            "[yellow]--compare-devices is not yet implemented. "
-            "Run benchmarks separately and compare JSON outputs.[/yellow]"
-        )
-        return
 
     # =========================================================================
     # MODULE MODE: per-module build + benchmark

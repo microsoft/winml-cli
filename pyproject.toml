@@ -31,7 +31,6 @@ dependencies = [
   "hf_xet>=1.1.10",
   "httpx>=0.24.0",
   "jsonschema>=4.23",
-  "Levenshtein>=0.27",
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
@@ -46,6 +45,7 @@ dependencies = [
   "pycocoevalcap>=1.2",
   "pydantic>=2",
   "python-multipart>=0.0.22",
+  "rapidfuzz>=3.9",
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
@@ -121,7 +121,7 @@ include = [ "winml", "winml.*" ]
 "winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
   "rules/**/*.json",
-  "rules/**/*.zip",
+  "rules/**/*.parquet",
   "runtime_checker/need_rerun_errors.json",
 ]
 "winml.modelkit.export" = [

@@ -756,6 +756,12 @@ class TestONNXStaticAnalyzer:
         assert infer_ihv_from_ep_name("vitis") == IHVType.AMD
         assert infer_ihv_from_ep_name("AMDProvider") == IHVType.AMD
 
+    def test_map_ep_to_ihv_nvidia(self) -> None:
+        """Test EP to IHV mapping for NvTensorRTRTX."""
+        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
+        assert infer_ihv_from_ep_name("nvtensorrtx") == IHVType.NVIDIA
+        assert infer_ihv_from_ep_name("TensorRTProvider") == IHVType.NVIDIA
+
     def test_map_ep_to_ihv_invalid(self) -> None:
         """Test EP to IHV mapping with invalid EP."""
         with pytest.raises(ValueError, match="Unknown execution provider"):
