@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""ONNX domain identifiers shared across ModelKit modules.
+"""ONNX domain identifiers shared across WinML CLI modules.
 
 This module provides the ONNXDomain enum, extracted from the analyze
 onnx_opset package so that other packages (pattern, optim) can use it without

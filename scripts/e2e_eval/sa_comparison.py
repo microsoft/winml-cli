@@ -90,7 +90,7 @@ def run_sa_with_info(
 
 
 def parse_sa_json(json_path: Path, ep: str = "QNNExecutionProvider") -> dict[str, str]:
-    """Parse wmk analyze JSON output into {pattern_id: level}.
+    """Parse winml analyze JSON output into {pattern_id: level}.
 
     Works for both subprocess-written JSON (lowercase keys in classification
     dict) and Python API-written JSON (SupportLevel enum serialized as

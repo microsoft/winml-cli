@@ -18,13 +18,13 @@ from winml.modelkit.telemetry._cache import (
 
 
 def test_cache_dir_honors_env_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("MODELKIT_TELEMETRY_CACHE_DIR", str(tmp_path / "custom"))
+    monkeypatch.setenv("WINMLCLI_TELEMETRY_CACHE_DIR", str(tmp_path / "custom"))
     assert _cache_dir() == tmp_path / "custom"
     assert _cache_file() == tmp_path / "custom" / _CACHE_FILE_NAME
 
 
 def test_cache_dir_default_uses_userprofile(monkeypatch, tmp_path):
-    monkeypatch.delenv("MODELKIT_TELEMETRY_CACHE_DIR", raising=False)
+    monkeypatch.delenv("WINMLCLI_TELEMETRY_CACHE_DIR", raising=False)
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert _cache_dir() == tmp_path / ".winml" / "telemetry"
 
@@ -33,7 +33,7 @@ def test_cache_dir_returns_none_when_no_user_home(monkeypatch):
     """Regression: with no USERPROFILE / HOMEDRIVE+HOMEPATH and no
     override, _cache_dir must return None rather than silently
     resolving to a CWD-relative path."""
-    monkeypatch.delenv("MODELKIT_TELEMETRY_CACHE_DIR", raising=False)
+    monkeypatch.delenv("WINMLCLI_TELEMETRY_CACHE_DIR", raising=False)
     monkeypatch.delenv("USERPROFILE", raising=False)
     monkeypatch.delenv("HOMEDRIVE", raising=False)
     monkeypatch.delenv("HOMEPATH", raising=False)
@@ -46,7 +46,7 @@ def test_cache_dir_returns_none_when_no_user_home(monkeypatch):
 def test_cache_no_op_when_no_user_home(monkeypatch):
     """A cache built with a None path must silently no-op on every
     operation rather than crash."""
-    monkeypatch.delenv("MODELKIT_TELEMETRY_CACHE_DIR", raising=False)
+    monkeypatch.delenv("WINMLCLI_TELEMETRY_CACHE_DIR", raising=False)
     monkeypatch.delenv("USERPROFILE", raising=False)
     monkeypatch.delenv("HOMEDRIVE", raising=False)
     monkeypatch.delenv("HOMEPATH", raising=False)
@@ -59,12 +59,12 @@ def test_cache_no_op_when_no_user_home(monkeypatch):
 
 @pytest.fixture
 def cache(tmp_path):
-    return _PersistentCache(path=tmp_path / "modelkit.cache")
+    return _PersistentCache(path=tmp_path / "winmlcli.cache")
 
 
 def test_append_then_drain_roundtrip(cache):
-    e1 = {"name": "ModelKitHeartbeat", "iKey": "o:test", "data": {}}
-    e2 = {"name": "ModelKitAction", "iKey": "o:test", "data": {"a": 1}}
+    e1 = {"name": "WinMLCLIHeartbeat", "iKey": "o:test", "data": {}}
+    e2 = {"name": "WinMLCLIAction", "iKey": "o:test", "data": {"a": 1}}
     cache.append([e1, e2])
     drained = cache.drain()
     assert drained == [e1, e2]
@@ -77,7 +77,7 @@ def test_drain_empty_when_file_missing(cache):
 
 
 def test_append_creates_parent_dir(tmp_path):
-    nested = tmp_path / "deep" / "nested" / "modelkit.cache"
+    nested = tmp_path / "deep" / "nested" / "winmlcli.cache"
     cache = _PersistentCache(path=nested)
     cache.append([{"a": 1}])
     assert nested.exists()

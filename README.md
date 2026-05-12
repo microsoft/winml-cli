@@ -1,15 +1,15 @@
-# ModelKit
+# WinML CLI
 
 [![ModelKit CI](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml)
 ![Status](https://img.shields.io/badge/status-early%20access-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**ModelKit** is a CLI toolkit to build **portable, performant, and high-quality** models for Windows ML. It covers the entire journey from pretrained model to on-device inference — export, optimization, quantization, compilation, and benchmarking — across **all execution providers**, regardless of silicon.
+**WinML CLI** is a CLI toolkit to build **portable, performant, and high-quality** models for Windows ML. It covers the entire journey from pretrained model to on-device inference — export, optimization, quantization, compilation, and benchmarking — across **all execution providers**, regardless of silicon.
 
 ---
 
-## :dart: ModelKit Is Right for You If
+## :dart: WinML CLI Is Right for You If
 
 - [x] You want to build models that run on **any Windows device** — Qualcomm, Intel, AMD, NVIDIA, or CPU
 - [x] You want to benchmark a model with **one command** — latency, throughput, and live hardware utilization
@@ -32,7 +32,7 @@
 | **Dml** | Hardware-agnostic GPU backend | 🔶 Planned | `--ep dml` | `--device gpu` |
 | **CPU** | Cross-platform fallback | ⚪ Always available | `--ep cpu` | `--device cpu` |
 
-> **Tip:** Use `--device auto` and ModelKit picks the best available device — NPU first, then GPU, then CPU.
+> **Tip:** Use `--device auto` and WinML CLI picks the best available device — NPU first, then GPU, then CPU.
 
 ---
 
@@ -45,11 +45,11 @@
 | **Windows 11** (x64 or ARM64) | Windows 11 24H2+ required for NPU support |
 | **UV** | Install [UV](https://github.com/astral-sh/uv) |
 | **Windows App SDK Runtime 1.8** | [Latest Windows App SDK downloads](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads) |
-| **ModelKit** (Python wheel) | See release instructions |
+| **WinML CLI** (Python wheel) | See release instructions |
 
 ### Required Hardware
 
-**ModelKit targets NPU.** We recommend testing on one of the following NPU devices:
+**WinML CLI targets NPU.** We recommend testing on one of the following NPU devices:
 
 | Device | EP | Flag |
 |--------|-----|------|
@@ -57,7 +57,7 @@
 | Intel AI Boost (Meteor Lake / Lunar Lake) | OpenVINO | `--ep openvino --device npu` |
 | AMD Ryzen AI (Phoenix / Hawk Point / Strix) | VitisAI | `--ep vitisai --device npu` |
 
-**No NPU?** Use `--device auto` — ModelKit will fall back to the best available device (GPU → CPU). Note that `winml compile` requires NPU and cannot run without one.
+**No NPU?** Use `--device auto` — WinML CLI will fall back to the best available device (GPU → CPU). Note that `winml compile` requires NPU and cannot run without one.
 
 ### Accepted Inputs
 
@@ -78,7 +78,7 @@ If `inspect` prints an error or shows `Unsupported`, **skip that model**. Only m
 
 ## :package: Installation
 
-ModelKit requires **Python 3.10** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
+WinML CLI requires **Python 3.10** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
 
 **1. Create a Python 3.10 environment**
 
@@ -114,7 +114,7 @@ Confirm that your target device and EP appear in the output:
 - **Intel AI Boost** — look for `OpenVINOExecutionProvider`
 - **AMD Ryzen AI** — look for `VitisAIExecutionProvider`
 
-If no NPU is detected, you can still use ModelKit with `--device auto` for most commands. The only exception is `winml compile`, which requires an NPU device.
+If no NPU is detected, you can still use WinML CLI with `--device auto` for most commands. The only exception is `winml compile`, which requires an NPU device.
 
 ---
 
@@ -177,7 +177,7 @@ If no NPU is detected, you can still use ModelKit with `--device auto` for most 
 
 **`winml doctor`** — Diagnose environment issues. Checks runtimes, execution providers, and dependencies to identify configuration problems.
 
-**`winml setting`** — Configure ModelKit preferences. Set default EPs, output directories, and other global options.
+**`winml setting`** — Configure WinML CLI preferences. Set default EPs, output directories, and other global options.
 
 **`winml sys`** — System information and capability reporting. Prints detected hardware, available EPs, Python version, and installed package versions.
 
@@ -300,7 +300,7 @@ The simplest way to evaluate a model — one command, zero setup:
 winml perf -m facebook/convnext-base-224 --device npu --monitor
 ```
 
-ModelKit handles everything behind the scenes: download the model from Hugging Face, export to ONNX, optimize the graph, and run the benchmark on your NPU. The `--monitor` flag enables live hardware monitoring — real-time CPU utilization, RAM usage, and NPU activity alongside the latency results.
+WinML CLI handles everything behind the scenes: download the model from Hugging Face, export to ONNX, optimize the graph, and run the benchmark on your NPU. The `--monitor` flag enables live hardware monitoring — real-time CPU utilization, RAM usage, and NPU activity alongside the latency results.
 
 This is ideal for quick smoke tests: does the model run on this device, and how fast is it?
 
@@ -308,7 +308,7 @@ This is ideal for quick smoke tests: does the model run on this device, and how 
 
 ## :arrows_counterclockwise: The BYOM Workflow
 
-The **Build Your Own Model** (BYOM) workflow is the philosophy behind ModelKit. It defines how a source model becomes a production-ready, device-optimized artifact.
+The **Build Your Own Model** (BYOM) workflow is the philosophy behind WinML CLI. It defines how a source model becomes a production-ready, device-optimized artifact.
 
 ### The Pipeline
 
@@ -318,7 +318,7 @@ Source Model --> Export --> Analyze --> Optimize --> Quantize --> Compile --> Be
 
 ![BYOM Workflow](docs/assets/workflow-only.svg)
 
-Each arrow is a ModelKit command. You can enter the pipeline at any stage (for example, start with a local ONNX file and skip export), exit early (stop after optimization if you do not need quantization), or loop back to repeat a stage with different settings.
+Each arrow is a WinML CLI command. You can enter the pipeline at any stage (for example, start with a local ONNX file and skip export), exit early (stop after optimization if you do not need quantization), or loop back to repeat a stage with different settings.
 
 ### Primitive Commands vs. Config-Driven Pipeline
 
@@ -361,7 +361,7 @@ Run `winml catalog` to browse the full catalog interactively.
 
 </details>
 
-These models are verified against ModelKit's full pipeline and serve as reliable starting points. You are not limited to this list — any Hugging Face model that passes `winml inspect` is a valid input.
+These models are verified against WinML CLI's full pipeline and serve as reliable starting points. You are not limited to this list — any Hugging Face model that passes `winml inspect` is a valid input.
 
 For models not in this table, run `winml inspect -m <model-id>` to verify support before proceeding.
 
@@ -369,9 +369,9 @@ For models not in this table, run `winml inspect -m <model-id>` to verify suppor
 
 ## :warning: Scope & Limitations
 
-### What ModelKit supports
+### What WinML CLI supports
 
-ModelKit targets **classic deep learning models** — CNNs, encoders, vision transformers, NLP classifiers, token classifiers, object detection models, and segmentation models.
+WinML CLI targets **classic deep learning models** — CNNs, encoders, vision transformers, NLP classifiers, token classifiers, object detection models, and segmentation models.
 
 Supported tasks include:
 - Image classification (ResNet, ViT, Swin, ConvNeXT)
@@ -380,9 +380,9 @@ Supported tasks include:
 - Object detection (Table Transformer)
 - Image segmentation (SegFormer)
 
-### What ModelKit does not support
+### What WinML CLI does not support
 
-**LLMs and generative models are not in scope.** Do not use ModelKit with GPT, LLaMA, Phi, Mistral, Stable Diffusion, or any model with a decoder-only or sequence-to-sequence generative architecture. LLM support (with LoRA) is planned for Q3-Q4 2026.
+**LLMs and generative models are not in scope.** Do not use WinML CLI with GPT, LLaMA, Phi, Mistral, Stable Diffusion, or any model with a decoder-only or sequence-to-sequence generative architecture. LLM support (with LoRA) is planned for Q3-Q4 2026.
 
 ### Known constraints
 
@@ -432,7 +432,7 @@ Supported tasks include:
 
 ## :lock: Data / Telemetry
 
-Official ModelKit releases can collect anonymous usage telemetry to
+Official WinML CLI releases can collect anonymous usage telemetry to
 help improve the product. Telemetry is classified as **Optional**. A
 one-time prompt on your first run asks for consent (default: accept —
 press Enter to enable, type `n` to decline).
@@ -459,7 +459,7 @@ locations.
 
 We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).
 
-For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/ModelKit/issues).
+For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/WinML-ModelKit/issues).
 
 ---
 
