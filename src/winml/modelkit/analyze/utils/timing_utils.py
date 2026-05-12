@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-_TIMING_LOG_ENABLED = os.environ.get("MODELKIT_TIMING_LOG", "").strip().lower() in {
+_TIMING_LOG_ENABLED = os.environ.get("WINMLCLI_TIMING_LOG", "").strip().lower() in {
     "1",
     "true",
     "yes",

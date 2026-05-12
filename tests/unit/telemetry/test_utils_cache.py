@@ -15,7 +15,7 @@ from winml.modelkit.telemetry.utils import (
 
 
 def test_encode_decode_roundtrip():
-    original = {"name": "ModelKitAction", "data": {"success": True}, "n": 42}
+    original = {"name": "WinMLCLIAction", "data": {"success": True}, "n": 42}
     encoded = _encode_cache_entry(original)
     assert isinstance(encoded, str)  # storable as a single line
     decoded = _decode_cache_entry(encoded)

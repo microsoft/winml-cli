@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Build command for ModelKit CLI.
+"""Build command for WinML CLI.
 
 Thin CLI wrapper around build_hf_model() and build_onnx_model() APIs.
 The build module owns the pipeline. This command parses flags, loads config,
@@ -256,7 +256,7 @@ def _build_modules(
     "--use-cache",
     is_flag=True,
     default=False,
-    help="Use ModelKit global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
     "--rebuild",

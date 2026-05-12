@@ -47,7 +47,7 @@ def exporter(tmp_path):
     # Yield + shutdown so the underlying ``requests.Session`` (and its
     # connection pool) is closed at teardown rather than leaked across
     # tests.
-    cache = _PersistentCache(path=tmp_path / "modelkit.cache")
+    cache = _PersistentCache(path=tmp_path / "winmlcli.cache")
     exp = OneCollectorLogExporter(
         ikey="abc-def",
         endpoint="https://example.invalid/OneCollector/1.0/",
@@ -89,7 +89,7 @@ def test_constructor_rejects_malformed_ikey(ikey):
 
 def test_export_success_returns_success(exporter):
     ld = _make_log_data(
-        body="ModelKitAction",
+        body="WinMLCLIAction",
         attrs={"action_name": "build", "success": True},
     )
     mock_response = MagicMock(status_code=200)
@@ -110,7 +110,7 @@ def test_export_success_returns_success(exporter):
     _, kwargs = mock_post.call_args
     body = kwargs["data"]
     assert not body.startswith(b"[")
-    assert b'"ModelKitAction"' in body
+    assert b'"WinMLCLIAction"' in body
     # Regression guard: envelope iKey is "o:<tenant_token>", NOT the full
     # ikey. Sending the full ikey here triggers
     # ``Collector-Error: Invalid Tenant Token`` from OneCollector.
@@ -119,21 +119,21 @@ def test_export_success_returns_success(exporter):
 
 
 def test_export_connection_error_returns_failure(exporter):
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     with patch.object(exporter._session, "post", side_effect=requests.ConnectionError("no route")):
         result = exporter.export([ld])
     assert result == LogRecordExportResult.FAILURE
 
 
 def test_export_timeout_returns_failure(exporter):
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     with patch.object(exporter._session, "post", side_effect=requests.Timeout("slow")):
         result = exporter.export([ld])
     assert result == LogRecordExportResult.FAILURE
 
 
 def test_export_4xx_5xx_returns_failure(exporter):
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     for status in (400, 500, 503):
         with patch.object(exporter._session, "post", return_value=MagicMock(status_code=status)):
             result = exporter.export([ld])
@@ -154,7 +154,7 @@ def test_export_translates_resource_to_ext(exporter):
             "initTs": 1712678400.0,
         }
     )
-    ld = _make_log_data("ModelKitHeartbeat", {}, resource=resource)
+    ld = _make_log_data("WinMLCLIHeartbeat", {}, resource=resource)
 
     captured_body = {}
 
@@ -186,8 +186,8 @@ def test_export_translates_resource_to_ext(exporter):
 
 def test_export_serializes_multiple_envelopes_as_ndjson(exporter):
     """Two envelopes → two lines joined by \\n, no enclosing array."""
-    a = _make_log_data("ModelKitHeartbeat", {})
-    b = _make_log_data("ModelKitAction", {"action_name": "build", "success": True})
+    a = _make_log_data("WinMLCLIHeartbeat", {})
+    b = _make_log_data("WinMLCLIAction", {"action_name": "build", "success": True})
 
     captured = {}
 
@@ -218,7 +218,7 @@ def test_shutdown_closes_session_and_blocks_further_exports(exporter):
     close_called.assert_called_once()
 
     # After shutdown, export is a no-op that returns SUCCESS
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     with patch.object(exporter._session, "post") as mock_post:
         assert exporter.export([ld]) == LogRecordExportResult.SUCCESS
         mock_post.assert_not_called()
@@ -296,7 +296,7 @@ def _killed_response(tenant: str = "abc", duration: int = 86_400):
 def test_kill_tokens_recorded_on_failure(exporter):
     """On a 401 with kill-tokens for our tenant, exporter records the
     kill window and ``_is_killed()`` returns True until it expires."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     assert exporter._is_killed() is False
 
     with patch.object(exporter._session, "post", return_value=_killed_response()):
@@ -309,7 +309,7 @@ def test_kill_tokens_recorded_on_failure(exporter):
 
 def test_kill_tokens_for_other_tenant_is_ignored(exporter):
     """If kill-tokens names a different tenant, our exporter is unaffected."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     other = _killed_response(tenant="not-our-tenant")
     with patch.object(exporter._session, "post", return_value=other):
         exporter.export([ld])
@@ -319,7 +319,7 @@ def test_kill_tokens_for_other_tenant_is_ignored(exporter):
 def test_export_skipped_during_kill_window(exporter):
     """While killed, export() is a no-op that returns SUCCESS without
     even touching the HTTP session."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
 
     # First export: triggers the kill window.
     with patch.object(exporter._session, "post", return_value=_killed_response()) as p1:
@@ -338,8 +338,8 @@ def test_kill_drops_envelopes_instead_of_caching(exporter, tmp_path):
     """A failed POST that triggered a kill must NOT enqueue the batch in
     the persistent cache — caching it just guarantees forever-failure on
     future startups within the kill window."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
-    cache_path = tmp_path / "modelkit.cache"
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
+    cache_path = tmp_path / "winmlcli.cache"
     with patch.object(exporter._session, "post", return_value=_killed_response()):
         exporter.export([ld])
     assert exporter._is_killed()
@@ -351,9 +351,9 @@ def test_cache_flush_kill_skips_new_batch_post(tmp_path):
     the same export() call must be skipped — otherwise we waste a
     network round-trip just to re-confirm the kill, and the new
     envelopes would either be dropped or wrongly re-cached."""
-    cache_path = tmp_path / "modelkit.cache"
+    cache_path = tmp_path / "winmlcli.cache"
     cache = _PersistentCache(path=cache_path)
-    cache.append([{"name": "ModelKitHeartbeat", "iKey": "o:abc"}])
+    cache.append([{"name": "WinMLCLIHeartbeat", "iKey": "o:abc"}])
 
     exp = OneCollectorLogExporter(
         ikey="abc-def",
@@ -361,7 +361,7 @@ def test_cache_flush_kill_skips_new_batch_post(tmp_path):
         cache=cache,
     )
     try:
-        ld = _make_log_data("ModelKitHeartbeat", {})
+        ld = _make_log_data("WinMLCLIHeartbeat", {})
         with patch.object(exp._session, "post", return_value=_killed_response()) as p:
             result = exp.export([ld])
 
@@ -377,7 +377,7 @@ def test_cache_flush_kill_skips_new_batch_post(tmp_path):
 
 def test_kill_window_expiry_re_enables_post(exporter):
     """Past the kill window, export() resumes normal POST behavior."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
 
     # Use a short window so we can fast-forward past it via monkeypatching.
     short_kill = _killed_response(duration=10)
@@ -410,7 +410,7 @@ def test_kill_tokens_with_unusable_duration_is_ignored(exporter, kill_duration_v
     """``kill-tokens`` is meaningless without a positive integer
     ``kill-duration``. Any of: absent, empty, non-positive, or non-numeric
     must leave the exporter unkilled."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     resp = MagicMock(status_code=401)
     headers = {"kill-tokens": "o:abc:all"}
     if kill_duration_value is not None:
@@ -427,7 +427,7 @@ def test_post_failure_logs_collector_error_and_body_excerpt(exporter, caplog):
     header and a body excerpt — the two pieces OneCollector uses to
     communicate the actual rejection reason. Without these in the log,
     diagnosing tenant/format misconfigurations requires a live probe."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     resp = MagicMock(status_code=401)
     resp.headers = {"Collector-Error": "Invalid Tenant Token."}
     resp.text = '{"acc":0,"rej":1,"efi":{"InvalidTenantToken":[0]}}'
@@ -448,7 +448,7 @@ def test_post_failure_logs_collector_error_and_body_excerpt(exporter, caplog):
 
 def test_post_failure_log_truncates_long_body(exporter, caplog):
     """A backend that returns a huge body shouldn't flood the DEBUG log."""
-    ld = _make_log_data("ModelKitHeartbeat", {})
+    ld = _make_log_data("WinMLCLIHeartbeat", {})
     resp = MagicMock(status_code=500)
     resp.headers = {}
     resp.text = "x" * 10_000

@@ -211,7 +211,7 @@ def test_catalog_default_shows_table(runner, patched_catalog, tmp_path):
     out = tmp_path / "out.json"
     result = runner.invoke(catalog, ["--output", str(out)])
     assert result.exit_code == 0
-    assert "ModelKit Catalog" in result.output
+    assert "WinML CLI Catalog" in result.output
     assert "4 validated model(s)" in result.output
     assert "bert" in result.output
     assert "detr" in result.output
