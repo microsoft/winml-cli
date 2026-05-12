@@ -38,19 +38,11 @@ class OutputAggregator:
     - Include runtime check results and information
 
     FR-026-031: Complete output assembly with metadata, results, and information
-
-    Attributes:
-        analyzer_version: Version string for output
     """
 
-    def __init__(self, analyzer_version: str = "0.1.0") -> None:
-        """Initialize aggregator.
-
-        Args:
-            analyzer_version: Version string for output (default: "0.1.0")
-        """
-        self.analyzer_version = analyzer_version
-        logger.info("Initialized OutputAggregator with version %s", analyzer_version)
+    def __init__(self) -> None:
+        """Initialize aggregator."""
+        logger.info("Initialized OutputAggregator")
 
     def aggregate(
         self,
@@ -71,13 +63,12 @@ class OutputAggregator:
             AnalysisOutput: Complete analysis output ready for JSON serialization
 
         Output Structure:
-            - analyzer_version: Version string
             - analysis_timestamp: Current datetime
             - metadata: Model metadata (path, opset, operator stats)
             - results: List of EPSupport objects
 
         Example:
-            >>> aggregator = OutputAggregator("0.1.0")
+            >>> aggregator = OutputAggregator()
             >>> metadata = ModelStats(
             ...     model_path="model.onnx",
             ...     opset_version=13,
@@ -125,7 +116,6 @@ class OutputAggregator:
         # Create final output
         output_build_start = time.perf_counter()
         output = AnalysisOutput(
-            analyzer_version=self.analyzer_version,
             metadata=metadata,
             results=results,
         )

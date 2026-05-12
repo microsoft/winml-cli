@@ -103,13 +103,11 @@ class AnalysisOutput(BaseModel):
     """Aggregated analysis results for JSON serialization.
 
     Attributes:
-        analyzer_version: Analyzer version
         analysis_timestamp: When analysis ran
         metadata: Model metadata and statistics
         results: Analysis results
     """
 
-    analyzer_version: str = Field(..., description="Analyzer version")
     analysis_timestamp: datetime = Field(
         default_factory=datetime.now, description="Analysis timestamp"
     )

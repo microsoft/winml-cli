@@ -88,7 +88,6 @@ def _make_mock_output(
         information=information or [],
     )
     return AnalysisOutput(
-        analyzer_version="0.1.0",
         metadata=metadata,
         results=[ep_support],
     )
