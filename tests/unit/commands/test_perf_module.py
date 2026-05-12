@@ -41,9 +41,17 @@ class TestPerfModuleFlag:
         Regression guard for #554: previously `sys.exit(0)` masked this
         as success, which silently broke CI when a module name was typoed.
         """
-        with patch(
-            "winml.modelkit.config.generate_hf_build_config",
-            return_value=[],
+        # _perf_modules calls resolve_device() before generate_hf_build_config(),
+        # so mock both to keep the test hermetic (no hardware probe in CI).
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[],
+            ),
         ):
             runner = CliRunner()
             result = runner.invoke(
