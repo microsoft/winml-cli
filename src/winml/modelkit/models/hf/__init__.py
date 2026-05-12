@@ -25,6 +25,8 @@ Exports:
 
 from __future__ import annotations
 
+from transformers import AutoConfig
+
 # Import configs - importing triggers ONNX config registration with TasksManager
 # ConvNeXT and SAM2 modules also register PATCHING_SPECS / _MODEL_PATCHER
 # on their OnnxConfig classes at import time.
@@ -43,6 +45,9 @@ from .convnext import ConvNextIOConfig as _ConvNextIOConfig  # triggers registra
 from .depth_anything import DepthAnythingIOConfig as _DepthAnythingIOConfig  # triggers registration
 from .depth_pro import DepthProIOConfig as _DepthProIOConfig  # triggers registration
 from .detr import DETR_CONFIG
+from .esrgan import MODEL_CLASS_MAPPING as _ESRGAN_CLASS_MAPPING
+from .esrgan import ESRGANConfig, ESRGANForImageSuperResolution
+from .esrgan import ESRGANIOConfig as _ESRGANIOConfig  # triggers registration
 from .marian import MARIAN_CONFIG
 from .marian import MODEL_CLASS_MAPPING as _MARIAN_CLASS_MAPPING
 from .marian import MarianDecoderIOConfig as _MarianDecoderIOConfig  # triggers registration
@@ -77,6 +82,13 @@ from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOCon
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
+# Register ESRGAN with HF's AutoConfig. The model_type string is uppercase
+# ``ESRGAN`` so that HF's name-based fallback in AutoConfig.from_pretrained
+# matches repo names like ``ai-forever/Real-ESRGAN`` (case-sensitive
+# substring) and produces a default ESRGANConfig.
+AutoConfig.register("ESRGAN", ESRGANConfig, exist_ok=True)
+
+
 # Aggregated model class mappings: (model_type, task) -> HF model class.
 #
 # A sentinel entry with task=None encodes the per-model-type default task
@@ -88,6 +100,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     **_BART_CLASS_MAPPING,
     **_BLIP_CLASS_MAPPING,
     **_CLIP_CLASS_MAPPING,
+    **_ESRGAN_CLASS_MAPPING,
     **_MARIAN_CLASS_MAPPING,
     **_MU2_CLASS_MAPPING,
     **_QWEN_CLASS_MAPPING,
@@ -97,6 +110,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     **_T5_CLASS_MAPPING,
     **_VED_CLASS_MAPPING,
 }
+
 
 # Registry: model_type -> WinMLBuildConfig
 # Only models that need non-autoconf-discoverable settings retain configs.

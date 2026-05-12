@@ -223,33 +223,42 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     Called by ``resolve_task_and_model_class`` Case 1.
 
     Resolution flow:
-    1. ``_resolve_model_class_from_config(config)`` -> arch_model_class
-    2. ``_detect_task_from_model_class(arch_model_class)`` -> task
-    3. ``_get_custom_model_class(model_type, task)`` -> specialization check
-    4. If specialization found -> return (task, specialized_class)
-    5. Else ``TasksManager.get_model_class_for_task(task)`` -> tm_class
-    6. If TasksManager fails -> fallback to arch_model_class
+
+    0.  Read ``config.model_type`` (required); raise if absent.
+    0a. Sentinel short-circuit: if ``MODEL_CLASS_MAPPING`` contains
+        ``(model_type, None) -> default_class``, reverse-lookup the matching
+        ``(model_type, task) -> default_class`` entry and return
+        ``(task, default_class)`` immediately. This bypasses steps 1-6 and
+        covers two cases:
+
+        - Model families like SAM/SAM2 whose architecture class's natural
+          TasksManager mapping (``"feature-extraction"``) differs from the
+          canonical export target (``"mask-generation"``).
+        - Custom architecture classes that live outside ``transformers``
+          (e.g. ESRGAN) and would otherwise fail step 1's
+          ``getattr(transformers, arch_name)``.
+    1.  ``_resolve_model_class_from_config(config)`` -> arch_model_class.
+    2.  ``_detect_task_from_model_class(arch_model_class)`` -> task.
+    3.  (Reserved.)
+    4.  ``_get_custom_model_class(model_type, task)`` -> specialization check;
+        return early when a specialized class is registered.
+    5.  Else ``TasksManager.get_model_class_for_task(task)`` -> tm_class.
+    6.  If TasksManager fails, fall back to arch_model_class.
 
     Args:
-        config: HuggingFace PretrainedConfig
+        config: HuggingFace PretrainedConfig.
 
     Returns:
-        Tuple of (task, model_class)
+        Tuple of (task, model_class).
 
     Raises:
-        ValueError: If task cannot be detected or model_type is missing
+        ValueError: If model_type is missing, task cannot be detected, or
+            a (model_type, None) sentinel exists with no matching
+            (model_type, task) entry.
     """
     from optimum.exporters.tasks import TasksManager
 
-    # [1] Resolve architecture class from config
-    arch_model_class = _resolve_model_class_from_config(config)
-    arch_name = arch_model_class.__name__
-
-    # [2] Infer task from model class
-    task = _detect_task_from_model_class(arch_model_class)
-    logger.info("Detected task: %s (from %s)", task, arch_name)
-
-    # [3] Get model_type - REQUIRED for specialization lookup
+    # [0] Get model_type - REQUIRED for specialization / sentinel lookup.
     model_type = getattr(config, "model_type", None)
     if model_type is None:
         raise ValueError(
@@ -257,14 +266,16 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
             "Please specify model_class explicitly."
         )
 
-    # [3a] Per-model-type default task override.
-    # Some model families (e.g., SAM/SAM2) have an architecture class whose
-    # default TasksManager mapping ("feature-extraction") differs from the
-    # canonical export target ("mask-generation"). The default is encoded as
-    # a sentinel entry MODEL_CLASS_MAPPING[(model_type, None)] = <class>;
-    # we reverse-lookup the task name from the matching
-    # (model_type, default_task) -> same_class entry. This keeps the data in
-    # one table and structurally enforces that the matching class entry exists.
+    # [0a] Per-model-type default task override (consulted before
+    # architecture-based detection). Some model families either have an
+    # architecture class whose default TasksManager mapping ("feature-
+    # extraction") differs from the canonical export target ("mask-generation"
+    # for SAM/SAM2), or live outside ``transformers`` entirely (e.g. ESRGAN).
+    # The default is encoded as a sentinel entry
+    # ``MODEL_CLASS_MAPPING[(model_type, None)] = <class>``; we reverse-lookup
+    # the task name from the matching ``(model_type, default_task) -> same_class``
+    # entry. Checking this BEFORE arch detection lets us short-circuit for
+    # custom classes that are not importable from ``transformers``.
     from ..models.hf import MODEL_CLASS_MAPPING
 
     model_type_normalized = model_type.lower().replace("_", "-")
@@ -285,14 +296,15 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
                 f"({model_type_normalized!r}, <task>) entry maps to that class. "
                 f"Add the corresponding (model_type, task) entry."
             )
-        if default_task != task:
-            logger.info(
-                "Overriding auto-detected task %r with model-type default %r for %s",
-                task,
-                default_task,
-                model_type_normalized,
-            )
         return default_task, default_class
+
+    # [1] Resolve architecture class from config
+    arch_model_class = _resolve_model_class_from_config(config)
+    arch_name = arch_model_class.__name__
+
+    # [2] Infer task from model class
+    task = _detect_task_from_model_class(arch_model_class)
+    logger.info("Detected task: %s (from %s)", task, arch_name)
 
     # [4] Check specializations first (CLIP, SAM2, etc.) - highest priority
     model_class = _get_custom_model_class(model_type, task)

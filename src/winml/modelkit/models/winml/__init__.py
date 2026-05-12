@@ -40,6 +40,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
+    "image-to-image": "WinMLModelForImageToImage",
     # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
     "question-answering": "WinMLModelForQuestionAnswering",
@@ -58,6 +59,10 @@ WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {
     # - Specific OPSET requirements
     # - Input remapping (non-standard tensor names)
     # - Custom pre/post-processing
+    #
+    # ESRGAN adds a patch-based predict() that runs the (shape-specialised)
+    # ONNX session over overlapping patches and stitches the results back.
+    ("esrgan", "image-to-image"): "WinMLESRGANForImageToImage",
 }
 
 
@@ -74,21 +79,25 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
         ImportError: If class is not implemented yet
     """
     from .base import WinMLModelForGenericTask
+    from .esrgan import WinMLESRGANForImageToImage
     from .feature_extraction import WinMLModelForFeatureExtraction
     from .image_classification import WinMLModelForImageClassification
     from .image_segmentation import (
         WinMLModelForImageSegmentation,
         WinMLModelForSemanticSegmentation,
     )
+    from .image_to_image import WinMLModelForImageToImage
     from .object_detection import WinMLModelForObjectDetection
     from .question_answering import WinMLModelForQuestionAnswering
     from .sequence_classification import WinMLModelForSequenceClassification
 
     # Map class names to modules
     class_map: dict[str, type] = {
+        "WinMLESRGANForImageToImage": WinMLESRGANForImageToImage,
         "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
         "WinMLModelForImageClassification": WinMLModelForImageClassification,
         "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
+        "WinMLModelForImageToImage": WinMLModelForImageToImage,
         "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
         "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
         "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
@@ -183,6 +192,7 @@ from .composite_model import (
 )
 from .decoder_only import WinMLDecoderOnlyModel
 from .encoder_decoder import WinMLEncoderDecoderModel
+from .esrgan import WinMLESRGANForImageToImage
 from .feature_extraction import WinMLModelForFeatureExtraction
 from .image_classification import WinMLModelForImageClassification
 from .image_segmentation import (
@@ -190,6 +200,7 @@ from .image_segmentation import (
     WinMLModelForImageSegmentation,
     WinMLModelForSemanticSegmentation,
 )
+from .image_to_image import ImageReconstructionOutput, WinMLModelForImageToImage
 from .kv_cache import (
     WinMLCache,
     WinMLSlidingWindowCache,
@@ -204,15 +215,18 @@ __all__ = [
     "COMPOSITE_MODEL_REGISTRY",
     "TASK_TO_WINML_CLASS",
     "WINML_MODEL_CLASS_MAPPING",
+    "ImageReconstructionOutput",
     "ImageSegmentationOutput",
     "WinMLCache",
     "WinMLCompositeModel",
     "WinMLDecoderOnlyModel",
+    "WinMLESRGANForImageToImage",
     "WinMLEncoderDecoderModel",
     "WinMLModelForFeatureExtraction",
     "WinMLModelForGenericTask",
     "WinMLModelForImageClassification",
     "WinMLModelForImageSegmentation",
+    "WinMLModelForImageToImage",
     "WinMLModelForObjectDetection",
     "WinMLModelForSemanticSegmentation",
     "WinMLModelForSequenceClassification",

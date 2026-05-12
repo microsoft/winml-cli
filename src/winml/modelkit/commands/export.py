@@ -134,6 +134,15 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
+@click.option(
+    "--loader-config-overrides",
+    "loader_config_overrides_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="JSON file with overrides patched recursively onto the loaded HF "
+    'config (e.g., {"scale": 2} for Real-ESRGAN). Deep-merges with any '
+    "loader.loader_config_overrides set in --config; CLI keys win.",
+)
 @cli_utils.build_config_option
 @click.pass_context
 def export(
@@ -149,6 +158,7 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
+    loader_config_overrides_path: Path | None,
     config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
@@ -198,16 +208,49 @@ def export(
 
     # Apply build config defaults (CLI explicit options take precedence)
     _build_export_cfg = None
+    loader_config_overrides: dict | None = None
     if config_file is not None:
         build_cfg = cli_utils.load_build_config(config_file)
         if build_cfg.export:
             _build_export_cfg = build_cfg.export
         if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
             task = build_cfg.loader.task
+        if build_cfg.loader and build_cfg.loader.loader_config_overrides:
+            loader_config_overrides = dict(build_cfg.loader.loader_config_overrides)
         if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "no_hierarchy"):
             no_hierarchy = not _build_export_cfg.enable_hierarchy_tags
         if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "dynamo"):
             dynamo = _build_export_cfg.dynamo
+
+    # Sidecar --loader-config-overrides JSON deep-merges on top of any value
+    # carried by --config. CLI keys win on conflicts.
+    if loader_config_overrides_path is not None:
+        try:
+            cli_overrides = json.loads(loader_config_overrides_path.read_text())
+        except json.JSONDecodeError as e:
+            raise click.ClickException(
+                f"Invalid JSON in --loader-config-overrides "
+                f"{loader_config_overrides_path}: {e}"
+            ) from e
+        if not isinstance(cli_overrides, dict):
+            raise click.ClickException(
+                f"--loader-config-overrides must contain a JSON object, "
+                f"got {type(cli_overrides).__name__}"
+            )
+
+        def _deep_merge(base: dict, top: dict) -> dict:
+            out = dict(base)
+            for k, v in top.items():
+                if isinstance(v, dict) and isinstance(out.get(k), dict):
+                    out[k] = _deep_merge(out[k], v)
+                else:
+                    out[k] = v
+            return out
+
+        loader_config_overrides = _deep_merge(loader_config_overrides or {}, cli_overrides)
+        console.print(
+            f"[dim]Loader config overrides: {loader_config_overrides}[/dim]"
+        )
 
     from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
     from ..export import export_pytorch as export_onnx
@@ -362,7 +405,11 @@ def export(
         console.print("\n[bold]Starting HTP export...[/bold]")
 
         # Load model with task detection (CLI is the orchestration layer)
-        pytorch_model, _, detected_task = load_hf_model(model, task=task)
+        pytorch_model, _, detected_task = load_hf_model(
+            model,
+            task=task,
+            loader_config_overrides=loader_config_overrides,
+        )
         if task:
             console.print(f"[dim]Task (override): {detected_task}[/dim]")
         else:

@@ -186,10 +186,15 @@ class WinMLAutoModel:
         if skip_build or is_compiled_onnx(onnx_path):
             logger.info("Skipping build (compiled model or explicit skip). Using original ONNX.")
             # TODO: run analyze_onnx for validation/lint
-            winml_class = get_winml_class(None, resolved_task)
+            # Use hf_config.model_type so WINML_MODEL_CLASS_MAPPING's
+            # specialised entries (e.g. ESRGAN) are picked when the caller
+            # knows the model_type; falls back to the generic task class
+            # otherwise.
+            model_type = hf_config.model_type if hf_config is not None else None
+            winml_class = get_winml_class(model_type, resolved_task)
             return winml_class(
                 onnx_path=onnx_path,
-                config=None,
+                config=hf_config,
                 device=device,
                 session_options=session_options,
                 ep=ep,
@@ -220,13 +225,16 @@ class WinMLAutoModel:
             **kwargs,
         )
 
-        # Wrap in inference model (task-specific or generic fallback)
-        winml_class = get_winml_class(None, resolved_task)
+        # Wrap in inference model (task-specific or generic fallback).
+        # When the caller supplies hf_config, pick the specialised class
+        # registered for its ``model_type`` and propagate the config.
+        model_type = hf_config.model_type if hf_config is not None else None
+        winml_class = get_winml_class(model_type, resolved_task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)
 
         return winml_class(
             onnx_path=result.final_onnx_path,
-            config=None,  # No HF PretrainedConfig for bare ONNX builds
+            config=hf_config,
             device=device,
             session_options=session_options,
             ep=ep,

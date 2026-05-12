@@ -75,8 +75,8 @@ class TestResolveTask:
                 return_value=fake_hf_config,
             ),
             patch(
-                "winml.modelkit.loader.task._detect_task_from_config",
-                return_value="image-classification",
+                "winml.modelkit.loader.task._detect_task_and_class_from_config",
+                return_value=("image-classification", MagicMock()),
             ),
         ):
             assert _resolve_task(config) == "image-classification"

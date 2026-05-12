@@ -183,6 +183,9 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         # ignored here (mirrors winml perf's ONNX path).
         from transformers import AutoConfig
 
+        from ..export.io import ensure_hf_models_registered
+
+        ensure_hf_models_registered()
         hf_config = AutoConfig.from_pretrained(config.model_id)
         model = WinMLAutoModel.from_onnx(
             onnx_path=config.model_path,
@@ -214,10 +217,12 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
 
     from transformers import AutoConfig
 
-    from ..loader.task import _detect_task_from_config
+    from ..export.io import ensure_hf_models_registered
+    from ..loader.task import _detect_task_and_class_from_config
 
+    ensure_hf_models_registered()
     hf_config = AutoConfig.from_pretrained(config.model_id)
-    return _detect_task_from_config(hf_config)
+    return _detect_task_and_class_from_config(hf_config)[0]
 
 
 def evaluate(config: WinMLEvaluationConfig) -> EvalResult:

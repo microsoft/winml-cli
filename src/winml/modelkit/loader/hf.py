@@ -145,6 +145,7 @@ def load_hf_model(
     model_class: str | None = None,
     user_script: str | None = None,
     trust_remote_code: bool = False,
+    loader_config_overrides: dict | None = None,
 ) -> tuple[nn.Module, PretrainedConfig, str]:
     """Load, detect task, and prepare HuggingFace model.
 
@@ -194,6 +195,12 @@ def load_hf_model(
     """
     logger.info("Loading HF model: %s", model_name_or_path)
 
+    # Ensure HF model registrations (AutoConfig.register, OnnxConfig overwrites,
+    # task-mapping fallbacks) have run before any AutoConfig / TasksManager calls.
+    from ..export.io import ensure_hf_models_registered
+
+    ensure_hf_models_registered()
+
     # Validate user_script requirements before any network calls
     if user_script is not None:
         if not trust_remote_code:
@@ -209,6 +216,15 @@ def load_hf_model(
         model_name_or_path,
         trust_remote_code=trust_remote_code,
     )
+
+    # [1a] Apply optional ``loader_config_overrides`` (e.g. ESRGAN ``scale``)
+    # before task resolution so downstream lookups see the patched values.
+    # ``apply_loader_config_overrides`` returns a new config instance built via
+    # ``from_dict`` so the class constructor validates / reconstructs.
+    if loader_config_overrides:
+        from .config import apply_loader_config_overrides
+
+        hf_config = apply_loader_config_overrides(hf_config, loader_config_overrides)
 
     # [2] Task & Model Class Resolution
     if user_script is not None:
@@ -230,11 +246,18 @@ def load_hf_model(
                 f"Cannot resolve task/model for {model_name_or_path}. Original error: {e}"
             ) from e
 
-    # [4] Model Instantiation
+    # [4] Model Instantiation. When overrides were applied, pass the patched
+    # ``hf_config`` as ``config=`` so the model class uses it instead of
+    # re-loading from disk/Hub and losing the patches.
     logger.debug("Loading model with class: %s", resolved_class.__name__)
+    from_pretrained_kwargs: dict = {
+        "trust_remote_code": trust_remote_code,
+    }
+    if loader_config_overrides:
+        from_pretrained_kwargs["config"] = hf_config
     model = resolved_class.from_pretrained(
         model_name_or_path,
-        trust_remote_code=trust_remote_code,
+        **from_pretrained_kwargs,
     )
 
     # [5] Export Preparation

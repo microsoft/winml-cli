@@ -115,6 +115,45 @@ class TestWinMLLoaderConfigSerialization:
         assert restored.trust_remote_code == original.trust_remote_code
 
 
+class TestWinMLLoaderConfigOverrides:
+    """Test the optional ``loader_config_overrides`` field."""
+
+    def test_default_is_none(self):
+        config = WinMLLoaderConfig()
+        assert config.loader_config_overrides is None
+
+    def test_to_dict_omits_when_none(self):
+        config = WinMLLoaderConfig(task="image-classification")
+        assert "loader_config_overrides" not in config.to_dict()
+
+    def test_to_dict_omits_when_empty_dict(self):
+        """Empty dict is falsy — same on-disk shape as None."""
+        config = WinMLLoaderConfig(loader_config_overrides={})
+        assert "loader_config_overrides" not in config.to_dict()
+
+    def test_to_dict_includes_when_present(self):
+        config = WinMLLoaderConfig(loader_config_overrides={"scale": 2})
+        assert config.to_dict()["loader_config_overrides"] == {"scale": 2}
+
+    def test_from_dict_reads_overrides(self):
+        config = WinMLLoaderConfig.from_dict(
+            {"loader_config_overrides": {"hidden_act": "gelu"}}
+        )
+        assert config.loader_config_overrides == {"hidden_act": "gelu"}
+
+    def test_roundtrip_with_overrides(self):
+        original = WinMLLoaderConfig(
+            task="image-to-image",
+            model_type="ESRGAN",
+            loader_config_overrides={
+                "scale": 2,
+                "vision_config": {"image_size": 320},
+            },
+        )
+        restored = WinMLLoaderConfig.from_dict(original.to_dict())
+        assert restored.loader_config_overrides == original.loader_config_overrides
+
+
 class TestWinMLBuildConfigIncludesLoader:
     """Test WinMLBuildConfig integration with loader config."""
 
