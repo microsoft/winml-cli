@@ -15,7 +15,7 @@ from winml.modelkit.sysinfo.device import (
     _DEVICE_EP_MAP,
     _EP_DEVICE_MAP,
     _get_available_devices,
-    resolve_device,
+    resolve_device_category,
 )
 
 
@@ -157,7 +157,7 @@ class TestMappingConstants:
 
 
 class TestResolveDevice:
-    """Tests for resolve_device()."""
+    """Tests for resolve_device_category()."""
 
     def setup_method(self) -> None:
         """Clear the lru_cache before each test."""
@@ -183,7 +183,7 @@ class TestResolveDevice:
                 ),
             ),
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device_category("auto")
 
         assert device == "npu"
         assert available == ["npu", "gpu", "cpu"]
@@ -205,7 +205,7 @@ class TestResolveDevice:
                 ),
             ),
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device_category("auto")
 
         assert device == "gpu"
         assert available == ["npu", "gpu", "cpu"]
@@ -222,7 +222,7 @@ class TestResolveDevice:
                 return_value=frozenset({"CPUExecutionProvider"}),
             ),
         ):
-            device, available = resolve_device("auto")
+            device, available = resolve_device_category("auto")
 
         assert device == "cpu"
         assert available == ["gpu", "cpu"]
@@ -239,7 +239,7 @@ class TestResolveDevice:
                 return_value=frozenset(),
             ),
         ):
-            device, _available = resolve_device("auto")
+            device, _available = resolve_device_category("auto")
 
         assert device == "cpu"
 
@@ -260,7 +260,7 @@ class TestResolveDevice:
                 ),
             ),
         ):
-            device, available = resolve_device("gpu")
+            device, available = resolve_device_category("gpu")
 
         assert device == "gpu"
         assert available == ["npu", "gpu", "cpu"]
@@ -268,7 +268,7 @@ class TestResolveDevice:
     def test_resolve_device_explicit_invalid(self) -> None:
         """Unrecognized device "tpu" -> raises ValueError."""
         with pytest.raises(ValueError, match="Unknown device 'tpu'"):
-            resolve_device("tpu")
+            resolve_device_category("tpu")
 
     def test_resolve_device_explicit_no_ep_warns(self, caplog) -> None:
         """Explicit "npu" but no QNN EP -> returns "npu" with warning."""
@@ -283,7 +283,7 @@ class TestResolveDevice:
             ),
             caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.device"),
         ):
-            device, available = resolve_device("npu")
+            device, available = resolve_device_category("npu")
 
         assert device == "npu"
         assert available == ["npu", "gpu", "cpu"]
@@ -301,7 +301,7 @@ class TestResolveDevice:
                 return_value=frozenset({"CPUExecutionProvider"}),
             ),
         ):
-            device, _ = resolve_device("CPU")
+            device, _ = resolve_device_category("CPU")
 
         assert device == "cpu"
 
@@ -318,6 +318,13 @@ class TestResolveDevice:
             ),
             caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.device"),
         ):
-            resolve_device("auto")
+            resolve_device_category("auto")
 
         assert any("No execution providers detected" in record.message for record in caplog.records)
+
+
+def test_resolve_device_category_returns_category_and_eps() -> None:
+    """Smoke: function still returns a (category, list) tuple under new name."""
+    category, eps = resolve_device_category("auto")
+    assert isinstance(category, str)
+    assert isinstance(eps, list)

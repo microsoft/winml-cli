@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
+from ...config.precision import _EP_TO_DEVICE
 from ...onnx import load_onnx, save_onnx
 from ...session import WinMLQairtSession, WinMLSession
+from ...session.ep_device import resolve_device
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -62,11 +64,14 @@ class CompileStage(BaseStage):
             context.log(f"Model path: {model_path}")
 
             ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
-            # Create WinMLSession
-            context.log(f"Creating {session_cls.__name__} for device: {context.execution_provider}")
+            # Create WinMLSession — context carries only EP short name; infer device.
+            ep_str = context.execution_provider
+            device_str = _EP_TO_DEVICE.get(ep_str, "cpu")
+            ep_device = resolve_device(ep_str, device_str)
+            context.log(f"Creating {session_cls.__name__} for {ep_device.ep}/{ep_device.device}")
             winml_session = session_cls(
                 onnx_path=model_path,
-                device=context.execution_provider,
+                ep_device=ep_device,
                 ep_config=ep_config,
             )
             winml_session.compile()

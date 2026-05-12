@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
+    """Mock resolve_device_category and WinMLEPRegistry to avoid hardware detection.
 
-    The build command calls resolve_device() for I/O and (since #540)
+    The build command calls resolve_device_category() for I/O and (since #540)
     WinMLEPRegistry.get_instance() for EP auto-selection when --ep is
     not specified. Both must be mocked to avoid slow DLL scanning and
     WinML SDK discovery on CI runners without WinML installed.
@@ -37,7 +37,7 @@ def mock_resolve_device():
 
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
+            "winml.modelkit.sysinfo.resolve_device_category",
             return_value=("npu", ["npu", "gpu", "cpu"]),
         ),
         patch(

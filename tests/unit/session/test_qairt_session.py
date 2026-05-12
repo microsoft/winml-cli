@@ -22,7 +22,34 @@ import pytest
 @pytest.fixture(autouse=True)
 def mock_ep_registration():
     """Prevent WinML EP registration from loading native DLLs."""
-    with patch("winml.modelkit.session.session.WinMLSession._init_winml_eps_once"):
+    from winml.modelkit.session.ep_device import EPDevice
+
+    fake_qnn_npu = EPDevice(
+        ep="QNNExecutionProvider",
+        device="npu",
+        vendor_id=0x4D4F,
+        device_id=0x0001,
+        vendor="Qualcomm",
+    )
+    with (
+        patch("winml.modelkit.session.ep_registry.ensure_initialized"),
+        # Patch resolve_device where it is imported (in qairt_session module)
+        patch(
+            "winml.modelkit.session.qairt.qairt_session.resolve_device",
+            return_value=fake_qnn_npu,
+        ),
+        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+        patch("winml.modelkit.session.session.ort.InferenceSession"),
+        patch(
+            "winml.modelkit.session.session.ort.SessionOptions",
+            return_value=MagicMock(),
+        ),
+    ):
+        fake_ort_npu = MagicMock()
+        fake_ort_npu.device.type.name = "NPU"
+        fake_ort_npu.device.vendor_id = 0x4D4F
+        fake_ort_npu.device.device_id = 0x0001
+        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
         yield
 
 

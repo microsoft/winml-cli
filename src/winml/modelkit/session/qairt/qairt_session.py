@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...utils.python_env import ensure_venv
+from ..ep_device import EPDevice, resolve_device
 from ..session import SessionState, WinMLSession
 
 
@@ -51,11 +52,14 @@ class WinMLQairtSession(WinMLSession):
     def __init__(
         self,
         onnx_path: str | Path,
-        device: str = "qnn",
+        ep_device: EPDevice | None = None,
         ep_config: EPConfig | None = None,
     ) -> None:
+        # Default to QNN NPU if no ep_device is provided.
+        if ep_device is None:
+            ep_device = resolve_device("qnn", "npu")
         # Initialize parent WinMLSession
-        super().__init__(onnx_path, device=device, ep_config=ep_config)
+        super().__init__(onnx_path, ep_device, ep_config=ep_config)
 
         # QAIRT-specific paths
         self._bin_path = self._onnx_path.parent / f"{self._onnx_path.stem}_qnn_ctx_qnn.bin"

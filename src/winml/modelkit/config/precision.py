@@ -224,7 +224,7 @@ def resolve_precision(
         ep: Explicit EP override (e.g., "migraphx", "tensorrt"). When set,
             overrides the default device→provider mapping. If device is
             "auto", the device is inferred from the EP.
-        available_devices: Prioritized device list from resolve_device().
+        available_devices: Prioritized device list from resolve_device_category().
             Used when device="auto" + precision is explicit.
         task: Optional task name for LLM-specific warnings.
 

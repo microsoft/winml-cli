@@ -36,6 +36,8 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
+    from ...session.ep_device import EPDevice
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,19 +64,20 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     def __init__(
         self,
         onnx_path: str | Path,
+        ep_device: EPDevice,
         config: PretrainedConfig | None = None,
-        device: str = "auto",
     ) -> None:
         """Initialize inference model.
 
         Args:
             onnx_path: Path to ONNX model file
+            ep_device: Resolved (EP, device) target — required. Use
+                ``resolve_device(ep, device)`` from ``session.ep_device``.
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
-            device: Target device ("auto", "npu", "gpu", "cpu")
         """
         self._onnx_path = Path(onnx_path)
+        self._ep_device = ep_device
         self.config = config
-        self._device = device
 
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
@@ -82,7 +85,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         # Create WinMLSession (delegates ORT operations)
         self._session = WinMLSession(
             onnx_path=self._onnx_path,
-            device=device,
+            ep_device=ep_device,
         )
 
     @property
@@ -187,17 +190,17 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         """Context manager for scoped performance tracking.
 
         Delegates to the underlying WinMLSession.perf(). Every inference
-        call within the context records timing in PerfStats.
+        call within the context records timing in ``ctx.stats``.
 
         Args:
             warmup: Number of initial samples to exclude from statistics.
 
         Example::
 
-            with model.perf(warmup=5) as stats:
+            with model.perf(warmup=5) as ctx:
                 for img in images:
                     model(pixel_values=img)
-            print(f"P99: {stats.p99_ms:.2f} ms")
+            print(f"P99: {ctx.stats.p99_ms:.2f} ms")
         """
         return self._session.perf(warmup=warmup)
 

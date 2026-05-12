@@ -81,7 +81,7 @@ def _get_available_devices() -> list[str]:
     Always includes "cpu" as fallback.
     Uses SysInfo hardware classes for detection.
 
-    This is an internal helper for :func:`resolve_device` and should not
+    This is an internal helper for :func:`resolve_device_category` and should not
     be called directly by external code.
 
     Returns:
@@ -143,8 +143,8 @@ def _get_available_eps() -> frozenset[str]:
     return frozenset(available_eps)
 
 
-def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
-    """Resolve target device with EP availability cross-check.
+def resolve_device_category(device: str = "auto") -> tuple[str, list[str]]:
+    """Resolve a device hint to (category, candidate EP names).
 
     Args:
         device: "auto", "npu", "gpu", or "cpu".

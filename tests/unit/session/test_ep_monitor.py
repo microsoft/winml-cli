@@ -31,7 +31,11 @@ class TestEPMonitor:
             EPMonitor()
 
     def test_subclass_must_implement_all_methods(self):
-        """Concrete subclass missing methods raises TypeError."""
+        """Concrete subclass missing the remaining abstract methods raises TypeError.
+
+        Post-v2.4 the ABC's abstract surface is ``__enter__``, ``__exit__``,
+        and ``is_available`` — ``to_dict`` is no longer in the contract.
+        """
 
         class IncompleteMonitor(EPMonitor):
             pass
@@ -49,16 +53,15 @@ class TestEPMonitor:
             def __exit__(self, *exc):
                 pass
 
-            def to_dict(self):
-                return {"test": True}
-
             @classmethod
             def is_available(cls):
                 return True
 
         mon = DummyMonitor()
-        assert mon.to_dict() == {"test": True}
+        assert isinstance(mon, EPMonitor)
         assert DummyMonitor.is_available() is True
+        # Default v2.4 typed-accessor contract — None unless populated.
+        assert mon.result is None
 
     def test_null_ep_monitor(self):
         """NullEPMonitor implements Null Object Pattern correctly."""
@@ -66,15 +69,12 @@ class TestEPMonitor:
 
         mon = NullEPMonitor()
         assert NullEPMonitor.is_available() is True
-        assert mon.to_dict() == {}
+        # v2.4: NullEPMonitor exposes no data via the typed accessor.
+        assert mon.result is None
 
         # Context manager works
         with mon as m:
             assert m is mon
-
-        # JSON-serializable
-        serialized = json.dumps(mon.to_dict())
-        assert serialized == "{}"
 
 
 # ============================================================================
@@ -558,36 +558,9 @@ class TestHWMonitor:
 
 
 # ============================================================================
-# QNNMonitor tests (placeholder)
+# QNNMonitor tests — moved to tests/unit/session/monitor/test_qnn_monitor.py
+# (QNNMonitor is no longer a placeholder; it is a full implementation).
 # ============================================================================
-
-
-class TestQNNMonitor:
-    """Test QNNMonitor placeholder."""
-
-    def test_is_available_returns_false(self):
-        from winml.modelkit.session import QNNMonitor
-
-        assert QNNMonitor.is_available() is False
-
-    def test_context_manager_noop(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        assert hw.to_dict()["ep"] == "QNN"
-
-    def test_to_dict_returns_stub(self):
-        from winml.modelkit.session import QNNMonitor
-
-        with QNNMonitor() as hw:
-            pass
-
-        d = hw.to_dict()
-        assert d["ep"] == "QNN"
-        assert d["device"] == "NPU"
-        assert d["status"] == "not_implemented"
 
 
 # ============================================================================
@@ -741,12 +714,23 @@ class TestToDictJsonSerializable:
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
 
-    def test_qnn_monitor_to_dict_json(self):
+    def test_qnn_monitor_result_dict_json(self):
+        """v2.4: QNN exposes its data via the typed result accessor.
+
+        ``to_dict()`` was removed from the EPMonitor contract; consumers
+        access ``OpTraceResult`` via ``monitor.result`` and serialize via
+        ``result.to_dict()``.
+        """
         from winml.modelkit.session import QNNMonitor
 
         with QNNMonitor() as hw:
             pass
-        d = hw.to_dict()
+        # Post-exit: the monitor populated _result with a failure-shape
+        # OpTraceResult (status="no_data" — no CSV produced in this unit
+        # test). The typed accessor returns it; to_dict() on the result
+        # must be JSON-serializable.
+        assert hw.result is not None
+        d = hw.result.to_dict()
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
 

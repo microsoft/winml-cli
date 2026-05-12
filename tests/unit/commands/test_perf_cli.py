@@ -25,10 +25,24 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device to avoid hardware detection in all perf CLI tests."""
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("cpu", ["cpu"]),
+    """Mock device resolution helpers to avoid hardware detection in all perf CLI tests."""
+    from winml.modelkit.session.ep_device import EPDevice
+
+    fake_cpu_ep_device = EPDevice(
+        ep="CPUExecutionProvider",
+        device="cpu",
+        vendor_id=0x0000,
+        device_id=0x0001,
+    )
+    with (
+        patch(
+            "winml.modelkit.sysinfo.resolve_device_category",
+            return_value=("cpu", ["cpu"]),
+        ),
+        patch(
+            "winml.modelkit.session.ep_device.resolve_device",
+            return_value=fake_cpu_ep_device,
+        ),
     ):
         yield
 
@@ -171,7 +185,7 @@ class TestPerfUnifiedPipeline:
         mock_from_onnx.assert_called_once()
         kwargs = mock_from_onnx.call_args
         assert kwargs.kwargs["task"] == "image-classification"
-        assert kwargs.kwargs["device"] == "cpu"
+        assert kwargs.kwargs["ep_device"].device == "cpu"
         assert benchmark._model is mock_model
 
     def test_hf_load_model_calls_from_pretrained(self) -> None:
@@ -194,7 +208,7 @@ class TestPerfUnifiedPipeline:
         kwargs = mock_from_pretrained.call_args
         assert kwargs.args[0] == "microsoft/resnet-50"
         assert kwargs.kwargs["task"] == "image-classification"
-        assert kwargs.kwargs["device"] == "cpu"
+        assert kwargs.kwargs["ep_device"].device == "cpu"
         assert benchmark._model is mock_model
 
     def test_no_quantize_only_sets_quant_none(self, tmp_path: Path) -> None:
@@ -308,7 +322,7 @@ class TestPerfUnifiedPipeline:
         assert "not found" in result.output.lower()
 
     def test_onnx_load_model_passes_ep(self, tmp_path: Path) -> None:
-        """EP argument should be forwarded to from_onnx."""
+        """EP argument should be forwarded to from_onnx via ep_device."""
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
@@ -327,4 +341,5 @@ class TestPerfUnifiedPipeline:
         ) as mock_from_onnx:
             benchmark._load_model()
 
-        assert mock_from_onnx.call_args.kwargs["ep"] == "qnn"
+        ep_device = mock_from_onnx.call_args.kwargs["ep_device"]
+        assert ep_device.ep == "CPUExecutionProvider"  # resolved via mock_resolve_device fixture

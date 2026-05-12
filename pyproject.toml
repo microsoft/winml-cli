@@ -32,6 +32,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
+  "onnxruntime-qnn>=1.23.2",
   "onnxruntime-windowsml>=1.23.2,<1.24.0",
   "onnxscript>=0.2",
   "optimum>=2",

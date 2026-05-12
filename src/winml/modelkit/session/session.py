@@ -9,22 +9,23 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
+from .ep_device import AmbiguousMatch, DeviceNotFound, EPDevice, EPMonitorMismatch, expand_ep_name
 from .ep_registry import WinMLEPRegistry
+from .monitor.ep_monitor import EPMonitor
 from .stats import PerfStats
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
     import onnx
 
     from ..compiler.configs import EPConfig
@@ -64,13 +65,56 @@ class SessionState(Enum):
     ERROR = "ERROR"
 
 
-# Device to ORT policy mapping (no EP names - let ORT select provider)
-DEVICE_POLICY_MAP = {
-    "npu": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,
-    "gpu": ort.OrtExecutionProviderDevicePolicy.PREFER_GPU,
-    "cpu": ort.OrtExecutionProviderDevicePolicy.PREFER_CPU,
-    "auto": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,  # Default to NPU
-}
+@dataclass(frozen=True)
+class PerfContext:
+    """Per-perf-window stats container yielded by ``WinMLSession.perf()``.
+
+    Aggregates perf statistics and the optional attached EP monitor.
+    Frozen: mutation is not a supported pattern — update the underlying
+    objects instead.
+    """
+
+    stats: PerfStats
+    monitor: EPMonitor  # NullEPMonitor when no monitor was passed
+
+
+def _ep_defaults(ep_device: EPDevice) -> dict[str, str]:
+    """EP-specific defaults driven by ep_device.device.
+
+    Most EPs return {} — they pick up settings via ep_config.provider_options
+    and ep_monitor.get_provider_options(). Only EPs that must signal a
+    backend/device kind at registration time appear here.
+
+    Note: QNNExecutionProvider does NOT need ``backend_type`` here.
+    When using ``add_provider_for_devices()``, the OrtEpDevice handle already
+    encodes the backend target (NPU→HTP, GPU→GPU, CPU→CPU). Passing
+    ``backend_type`` explicitly crashes ORT 1.23.5 with a native exit 127.
+    """
+    return {}
+
+
+def _build_provider_options(
+    ep_device: EPDevice,
+    ep_config: EPConfig | None,
+    ep_monitor: EPMonitor | None,
+) -> dict[str, str]:
+    """Flat provider_options for add_provider_for_devices().
+
+    Three layers, each overrides the previous:
+      1. EP-specific defaults from ep_device (e.g. QNN backend_type).
+      2. User overrides from ep_config.provider_options.
+      3. EPMonitor-required options (e.g. QNN profiling_level).
+
+    Monitor wins last because tracing correctness depends on its options
+    actually reaching the EP. Callers who want to disable tracing should
+    drop the monitor, not override its keys.
+    """
+    options: dict[str, str] = _ep_defaults(ep_device)
+    if ep_config is not None and getattr(ep_config, "provider_options", None):
+        options.update(ep_config.provider_options)
+    if ep_monitor is not None:
+        options.update(ep_monitor.get_provider_options())
+    return options
 
 
 class WinMLSessionError(Exception):
@@ -113,105 +157,99 @@ class NotCompiledError(WinMLSessionError):
     """Session not compiled."""
 
 
-class WinMLSession:
-    """ONNX Runtime session manager with WinML EP integration.
+def _build_session_options(
+    ep_device: EPDevice,
+    ep_config: EPConfig | None = None,
+    ep_monitor: EPMonitor | None = None,
+    base_session_options: ort.SessionOptions | None = None,
+) -> ort.SessionOptions:
+    """Build a fully-bound ort.SessionOptions for one EPDevice target.
 
-    Features:
-    - Policy-based device selection (PREFER_NPU, PREFER_GPU, PREFER_CPU)
-    - EPContext persistence (JIT-compiled model cache)
-    - One session = One EP (immutable binding)
-
-    Note:
-        WinMLSession does NOT use explicit EP provider names. Instead, it uses
-        ORT's OrtExecutionProviderDevicePolicy to let the runtime automatically
-        select the best available provider.
-
-    Usage:
-        session = WinMLSession("model.onnx", device="npu")
-        outputs = session.run({"input": tensor})
+    Free function (not a method): pure inputs -> pure outputs.
+    Bridges the EPDevice descriptor to an OrtEpDevice handle inline —
+    no _select_one / to_ort_ep_device helper.
     """
+    so = base_session_options if base_session_options is not None else ort.SessionOptions()
 
-    # Class-level flag for one-time EP initialization
-    _eps_initialized: bool = False
+    if ep_monitor is not None:
+        for key, value in ep_monitor.get_session_options().items():
+            so.add_session_config_entry(key, value)
 
-    # EP short name -> ORT full provider name (for add_provider_for_devices matching)
-    _EP_NAME_MAP: ClassVar[dict[str, str]] = {
-        "qnn": "QNNExecutionProvider",
-        "dml": "DmlExecutionProvider",
-        "migraphx": "MIGraphXExecutionProvider",
-        "tensorrt": "NvTensorRTRTXExecutionProvider",
-        "vitisai": "VitisAIExecutionProvider",
-        "openvino": "OpenVINOExecutionProvider",
-        "cuda": "CUDAExecutionProvider",
-        "cpu": "CPUExecutionProvider",
-    }
+    devices = WinMLEPRegistry.get_instance().register_ep(ep_device.ep)
+    matching = [
+        d
+        for d in devices
+        if d.device.type.name.lower() == ep_device.device
+        and d.device.vendor_id == ep_device.vendor_id
+        and d.device.device_id == ep_device.device_id
+    ]
+    if not matching:
+        available = [
+            (d.device.type.name, hex(d.device.vendor_id), hex(d.device.device_id)) for d in devices
+        ]
+        raise DeviceNotFound(
+            f"No OrtEpDevice for {ep_device.ep} matches device="
+            f"{ep_device.device}, vendor_id=0x{ep_device.vendor_id:x}, "
+            f"device_id=0x{ep_device.device_id:x}. Available: {available}"
+        )
+    if len(matching) > 1:
+        raise AmbiguousMatch(
+            f"Multiple OrtEpDevices match {ep_device!r} after dedup — "
+            f"registry bug. Matched count: {len(matching)}."
+        )
 
-    @classmethod
-    def _init_winml_eps_once(cls) -> None:
-        """Initialize WinML EP registry once at class level."""
-        if cls._eps_initialized:
-            return
+    options = _build_provider_options(ep_device, ep_config, ep_monitor)
+    so.add_provider_for_devices([matching[0]], options)
+    return so
 
-        try:
-            registry = WinMLEPRegistry.get_instance()
-            if registry.winml_available:
-                registered = registry.register_to_ort()
-                logger.info("WinML EPs registered: %s", registered)
-        except Exception as e:
-            logger.debug("WinML EP init skipped: %s", e)
-        finally:
-            cls._eps_initialized = True
+
+class WinMLSession:
+    """ONNX Runtime session bound to one explicit (EP, device) target."""
 
     def __init__(
         self,
         onnx_path: str | Path,
-        device: str = "auto",
-        ep_config: EPConfig | None = None,
+        ep_device: EPDevice,
         *,
-        ep: str | None = None,
-        session_options: ort.SessionOptions | None = None,
+        ep_config: EPConfig | None = None,
+        base_session_options: ort.SessionOptions | None = None,
     ) -> None:
         """Initialize WinMLSession.
 
         Args:
-            onnx_path: Path to ONNX model
-            device: Target device policy ("auto", "npu", "gpu", "cpu").
-                Note: This specifies a policy (PREFER_NPU, PREFER_GPU, PREFER_CPU),
-                not a specific execution provider name. ORT selects the best
-                available provider for the requested policy.
-            ep_config
-                persist_jit: Persist JIT-compiled EPContext model
-                provider_options: EP-specific options dict
-            ep: Explicit EP short name (e.g., "migraphx", "tensorrt").
-                When set, bypasses policy-based selection and uses
-                add_provider_for_devices to force the specific EP.
-            session_options: ORT SessionOptions. If None, creates default with
-                policy based on device parameter.
+            onnx_path: Path to ONNX model.
+            ep_device: Resolved (EP, device) target — required. Use
+                ``resolve_device(ep, device)`` from ``.ep_device`` to construct.
+            ep_config: Optional EP configuration (provider_options, etc.).
+            base_session_options: ORT SessionOptions base. If None, creates default.
         """
-        WinMLSession._init_winml_eps_once()
-
         self._onnx_path = Path(onnx_path)
-        if not self._onnx_path.exists():
-            raise FileNotFoundError(f"ONNX model not found: {onnx_path}")
+        self._ep_device = ep_device
+        self._ep_config = ep_config
+        self._base_session_options = base_session_options
 
-        # HF Pipeline may pass torch.device; coerce to string for downstream .lower() calls
-        self._device = str(device) if not isinstance(device, str) else device
-        self._ep = ep.lower() if ep else None
-        self._persist_jit = ep_config.enable_ep_context if ep_config else False
-        self._embed_context = ep_config.embed_context if ep_config else False
-        self._provider_options = ep_config.provider_options if ep_config else {}
+        # Snapshots preserved across perf() entry/exit (see perf()).
+        self._provider_options: dict[str, str] = _build_provider_options(ep_device, ep_config, None)
+        self._active_session_option_entries: dict[str, str] = {}
+        self._ep: str = ep_device.ep  # legacy alias; TODO Task 10: replace consumers and remove
 
-        # Create session_options with device policy
-        if session_options is None:
-            session_options = ort.SessionOptions()
-        self._session_options = session_options
+        # Derived convenience attributes consumed by compile(), device property, etc.
+        self._device: str = ep_device.device
+        self._persist_jit: bool = ep_config.enable_ep_context if ep_config else False
+        self._embed_context: bool = ep_config.embed_context if ep_config else False
+        # _session_options stored for _build_session_options() fallback path.
+        # TODO Task 8/11: remove once _build_session_options is refactored.
+        self._session_options: ort.SessionOptions = (
+            base_session_options if base_session_options is not None else ort.SessionOptions()
+        )
+
+        # _session is None until InferenceSession construction completes; __del__
+        # reads this attribute, so it must exist before any call that could raise.
+        self._session: ort.InferenceSession | None = None
 
         # State management
         self._state = SessionState.INITIALIZED
         self._last_error: Exception | None = None
-
-        # Single session (one session = one EP)
-        self._session: ort.InferenceSession | None = None
 
         # Cached I/O metadata (lazy-loaded)
         self._io_config: dict | None = None
@@ -219,7 +257,14 @@ class WinMLSession:
         # Performance tracking (enabled via perf() context manager)
         self._perf_stats: PerfStats | None = None
 
-        logger.info("WinMLSession initialized: %s", onnx_path)
+        # ep_monitor=None — contributed at perf() time, not __init__
+        so = _build_session_options(
+            self._ep_device,
+            self._ep_config,
+            None,
+            self._base_session_options,
+        )
+        self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
 
     def compile(self) -> None:
         """Compile model for target device using ModelCompiler API.
@@ -415,53 +460,53 @@ class WinMLSession:
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
 
-        When ``self._ep`` is set, uses ``add_provider_for_devices`` to
-        explicitly bind a specific EP (e.g., MIGraphX, TensorRT). Otherwise
-        falls back to policy-based selection via DEVICE_POLICY_MAP.
-
-        Note: Returns a **fresh** SessionOptions when using explicit EP to
-        avoid "already registered" errors from repeated calls.
+        # TODO Task 8 [bridge]: this method is retained so existing compile() callers
+        # keep working until perf() is refactored. Delete and inline ep_device logic
+        # into compile() once Task 8 lands.
         """
-        # Explicit EP targeting: create fresh opts to avoid double-registration
-        if self._ep and self._ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(self._ep)
-            if target_name:
-                matched = self._find_ep_device(target_name)
-                if matched:
-                    opts = ort.SessionOptions()
-                    opts.add_provider_for_devices([matched], self._provider_options)
-                    logger.info(
-                        "Explicit EP: %s (%s)",
-                        self._ep,
-                        target_name,
-                    )
-                    return opts
-                logger.warning(
-                    "EP '%s' (%s) not found in available devices; falling back to policy",
-                    self._ep,
-                    target_name,
-                )
-
-        # Policy-based selection (default path)
+        # Policy-based selection (default path — kept for compile() compatibility)
         opts = self._session_options
-        policy = DEVICE_POLICY_MAP.get(
+        _device_policy_map = {
+            "npu": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,
+            "gpu": ort.OrtExecutionProviderDevicePolicy.PREFER_GPU,
+            "cpu": ort.OrtExecutionProviderDevicePolicy.PREFER_CPU,
+            "auto": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,
+        }
+        policy = _device_policy_map.get(
             device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
         )
         opts.set_provider_selection_policy(policy)
+        # Apply monitor-contributed session config entries
+        for key, value in self._active_session_option_entries.items():
+            opts.add_session_config_entry(key, value)
 
         return opts
 
     @staticmethod
-    def _find_ep_device(ep_name: str) -> Any:
-        """Find an OrtEpDevice matching the given EP name.
+    def _build_op_type_map(onnx_path: Path | None) -> dict[str, str]:
+        """Build a ``node.name -> node.op_type`` map from an ONNX file.
 
-        Returns:
-            The first matching OrtEpDevice, or None if not found.
+        Returns an empty dict on any failure (None path, missing file,
+        corrupt ONNX, missing ``onnx`` package). Op-tracing monitors that
+        receive an empty map fall through their fallback chain to
+        EP-authoritative or heuristic sources.
+
+        Used by :meth:`perf` to inject the map into op-tracing monitors
+        via :meth:`EPMonitor.set_onnx_op_types`.
         """
-        for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == ep_name:
-                return ep_dev
-        return None
+        if onnx_path is None:
+            return {}
+        try:
+            import onnx as _onnx
+
+            model = _onnx.load(str(onnx_path), load_external_data=False)
+            return {n.name: n.op_type for n in model.graph.node if n.name and n.op_type}
+        except Exception as e:
+            # Defensive: any exception during ONNX load (missing file,
+            # corrupt protobuf, missing onnx package) returns empty.
+            # Logged at DEBUG; non-op-tracing path doesn't care.
+            logger.debug("Could not load ONNX op-type map from %s: %s", onnx_path, e)
+            return {}
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
         """Validate inputs against model expectations.
@@ -581,26 +626,175 @@ class WinMLSession:
         return self._perf_stats
 
     @contextmanager
-    def perf(self, warmup: int = 0) -> Generator[PerfStats, None, None]:
-        """Context manager for scoped performance tracking.
+    def perf(
+        self,
+        warmup: int = 0,
+        monitor: EPMonitor | None = None,
+    ):
+        """Context manager for a scoped perf window.
+
+        Yields a :class:`PerfContext` whose ``stats`` property accumulates
+        timing from every :meth:`run` call made inside the ``with`` block.
+        The optional *monitor* is entered/exited around the body.
+
+        Session setup lifecycle
+        -----------------------
+        * If *monitor* contributes provider_options **and** a compiled session
+          already exists, the compiled session is torn down first (auto-reset
+          with a WARNING) so the new options take effect.
+        * After the ``with`` block exits a bare (no-monitor) InferenceSession is
+          rebuilt so subsequent :meth:`run` calls see the baseline configuration.
+
+        Teardown ordering (C-2 invariant)
+        ----------------------------------
+        * For monitors with ``requires_session_teardown=True`` (e.g. QNNMonitor
+          which flushes CSV only on session destroy), :meth:`reset` fires
+          *before* ``monitor.__exit__`` so the flushed data is available inside
+          ``__exit__``.
+        * For other monitors the session is rebuilt *after* ``monitor.__exit__``.
 
         Args:
-            warmup: Number of initial samples to exclude from statistics.
+            warmup: Number of initial :meth:`run` calls to exclude from stats.
+            monitor: Optional EP-specific monitor.  ``NullEPMonitor`` is used
+                when *monitor* is ``None`` so callers need no null checks.
 
         Yields:
-            PerfStats instance that collects timing data within the context.
+            :class:`PerfContext` with ``stats`` (a :class:`PerfStats`) and
+            ``monitor`` (the effective :class:`EPMonitor`).
 
-        Example:
-            >>> with session.perf(warmup=10) as stats:
-            ...     for _ in range(110):
-            ...         session.run(inputs)
-            >>> print(f"P99: {stats.p99_ms:.2f} ms")  # Based on last 100 samples
+        Raises:
+            RuntimeError: If a perf window is already active (re-entry guard).
+            EPMonitorMismatch: If *monitor* targets a different EP than this session.
         """
-        self._perf_stats = PerfStats(warmup=warmup)
+        from .monitor.ep_monitor import NullEPMonitor
+
+        if self._perf_stats is not None:
+            raise RuntimeError(
+                "WinMLSession.perf() is already active. Nested perf windows are not supported."
+            )
+
+        effective_monitor: EPMonitor = monitor if monitor is not None else NullEPMonitor()
+
+        if (
+            monitor is not None
+            and monitor.ep_name is not None
+            and expand_ep_name(monitor.ep_name) != self._ep_device.ep
+        ):
+            raise EPMonitorMismatch(
+                f"Monitor ep_name={monitor.ep_name!r} expands to "
+                f"{expand_ep_name(monitor.ep_name)!r}, but session is bound "
+                f"to {self._ep_device.ep!r}. Monitor and session must agree."
+            )
+
+        # Build merged provider_options for this perf window.
+        new_prov = _build_provider_options(self._ep_device, self._ep_config, monitor)
+
+        # Auto-reset: if session is compiled AND monitor contributes options that
+        # differ from the current provider_options, tear down the compiled session
+        # so the new options take effect when a fresh InferenceSession is created.
+        if self._session is not None and new_prov != self._provider_options:
+            logger.warning(
+                "auto-resetting compiled session to apply monitor session/provider options"
+            )
+            self.reset()
+
+        # Snapshot state for restore-on-exit.
+        saved_sess_entries = dict(self._active_session_option_entries)
+        saved_prov = dict(self._provider_options)
+        saved_ep = self._ep
+
+        # Inject the ONNX op-type map into the monitor *before* __enter__ so
+        # op-tracing monitors can prepare their state on the map.
+        effective_monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))
+
+        # Activate PerfStats for this window.
+        stats = PerfStats(warmup=warmup)
+        self._perf_stats = stats
+
+        # Rebuild InferenceSession only when monitor-contributed options differ
+        # from the current session's options (i.e. a new session is needed).
+        # Track whether we rebuilt so the teardown path knows whether to restore.
+        _session_rebuilt = new_prov != self._provider_options or self._session is None
+        if _session_rebuilt:
+            self._provider_options = new_prov
+            so = _build_session_options(
+                self._ep_device,
+                self._ep_config,
+                monitor,
+                self._base_session_options,
+            )
+            self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
+
+        ctx = PerfContext(stats=stats, monitor=effective_monitor)
+
+        # Enter the monitor manually so we can control teardown order (C-2
+        # invariant: requires_session_teardown monitors need self.reset() to
+        # fire BEFORE monitor.__exit__).
         try:
-            yield self._perf_stats
-        finally:
+            effective_monitor.__enter__()
+        except Exception:
+            # __enter__ failed — restore state and do NOT call __exit__.
+            self._active_session_option_entries = saved_sess_entries
+            self._provider_options = saved_prov
+            self._ep = saved_ep
             self._perf_stats = None
+            if _session_rebuilt:
+                self._session = ort.InferenceSession(
+                    self._onnx_path,
+                    sess_options=_build_session_options(
+                        self._ep_device,
+                        self._ep_config,
+                        None,
+                        self._base_session_options,
+                    ),
+                )
+            raise
+
+        exc_info = (None, None, None)
+        try:
+            yield ctx
+        except BaseException:
+            import sys
+
+            exc_info = sys.exc_info()
+        finally:
+            # C-2: for monitors that require session teardown, reset() BEFORE
+            # monitor.__exit__ so the flushed data is available in __exit__.
+            if getattr(effective_monitor, "requires_session_teardown", False):
+                self.reset()
+
+            # Call monitor.__exit__ — propagate exc_info so monitor sees the
+            # exception (exception transparency contract).
+            try:
+                effective_monitor.__exit__(*exc_info)
+            except Exception:
+                pass  # monitor __exit__ errors do not override body exceptions
+
+            # Restore snapshots.
+            self._active_session_option_entries = saved_sess_entries
+            self._provider_options = saved_prov
+            self._ep = saved_ep
+            self._perf_stats = None
+
+            # Rebuild baseline session only when we created a new session at
+            # the start of perf() (i.e. _session_rebuilt=True).  When the
+            # monitor contributed no options we reused the existing session —
+            # no teardown/rebuild needed (preserves the pre-perf InferenceSession
+            # object identity, which tests assert on).
+            if _session_rebuilt and self._session is not None:
+                self._session = ort.InferenceSession(
+                    self._onnx_path,
+                    sess_options=_build_session_options(
+                        self._ep_device,
+                        self._ep_config,
+                        None,
+                        self._base_session_options,
+                    ),
+                )
+
+            # Re-raise any exception from the body.
+            if exc_info[1] is not None:
+                raise exc_info[1].with_traceback(exc_info[2])
 
     @property
     def io_config(self) -> dict:
