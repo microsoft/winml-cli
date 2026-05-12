@@ -479,7 +479,6 @@ class ONNXStaticAnalyzer:
             >>> config = AnalyzerConfig(enable_information=True)
             >>> analyzer = ONNXStaticAnalyzer(config=config)
         """
-        from . import __version__
         from .core.information_engine import InformationEngine
         from .core.output_aggregator import OutputAggregator
 
@@ -487,7 +486,7 @@ class ONNXStaticAnalyzer:
 
         # Initialize core components
         self.information_engine_cls = InformationEngine
-        self.output_aggregator = OutputAggregator(analyzer_version=__version__)
+        self.output_aggregator = OutputAggregator()
 
         logger.info("Initialized ONNXStaticAnalyzer with config: %s", self.config)
 
