@@ -75,13 +75,13 @@ class PixelMaskInputGenerator(DummyVisionInputGenerator):
         float_dtype: str = "fp32",
     ):
         """Generate an all-ones int64 pixel mask for the current image batch."""
-        del input_name, int_dtype, float_dtype
+        del input_name, float_dtype
         return self.random_int_tensor(
             shape=[self.batch_size, self.height, self.width],
             min_value=1,
             max_value=2,
             framework=framework,
-            dtype="int64",
+            dtype=int_dtype,
         )
 
 
