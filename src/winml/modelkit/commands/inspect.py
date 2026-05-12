@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Inspect input model's ModelKit configuration.
+"""Inspect input model's WinML CLI configuration.
 
 Resolves loader, exporter, and WinML inference class for a given model,
 showing what the build pipeline will use.
@@ -99,7 +99,7 @@ def inspect(
     model_type: str | None,
     model_class: str | None,
 ) -> None:
-    r"""Inspect input model's ModelKit configuration.
+    r"""Inspect input model's WinML CLI configuration.
 
     Shows the loader, exporter, WinML inference class, I/O specs,
     and build resolution that the pipeline will use for the given model.

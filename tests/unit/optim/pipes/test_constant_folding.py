@@ -72,7 +72,7 @@ def create_constant_folding_model() -> onnx.ModelProto:
     # Create model
     model = helper.make_model(
         graph,
-        producer_name="modelkit_test",
+        producer_name="winmlcli_test",
         opset_imports=[helper.make_opsetid("", 17)],
     )
     model.ir_version = 8

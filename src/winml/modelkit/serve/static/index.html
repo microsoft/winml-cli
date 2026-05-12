@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ModelKit Inference Demo</title>
+<title>WinML CLI Inference Demo</title>
 <style>
 :root {
   --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2e3348;
@@ -293,7 +293,7 @@ canvas.spark{width:100%;height:60px;display:block}
 <header>
   <div class="logo">
     <span class="logo-icon">⚡</span>
-    <div><div class="logo-text">ModelKit</div><div class="logo-sub">Inference Demo</div></div>
+    <div><div class="logo-text">WinML CLI</div><div class="logo-sub">Inference Demo</div></div>
   </div>
   <div class="server-row">
     <span class="status-dot" id="statusDot"></span>
@@ -466,7 +466,7 @@ canvas.spark{width:100%;height:60px;display:block}
       <!-- ── HUB CATALOG ── -->
       <div>
         <div class="section-hd">
-          <h3>ModelKit Catalog</h3>
+          <h3>WinML CLI Catalog</h3>
           <span class="section-hd-count" id="hubCount">—</span>
           <div class="section-hd-spacer"></div>
           <div class="hub-toolbar" style="margin:0">
@@ -586,7 +586,7 @@ canvas.spark{width:100%;height:60px;display:block}
     <div class="integration-header">
       <div class="integration-section">
         <div class="integration-title">Client Integration Guide</div>
-        <div class="integration-desc">ModelKit exposes inference via MCP, OpenAI-compatible tools, REST API, and more. Pick your integration method below.</div>
+        <div class="integration-desc">WinML CLI exposes inference via MCP, OpenAI-compatible tools, REST API, and more. Pick your integration method below.</div>
       </div>
 
       <!-- Sub-tabs -->
@@ -608,7 +608,7 @@ canvas.spark{width:100%;height:60px;display:block}
         <div class="client-card">
           <div class="client-name">Full MCP support with auto-discovered tools</div>
           <ol class="steps-list">
-            <li>Start ModelKit serve: <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">winml serve &lt;model&gt;</code></li>
+            <li>Start WinML CLI serve: <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">winml serve &lt;model&gt;</code></li>
             <li>Edit <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">%APPDATA%\Claude\claude_desktop_config.json</code></li>
             <li>Add the config below, then restart Claude Desktop</li>
           </ol>
@@ -655,7 +655,7 @@ canvas.spark{width:100%;height:60px;display:block}
 
         <div class="integration-subtitle">Anthropic SDK (Python)</div>
         <div class="client-card">
-          <div class="client-name">Use ModelKit tools with Claude API tool_use</div>
+          <div class="client-name">Use WinML CLI tools with Claude API tool_use</div>
           <div class="code-block" id="int-tools-anthropic"></div>
           <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
         </div>
@@ -672,7 +672,7 @@ canvas.spark{width:100%;height:60px;display:block}
 
         <div class="integration-subtitle">Tool-calling loop pattern</div>
         <div class="client-card">
-          <div class="client-name">Full agentic loop: Claude decides when to call ModelKit</div>
+          <div class="client-name">Full agentic loop: Claude decides when to call WinML CLI</div>
           <div class="code-block" id="int-tools-loop"></div>
           <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Code</button>
         </div>
@@ -682,7 +682,7 @@ canvas.spark{width:100%;height:60px;display:block}
       <div class="int-panel" id="panel-agent-int">
 
         <div class="integration-note">
-          ModelKit exposes standard REST endpoints that any agent framework can call. Below are copy-paste examples for the most popular frameworks.
+          WinML CLI exposes standard REST endpoints that any agent framework can call. Below are copy-paste examples for the most popular frameworks.
         </div>
 
         <div class="integration-subtitle">LangChain / LangGraph</div>
@@ -761,13 +761,13 @@ canvas.spark{width:100%;height:60px;display:block}
         <div class="integration-subtitle">What is a Skill?</div>
         <div class="client-card">
           <div class="integration-desc" style="margin:0">
-            Skills are reusable prompt templates that AI coding agents (Claude Code, Cursor, Windsurf, etc.) can load automatically. Create a skill to give the agent persistent knowledge of your ModelKit server — it learns the available endpoints, input formats, and usage patterns without needing MCP or tool registration.
+            Skills are reusable prompt templates that AI coding agents (Claude Code, Cursor, Windsurf, etc.) can load automatically. Create a skill to give the agent persistent knowledge of your WinML CLI server — it learns the available endpoints, input formats, and usage patterns without needing MCP or tool registration.
           </div>
         </div>
 
         <div class="integration-subtitle">Claude Code</div>
         <div class="client-card">
-          <div class="client-name">Save as <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.claude/skills/modelkit-inference.md</code></div>
+          <div class="client-name">Save as <code style="background:var(--surface2);padding:2px 4px;border-radius:3px">.claude/skills/winmlcli-inference.md</code></div>
           <div class="code-block" id="int-skill-file"></div>
           <button class="mcp-copy-btn" onclick="copyCode(this)">Copy Skill</button>
         </div>
@@ -2234,7 +2234,7 @@ async function loadIntegrationInfo() {
   const el1 = document.getElementById('int-mcp-desktop-config');
   if (el1) el1.textContent = JSON.stringify({
     mcpServers: {
-      modelkit: {
+      winmlcli: {
         command: "python",
         args: ["scripts/mcp_server.py", "--model-url", url]
       }
@@ -2245,7 +2245,7 @@ async function loadIntegrationInfo() {
   const el2 = document.getElementById('int-mcp-code-config');
   if (el2) el2.textContent = JSON.stringify({
     mcpServers: {
-      modelkit: {
+      winmlcli: {
         command: "python",
         args: ["scripts/mcp_server.py", "--model-url", url]
       }
@@ -2254,7 +2254,7 @@ async function loadIntegrationInfo() {
 
   // MCP — CLI
   const el3 = document.getElementById('int-mcp-cli-cmd');
-  if (el3) el3.textContent = `claude mcp add modelkit -- python scripts/mcp_server.py --model-url ${url}`;
+  if (el3) el3.textContent = `claude mcp add winmlcli -- python scripts/mcp_server.py --model-url ${url}`;
 
   // Tools — Anthropic SDK
   const el4 = document.getElementById('int-tools-anthropic');
@@ -2321,7 +2321,7 @@ while True:
         print([b.text for b in resp.content if b.type == "text"])
         break
 
-    # Execute each tool call against ModelKit
+    # Execute each tool call against WinML CLI
     messages.append({"role": "assistant", "content": resp.content})
     for tc in tool_calls:
         inp = tc.input
@@ -2411,12 +2411,12 @@ print(resp.json())`;
   // Skill file
   const el12 = document.getElementById('int-skill-file');
   if (el12) el12.textContent = `---
-description: Run inference on a local ModelKit server
+description: Run inference on a local WinML CLI server
 ---
 
-# ModelKit Inference Skill
+# WinML CLI Inference Skill
 
-ModelKit is running at ${url}
+WinML CLI is running at ${url}
 
 ## Available endpoints
 - \`POST ${url}/v1/predict/file\` — image inference (multipart upload)
@@ -2432,9 +2432,9 @@ Always use the Bash tool to call these endpoints.`;
 
   // Skill — Cursor / Windsurf rules
   const elCursor = document.getElementById('int-skill-cursor');
-  if (elCursor) elCursor.textContent = `# ModelKit Inference Server
+  if (elCursor) elCursor.textContent = `# WinML CLI Inference Server
 
-A local ModelKit inference server is running at ${url}.
+A local WinML CLI inference server is running at ${url}.
 
 ## Endpoints
 - \`GET ${url}/v1/models\` — list loaded models
@@ -2449,7 +2449,7 @@ A local ModelKit inference server is running at ${url}.
 
   // Skill — Generic system prompt
   const elGeneric = document.getElementById('int-skill-generic');
-  if (elGeneric) elGeneric.textContent = `You have access to a local ModelKit inference server at ${url}.
+  if (elGeneric) elGeneric.textContent = `You have access to a local WinML CLI inference server at ${url}.
 
 Available endpoints:
 - GET ${url}/v1/models — list loaded models and their tasks
@@ -2469,7 +2469,7 @@ from langchain_core.tools import tool
 
 @tool
 def classify_image(image_path: str, top_k: int = 5) -> str:
-    """Classify a local image file using ModelKit."""
+    """Classify a local image file using WinML CLI."""
     with open(image_path, "rb") as f:
         resp = httpx.post(
             "${url}/v1/predict/file",
@@ -2480,7 +2480,7 @@ def classify_image(image_path: str, top_k: int = 5) -> str:
 
 @tool
 def classify_text(text: str, top_k: int = 5) -> str:
-    """Classify text using ModelKit."""
+    """Classify text using WinML CLI."""
     resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
     return resp.json()
 
@@ -2496,8 +2496,8 @@ result = llm_with_tools.invoke("What is in photo.jpg?")`;
   if (elSk) elSk.textContent = `import httpx
 from semantic_kernel.functions import kernel_function
 
-class ModelKitPlugin:
-    """ModelKit inference plugin for Semantic Kernel."""
+class WinMLCLIPlugin:
+    """WinML CLI inference plugin for Semantic Kernel."""
 
     @kernel_function(description="Classify a local image file")
     def classify_image(self, image_path: str, top_k: int = 5) -> str:
@@ -2517,7 +2517,7 @@ class ModelKitPlugin:
 # Register plugin
 import semantic_kernel as sk
 kernel = sk.Kernel()
-kernel.add_plugin(ModelKitPlugin(), plugin_name="modelkit")`;
+kernel.add_plugin(WinMLCLIPlugin(), plugin_name="winmlcli")`;
 
   // AutoGen
   const elAg = document.getElementById('int-agent-autogen');
@@ -2525,7 +2525,7 @@ kernel.add_plugin(ModelKitPlugin(), plugin_name="modelkit")`;
 from autogen import ConversableAgent
 
 def classify_image(image_path: str, top_k: int = 5) -> dict:
-    """Classify a local image file using ModelKit."""
+    """Classify a local image file using WinML CLI."""
     with open(image_path, "rb") as f:
         resp = httpx.post(
             "${url}/v1/predict/file",
@@ -2550,7 +2550,7 @@ from crewai.tools import BaseTool
 
 class ImageClassifierTool(BaseTool):
     name: str = "Image Classifier"
-    description: str = "Classify a local image file using ModelKit"
+    description: str = "Classify a local image file using WinML CLI"
 
     def _run(self, image_path: str, top_k: int = 5) -> str:
         with open(image_path, "rb") as f:
@@ -2563,7 +2563,7 @@ class ImageClassifierTool(BaseTool):
 
 class TextClassifierTool(BaseTool):
     name: str = "Text Classifier"
-    description: str = "Classify text using ModelKit"
+    description: str = "Classify text using WinML CLI"
 
     def _run(self, text: str, top_k: int = 5) -> str:
         resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
@@ -2583,7 +2583,7 @@ from agents import Agent, Runner, function_tool
 
 @function_tool
 def classify_image(image_path: str, top_k: int = 5) -> str:
-    """Classify a local image file using ModelKit."""
+    """Classify a local image file using WinML CLI."""
     with open(image_path, "rb") as f:
         resp = httpx.post(
             "${url}/v1/predict/file",
@@ -2594,13 +2594,13 @@ def classify_image(image_path: str, top_k: int = 5) -> str:
 
 @function_tool
 def classify_text(text: str, top_k: int = 5) -> str:
-    """Classify text using ModelKit."""
+    """Classify text using WinML CLI."""
     resp = httpx.post("${url}/v1/predict", json={"text": text, "top_k": top_k})
     return str(resp.json())
 
 agent = Agent(
-    name="ModelKit Analyst",
-    instructions="You classify images and text using ModelKit.",
+    name="WinML CLI Analyst",
+    instructions="You classify images and text using WinML CLI.",
     tools=[classify_image, classify_text],
 )
 
@@ -2653,7 +2653,7 @@ function renderMCP(data) {
     <div class="mcp-info">
       <div class="mcp-info-row">
         <span class="mcp-info-label">Server</span>
-        <span class="mcp-info-value">${escHtml(info.name || 'ModelKit')}</span>
+        <span class="mcp-info-value">${escHtml(info.name || 'WinML CLI')}</span>
       </div>
       <div class="mcp-info-row">
         <span class="mcp-info-label">Version</span>

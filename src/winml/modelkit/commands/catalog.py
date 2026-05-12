@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-r"""Catalog command for ModelKit CLI.
+r"""Catalog command for WinML CLI.
 
-Lets users discover ModelKit's curated built-in model catalog.  The catalog
+Lets users discover WinML CLI's curated built-in model catalog.  The catalog
 is stored in ``modelkit/data/hub_models.json`` and lists specific, validated
 HuggingFace model IDs with their task, architecture, and supported EPs.
 
@@ -295,7 +295,7 @@ def _build_list_renderable(
 
     panel = Panel(
         table,
-        title=f"[bold]ModelKit Catalog[/bold]  [dim]|[/dim]  "
+        title=f"[bold]WinML CLI Catalog[/bold]  [dim]|[/dim]  "
         f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
         border_style="blue",
         padding=(0, 1),
@@ -394,7 +394,7 @@ def catalog(
     device: str | None,
     output: Path | None,
 ) -> None:
-    r"""Browse ModelKit's curated built-in model catalog.
+    r"""Browse WinML CLI's curated built-in model catalog.
 
     Lists HuggingFace models that have been validated end-to-end
     (export -> quantise -> run on device) with confirmed accuracy results.

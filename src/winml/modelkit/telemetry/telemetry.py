@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""ModelKit telemetry singleton.
+"""WinML CLI telemetry singleton.
 
 Lazily constructed: on first call, consults :func:`consent.resolve_consent`,
 builds a :class:`LoggerProvider` with device ID + OS + app context, and
@@ -31,9 +31,9 @@ _LOGGER = logging.getLogger(__name__)
 
 _INSTANCE: Telemetry | None = None
 
-_HEARTBEAT_EVENT = "ModelKitHeartbeat"
-_ACTION_EVENT = "ModelKitAction"
-_ERROR_EVENT = "ModelKitError"
+_HEARTBEAT_EVENT = "WinMLCLIHeartbeat"
+_ACTION_EVENT = "WinMLCLIAction"
+_ERROR_EVENT = "WinMLCLIError"
 
 _ALLOWED_KEYS: dict[str, set[str]] = {
     _HEARTBEAT_EVENT: set(),
@@ -168,7 +168,7 @@ class Telemetry:
         )
 
     def log_heartbeat(self) -> None:
-        """Emit a ``ModelKitHeartbeat`` event (session-started signal)."""
+        """Emit a ``WinMLCLIHeartbeat`` event (session-started signal)."""
         try:
             if self._logger is None:
                 return
@@ -185,7 +185,7 @@ class Telemetry:
         success: bool,
         **_unused: Any,
     ) -> None:
-        """Emit a ``ModelKitAction`` event for a completed CLI command."""
+        """Emit a ``WinMLCLIAction`` event for a completed CLI command."""
         try:
             if self._logger is None:
                 return
@@ -202,7 +202,7 @@ class Telemetry:
             _LOGGER.debug("log_action failed", exc_info=True)
 
     def log_error(self, exc: BaseException) -> None:
-        """Emit a ``ModelKitError`` event for an unhandled exception."""
+        """Emit a ``WinMLCLIError`` event for an unhandled exception."""
         try:
             if self._logger is None:
                 return

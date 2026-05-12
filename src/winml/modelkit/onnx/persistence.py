@@ -5,7 +5,7 @@
 """ONNX model persistence utilities.
 
 Load, save, and clean up ONNX models with external data support.
-Designed as the canonical persistence API for ModelKit ONNX workflows.
+Designed as the canonical persistence API for WinML CLI ONNX workflows.
 
 See also: docs/design/onnx/persistence.md (if available)
 """
