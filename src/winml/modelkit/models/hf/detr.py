@@ -81,7 +81,7 @@ class PixelMaskInputGenerator(DummyVisionInputGenerator):
             min_value=1,
             max_value=2,
             framework=framework,
-            dtype="int64",
+            dtype=int_dtype,
         )
 
 
