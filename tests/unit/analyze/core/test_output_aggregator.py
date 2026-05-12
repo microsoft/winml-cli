@@ -110,22 +110,6 @@ def sample_information() -> dict[str, list[Information]]:
     return {"QNNExecutionProvider": [info]}
 
 
-class TestOutputAggregatorInit:
-    """Tests for OutputAggregator initialization."""
-
-    def test_init_default_version(self) -> None:
-        """Test initialization with default version."""
-        aggregator = OutputAggregator()
-
-        assert aggregator.analyzer_version == "0.1.0"
-
-    def test_init_custom_version(self) -> None:
-        """Test initialization with custom version."""
-        aggregator = OutputAggregator(analyzer_version="1.2.3")
-
-        assert aggregator.analyzer_version == "1.2.3"
-
-
 class TestOutputAggregatorAggregate:
     """Tests for aggregate method."""
 
@@ -136,7 +120,7 @@ class TestOutputAggregatorAggregate:
         sample_information: dict[IHVType, list[Information]],
     ) -> None:
         """Test aggregate creates AnalysisOutput."""
-        aggregator = OutputAggregator(analyzer_version="0.1.0")
+        aggregator = OutputAggregator()
 
         output = aggregator.aggregate(
             metadata=sample_metadata,
@@ -145,7 +129,6 @@ class TestOutputAggregatorAggregate:
         )
 
         assert isinstance(output, AnalysisOutput)
-        assert output.analyzer_version == "0.1.0"
         assert output.metadata == sample_metadata
         assert len(output.results) == 1
         assert output.results[0].ihv_type == IHVType.QC
@@ -493,7 +476,7 @@ class TestOutputAggregatorIntegration:
         sample_information: dict[str, list[Information]],
     ) -> None:
         """Test complete aggregation workflow with single IHV."""
-        aggregator = OutputAggregator(analyzer_version="1.0.0")
+        aggregator = OutputAggregator()
 
         output = aggregator.aggregate(
             metadata=sample_metadata,
@@ -501,7 +484,6 @@ class TestOutputAggregatorIntegration:
             information_list=sample_information,
         )
 
-        assert output.analyzer_version == "1.0.0"
         assert output.metadata.model_path == "test.onnx"
         assert len(output.results) == 1
 
@@ -584,6 +566,5 @@ class TestOutputAggregatorIntegration:
 
         assert isinstance(json_str, str)
         assert len(json_str) > 0
-        assert "analyzer_version" in json_str
         assert "metadata" in json_str
         assert "results" in json_str
