@@ -78,8 +78,8 @@ via multi-dim index_put_ → ScatterND):
 Models: Helsinki-NLP/opus-mt-fr-en, opus-mt-en-ru, opus-mt-es-en, etc.
 
 Usage:
-    wmk config -m Helsinki-NLP/opus-mt-fr-en --task feature-extraction       → encoder
-    wmk config -m Helsinki-NLP/opus-mt-fr-en --task text2text-generation     → decoder
+    winml config -m Helsinki-NLP/opus-mt-fr-en --task feature-extraction       → encoder
+    winml config -m Helsinki-NLP/opus-mt-fr-en --task text2text-generation     → decoder
 """
 
 from __future__ import annotations

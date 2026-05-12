@@ -4,8 +4,8 @@ We're always looking for your help to improve the product (bug fixes, new featur
 
 ## Contribute a code change
 
-* Start by reading the project [README](./README.md) to understand the scope and goals of ModelKit.
-* If your change is non-trivial or introduces new public facing APIs, please use the [feature request issue template](https://github.com/microsoft/ModelKit/issues/new) to discuss it with the team first.
+* Start by reading the project [README](./README.md) to understand the scope and goals of WinML CLI.
+* If your change is non-trivial or introduces new public facing APIs, please use the [feature request issue template](https://github.com/microsoft/WinML-ModelKit/issues/new) to discuss it with the team first.
 * For all other changes, you can directly create a pull request (PR) and we'll be happy to take a look.
 * Make sure your PR adheres to the coding conventions and standards below.
 
@@ -22,7 +22,7 @@ This installs all dependencies and enables [pre-commit hooks](https://pre-commit
 
 ### Runtime check rules
 
-When running ModelKit from a source tree (`uv run winml ...`), you need to populate the runtime check rule zips locally. See [`src/winml/modelkit/analyze/rules/runtime_check_rules/README.md`](./src/winml/modelkit/analyze/rules/runtime_check_rules/README.md) for setup options (GitHub release for external contributors, `gim-home` script for Microsoft internal, `MODELKIT_RULES_DIR` override).
+When running WinML CLI from a source tree (`uv run winml ...`), you need to populate the runtime check rule zips locally. See [`src/winml/modelkit/analyze/rules/runtime_check_rules/README.md`](./src/winml/modelkit/analyze/rules/runtime_check_rules/README.md) for setup options (GitHub release for external contributors, `gim-home` script for Microsoft internal, `WINMLCLI_RULES_DIR` override).
 
 ## Coding conventions and standards
 

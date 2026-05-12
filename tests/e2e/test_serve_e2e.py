@@ -347,7 +347,7 @@ class TestFeatureMcpSchema:
         assert "description" in mcp_tool
         assert "inputSchema" in mcp_tool
         assert "server_info" in data
-        assert data["server_info"]["name"] == "ModelKit Inference"
+        assert data["server_info"]["name"] == "WinML CLI Inference"
 
 
 class TestFeatureHub:

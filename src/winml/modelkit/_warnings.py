@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Early warning filter configuration for ModelKit.
+"""Early warning filter configuration for WinML CLI.
 
 This module configures warning filters ON IMPORT. It MUST have no dependencies
 on modelkit subpackages to avoid triggering the import chain that loads
@@ -12,7 +12,7 @@ Usage:
     from . import _warnings  # Filters are configured automatically
 
 Environment Variables:
-    MODELKIT_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
+    WINMLCLI_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _configure() -> None:
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
     # Allow users to see all warnings if they want
-    if os.environ.get("MODELKIT_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("WINMLCLI_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
         return
 
     # =========================================================================

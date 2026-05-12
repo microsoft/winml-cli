@@ -942,7 +942,7 @@ class Pattern(ABC):
         # Create model
         model = helper.make_model(
             graph,
-            producer_name="modelkit-pattern-generator",
+            producer_name="winmlcli-pattern-generator",
             opset_imports=opset_imports,
         )
         # Set IR version to 11 for compatibility with older onnxruntime versions
