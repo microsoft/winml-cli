@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Cache path primitives for ModelKit.
+"""Cache path primitives for WinML CLI.
 
 Pure functions that compute deterministic cache paths. This module
 knows about cache directories and key assembly — nothing about models.

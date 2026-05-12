@@ -9,9 +9,6 @@ Design follows the automodel pattern:
 - Explicit over implicit
 - Factory methods for common configurations
 - No capability registry - just dataclasses
-
-Quantization concerns (QDQ, calibration) have been moved to
-WinMLQuantizationConfig in modelkit.quant.config (#241).
 """
 
 from __future__ import annotations
@@ -150,57 +147,29 @@ class WinMLCompileConfig:
         return cls(ep_config=EPConfig(provider="qnn", provider_options=provider_options))
 
     @classmethod
-    def for_cpu(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_cpu(cls) -> WinMLCompileConfig:
         """Factory for CPU compilation (no EPContext)."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="cpu", enable_ep_context=False),
         )
 
     @classmethod
-    def for_cuda(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_cuda(cls) -> WinMLCompileConfig:
         """Factory for CUDA compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="cuda", enable_ep_context=False),
         )
 
     @classmethod
-    def for_dml(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_dml(cls) -> WinMLCompileConfig:
         """Factory for DirectML compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="dml", enable_ep_context=False),
         )
 
     @classmethod
-    def for_nv_tensorrt_rtx(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_nv_tensorrt_rtx(cls) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="nv_tensorrt_rtx", enable_ep_context=False),
         )
@@ -251,15 +220,8 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_migraphx(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_migraphx(cls) -> WinMLCompileConfig:
         """Factory for MIGraphX (AMD ROCm GPU) compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="migraphx", enable_ep_context=False),
         )
@@ -284,18 +246,7 @@ class WinMLCompileConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
-        """Create from dictionary, ignoring unknown and legacy quant fields.
-
-        Legacy quantization fields (quantize, weight_type, activation_type,
-        per_channel, calibration_method, calibration_samples, etc.) are
-        silently ignored for backward compatibility.
-
-        Args:
-            data: Configuration dictionary.
-
-        Returns:
-            WinMLCompileConfig instance.
-        """
+        """Create from dictionary. Unknown keys are ignored."""
         ep_config = EPConfig(
             provider=data.get("execution_provider", "qnn"),
             provider_options=data.get("provider_options", {}),

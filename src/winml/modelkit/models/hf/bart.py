@@ -64,8 +64,8 @@ Models: facebook/bart-large-cnn (summarization), facebook/bart-large,
 facebook/bart-base, etc.
 
 Usage:
-    wmk config -m facebook/bart-large-cnn --task feature-extraction       → encoder
-    wmk config -m facebook/bart-large-cnn --task text2text-generation     → decoder
+    winml config -m facebook/bart-large-cnn --task feature-extraction       → encoder
+    winml config -m facebook/bart-large-cnn --task text2text-generation     → decoder
 """
 
 from __future__ import annotations

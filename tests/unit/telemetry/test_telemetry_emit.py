@@ -24,7 +24,7 @@ def test_log_heartbeat_emits_event_with_no_data(running_telemetry):
     running_telemetry.log_heartbeat()
     logger.emit.assert_called_once()
     log_record = logger.emit.call_args.args[0]
-    assert str(log_record.body) == "ModelKitHeartbeat"
+    assert str(log_record.body) == "WinMLCLIHeartbeat"
     assert dict(log_record.attributes) == {}
 
 
@@ -39,7 +39,7 @@ def test_log_action_emits_with_whitelisted_attrs(running_telemetry):
     )
     logger.emit.assert_called_once()
     log_record = logger.emit.call_args.args[0]
-    assert str(log_record.body) == "ModelKitAction"
+    assert str(log_record.body) == "WinMLCLIAction"
     attrs = dict(log_record.attributes)
     assert attrs["action_name"] == "build"
     assert attrs["device"] == "NPU"
@@ -78,7 +78,7 @@ def test_log_error_scrubs_message_and_extracts_stack(running_telemetry):
 
     logger.emit.assert_called_once()
     log_record = logger.emit.call_args.args[0]
-    assert str(log_record.body) == "ModelKitError"
+    assert str(log_record.body) == "WinMLCLIError"
     attrs = dict(log_record.attributes)
     assert attrs["exception_type"] == "ValueError"
     # Message scrubbed: no email, no IP, no GUID

@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML ModelKit CLI - Universal ONNX export from command line.
+"""WinML CLI - Universal ONNX export from command line.
 
-This module provides the main CLI entry point for ModelKit with lazy
+This module provides the main entry point for WinML CLI with lazy
 command discovery from the commands/ directory.
 
 Usage:
@@ -35,6 +35,96 @@ from .utils.logging import configure_logging
 logger = logging.getLogger(__name__)
 
 _COMMANDS_DIR = Path(__file__).parent / "commands"
+
+# 5-row block-letter art for "WinML CLI".  '#' = filled pixel, ' ' = empty.
+# All letters use the same █ character so identical shapes (i vs I) look
+# consistent regardless of horizontal position.
+_LETTER_ART: dict[str, list[str]] = {
+    "W": ["#   #", "#   #", "# # #", "## ##", "#   #"],
+    "i": ["###", " # ", " # ", " # ", "###"],
+    "n": ["#   #", "##  #", "# # #", "#  ##", "#   #"],
+    "M": ["#   #", "## ##", "# # #", "#   #", "#   #"],
+    "L": ["#    ", "#    ", "#    ", "#    ", "#####"],
+    "C": ["####", "#   ", "#   ", "#   ", "####"],
+    "I": ["###", " # ", " # ", " # ", "###"],
+}
+# Two word segments; rendered with a wider gap between them.
+_SEGMENTS: list[list[str]] = [list("WinML"), list("CLI")]
+_LETTER_GAP = "  "  # between letters within a word
+_WORD_GAP = "    "  # between words
+
+# Gradient stops (left → right across the full banner width).
+_GRADIENT: list[tuple[float, tuple[int, int, int]]] = [
+    (0.00, (0, 230, 255)),  # cyan
+    (0.25, (0, 100, 255)),  # blue
+    (0.50, (130, 0, 255)),  # purple
+    (0.75, (255, 0, 180)),  # pink
+    (1.00, (255, 80, 80)),  # red
+]
+
+
+def _gradient_color(t: float) -> tuple[int, int, int]:
+    for i in range(len(_GRADIENT) - 1):
+        t0, c0 = _GRADIENT[i]
+        t1, c1 = _GRADIENT[i + 1]
+        if t <= t1:
+            s = (t - t0) / (t1 - t0)
+            return (
+                round(c0[0] + s * (c1[0] - c0[0])),
+                round(c0[1] + s * (c1[1] - c0[1])),
+                round(c0[2] + s * (c1[2] - c0[2])),
+            )
+    return _GRADIENT[-1][1]
+
+
+def _print_banner(version: str, *, _console: object | None = None) -> None:
+    """Print the WinML CLI gradient banner to stderr using Rich."""
+    from rich.console import Console  # lazy import - keeps startup fast
+    from rich.text import Text
+
+    # Compute total art width across both word segments.
+    art_w = len(_WORD_GAP) * (len(_SEGMENTS) - 1)
+    for seg in _SEGMENTS:
+        art_w += len(_LETTER_GAP) * (len(seg) - 1)
+        art_w += sum(len(_LETTER_ART[ch][0]) for ch in seg)
+    bar_w = art_w + 4
+    margin = "  "
+
+    con = _console or Console(stderr=True, highlight=False)
+    con.print()
+
+    for row_idx in range(5):
+        line = Text(margin)
+        col = 0
+        for seg_idx, seg in enumerate(_SEGMENTS):
+            if seg_idx > 0:
+                line.append(_WORD_GAP)
+                col += len(_WORD_GAP)
+            for letter_idx, letter in enumerate(seg):
+                if letter_idx > 0:
+                    line.append(_LETTER_GAP)
+                    col += len(_LETTER_GAP)
+                for ch in _LETTER_ART[letter][row_idx]:
+                    if ch == "#":
+                        r, g, b = _gradient_color(col / max(art_w - 1, 1))
+                        line.append("█", style=f"bold rgb({r},{g},{b})")
+                    else:
+                        line.append(" ")
+                    col += 1
+        con.print(line)
+
+    con.print()
+    bar = Text(margin)
+    for i in range(bar_w):
+        r, g, b = _gradient_color(i / max(bar_w - 1, 1))
+        bar.append("─", style=f"rgb({r},{g},{b})")
+    con.print(bar)
+
+    con.print()
+    con.print(f"{margin}[bold rgb(160,100,255)]Windows ML  ·  Model Conversion & Optimization[/]")
+    con.print(f"{margin}[dim]v{version}  ·  CPU · GPU · NPU[/]")
+    con.print()
+
 
 # Commands that are temporarily disabled from the CLI surface.
 # The modules remain on disk so tests and internal imports still work;
@@ -71,7 +161,7 @@ class LazyGroup(ActionGroup):
     parsing (no module execution).
 
     Extends :class:`ActionGroup` so every resolved subcommand is also
-    auto-instrumented with ModelKit telemetry.
+    auto-instrumented with WinML CLI telemetry.
     """
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -114,6 +204,11 @@ class LazyGroup(ActionGroup):
                 discovered = attr
         return discovered
 
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        """Emit banner to stderr, then delegate to normal help formatting."""
+        _print_banner(__version__)
+        super().format_help(ctx, formatter)
+
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format command list using AST-parsed help (no module imports)."""
         commands = []
@@ -132,7 +227,7 @@ class LazyGroup(ActionGroup):
                 formatter.write_dl(rows)
 
 
-@click.group(cls=LazyGroup)
+@click.group(cls=LazyGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="winml")
 @click.option(
     "--verbose",
@@ -156,7 +251,7 @@ class LazyGroup(ActionGroup):
 )
 @click.pass_context
 def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
-    """WML ModelKit - Accelerate Model Deployment on WinML.
+    """WinML CLI - Accelerate Model Deployment on WinML.
 
     Universal ONNX export with QNN and OpenVINO backend support.
     """
@@ -173,6 +268,10 @@ def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
     ctx.obj["quiet"] = quiet
 
     ctx.call_on_close(_shutdown_telemetry)
+
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit(0)
 
 
 def _shutdown_telemetry() -> None:

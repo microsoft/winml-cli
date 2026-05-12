@@ -44,6 +44,25 @@ _COLORS = {
 }
 
 
+def _discover_runtime_rule_parquet_files() -> tuple[list[Path], list[Path]]:
+    """Return runtime-rule search directories and discovered parquet files.
+
+    The runtime checker supports both flat and one-level nested layouts.
+    """
+    from ..analyze.utils.rule_loader import get_runtime_rules_search_dirs
+
+    search_dirs = get_runtime_rules_search_dirs()
+    parquet_files: list[Path] = []
+
+    for search_dir in search_dirs:
+        if not search_dir.is_dir():
+            continue
+        parquet_files.extend(sorted(search_dir.glob("*.parquet")))
+        parquet_files.extend(sorted(search_dir.glob("*/*.parquet")))
+
+    return search_dirs, parquet_files
+
+
 def _display_name(pattern_id: str) -> str:
     """Extract operator display name from pattern_id ('OP/ai.onnx/Conv' -> 'Conv')."""
     return pattern_id.split("/")[-1]
@@ -495,6 +514,16 @@ def analyze(
         # Validate model
         if not model.exists():
             logger.error("ONNX model file not found: %s", model)
+            sys.exit(2)
+
+        search_dirs, parquet_files = _discover_runtime_rule_parquet_files()
+        if not parquet_files:
+            searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
+            logger.error("No runtime rule parquet files were found.")
+            logger.error(
+                "Please reinstall winml-modelkit, or manually download rule parquet files."
+            )
+            logger.error("Searched directories: %s", searched)
             sys.exit(2)
 
         from ..analyze.utils.ep_utils import (

@@ -299,16 +299,6 @@
     "elapsed": 711.6,
     "command": "python.exe run_pytorch_baseline.py --model segformer-b0-finetuned-cityscapes-1024-1024 --task image-segmentation --device cpu --num-samples 500 --dataset cityscapes --split validation --columns-mapping {\"annotation_column\": \"semantic_segmentation\"} --label-mapping-file cityscapes_label_to_train_id.json"
   },
-  "sentence-transformers/all-MiniLM-L6-v2|feature-extraction|mteb/stsbenchmark-sts||test|100": {
-    "status": "PASS",
-    "metric": {
-      "metric": "cosine_spearman",
-      "value": 81.3502,
-      "num_samples": 100
-    },
-    "elapsed": 19.1,
-    "command": "python.exe run_pytorch_baseline.py --model all-MiniLM-L6-v2 --task feature-extraction --device cpu --num-samples 100 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
-  },
   "sentence-transformers/all-MiniLM-L6-v2|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
     "status": "PASS",
     "metric": {
@@ -829,6 +819,56 @@
     "elapsed": 222.8,
     "command": "python.exe run_pytorch_baseline.py --model fashion-clip --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset fashion_mnist --split test --columns-mapping {\"input_column\": \"image\"}"
   },
+  "Salesforce/blip-image-captioning-base|image-to-text|lmms-lab/flickr30k||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cider",
+      "value": 0.3965,
+      "num_samples": 500
+    },
+    "elapsed": 600.7,
+    "command": "python.exe run_pytorch_baseline.py --model blip-image-captioning-base --task image-to-text --device cpu --num-samples 500 --dataset flickr30k --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"caption\"} --winml-metric-key cider"
+  },
+  "microsoft/trocr-base-handwritten|image-to-text|Teklia/IAM-line||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0476,
+      "num_samples": 500
+    },
+    "elapsed": 1532.5,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-base-handwritten --task image-to-text --device cpu --num-samples 500 --dataset IAM-line --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
+  "microsoft/trocr-large-handwritten|image-to-text|Teklia/IAM-line||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0361,
+      "num_samples": 500
+    },
+    "elapsed": 2329.6,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-large-handwritten --task image-to-text --device cpu --num-samples 500 --dataset IAM-line --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
+  "microsoft/trocr-base-printed|image-to-text|priyank-m/SROIE_2019_text_recognition||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0113,
+      "num_samples": 500
+    },
+    "elapsed": 1045.3,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-base-printed --task image-to-text --device cpu --num-samples 500 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
+  "microsoft/trocr-large-printed|image-to-text|priyank-m/SROIE_2019_text_recognition||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0037,
+      "num_samples": 200
+    },
+    "elapsed": 725.5,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-large-printed --task image-to-text --device cpu --num-samples 200 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
   "cross-encoder/nli-deberta-v3-small|zero-shot-classification|fancyzhx/ag_news||test|200": {
     "status": "PASS",
     "metric": {
@@ -848,26 +888,6 @@
     },
     "elapsed": 320.9,
     "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large-xnli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
-  },
-  "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli|zero-shot-classification|fancyzhx/ag_news||test|200": {
-    "status": "PASS",
-    "metric": {
-      "metric": "accuracy",
-      "value": 0.71,
-      "num_samples": 200
-    },
-    "elapsed": 496.6,
-    "command": "python.exe run_pytorch_baseline.py --model DeBERTa-v3-large-mnli-fever-anli-ling-wanli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
-  },
-  "MoritzLaurer/deberta-v3-large-zeroshot-v2.0|zero-shot-classification|fancyzhx/ag_news||test|200": {
-    "status": "PASS",
-    "metric": {
-      "metric": "accuracy",
-      "value": 0.865,
-      "num_samples": 200
-    },
-    "elapsed": 495.6,
-    "command": "python.exe run_pytorch_baseline.py --model deberta-v3-large-zeroshot-v2.0 --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
   },
   "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli|zero-shot-classification|fancyzhx/ag_news||test|200": {
     "status": "PASS",
@@ -908,5 +928,15 @@
     },
     "elapsed": 284.0,
     "command": "python.exe run_pytorch_baseline.py --model deberta-v3-large-zeroshot-v2.0 --task zero-shot-classification --device cpu --num-samples 100 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "microsoft/deberta-xlarge-mnli|text-classification|nyu-mll/glue|mnli|validation_matched|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.92,
+      "num_samples": 100
+    },
+    "elapsed": 124.3,
+    "command": "python.exe run_pytorch_baseline.py --model deberta-xlarge-mnli --task text-classification --device cpu --num-samples 100 --dataset glue --split validation_matched --dataset-config mnli --columns-mapping {\"input_column\": \"premise\", \"second_input_column\": \"hypothesis\"} --winml-metric-key accuracy"
   }
 }

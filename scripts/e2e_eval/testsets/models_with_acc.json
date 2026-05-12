@@ -50,6 +50,8 @@
     "dataset_config": {
       "path": "nyu-mll/glue",
       "name": "mnli",
+      "split": "validation_matched",
+      "samples": 100,
       "metric": "accuracy",
       "columns_mapping": {
         "input_column": "premise",
@@ -66,6 +68,7 @@
     "dataset_config": {
       "path": "nyu-mll/glue",
       "name": "mnli",
+      "split": "validation_matched",
       "metric": "accuracy",
       "columns_mapping": {
         "input_column": "premise",
@@ -548,7 +551,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -566,7 +569,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -584,7 +587,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -602,7 +605,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -620,7 +623,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -638,7 +641,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -656,7 +659,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -674,7 +677,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -692,7 +695,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -710,7 +713,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -728,7 +731,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -746,7 +749,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -764,7 +767,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -782,7 +785,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -800,7 +803,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -818,7 +821,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -836,7 +839,7 @@
       "path": "mteb/stsbenchmark-sts",
       "split": "test",
       "metric": "cosine_spearman",
-      "wmk_metric_key": "cosine_spearman",
+      "winml_metric_key": "cosine_spearman",
       "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
@@ -854,7 +857,7 @@
       "path": "rajpurkar/squad",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -873,7 +876,7 @@
       "path": "rajpurkar/squad",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -892,7 +895,7 @@
       "path": "rajpurkar/squad_v2",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -911,7 +914,7 @@
       "path": "rajpurkar/squad_v2",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -930,7 +933,7 @@
       "path": "rajpurkar/squad",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -949,7 +952,7 @@
       "path": "rajpurkar/squad_v2",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -968,7 +971,7 @@
       "path": "rajpurkar/squad_v2",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -987,7 +990,7 @@
       "path": "rajpurkar/squad_v2",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -1006,7 +1009,7 @@
       "path": "KorQuAD/squad_kor_v1",
       "split": "validation",
       "metric": "f1",
-      "wmk_metric_key": "f1",
+      "winml_metric_key": "f1",
       "columns_mapping": {
         "question_column": "question",
         "context_column": "context",
@@ -1538,6 +1541,101 @@
       "columns_mapping": {
         "input_column": "img",
         "label_column": "fine_label"
+      }
+    }
+  },
+  {
+    "hf_id": "Salesforce/blip-image-captioning-base",
+    "task": "image-to-text",
+    "model_type": "blip",
+    "group": "Benchmark",
+    "priority": "P0",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "lmms-lab/flickr30k",
+      "split": "test",
+      "samples": 500,
+      "metric": "cider",
+      "winml_metric_key": "cider",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "caption"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-base-handwritten",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "microsoft",
+    "priority": "P2",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "Teklia/IAM-line",
+      "split": "test",
+      "samples": 500,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-large-handwritten",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "microsoft",
+    "priority": "P2",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "Teklia/IAM-line",
+      "split": "test",
+      "samples": 500,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-base-printed",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "ISV",
+    "priority": "P1",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "priyank-m/SROIE_2019_text_recognition",
+      "split": "test",
+      "samples": 500,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "microsoft/trocr-large-printed",
+    "task": "image-to-text",
+    "model_type": "vision-encoder-decoder",
+    "group": "ISV",
+    "priority": "P1",
+    "precision": "fp16",
+    "dataset_config": {
+      "path": "priyank-m/SROIE_2019_text_recognition",
+      "split": "test",
+      "samples": 200,
+      "metric": "cer",
+      "winml_metric_key": "cer",
+      "columns_mapping": {
+        "input_column": "image",
+        "label_column": "text"
       }
     }
   }

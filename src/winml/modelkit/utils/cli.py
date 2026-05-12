@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""CLI utilities for ModelKit commands."""
+"""CLI utilities for WinML CLI commands."""
 
 from __future__ import annotations
 
