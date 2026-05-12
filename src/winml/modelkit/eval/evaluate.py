@@ -167,10 +167,6 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         "columns_mapping": {
             "input_column": "image",
             "depth_column": "depth_map",
-            # NYU indoor convention; override per dataset (e.g. KITTI: 80).
-            "align": "median",
-            "min_depth": "1e-3",
-            "max_depth": "10.0",
         },
     },
 }
