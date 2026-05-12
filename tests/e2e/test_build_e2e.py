@@ -25,7 +25,7 @@ validation tests do not require network access and only carry the
 ``e2e`` marker.
 
 The build command uses ``@click.pass_context`` and requires
-``obj={"debug": False}`` (or ``True``) when invoked via ``CliRunner``.
+``obj={"debug": True}`` (or ``True``) when invoked via ``CliRunner``.
 
 A minimal hand-crafted config is sufficient for ONNX input (export is
 skipped) and for argument-validation tests. Full HF pipeline tests use
@@ -224,9 +224,7 @@ class TestBuildArgValidation:
     def test_compile_flag_without_compile_section(self, tmp_path: Path):
         """``--compile`` on a config without a compile section is a UsageError."""
         cfg = _make_minimal_config_file(tmp_path, compile_section=None)
-        result = _invoke(
-            ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--compile"]
-        )
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--compile"])
         assert result.exit_code != 0
         assert "compile" in result.output.lower()
 
@@ -245,9 +243,7 @@ class TestBuildArgValidation:
                 }
             )
         )
-        result = _invoke(
-            ["-c", str(cfg_path), "-m", "microsoft/resnet-50", "--use-cache"]
-        )
+        result = _invoke(["-c", str(cfg_path), "-m", "microsoft/resnet-50", "--use-cache"])
         assert result.exit_code != 0
         assert "loader.task" in result.output or "task" in result.output.lower()
 
@@ -328,9 +324,7 @@ def mock_run_single_build():
     option flows through to the build pipeline without needing to run
     the full export/optimize stages.
     """
-    with patch(
-        "winml.modelkit.commands.build._run_single_build", return_value=None
-    ) as mock:
+    with patch("winml.modelkit.commands.build._run_single_build", return_value=None) as mock:
         yield mock
 
 
@@ -340,9 +334,7 @@ class TestBuildFlagPassthrough:
     def _base_args(self, cfg: str, tmp_path: Path) -> list[str]:
         return ["-c", cfg, "-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")]
 
-    def test_defaults_no_flags(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_defaults_no_flags(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """With no optional flags, defaults are forwarded as-is."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke(self._base_args(cfg, tmp_path))
@@ -359,9 +351,7 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["rebuild"] is True
 
-    def test_no_quant_clears_quant(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_no_quant_clears_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--no-quant`` zeroes ``config.quant`` before dispatching."""
         cfg_path = tmp_path / "with_quant.json"
         cfg_path.write_text(
@@ -386,29 +376,17 @@ class TestBuildFlagPassthrough:
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["config"].quant is None
 
-    def test_no_compile_clears_compile(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_no_compile_clears_compile(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--no-compile`` zeroes ``config.compile``."""
-        cfg = _make_minimal_config_file(
-            tmp_path, compile_section={"execution_provider": "qnn"}
-        )
-        result = _invoke(
-            ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--no-compile"]
-        )
+        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--no-compile"])
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["config"].compile is None
 
-    def test_compile_preserves_compile(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_compile_preserves_compile(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--compile`` keeps the compile section from the config file."""
-        cfg = _make_minimal_config_file(
-            tmp_path, compile_section={"execution_provider": "qnn"}
-        )
-        result = _invoke(
-            ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--compile"]
-        )
+        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--compile"])
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["config"].compile is not None
 
@@ -416,24 +394,17 @@ class TestBuildFlagPassthrough:
         self, tmp_path: Path, mock_run_single_build: MagicMock
     ):
         """Without ``--compile`` / ``--no-compile``, config compile is preserved."""
-        cfg = _make_minimal_config_file(
-            tmp_path, compile_section={"execution_provider": "qnn"}
-        )
+        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
         result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["config"].compile is not None
 
-    def test_no_optimize_sets_extra_kwarg(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_no_optimize_sets_extra_kwarg(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--no-optimize`` sets ``extra_kwargs['skip_optimize']``."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke([*self._base_args(cfg, tmp_path), "--no-optimize"])
         assert result.exit_code == 0, result.output
-        assert (
-            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("skip_optimize")
-            is True
-        )
+        assert mock_run_single_build.call_args.kwargs["extra_kwargs"].get("skip_optimize") is True
 
     def test_no_analyze_zeros_max_iterations(
         self, tmp_path: Path, mock_run_single_build: MagicMock
@@ -445,19 +416,13 @@ class TestBuildFlagPassthrough:
         extras = mock_run_single_build.call_args.kwargs["extra_kwargs"]
         assert extras.get("hack_max_optim_iterations") == 0
 
-    def test_max_optim_iterations_explicit(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_max_optim_iterations_explicit(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--max-optim-iterations N`` forwards N as ``hack_max_optim_iterations``."""
         cfg = _make_minimal_config_file(tmp_path)
-        result = _invoke(
-            [*self._base_args(cfg, tmp_path), "--max-optim-iterations", "5"]
-        )
+        result = _invoke([*self._base_args(cfg, tmp_path), "--max-optim-iterations", "5"])
         assert result.exit_code == 0, result.output
         assert (
-            mock_run_single_build.call_args.kwargs["extra_kwargs"].get(
-                "hack_max_optim_iterations"
-            )
+            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("hack_max_optim_iterations")
             == 5
         )
 
@@ -476,47 +441,34 @@ class TestBuildFlagPassthrough:
         )
         assert result.exit_code == 0, result.output
         assert (
-            mock_run_single_build.call_args.kwargs["extra_kwargs"].get(
-                "hack_max_optim_iterations"
-            )
+            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("hack_max_optim_iterations")
             == 0
         )
 
-    def test_ep_flag_forwarded(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_ep_flag_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--ep`` value reaches ``_run_single_build`` verbatim."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke([*self._base_args(cfg, tmp_path), "--ep", "qnn"])
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["ep"] == "qnn"
 
-    def test_device_flag_forwarded(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_device_flag_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--device`` value reaches ``_run_single_build`` verbatim."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke([*self._base_args(cfg, tmp_path), "--device", "NPU"])
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["device"] == "NPU"
 
-    def test_trust_remote_code_forwarded(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke([*self._base_args(cfg, tmp_path), "--trust-remote-code"])
         assert result.exit_code == 0, result.output
         assert (
-            mock_run_single_build.call_args.kwargs["extra_kwargs"].get(
-                "trust_remote_code"
-            )
-            is True
+            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("trust_remote_code") is True
         )
 
-    def test_verbose_flag_accepted(
-        self, tmp_path: Path, mock_run_single_build: MagicMock
-    ):
+    def test_verbose_flag_accepted(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``-v/--verbose`` is parsed and does not affect dispatch."""
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke([*self._base_args(cfg, tmp_path), "-v"])
@@ -550,9 +502,7 @@ class TestBuildErrorHandling:
             "winml.modelkit.commands.build._run_single_build",
             side_effect=ValueError("bad config"),
         ):
-            result = _invoke(
-                ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")]
-            )
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
         assert result.exit_code != 0
         assert "bad config" in result.output
 
@@ -563,9 +513,7 @@ class TestBuildErrorHandling:
             "winml.modelkit.commands.build._run_single_build",
             side_effect=RuntimeError("ONNX export failed"),
         ):
-            result = _invoke(
-                ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")]
-            )
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
         assert result.exit_code != 0
         assert "Build failed" in result.output
 
@@ -576,9 +524,7 @@ class TestBuildErrorHandling:
             "winml.modelkit.commands.build._run_single_build",
             side_effect=RuntimeError("Quantization failed: calibration"),
         ):
-            result = _invoke(
-                ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")]
-            )
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
         assert result.exit_code != 0
         assert "--no-quant" in result.output
 
@@ -589,9 +535,7 @@ class TestBuildErrorHandling:
             "winml.modelkit.commands.build._run_single_build",
             side_effect=RuntimeError("Compilation failed: missing EP"),
         ):
-            result = _invoke(
-                ["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")]
-            )
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
         assert result.exit_code != 0
         assert "--no-compile" in result.output
 
@@ -627,12 +571,10 @@ class TestBuildHFHappyPath:
                 "--no-quant",
                 "--no-compile",
             ],
-            obj={"debug": False},
+            obj={"debug": True},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert output_dir.exists()
         onnx_files = list(output_dir.rglob("*.onnx"))
         assert len(onnx_files) >= 1, (
@@ -666,12 +608,10 @@ class TestBuildHFHappyPath:
                 "--device",
                 "NPU",
             ],
-            obj={"debug": False},
+            obj={"debug": True},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert list(output_dir.rglob("*.onnx"))
 
     def test_rebuild_overwrites(self, tmp_path: Path):
@@ -700,12 +640,10 @@ class TestBuildHFHappyPath:
                 "--no-compile",
                 "--rebuild",
             ],
-            obj={"debug": False},
+            obj={"debug": True},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert list(output_dir.rglob("*.onnx"))
 
 
@@ -735,17 +673,13 @@ class TestBuildONNXHappyPath:
                 "--no-quant",
                 "--no-compile",
             ],
-            obj={"debug": False},
+            obj={"debug": True},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert output_dir.exists()
 
-    def test_onnx_passthrough_no_optimize(
-        self, tmp_path: Path, onnx_model_path: Path
-    ):
+    def test_onnx_passthrough_no_optimize(self, tmp_path: Path, onnx_model_path: Path):
         """``--no-optimize`` skips the optimize stage on an ONNX passthrough build."""
         config_path = _make_minimal_config_file(tmp_path)
 
@@ -764,10 +698,8 @@ class TestBuildONNXHappyPath:
                 "--no-compile",
                 "--no-optimize",
             ],
-            obj={"debug": False},
+            obj={"debug": True},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"build failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"build failed (exit {result.exit_code}):\n{result.output}"
         assert output_dir.exists()
