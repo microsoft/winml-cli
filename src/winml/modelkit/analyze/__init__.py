@@ -8,6 +8,8 @@ This package provides static analysis capabilities for ONNX models to determine
 runtime support across NPU execution providers (QNN, Intel OpenVINO, AMD Quark).
 """
 
+__version__ = "0.1.0"
+
 from .analyzer import (
     AnalysisResult,
     AnalyzerConfig,
