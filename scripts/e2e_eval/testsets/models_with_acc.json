@@ -1651,7 +1651,8 @@
       "metric": "abs_rel",
       "columns_mapping": {
         "input_column": "image",
-        "depth_column": "depth_map"
+        "depth_column": "depth_map",
+        "depth_kind": "disparity"
       }
     }
   },
@@ -1667,7 +1668,8 @@
       "metric": "abs_rel",
       "columns_mapping": {
         "input_column": "image",
-        "depth_column": "depth_map"
+        "depth_column": "depth_map",
+        "depth_kind": "disparity"
       }
     }
   },
@@ -1683,7 +1685,8 @@
       "metric": "abs_rel",
       "columns_mapping": {
         "input_column": "image",
-        "depth_column": "depth_map"
+        "depth_column": "depth_map",
+        "align": "none"
       }
     }
   },
@@ -1747,7 +1750,8 @@
       "metric": "abs_rel",
       "columns_mapping": {
         "input_column": "image",
-        "depth_column": "depth_map"
+        "depth_column": "depth_map",
+        "align": "none"
       }
     }
   },
