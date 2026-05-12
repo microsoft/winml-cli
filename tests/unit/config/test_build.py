@@ -2869,3 +2869,52 @@ class TestResolveQuantCompileConfig:
             )
 
         assert quant is None
+
+
+# =============================================================================
+# TestWinMLBuildConfigAutoField
+# =============================================================================
+
+
+class TestWinMLBuildConfigAutoField:
+    """Tests for the WinMLBuildConfig.auto field (autoconf marker)."""
+
+    def test_default_is_true(self) -> None:
+        """New configs have auto=True by default."""
+        config = WinMLBuildConfig()
+        assert config.auto is True
+
+    def test_to_dict_omits_auto_when_true(self) -> None:
+        """to_dict() omits auto when True (default) to keep saved configs clean."""
+        config = WinMLBuildConfig()
+        d = config.to_dict()
+        assert "auto" not in d
+
+    def test_to_dict_auto_false(self) -> None:
+        """to_dict() serialises auto=False after pipeline marks it resolved."""
+        config = WinMLBuildConfig()
+        config.auto = False
+        d = config.to_dict()
+        assert d["auto"] is False
+
+    def test_from_dict_reads_auto_false(self) -> None:
+        """from_dict() restores auto=False from a saved config."""
+        config = WinMLBuildConfig()
+        config.auto = False
+        restored = WinMLBuildConfig.from_dict(config.to_dict())
+        assert restored.auto is False
+
+    def test_from_dict_missing_auto_defaults_true(self) -> None:
+        """from_dict() defaults auto=True when the key is absent (old configs)."""
+        d = WinMLBuildConfig().to_dict()
+        # auto=True configs don't write the key — verify absence → default True
+        assert "auto" not in d
+        config = WinMLBuildConfig.from_dict(d)
+        assert config.auto is True
+
+    def test_roundtrip_auto_false(self) -> None:
+        """Roundtrip: auto=False survives to_dict → from_dict."""
+        config = WinMLBuildConfig()
+        config.auto = False
+        restored = WinMLBuildConfig.from_dict(config.to_dict())
+        assert restored.auto is False

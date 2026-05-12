@@ -68,6 +68,10 @@ def run_optimize_analyze_loop(
     Raises:
         RuntimeError: If unsupported nodes persist after analysis.
     """
+    # Respect auto=False: flags are pre-configured, skip autoconf
+    if not config.auto:
+        max_optim_iterations = 0
+
     t0 = time.monotonic()
 
     # 1. Optimize
@@ -98,6 +102,10 @@ def run_optimize_analyze_loop(
         analyze_iterations, analyze_black_nodes, analyze_details = 0, 0, {}
 
     elapsed = time.monotonic() - t0
+
+    # Mark as resolved so the saved config skips the analyzer on next build
+    config.auto = False
+
     return current_path, elapsed, analyze_iterations, analyze_black_nodes, analyze_details
 
 

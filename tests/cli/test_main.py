@@ -305,3 +305,40 @@ class TestModuleExecution:
 
         assert hasattr(cli, "main")
         assert callable(cli.main)
+
+
+class TestBuildCommandArgs:
+    """Argument-validation tests for 'winml build' (no model execution)."""
+
+    def test_build_help_shows_optional_config(self, runner: CliRunner) -> None:
+        """-c/--config is documented as optional in help output."""
+        result = runner.invoke(main, ["build", "--help"])
+        assert result.exit_code == 0
+        assert "-c" in result.output
+        assert "--config" in result.output
+
+    def test_build_no_args_requires_output_or_cache(self, runner: CliRunner) -> None:
+        """'winml build' with no -o/--use-cache fails with a clear error."""
+        result = runner.invoke(main, ["build", "-m", "dummy/model"])
+        assert result.exit_code != 0
+        assert (
+            "output" in result.output.lower()
+            or "cache" in result.output.lower()
+            or "required" in result.output.lower()
+        )
+
+    def test_build_omit_config_requires_model(self, runner: CliRunner) -> None:
+        """Omitting -c without -m must fail with a usage error."""
+        result = runner.invoke(main, ["build", "-o", "out/"])
+        assert result.exit_code != 0
+        combined = (result.output + str(result.exception or "")).lower()
+        assert "model" in combined or "required" in combined
+
+    def test_build_output_and_cache_mutually_exclusive(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--output-dir and --use-cache together must fail."""
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text("{}")
+        result = runner.invoke(main, ["build", "-c", str(cfg), "-o", "out/", "--use-cache"])
+        assert result.exit_code != 0
