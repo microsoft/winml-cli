@@ -416,6 +416,48 @@ def _render_analysis_summary(
         console.print()
 
 
+_EP_DISPLAY_NAMES = {
+    "QNNExecutionProvider": "QNN EP",
+    "OpenVINOExecutionProvider": "OpenVINO EP",
+    "VitisAIExecutionProvider": "Vitis AI EP",
+    "NvTensorRTRTXExecutionProvider": "TensorRT RTX EP",
+}
+
+
+def _render_omitted_eps_note(
+    console: Console,
+    results: list,
+    *,
+    ep: str | None,
+) -> None:
+    """Print an explanatory note for any default EPs absent from the results.
+
+    When the user did not pass ``--ep``, the analyzer iterates over the
+    default EP list (see :data:`DEFAULT_EPS_TO_ANALYZE`) and silently skips
+    any EP that lacks rule data for the current device/platform. Surface
+    that omission so users aren't left wondering whether a missing EP (most
+    commonly Vitis AI on non-AMD platforms) was a detection failure.
+    """
+    if ep is not None:
+        # User explicitly requested a single EP; nothing to note.
+        return
+
+    from ..analyze.analyzer import DEFAULT_EPS_TO_ANALYZE
+
+    present = {ep_support.ep_type for ep_support in results}
+    missing = [name for name in DEFAULT_EPS_TO_ANALYZE if name not in present]
+    if not missing:
+        return
+
+    for ep_name in missing:
+        display = _EP_DISPLAY_NAMES.get(ep_name, ep_name)
+        console.print(
+            f"   [dim]Note: {display} not shown "
+            f"(not detected / not supported on this platform).[/dim]"
+        )
+    console.print()
+
+
 # ── Click command ─────────────────────────────────────────────────────────
 
 
@@ -738,6 +780,14 @@ def analyze(
                 ep_patterns=ep_patterns,
                 ep=ep_normalized,
                 device=device,
+            )
+
+            # Note any default EPs that were omitted from the output
+            # (e.g., Vitis AI on platforms where rule data is unavailable).
+            _render_omitted_eps_note(
+                console,
+                result.output.results,
+                ep=ep_normalized,
             )
 
             # Legend (at the very bottom, only when there are EP results)

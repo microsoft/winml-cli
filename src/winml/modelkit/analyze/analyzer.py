@@ -33,6 +33,17 @@ if TYPE_CHECKING:
     from .models.output import AnalysisOutput
 
 
+# Default execution providers analyzed when no specific EP is selected.
+# Kept here as a module-level constant so the CLI can surface explanatory
+# notes for any default EPs that were omitted from the analysis output
+# (e.g., due to missing rule data for the current device/platform).
+DEFAULT_EPS_TO_ANALYZE: tuple[str, ...] = (
+    "QNNExecutionProvider",
+    "OpenVINOExecutionProvider",
+    "VitisAIExecutionProvider",
+)
+
+
 @dataclass
 class LintResult:
     """Lint-style result summarizing errors, warnings, and informational items.
@@ -688,11 +699,7 @@ class ONNXStaticAnalyzer:
         eps_to_analyze: list[str] = []
         if ep_normalized is None:
             # Analyze all supported EPs
-            eps_to_analyze = [
-                "QNNExecutionProvider",
-                "OpenVINOExecutionProvider",
-                "VitisAIExecutionProvider",
-            ]
+            eps_to_analyze = list(DEFAULT_EPS_TO_ANALYZE)
             logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
         else:
             eps_to_analyze = [ep_normalized]

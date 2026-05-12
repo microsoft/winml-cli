@@ -892,3 +892,66 @@ class TestQDQNodeDisplayMapping:
         assert "Conv (QDQ)" not in qnn_counts, "QDQ suffix must be stripped"
         assert qnn_counts["Conv"] == {"supported": 2}
         assert qnn_counts["DequantizeLinear"] == {"supported": 4}
+
+
+class TestOmittedEPsNote:
+    """Test the explanatory note for default EPs missing from analyze output."""
+
+    def _make_console(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        buf = StringIO()
+        # ``no_color`` strips ANSI styling so the text is easy to assert on.
+        return Console(file=buf, width=120, no_color=True, force_terminal=False), buf
+
+    def _ep_support(self, ep_type: str) -> Mock:
+        m = Mock()
+        m.ep_type = ep_type
+        return m
+
+    def test_no_note_when_ep_explicit(self) -> None:
+        """When --ep is given, omitted-EP notes must not be shown."""
+        from winml.modelkit.commands.analyze import _render_omitted_eps_note
+
+        console, buf = self._make_console()
+        _render_omitted_eps_note(
+            console,
+            [self._ep_support("QNNExecutionProvider")],
+            ep="QNNExecutionProvider",
+        )
+        assert "not shown" not in buf.getvalue()
+
+    def test_note_for_missing_vitis(self) -> None:
+        """Vitis AI absence is surfaced when analyzing all EPs."""
+        from winml.modelkit.commands.analyze import _render_omitted_eps_note
+
+        console, buf = self._make_console()
+        _render_omitted_eps_note(
+            console,
+            [
+                self._ep_support("QNNExecutionProvider"),
+                self._ep_support("OpenVINOExecutionProvider"),
+            ],
+            ep=None,
+        )
+        output = buf.getvalue()
+        assert "Vitis AI EP not shown" in output
+        assert "not detected / not supported on this platform" in output
+        # Present EPs should not appear in the note section.
+        assert "QNN EP not shown" not in output
+        assert "OpenVINO EP not shown" not in output
+
+    def test_no_note_when_all_default_eps_present(self) -> None:
+        """No note when every default EP appears in results."""
+        from winml.modelkit.analyze.analyzer import DEFAULT_EPS_TO_ANALYZE
+        from winml.modelkit.commands.analyze import _render_omitted_eps_note
+
+        console, buf = self._make_console()
+        _render_omitted_eps_note(
+            console,
+            [self._ep_support(name) for name in DEFAULT_EPS_TO_ANALYZE],
+            ep=None,
+        )
+        assert buf.getvalue() == ""
