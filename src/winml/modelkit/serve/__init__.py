@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WinML ModelKit serving package.
+"""WinML CLI serving package.
 
 Public API:
     InferenceEngine  — core inference component (re-exported from inference/)

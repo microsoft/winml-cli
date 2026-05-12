@@ -44,7 +44,7 @@ def check_onnx_model(
 
     if get_model_size(model) >= EXTERNAL_DATA_THRESHOLD:
         try:
-            with tempfile.TemporaryDirectory(prefix="modelkit_compat_") as tmp_dir:
+            with tempfile.TemporaryDirectory(prefix="winmlcli_compat_") as tmp_dir:
                 tmp_path = str(Path(tmp_dir) / "model.onnx")
                 # onnx.save mutates model in-place; restore immediately
                 onnx.save(model, tmp_path, save_as_external_data=True)

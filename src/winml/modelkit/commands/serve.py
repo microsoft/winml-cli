@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Model serving command for ModelKit CLI.
+"""Model serving command for WinML CLI.
 
 Usage:
     winml serve                                             # Phase 0: CLI wrapper
@@ -82,7 +82,7 @@ def serve(
     memory_budget: float,
     auto_reload: bool,
 ) -> None:
-    r"""Start ModelKit as a local REST API server.
+    r"""Start WinML CLI as a local REST API server.
 
     Without --model starts in Phase 0 (CLI wrapper mode).
     With --model starts in Phase 1/3 (inference server mode).

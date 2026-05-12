@@ -61,7 +61,7 @@
                     }
                 ],
                 "enabled": true,
-                "details": "The ReshapeTransposeReshapeOverlyHighDimPattern (commonly found in attention mechanisms) can be merged into a single ReshapeTransposeReshapeLowDimPattern. Use the ModelKit rewrite flag to apply this optimization before exporting."
+                "details": "The ReshapeTransposeReshapeOverlyHighDimPattern (commonly found in attention mechanisms) can be merged into a single ReshapeTransposeReshapeLowDimPattern. Use the WinML CLI rewrite flag to apply this optimization before exporting."
             }
         ],
         "enabled": true,

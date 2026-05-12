@@ -457,14 +457,14 @@ class TestRuntimeRulesSearchDirs:
 
     def test_default_search_dir_included(self, monkeypatch):
         """Default embedded dir is always in the search list."""
-        monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
+        monkeypatch.delenv("WINMLCLI_RULES_DIR", raising=False)
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) >= 1
         assert dirs[0].name == "runtime_check_rules"
 
     def test_env_var_adds_dirs(self, monkeypatch):
-        """MODELKIT_RULES_DIR adds extra search directories."""
-        monkeypatch.setenv("MODELKIT_RULES_DIR", f"/extra/path1{os.pathsep}/extra/path2")
+        """WINMLCLI_RULES_DIR adds extra search directories."""
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", f"/extra/path1{os.pathsep}/extra/path2")
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) == 3
         assert dirs[0] == Path("/extra/path1").resolve()
@@ -472,9 +472,9 @@ class TestRuntimeRulesSearchDirs:
         assert dirs[2].name == "runtime_check_rules"
 
     def test_env_var_relative_path_resolved_from_module_dir(self, monkeypatch):
-        """Relative MODELKIT_RULES_DIR entries are resolved from rule_loader.py dir."""
+        """Relative WINMLCLI_RULES_DIR entries are resolved from rule_loader.py dir."""
         relative_entry = "custom/rules"
-        monkeypatch.setenv("MODELKIT_RULES_DIR", relative_entry)
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", relative_entry)
 
         dirs = get_runtime_rules_search_dirs()
 
@@ -483,8 +483,8 @@ class TestRuntimeRulesSearchDirs:
         assert dirs[1] == _DEFAULT_RUNTIME_RULES_DIR
 
     def test_env_var_empty_ignored(self, monkeypatch):
-        """Empty MODELKIT_RULES_DIR is treated as unset."""
-        monkeypatch.setenv("MODELKIT_RULES_DIR", "  ")
+        """Empty WINMLCLI_RULES_DIR is treated as unset."""
+        monkeypatch.setenv("WINMLCLI_RULES_DIR", "  ")
         dirs = get_runtime_rules_search_dirs()
         assert len(dirs) == 1
 
@@ -497,7 +497,7 @@ class TestResolveRuleParquetPath:
         with tempfile.TemporaryDirectory() as tmpdir:
             parquet_name = "Split_QNNExecutionProvider_NPU_ai.onnx_opset13.parquet"
             (Path(tmpdir) / parquet_name).write_bytes(b"PAR1")
-            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
+            monkeypatch.setenv("WINMLCLI_RULES_DIR", tmpdir)
 
             result = resolve_rule_parquet_path(parquet_name)
             assert result == Path(tmpdir).resolve() / parquet_name
@@ -505,7 +505,7 @@ class TestResolveRuleParquetPath:
 
     def test_resolve_parquet_fallback_to_first_search_dir(self, monkeypatch):
         """When parquet is missing everywhere, fallback path is under first search dir."""
-        monkeypatch.delenv("MODELKIT_RULES_DIR", raising=False)
+        monkeypatch.delenv("WINMLCLI_RULES_DIR", raising=False)
         parquet_name = "missing_rule.parquet"
 
         result = resolve_rule_parquet_path(parquet_name)
@@ -518,7 +518,7 @@ class TestResolveRuleParquetPath:
             nested_dir = Path(tmpdir) / "QNNExecutionProvider_NPU"
             nested_dir.mkdir(parents=True, exist_ok=True)
             (nested_dir / parquet_name).write_bytes(b"PAR1")
-            monkeypatch.setenv("MODELKIT_RULES_DIR", tmpdir)
+            monkeypatch.setenv("WINMLCLI_RULES_DIR", tmpdir)
 
             result = resolve_rule_parquet_path(parquet_name)
             assert result == nested_dir.resolve() / parquet_name

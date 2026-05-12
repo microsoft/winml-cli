@@ -3,7 +3,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Standalone MCP server for ModelKit inference.
+"""Standalone MCP server for WinML CLI inference.
 
 This script is intentionally self-contained and does NOT import from
 winml.modelkit, avoiding heavy ML dependency imports (PyTorch etc.)
@@ -150,7 +150,7 @@ def _guess_media_type(path: Path) -> str:
 def create_server(model_url: str) -> FastMCP:
     """Create MCP server with schema-driven per-model tools."""
     model_url = model_url.rstrip("/")
-    mcp = FastMCP("modelkit-inference")
+    mcp = FastMCP("winmlcli-inference")
 
     # -- Static tool: list all loaded models --------------------------------
 
@@ -364,7 +364,7 @@ def _register_fallback_predict(mcp: FastMCP, model_url: str) -> None:
         inputs_json: str = "{}",
         params_json: str = "{}",
     ) -> str:
-        """Run inference on the ModelKit server.
+        """Run inference on the WinML CLI server.
 
         Use list_models first to discover loaded models and their schemas.
 
@@ -404,15 +404,15 @@ def _register_fallback_predict(mcp: FastMCP, model_url: str) -> None:
 
 def main() -> None:
     """Parse arguments and run the MCP server."""
-    parser = ArgumentParser(description="ModelKit MCP Server (standalone)")
+    parser = ArgumentParser(description="WinML CLI MCP Server (standalone)")
     parser.add_argument(
         "--server-url",
         default="http://localhost:8000",
-        help="Base URL of the ModelKit service (default: http://localhost:8000)",
+        help="Base URL of the WinML CLI service (default: http://localhost:8000)",
     )
     args = parser.parse_args()
     server = create_server(args.server_url)
-    logger.info("Starting MCP server (ModelKit: %s)", args.server_url)
+    logger.info("Starting MCP server (WinML CLI: %s)", args.server_url)
     server.run(transport="stdio")
 
 

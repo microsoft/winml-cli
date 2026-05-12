@@ -134,7 +134,7 @@ class HealthResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="ModelKit API",
+    title="WinML CLI API",
     description=(
         "Phase 0 — CLI Wrapper. Each endpoint invokes a `winml` CLI command and "
         "returns structured JSON in `result` (where supported) plus raw "
@@ -378,7 +378,7 @@ def print_startup_banner(host: str, port: int) -> None:  # noqa: D103
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]ModelKit API Server[/bold]\n"
+            f"[bold]WinML CLI API Server[/bold]\n"
             f"[dim]Mode:[/dim]    CLI Wrapper (Phase 0)\n"
             f"[dim]Version:[/dim] {__version__}\n\n"
             f"[dim]API:[/dim]     [link]http://{host}:{port}[/link]\n"
