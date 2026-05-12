@@ -31,8 +31,8 @@ Exports:
 
 from __future__ import annotations
 
-import torch
 from optimum.exporters.onnx.model_configs import DetrOnnxConfig, TableTransformerOnnxConfig
+from optimum.utils.input_generators import DummyVisionInputGenerator
 
 from ...config import WinMLBuildConfig
 from ...export import register_onnx_overwrite
@@ -61,20 +61,28 @@ class _DetrPixelMaskMixin:
             "pixel_mask": {0: "batch_size", 1: "height", 2: "width"},
         }
 
-    def generate_dummy_inputs(self, framework: str = "pt", **kwargs) -> dict:
-        """Generate dummy inputs with pixel_mask matching pixel_values spatial shape."""
-        inputs = super().generate_dummy_inputs(framework=framework, **kwargs)
-        pixel_values = inputs.get("pixel_values")
 
-        if framework != "pt" or pixel_values is None:
-            return inputs
+class PixelMaskInputGenerator(DummyVisionInputGenerator):
+    """Generate all-ones pixel masks with DETR-compatible int64 dtype."""
 
-        inputs["pixel_mask"] = torch.ones(
-            (pixel_values.shape[0], pixel_values.shape[2], pixel_values.shape[3]),
-            dtype=torch.int64,
-            device=pixel_values.device,
+    SUPPORTED_INPUT_NAMES = ("pixel_mask",)
+
+    def generate(
+        self,
+        input_name: str,
+        framework: str = "pt",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+    ):
+        """Generate an all-ones int64 pixel mask for the current image batch."""
+        del input_name, int_dtype, float_dtype
+        return self.random_int_tensor(
+            shape=[self.batch_size, self.height, self.width],
+            min_value=1,
+            max_value=2,
+            framework=framework,
+            dtype="int64",
         )
-        return inputs
 
 
 @register_onnx_overwrite(
@@ -87,6 +95,11 @@ class _DetrPixelMaskMixin:
 class DetrIOConfig(_DetrPixelMaskMixin, DetrOnnxConfig):
     """DETR ONNX config override that adds optional pixel_mask input."""
 
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        PixelMaskInputGenerator,
+        *DetrOnnxConfig.DUMMY_INPUT_GENERATOR_CLASSES,
+    )
+
 
 @register_onnx_overwrite(
     "table-transformer",
@@ -96,3 +109,8 @@ class DetrIOConfig(_DetrPixelMaskMixin, DetrOnnxConfig):
 )
 class TableTransformerIOConfig(_DetrPixelMaskMixin, TableTransformerOnnxConfig):
     """Table Transformer ONNX config override that adds optional pixel_mask input."""
+
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        PixelMaskInputGenerator,
+        *TableTransformerOnnxConfig.DUMMY_INPUT_GENERATOR_CLASSES,
+    )
