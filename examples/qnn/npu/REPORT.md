@@ -2,11 +2,9 @@
 
 ## Summary
 
-- **Models tested**: 56
-- **Configs tested**: 192
-- **Perf pass rate**: 183/192 (95%)
-- **Eval pass rate**: 161/192 (84%)
-- **Non-pass results**: 34 errors, 2 timeouts
+- **Models tested**: 48
+- **Perf pass rate**: 47/48 (97%)
+- **Eval pass rate**: 47/48 (97%)
 
 ## Results
 

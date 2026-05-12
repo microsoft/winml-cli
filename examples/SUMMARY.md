@@ -5,6 +5,6 @@
 | EP | Models | Perf Pass | Eval Pass | Report |
 |----|--------|-----------|-----------|--------|
 | AMD (VitisAI, NPU) | 48 | 47/48 (97%) | 44/48 (91%) | [Report](vitisai/npu/REPORT.md) |
-| QNN (Qualcomm, NPU) | 56 | 183/192 (95%) | 161/192 (84%) | [Report](qnn/npu/REPORT.md) |
-| QNN (Qualcomm, GPU) | 56 | 162/192 (84%) | 105/192 (55%) | [Report](qnn/gpu/REPORT.md) |
+| QNN (Qualcomm, NPU) | 56 | 183/192 (95%) | 161/192 (84%) | - |
+| QNN (Qualcomm, GPU) | 56 | 162/192 (84%) | 105/192 (55%) | - |
 | OpenVINO (Intel, NPU) | 48 | 48/48 (100%) | 45/48 (93%) | [Report](openvino/npu/REPORT.md) |
