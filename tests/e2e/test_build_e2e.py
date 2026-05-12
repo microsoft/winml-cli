@@ -12,7 +12,7 @@ This module covers three categories of scenarios for ``winml build``:
 2. **Bad path** — missing required arguments, invalid values, mutually
    exclusive flags, malformed config files. Each must surface as a
    user-facing error with a non-zero exit code, never a bare stack trace.
-3. **Flag / option variations** — every behaviour-bearing flag of
+3. **Flag / option variations** — every behavior-bearing flag of
    ``winml build`` is exercised both present and absent, and every
    value of the ``--no-compile/--compile`` toggle is covered.
 
@@ -288,7 +288,7 @@ class TestBuildArgValidation:
         assert "object" in result.output.lower()
 
     def test_help_lists_all_options(self):
-        """``--help`` must surface every behaviour-bearing option."""
+        """``--help`` must surface every behavior-bearing option."""
         result = _invoke(["--help"])
         assert result.exit_code == 0
         for flag in [
@@ -335,7 +335,7 @@ def mock_run_single_build():
 
 
 class TestBuildFlagPassthrough:
-    """Each behaviour-bearing flag must propagate to ``_run_single_build``."""
+    """Each behavior-bearing flag must propagate to ``_run_single_build``."""
 
     def _base_args(self, cfg: str, tmp_path: Path) -> list[str]:
         return ["-c", cfg, "-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")]

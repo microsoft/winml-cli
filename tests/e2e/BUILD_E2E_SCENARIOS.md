@@ -1,7 +1,7 @@
 # `winml build` E2E Test Scenarios
 
 Companion to `tests/e2e/test_build_e2e.py`. Lists every functional
-scenario the suite exercises, grouped by issue-required category
+scenario the suite exercises, grouped by required test category
 (happy path / bad path / flag variations).
 
 All tests in `test_build_e2e.py` carry the `e2e` marker and are
@@ -56,11 +56,11 @@ The `winml build` command has the following options (see
 | Generic exception → `Build failed:`                   | `test_generic_failure_is_reported`                  |
 | `Quantization failed` hint = `--no-quant`             | `test_quant_failure_hint`                           |
 | `Compilation failed` hint = `--no-compile`            | `test_compile_failure_hint`                         |
-| `--help` lists every behaviour-bearing option         | `test_help_lists_all_options`                       |
+| `--help` lists every behavior-bearing option         | `test_help_lists_all_options`                       |
 
 ## Flag variations (`TestBuildFlagPassthrough`)
 
-Each behaviour-bearing flag is exercised both **present** and
+Each behavior-bearing flag is exercised both **present** and
 **absent**. `--no-compile/--compile` is a tri-state — all three
 states are covered.
 
