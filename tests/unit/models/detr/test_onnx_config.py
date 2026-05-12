@@ -126,5 +126,5 @@ class TestDetrFamilyIOConfig:
         pixel_mask = inputs["pixel_mask"]
         assert pixel_values.shape == (2, 3, 128, 192)
         assert pixel_mask.shape == (2, 128, 192)
-        assert pixel_mask.dtype == torch.int64
+        assert pixel_mask.dtype == torch.int32
         assert torch.all(pixel_mask == 1)
