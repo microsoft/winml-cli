@@ -187,3 +187,17 @@ class TestONNXModelValidation:
         assert model.get_node_key(graph.node[1]) == "node_1"
         assert model.get_node_by_key("node_0") is graph.node[0]
         assert model.get_node_by_key("node_1") is graph.node[1]
+
+    def test_get_node_key_rejects_unknown_unnamed_node(self):
+        """Unknown unnamed nodes should raise instead of using node_obj fallback."""
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3])
+
+        relu_node = helper.make_node("Relu", ["input"], ["output"])
+        graph_def = helper.make_graph([relu_node], "single_graph", [input_tensor], [output_tensor])
+        onnx_model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid("", 12)])
+        model = ONNXModel.from_onnx_model(onnx_model, "single.onnx")
+
+        unknown_unnamed_node = helper.make_node("Relu", ["x"], ["y"])
+        with pytest.raises(KeyError, match="unnamed node outside ONNXModel graph"):
+            model.get_node_key(unknown_unnamed_node)

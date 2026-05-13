@@ -1948,6 +1948,36 @@ class PatternRewriter:
         new_model = copy.deepcopy(self.model)
         graph = new_model.graph
 
+        # Keep per-node stable keys in lockstep with graph.node so unnamed
+        # node keys do not drift when nodes are deleted/inserted during rewrite.
+        graph_node_keys: list[str] = [
+            _make_stable_node_key(node, idx) for idx, node in enumerate(graph.node)
+        ]
+        used_graph_node_keys = set(graph_node_keys)
+        generated_node_key_counter = 0
+
+        def _allocate_graph_node_key(node: Any) -> str:
+            """Allocate a non-conflicting stable key for inserted nodes."""
+            nonlocal generated_node_key_counter
+
+            if node.name and node.name not in used_graph_node_keys:
+                key = node.name
+            elif node.name:
+                suffix = 1
+                key = f"{node.name}__{suffix}"
+                while key in used_graph_node_keys:
+                    suffix += 1
+                    key = f"{node.name}__{suffix}"
+            else:
+                key = f"generated_node_{generated_node_key_counter}"
+                while key in used_graph_node_keys:
+                    generated_node_key_counter += 1
+                    key = f"generated_node_{generated_node_key_counter}"
+                generated_node_key_counter += 1
+
+            used_graph_node_keys.add(key)
+            return key
+
         # Track which nodes have been deleted to avoid double deletion
         deleted_node_names: set[str] = set()
 
@@ -1966,15 +1996,8 @@ class PatternRewriter:
         )
         for match_results, new_pattern_class in pattern_match_results:
             for match_result in match_results:
-                # Rebuild node_name_to_idx before each rewrite to handle index changes
-                # This avoids issues if matches within a group are in bad order
-                # TODO: avoid rebuiling by using
-                # dict[node_name, linked_list_node]; this would
-                # reduce theoretical time complexity but we need
-                # careful implementation to make it actually faster
-                node_name_to_idx: dict[str, int] = {}
-                for idx, node in enumerate(graph.node):
-                    node_name_to_idx[_make_stable_node_key(node, idx)] = idx
+                # Rebuild current key->index lookup from persistent graph_node_keys.
+                node_name_to_idx = {key: idx for idx, key in enumerate(graph_node_keys)}
                 skeleton_match = match_result.skeleton_match_result
 
                 # Check if removable
@@ -2064,6 +2087,16 @@ class PatternRewriter:
                 # Find insertion point: position of last matched node after deletions
                 # Since original graph is topologically sorted,
                 # last matched node is after all input producers
+                missing_nodes = [
+                    n for n in skeleton_match.matched_node_names if n not in node_name_to_idx
+                ]
+                if missing_nodes:
+                    warnings.warn(
+                        f"Skipping pattern match with missing nodes in graph: {missing_nodes}",
+                        stacklevel=2,
+                    )
+                    continue
+
                 matched_indices = [node_name_to_idx[n] for n in skeleton_match.matched_node_names]
                 max_matched_idx = max(matched_indices)
                 insert_idx = max_matched_idx - (len(matched_indices) - 1)
@@ -2071,6 +2104,7 @@ class PatternRewriter:
                 # Delete matched nodes from the graph (reverse order to avoid index shifting)
                 for idx in sorted(matched_indices, reverse=True):
                     del graph.node[idx]
+                    del graph_node_keys[idx]
 
                 # Mark nodes as deleted
                 deleted_node_names.update(skeleton_match.matched_node_names)
@@ -2079,6 +2113,7 @@ class PatternRewriter:
                 new_nodes = list(new_subgraph_model.graph.node)
                 for i, new_node in enumerate(new_nodes):
                     graph.node.insert(insert_idx + i, new_node)
+                    graph_node_keys.insert(insert_idx + i, _allocate_graph_node_key(new_node))
 
                 # Append new initializers (constants) from the new subgraph
                 for initializer in new_subgraph_model.graph.initializer:

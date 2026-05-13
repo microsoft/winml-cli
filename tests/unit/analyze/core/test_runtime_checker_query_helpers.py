@@ -338,3 +338,22 @@ class TestLocalEPFallback:
             single_node_model.ParseFromString(model_bytes)
             assert {vi.name for vi in single_node_model.graph.input} == {"weight", "input"}
             assert {init.name for init in single_node_model.graph.initializer} == set()
+
+
+class TestStableNodeKeyResolution:
+    """Test stable key resolution behavior for unknown nodes."""
+
+    def test_runtime_checker_query_rejects_unknown_unnamed_node(self):
+        """Unknown unnamed nodes should raise instead of using node_obj fallback."""
+        node = helper.make_node("Add", ["a", "b"], ["c"], name="add_node")
+        input_a = helper.make_tensor_value_info("a", TensorProto.FLOAT, [1])
+        input_b = helper.make_tensor_value_info("b", TensorProto.FLOAT, [1])
+        output_c = helper.make_tensor_value_info("c", TensorProto.FLOAT, [1])
+        graph = helper.make_graph([node], "stable_key_graph", [input_a, input_b], [output_c])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+        query = RuntimeCheckerQuery(model, ep_name="CPUExecutionProvider", device_type="CPU")
+
+        unknown_unnamed_node = helper.make_node("Relu", ["x"], ["y"])
+        with pytest.raises(KeyError, match="unnamed node outside RuntimeCheckerQuery model graph"):
+            query._get_stable_node_key(unknown_unnamed_node)

@@ -55,7 +55,7 @@ class TestEPContextNodeChecker:
         skeleton_result = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[node_proto],
-            matched_node_keys=[node_proto.name if node_proto.name else f"{node_proto.op_type}_node"],
+            matched_node_keys=[node_proto.name if node_proto.name else "node_0"],
             matcher=None,
         )
 

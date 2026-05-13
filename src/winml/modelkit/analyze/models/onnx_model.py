@@ -12,6 +12,11 @@ import onnx
 from pydantic import BaseModel, Field, field_validator
 
 from ...onnx import ONNXDomain
+from ..utils.node_key_utils import (
+    build_node_key_by_node_id,
+    make_stable_node_key,
+    resolve_stable_node_key,
+)
 
 
 class ModelTag(str, Enum):
@@ -60,6 +65,7 @@ class ONNXModel(BaseModel):
 
     # Cache for deserialized model to avoid repeated parsing
     _cached_model: onnx.ModelProto | None = None
+    _graph_nodes: list[onnx.NodeProto] | None = None
     _node_key_by_node_id: dict[int, str] | None = None
     _node_by_key: dict[str, onnx.NodeProto] | None = None
     _node_by_name: dict[str, onnx.NodeProto] | None = None
@@ -133,22 +139,23 @@ class ONNXModel(BaseModel):
     @staticmethod
     def _make_stable_node_key(node: onnx.NodeProto, index: int) -> str:
         """Create a stable non-empty key for a node within its graph."""
-        return node.name if node.name else f"node_{index}"
+        return make_stable_node_key(node, index)
 
     def _initialize_node_key_index(self) -> None:
         """Build node sidecar maps for stable key lookup."""
         model = self.get_model()
-        node_key_by_node_id: dict[int, str] = {}
+        graph_nodes = list(model.graph.node)
+        node_key_by_node_id = build_node_key_by_node_id(graph_nodes)
         node_by_key: dict[str, onnx.NodeProto] = {}
         node_by_name: dict[str, onnx.NodeProto] = {}
 
-        for index, node in enumerate(model.graph.node):
+        for index, node in enumerate(graph_nodes):
             stable_key = self._make_stable_node_key(node, index)
-            node_key_by_node_id[id(node)] = stable_key
             node_by_key[stable_key] = node
             if node.name and node.name not in node_by_name:
                 node_by_name[node.name] = node
 
+        object.__setattr__(self, "_graph_nodes", graph_nodes)
         object.__setattr__(self, "_node_key_by_node_id", node_key_by_node_id)
         object.__setattr__(self, "_node_by_key", node_by_key)
         object.__setattr__(self, "_node_by_name", node_by_name)
@@ -189,13 +196,23 @@ class ONNXModel(BaseModel):
         if node_key_by_node_id is None:
             raise RuntimeError("Node key index is unavailable.")
 
-        node_id = id(node)
-        stable_key = node_key_by_node_id.get(node_id)
-        if stable_key is not None:
-            return stable_key
+        graph_nodes = self._graph_nodes
+        if graph_nodes is None:
+            self._initialize_node_key_index()
+            graph_nodes = self._graph_nodes
 
-        # Fallback for nodes not from this model graph.
-        return node.name if node.name else f"node_obj_{node_id}"
+        if graph_nodes is None:
+            raise RuntimeError("Node graph snapshot is unavailable.")
+
+        return resolve_stable_node_key(
+            node,
+            node_key_by_node_id=node_key_by_node_id,
+            graph_nodes=graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside ONNXModel graph. "
+                "Pass a graph node loaded via ONNXModel.from_onnx_model()."
+            ),
+        )
 
     def get_node_by_key(self, node_key: str) -> onnx.NodeProto | None:
         """Resolve a stable sidecar key to a node."""

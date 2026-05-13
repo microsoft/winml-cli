@@ -52,6 +52,11 @@ from winml.modelkit.pattern import (
 TEST_DOMAIN_VERSIONS: dict[ONNXDomain, int] = {ONNXDomain.AI_ONNX: 17}
 
 
+def _stable_test_node_keys(nodes: list[onnx.NodeProto]) -> list[str]:
+    """Build stable keys with the same fallback policy as matcher internals."""
+    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(nodes)]
+
+
 # ---------------------------------------------------------------------------
 # Builders
 # ---------------------------------------------------------------------------
@@ -105,7 +110,7 @@ def _make_mock_match(node_names: list[str]) -> PatternMatchResult:
     skeleton = SkeletonMatchResult(
         pattern=_MockPattern(),  # type: ignore[arg-type]
         matched_nodes=nodes,
-        matched_node_keys=[n.name if n.name else f"{n.op_type}_node" for n in nodes],
+        matched_node_keys=_stable_test_node_keys(nodes),
         matcher=None,  # type: ignore[arg-type]
     )
     return PatternMatchResult(

@@ -210,8 +210,8 @@ class TestPatternExtractorExtractSubgraphPatterns:
             pattern=mock_subgraph_pattern,
             matched_nodes=[conv_node, relu_node],
             matched_node_keys=[
-                conv_node.name if conv_node.name else f"{conv_node.op_type}_node",
-                relu_node.name if relu_node.name else f"{relu_node.op_type}_node",
+                conv_node.name if conv_node.name else "node_0",
+                relu_node.name if relu_node.name else "node_1",
             ],
             matcher=None,
         )

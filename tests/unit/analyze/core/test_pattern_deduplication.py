@@ -15,6 +15,11 @@ from winml.modelkit.analyze import ONNXModel, PatternExtractor
 from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, SubgraphPattern
 
 
+def _stable_test_node_keys(nodes):
+    """Build stable keys with the same fallback policy as matcher internals."""
+    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(nodes)]
+
+
 @pytest.fixture
 def simple_model_with_tags() -> ONNXModel:
     """Create a simple ONNX model with hierarchy tags."""
@@ -78,10 +83,7 @@ class TestPatternDeduplication:
         skeleton1 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div_node, erf_node],
-            matched_node_keys=[
-                div_node.name if div_node.name else f"{div_node.op_type}_node",
-                erf_node.name if erf_node.name else f"{erf_node.op_type}_node",
-            ],
+            matched_node_keys=_stable_test_node_keys([div_node, erf_node]),
             matcher=None,
         )
 
@@ -96,10 +98,7 @@ class TestPatternDeduplication:
         skeleton2 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div_node, erf_node],
-            matched_node_keys=[
-                div_node.name if div_node.name else f"{div_node.op_type}_node",
-                erf_node.name if erf_node.name else f"{erf_node.op_type}_node",
-            ],
+            matched_node_keys=_stable_test_node_keys([div_node, erf_node]),
             matcher=None,
         )
 
@@ -163,7 +162,7 @@ class TestPatternDeduplication:
         skeleton1 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div1_node],
-            matched_node_keys=[div1_node.name if div1_node.name else f"{div1_node.op_type}_node"],
+            matched_node_keys=_stable_test_node_keys([div1_node]),
             matcher=None,
         )
 
@@ -177,7 +176,7 @@ class TestPatternDeduplication:
         skeleton2 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div2_node],
-            matched_node_keys=[div2_node.name if div2_node.name else f"{div2_node.op_type}_node"],
+            matched_node_keys=_stable_test_node_keys([div2_node]),
             matcher=None,
         )
 
@@ -212,7 +211,7 @@ class TestPatternMatchNodeAccess:
         skeleton = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[conv_node],
-            matched_node_keys=[conv_node.name if conv_node.name else f"{conv_node.op_type}_node"],
+            matched_node_keys=_stable_test_node_keys([conv_node]),
             matcher=None,
         )
 
@@ -244,7 +243,7 @@ class TestPatternMatchNodeAccess:
         skeleton = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[relu_node],
-            matched_node_keys=[relu_node.name if relu_node.name else f"{relu_node.op_type}_node"],
+            matched_node_keys=_stable_test_node_keys([relu_node]),
             matcher=None,
         )
 
@@ -276,7 +275,7 @@ class TestPatternMatchNodeAccess:
         skeleton = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[add_node],
-            matched_node_keys=[add_node.name if add_node.name else f"{add_node.op_type}_node"],
+            matched_node_keys=_stable_test_node_keys([add_node]),
             matcher=None,
         )
 

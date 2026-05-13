@@ -29,6 +29,11 @@ from winml.modelkit.pattern.models import (  # Pattern name collision with patte
 )
 
 
+def _stable_test_node_keys(node_protos):
+    """Build stable keys with the same fallback policy as matcher internals."""
+    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(node_protos)]
+
+
 def create_pattern_match_for_testing(pattern, node_protos):
     """Helper function to create PatternMatchResult for testing.
 
@@ -42,7 +47,7 @@ def create_pattern_match_for_testing(pattern, node_protos):
     skeleton_result = SkeletonMatchResult(
         pattern=pattern,
         matched_nodes=node_protos,
-        matched_node_keys=[n.name if n.name else f"{n.op_type}_node" for n in node_protos],
+        matched_node_keys=_stable_test_node_keys(node_protos),
         matcher=None,
     )
 
@@ -379,7 +384,7 @@ class TestPatternMatchValidation:
         skeleton_result = SkeletonMatchResult(
             pattern=op_pattern,
             matched_nodes=[node_proto],
-            matched_node_keys=[node_proto.name if node_proto.name else f"{node_proto.op_type}_node"],
+            matched_node_keys=_stable_test_node_keys([node_proto]),
             matcher=None,
         )
 

@@ -39,6 +39,11 @@ TensorProto = onnx.TensorProto
 helper = onnx.helper
 
 
+def _stable_test_node_keys(nodes: list[onnx.NodeProto]) -> list[str]:
+    """Build stable keys with the same fallback policy as matcher internals."""
+    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(nodes)]
+
+
 @pytest.fixture
 def simple_onnx_model() -> ONNXModel:
     """Create a simple ONNX model for testing."""
@@ -76,7 +81,7 @@ def sample_pattern_match() -> PatternMatchResult:
     skeleton_result = SkeletonMatchResult(
         pattern=pattern,
         matched_nodes=[node_proto],
-        matched_node_keys=[node_proto.name if node_proto.name else f"{node_proto.op_type}_node"],
+        matched_node_keys=_stable_test_node_keys([node_proto]),
         matcher=None,
     )
 
@@ -439,7 +444,7 @@ class TestRuntimeCheckerIntegration:
             skeleton = SkeletonMatchResult(
                 pattern=pattern,
                 matched_nodes=[node],
-                matched_node_keys=[node.name if node.name else f"{node.op_type}_node"],
+                matched_node_keys=_stable_test_node_keys([node]),
                 matcher=None,
             )
             return PatternMatchResult(

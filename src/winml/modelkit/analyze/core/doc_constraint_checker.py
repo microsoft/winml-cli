@@ -28,6 +28,7 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
+from ..utils.node_key_utils import build_node_key_by_node_id, resolve_stable_node_key
 
 
 logger = logging.getLogger(__name__)
@@ -89,16 +90,16 @@ class DocConstraintChecker:
             self.model_proto = model_proto
         else:
             self.model_proto = infer_onnx_shapes(model_proto)
+        # Keep stable Python wrapper references for graph nodes so id(node)
+        # mappings do not accidentally collide with new transient wrappers.
+        self._graph_nodes: list[onnx.NodeProto] = list(self.model_proto.graph.node)
         self.ep_name = ep_name
         self.device_type = device_type
         self.valueinfo = collect_valueinfo_dict(self.model_proto)
         if node_key_by_node_id is not None:
             self._node_key_by_node_id = dict(node_key_by_node_id)
         else:
-            self._node_key_by_node_id = {
-                id(node): (node.name if node.name else f"node_{index}")
-                for index, node in enumerate(self.model_proto.graph.node)
-            }
+            self._node_key_by_node_id = build_node_key_by_node_id(self._graph_nodes)
 
         # Load ONNX to target EP operator mapping
         self.mapping_config = self._load_mapping_config()
@@ -111,10 +112,14 @@ class DocConstraintChecker:
 
     def _get_stable_node_key(self, node: onnx.NodeProto) -> str:
         """Resolve stable analyzer key for a node."""
-        stable_key = self._node_key_by_node_id.get(id(node))
-        if stable_key is not None:
-            return stable_key
-        return node.name if node.name else f"node_obj_{id(node)}"
+        return resolve_stable_node_key(
+            node,
+            node_key_by_node_id=self._node_key_by_node_id,
+            graph_nodes=self._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside DocConstraintChecker model graph."
+            ),
+        )
 
     def _load_constraints(self) -> dict[str, pd.DataFrame]:
         """Load operator constraints from JSON file.
