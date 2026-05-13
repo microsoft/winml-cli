@@ -10,17 +10,19 @@ NO WinMLAutoModel involvement, NO actual inference.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark, perf
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from winml.modelkit.commands.perf import (
+    BenchmarkConfig,
+    PerfBenchmark,
+    generate_output_path,
+    perf,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -100,36 +102,52 @@ class TestPerfCliInterface:
 
 
 class TestPerfOutputPath:
-    """Test generate_output_path() behavior."""
+    """Test generate_output_path() behavior.
+
+    The default output lives under ~/.cache/winml/perf/<slug>/<timestamp>.json
+    so repeated `winml perf` runs don't pollute CWD (#551).
+    """
+
+    _TIMESTAMP_RE = r"^\d{8}-\d{6}\.json$"
+
+    @property
+    def _cache_root(self) -> Path:
+        return Path.home() / ".cache" / "winml" / "perf"
 
     def test_hf_model_path(self) -> None:
-        from winml.modelkit.commands.perf import generate_output_path
-
         result = generate_output_path("microsoft/resnet-50")
-        assert result.name == "microsoft_resnet-50_perf.json"
+        assert result.parent == self._cache_root / "microsoft_resnet-50"
+        assert re.match(self._TIMESTAMP_RE, result.name)
 
     def test_onnx_file_uses_stem(self) -> None:
-        from winml.modelkit.commands.perf import generate_output_path
-
         result = generate_output_path("/path/to/model.onnx")
-        assert result.name == "model_perf.json"
+        assert result.parent == self._cache_root / "model"
+        assert re.match(self._TIMESTAMP_RE, result.name)
 
     def test_onnx_no_leading_underscore(self) -> None:
-        from winml.modelkit.commands.perf import generate_output_path
-
         result = generate_output_path("./model.onnx")
-        assert not result.name.startswith("._")
-        assert result.name == "model_perf.json"
+        assert result.parent == self._cache_root / "model"
+        assert re.match(self._TIMESTAMP_RE, result.name)
 
     def test_windows_path_handled(self) -> None:
-        """Backslashes in paths should be replaced."""
-        from winml.modelkit.commands.perf import generate_output_path
-
+        """Backslashes in paths are replaced in the slug directory name."""
         result = generate_output_path("C:\\models\\bert-base")
-        assert "\\" not in result.name
-        # On Windows, Path("C:_models_bert-base_perf.json").name strips the
-        # drive letter prefix "C:", yielding "_models_bert-base_perf.json".
-        assert result.name == "_models_bert-base_perf.json"
+        # On Windows the "C:" drive letter is stripped by Path().name, yielding
+        # "_models_bert-base" — match the legacy slug semantics.
+        assert result.parent == self._cache_root / "_models_bert-base"
+        assert "\\" not in result.parent.name
+        assert re.match(self._TIMESTAMP_RE, result.name)
+
+    def test_module_class_adds_subdir(self) -> None:
+        """--module CLASSNAME nests results under <slug>/<module_class>/."""
+        result = generate_output_path("bert-base-uncased", module_class="BertAttention")
+        assert result.parent == self._cache_root / "bert-base-uncased" / "BertAttention"
+        assert re.match(self._TIMESTAMP_RE, result.name)
+
+    def test_path_is_under_user_home(self) -> None:
+        """Sanity: regardless of input, the file lands under ~/.cache/winml/perf."""
+        result = generate_output_path("microsoft/resnet-50")
+        assert self._cache_root in result.parents
 
 
 # =============================================================================
