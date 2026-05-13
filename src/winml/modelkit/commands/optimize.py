@@ -121,11 +121,12 @@ def capability_options(func: Callable) -> Callable:
 
     for cap in all_caps:
         if isinstance(cap, BoolCapability):
+            default_str = "enabled" if cap.default else "disabled"
             func = click.option(
                 f"--enable-{cap.name}/--disable-{cap.name}",
                 cap.python_name,
                 default=None,  # Use None to detect explicit vs default
-                help=cap.description,
+                help=f"{cap.description} (Default: {default_str})",
             )(func)
         elif isinstance(cap, IntCapability):
             func = click.option(
@@ -133,7 +134,7 @@ def capability_options(func: Callable) -> Callable:
                 cap.python_name,
                 type=click.IntRange(min=cap.min_value, max=cap.max_value),
                 default=None,
-                help=cap.description,
+                help=f"{cap.description} (Default: {cap.default})",
             )(func)
         elif isinstance(cap, ChoiceCapability):
             func = click.option(
@@ -141,7 +142,7 @@ def capability_options(func: Callable) -> Callable:
                 cap.python_name,
                 type=click.Choice(cap.choices),
                 default=None,
-                help=cap.description,
+                help=f"{cap.description} (Default: {cap.default})",
             )(func)
 
     return func

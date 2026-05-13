@@ -246,6 +246,22 @@ class WinMLBuildConfig:
 # =============================================================================
 
 
+class SubmoduleClassNotFoundError(LookupError):
+    """Raised when no submodule matches the requested class name.
+
+    Attributes:
+        class_name: The class name that was requested.
+        available_classes: Sorted list of submodule class names actually
+            present (and executed) in the traced model — used by callers to
+            render "did you mean…?" suggestions.
+    """
+
+    def __init__(self, class_name: str, available_classes: list[str]) -> None:
+        self.class_name = class_name
+        self.available_classes = available_classes
+        super().__init__(f"No submodule with class '{class_name}' found")
+
+
 @dataclass
 class SubmoduleInfo:
     """Info about a discovered submodule from torchinfo.
@@ -1068,12 +1084,16 @@ def _find_submodules_by_class(
         depth=10,
     )
 
-    # Collect torchinfo-discovered modules matching class_name
+    # Collect torchinfo-discovered modules matching class_name, plus the
+    # full set of executed class names — surfaced via SubmoduleClassNotFoundError
+    # so the CLI can suggest valid alternatives on a typo.
     torchinfo_modules: list[tuple[str, Any]] = []  # (full_path, layer_info)
+    executed_class_names: set[str] = set()
     for layer_info in model_info.summary_list:
-        if layer_info.class_name != class_name:
-            continue
         if not layer_info.executed:
+            continue
+        executed_class_names.add(layer_info.class_name)
+        if layer_info.class_name != class_name:
             continue
 
         # Build full dotted path by walking parent chain (matches named_modules())
@@ -1084,6 +1104,9 @@ def _find_submodules_by_class(
             node = node.parent_info
         full_path = ".".join(reversed(parts))
         torchinfo_modules.append((full_path, layer_info))
+
+    if not torchinfo_modules:
+        raise SubmoduleClassNotFoundError(class_name, sorted(executed_class_names))
 
     # Second pass: hook-based capture for complete multi-input I/O data.
     # torchinfo only captures the first input tensor per module; our hooks

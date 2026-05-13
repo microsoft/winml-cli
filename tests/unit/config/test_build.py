@@ -24,6 +24,7 @@ import winml.modelkit.models  # noqa: F401
 from winml.modelkit.commands.config import config as config_command
 from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
 from winml.modelkit.config import (
+    SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
     generate_onnx_build_config,
@@ -860,12 +861,12 @@ class TestBuildSubmoduleConfig:
 
 
 # =============================================================================
-# TestFindSubmodulesByClass - exercises the signature-fallback branch
+# TestFindSubmodulesByClass - signature-fallback and no-match paths
 # =============================================================================
 
 
 class TestFindSubmodulesByClass:
-    """Tests for _find_submodules_by_class signature-fallback branch."""
+    """Tests for _find_submodules_by_class branches."""
 
     def test_signature_fallback_when_hook_data_empty(self) -> None:
         """Empty hook_data triggers inspect.signature fallback for input_names."""
@@ -906,6 +907,46 @@ class TestFindSubmodulesByClass:
 
         assert len(results) == 1
         assert results[0].input_names == ["hidden_state"]
+
+    def test_no_match_raises_with_available_classes(self) -> None:
+        """Wrong class name raises SubmoduleClassNotFoundError listing real classes."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class Inner(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(8, 16)
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.linear(x)
+
+        class Wrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inner = Inner()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.inner(x)
+
+        model = Wrapper()
+
+        with pytest.raises(SubmoduleClassNotFoundError) as exc_info:
+            _find_submodules_by_class(
+                model,
+                "ResNetStage",  # doesn't exist in this model
+                input_shapes=[(1, 8)],
+                input_dtypes=["float32"],
+            )
+
+        err = exc_info.value
+        assert err.class_name == "ResNetStage"
+        # The real submodule classes must be reported, sorted.
+        assert "Inner" in err.available_classes
+        assert "Linear" in err.available_classes
+        assert err.available_classes == sorted(err.available_classes)
 
 
 # =============================================================================
