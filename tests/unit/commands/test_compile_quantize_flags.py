@@ -149,3 +149,182 @@ class TestCompileDeviceDisplayLabel:
 
         assert "Device: gpu" in result.output
         assert "Device: npu" not in result.output
+
+
+# =============================================================================
+# CLI <-> --config precedence (regression tests for Bug 1)
+# =============================================================================
+
+
+class TestQuantizeCliConfigPrecedence:
+    """Verify CLI/config-file priority in `winml quantize`.
+
+    Expected priority (well-designed CLI contract):
+        CLI explicit option > config-file value > CLI option default
+
+    Regression tests for the bug where ``from_dict`` filled missing JSON keys
+    with dataclass defaults, which the precedence block then treated as if
+    they came from the file — silently overriding ``--precision``.
+    """
+
+    @staticmethod
+    def _setup(tmp_path):
+        import numpy as np
+        import onnx
+        from onnx import TensorProto, helper, numpy_helper
+
+        rng = np.random.default_rng(0)
+        x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 4])
+        y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2])
+        w = numpy_helper.from_array(rng.standard_normal((4, 2), dtype=np.float32), "W")
+        graph = helper.make_graph(
+            [helper.make_node("MatMul", ["input", "W"], ["output"])],
+            "tiny",
+            [x],
+            [y],
+            [w],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model.ir_version = 8
+        model_path = tmp_path / "tiny.onnx"
+        onnx.save(model, str(model_path))
+
+        config_path = tmp_path / "bc.json"
+        config_path.write_text('{"quant": {}}', encoding="utf-8")
+        return model_path, config_path
+
+    @staticmethod
+    def _captured_config(runner_args, tmp_path):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        captured: dict[str, object] = {}
+
+        def fake_quantize(model_path, output_path=None, config=None, **kwargs):
+            captured["config"] = config
+            result = MagicMock()
+            result.success = True
+            result.output_path = output_path
+            result.nodes_quantized = 0
+            result.total_time_seconds = 0.0
+            result.errors = []
+            return result
+
+        with patch(
+            "winml.modelkit.quant.quantize_onnx", side_effect=fake_quantize
+        ):
+            r = CliRunner().invoke(
+                quantize_cmd, runner_args, obj={}, catch_exceptions=False
+            )
+        assert r.exit_code == 0, r.output
+        return captured["config"], r.output
+
+    # ---- Misbehavior A: explicit --precision must win, even with --config ----
+
+    def test_a1_precision_int16_with_empty_config(self, tmp_path):
+        model, bc = self._setup(tmp_path)
+        cfg, _ = self._captured_config(
+            [
+                "-m", str(model),
+                "--config", str(bc),
+                "--precision", "int16",
+                "--samples", "2",
+            ],
+            tmp_path,
+        )
+        assert cfg.weight_type == "int16", f"weight_type={cfg.weight_type}"
+        assert cfg.activation_type == "uint16", f"activation_type={cfg.activation_type}"
+
+    def test_a2_precision_w8a16_with_empty_config(self, tmp_path):
+        model, bc = self._setup(tmp_path)
+        cfg, _ = self._captured_config(
+            [
+                "-m", str(model),
+                "--config", str(bc),
+                "--precision", "w8a16",
+                "--samples", "2",
+            ],
+            tmp_path,
+        )
+        assert cfg.weight_type == "uint8"
+        assert cfg.activation_type == "uint16"
+
+    def test_a3_precision_w16a16_with_empty_config(self, tmp_path):
+        model, bc = self._setup(tmp_path)
+        cfg, _ = self._captured_config(
+            [
+                "-m", str(model),
+                "--config", str(bc),
+                "--precision", "w16a16",
+                "--samples", "2",
+            ],
+            tmp_path,
+        )
+        assert cfg.weight_type == "int16"
+        assert cfg.activation_type == "uint16"
+
+    # ---- Misbehavior B: CLI sentinel must beat dataclass default ----
+
+    def test_b4_partial_config_only_weight_type(self, tmp_path):
+        """JSON sets only quant.weight_type=int16; activation_type must come from precision/default."""  # noqa: E501
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "bc_b4.json"
+        bc.write_text('{"quant": {"weight_type": "int16"}}', encoding="utf-8")
+        cfg, _ = self._captured_config(
+            ["-m", str(model), "--config", str(bc), "--samples", "2"],
+            tmp_path,
+        )
+        assert cfg.weight_type == "int16"
+        # With --precision unset and JSON not setting activation_type, the
+        # resolver falls back to default uint8 for activation. The contract:
+        # JSON's silence about activation_type must not be misread as
+        # "user wants uint8" — it stays at the CLI-default sentinel which
+        # _resolve_quant_types then maps to uint8 (since precision is None).
+        # But weight_type comes from JSON unambiguously. This pins the
+        # weight_type value.
+
+    def test_b5_partial_config_only_activation_type(self, tmp_path):
+        """JSON sets only quant.activation_type=uint16; weight_type must come from precision/default."""  # noqa: E501
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "bc_b5.json"
+        bc.write_text('{"quant": {"activation_type": "uint16"}}', encoding="utf-8")
+        cfg, _ = self._captured_config(
+            ["-m", str(model), "--config", str(bc), "--samples", "2"],
+            tmp_path,
+        )
+        assert cfg.activation_type == "uint16"
+        # With JSON not setting weight_type, weight_type stays at CLI sentinel
+        # None, _resolve_quant_types falls back to uint8. Pin activation_type.
+
+    def test_explicit_cli_weight_type_beats_config(self, tmp_path):
+        """Explicit --weight-type wins over JSON value."""
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "bc_cli_win.json"
+        bc.write_text('{"quant": {"weight_type": "uint8"}}', encoding="utf-8")
+        cfg, _ = self._captured_config(
+            [
+                "-m", str(model),
+                "--config", str(bc),
+                "--weight-type", "int16",
+                "--samples", "2",
+            ],
+            tmp_path,
+        )
+        assert cfg.weight_type == "int16"
+
+    def test_config_value_used_when_no_cli(self, tmp_path):
+        """Config value wins over CLI default when user didn't override."""
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "bc_use.json"
+        bc.write_text(
+            '{"quant": {"calibration_method": "entropy", "samples": 7}}',
+            encoding="utf-8",
+        )
+        cfg, _output = self._captured_config(
+            ["-m", str(model), "--config", str(bc)],
+            tmp_path,
+        )
+        assert cfg.calibration_method == "entropy"
+        assert cfg.samples == 7
+
