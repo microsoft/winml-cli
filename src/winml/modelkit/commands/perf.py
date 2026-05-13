@@ -75,7 +75,6 @@ class BenchmarkConfig:
     batch_size: int = 1
     output_path: Path | None = None
     no_quantize: bool = False
-    no_compile: bool = True
     rebuild: bool = False
     ignore_cache: bool = False
     monitor: bool = False
@@ -350,7 +349,6 @@ class PerfBenchmark:
         else:
             self._model = WinMLAutoModel.from_pretrained(
                 model_id,
-                no_compile=self.config.no_compile,
                 **common_kwargs,
             )
 
@@ -1110,13 +1108,6 @@ def _run_onnx_benchmark(
     help="Skip quantization during model build",
 )
 @click.option(
-    "--no-compile/--compile",
-    "no_compile",
-    default=True,
-    show_default=True,
-    help="Skip EPContext compilation during build (use --compile to enable)",
-)
-@click.option(
     "--rebuild",
     is_flag=True,
     default=False,
@@ -1171,7 +1162,6 @@ def perf(
     batch_size: int,
     shape_config_path: Path | None,
     no_quantize: bool,
-    no_compile: bool,
     rebuild: bool,
     ignore_cache: bool,
     module_class: str | None,
@@ -1289,7 +1279,6 @@ def perf(
         batch_size=batch_size,
         output_path=output,
         no_quantize=no_quantize,
-        no_compile=no_compile,
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         monitor=monitor,
