@@ -30,7 +30,6 @@ import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
-from onnx import TensorProto, helper, numpy_helper
 
 from winml.modelkit.commands.optimize import optimize
 
@@ -102,25 +101,25 @@ def _build_const_folding_model() -> onnx.ModelProto:
     target_shape = [2, 3]
     fill_value = 7.0
 
-    x_info = helper.make_tensor_value_info("x", TensorProto.FLOAT, target_shape)
-    out_info = helper.make_tensor_value_info("out", TensorProto.FLOAT, target_shape)
+    x_info = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, target_shape)
+    out_info = onnx.helper.make_tensor_value_info("out", onnx.TensorProto.FLOAT, target_shape)
 
     # 1-D int64 tensor whose values describe the desired output shape.
-    shape_init = helper.make_tensor(
+    shape_init = onnx.helper.make_tensor(
         "shape_init",
-        TensorProto.INT64,
+        onnx.TensorProto.INT64,
         [len(target_shape)],
         target_shape,
     )
 
     # The `value` attribute is a length-1 tensor carrying the fill scalar.
-    value_tensor = helper.make_tensor("value", TensorProto.FLOAT, [1], [fill_value])
-    cos = helper.make_node("ConstantOfShape", ["shape_init"], ["y"], name="cos")
-    cos.attribute.append(helper.make_attribute("value", value_tensor))
+    value_tensor = onnx.helper.make_tensor("value", onnx.TensorProto.FLOAT, [1], [fill_value])
+    cos = onnx.helper.make_node("ConstantOfShape", ["shape_init"], ["y"], name="cos")
+    cos.attribute.append(onnx.helper.make_attribute("value", value_tensor))
 
-    add = helper.make_node("Add", ["x", "y"], ["out"], name="add")
-    graph = helper.make_graph([cos, add], "cst_folding", [x_info], [out_info], [shape_init])
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    add = onnx.helper.make_node("Add", ["x", "y"], ["out"], name="add")
+    graph = onnx.helper.make_graph([cos, add], "cst_folding", [x_info], [out_info], [shape_init])
+    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
 
 
 def _build_expanded_gelu_model() -> onnx.ModelProto:
@@ -132,21 +131,21 @@ def _build_expanded_gelu_model() -> onnx.ModelProto:
     """
     in_name, out_name, p = "x", "out", "g_"
     initializers = [
-        numpy_helper.from_array(np.array([math.sqrt(2)], dtype=np.float32), f"{p}sqrt2"),
-        numpy_helper.from_array(np.array([1.0], dtype=np.float32), f"{p}one"),
-        numpy_helper.from_array(np.array([0.5], dtype=np.float32), f"{p}half"),
+        onnx.numpy_helper.from_array(np.array([math.sqrt(2)], dtype=np.float32), f"{p}sqrt2"),
+        onnx.numpy_helper.from_array(np.array([1.0], dtype=np.float32), f"{p}one"),
+        onnx.numpy_helper.from_array(np.array([0.5], dtype=np.float32), f"{p}half"),
     ]
     nodes = [
-        helper.make_node("Div", [in_name, f"{p}sqrt2"], [f"{p}div"], name=f"{p}div"),
-        helper.make_node("Erf", [f"{p}div"], [f"{p}erf"], name=f"{p}erf"),
-        helper.make_node("Add", [f"{p}erf", f"{p}one"], [f"{p}add1"], name=f"{p}add1"),
-        helper.make_node("Mul", [in_name, f"{p}add1"], [f"{p}mul1"], name=f"{p}mul1"),
-        helper.make_node("Mul", [f"{p}mul1", f"{p}half"], [out_name], name=f"{p}mul2"),
+        onnx.helper.make_node("Div", [in_name, f"{p}sqrt2"], [f"{p}div"], name=f"{p}div"),
+        onnx.helper.make_node("Erf", [f"{p}div"], [f"{p}erf"], name=f"{p}erf"),
+        onnx.helper.make_node("Add", [f"{p}erf", f"{p}one"], [f"{p}add1"], name=f"{p}add1"),
+        onnx.helper.make_node("Mul", [in_name, f"{p}add1"], [f"{p}mul1"], name=f"{p}mul1"),
+        onnx.helper.make_node("Mul", [f"{p}mul1", f"{p}half"], [out_name], name=f"{p}mul2"),
     ]
-    in_info = helper.make_tensor_value_info(in_name, TensorProto.FLOAT, [1, 64])
-    out_info = helper.make_tensor_value_info(out_name, TensorProto.FLOAT, [1, 64])
-    graph = helper.make_graph(nodes, "expanded_gelu", [in_info], [out_info], initializers)
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    in_info = onnx.helper.make_tensor_value_info(in_name, onnx.TensorProto.FLOAT, [1, 64])
+    out_info = onnx.helper.make_tensor_value_info(out_name, onnx.TensorProto.FLOAT, [1, 64])
+    graph = onnx.helper.make_graph(nodes, "expanded_gelu", [in_info], [out_info], initializers)
+    return onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
 
 
 @pytest.fixture
@@ -211,14 +210,16 @@ class TestOptimizeConstFolding:
             f"expected ConstantOfShape to be folded by default; ops: {_ops(model)}"
         )
 
-    def test_missing_model_fails(self, tmp_path: Path):
-        # No -m supplied: command must reject and write no ONNX anywhere.
+    def test_missing_model_fails(self, cst_folding_path: Path):
+        # No -m supplied: command must reject and must not produce the
+        # would-be default output (cst_folding_opt.onnx) alongside the input.
         result = _invoke([], catch=True)
         assert result.exit_code != 0, (
             f"expected failure for missing -m, got exit=0:\n{result.output}"
         )
-        leftover = list(tmp_path.glob("*.onnx"))
-        assert not leftover, f"unexpected ONNX files in {tmp_path}: {leftover}"
+        assert not _default_opt_path(cst_folding_path).exists(), (
+            f"unexpected default-opt ONNX at {_default_opt_path(cst_folding_path)}"
+        )
 
     def test_custom_output(self, cst_folding_path: Path, tmp_path: Path):
         custom = tmp_path / "explicit.onnx"
