@@ -115,21 +115,17 @@ class TestPerfModuleFlag:
         assert "Linear" in result.output
 
     def test_module_default_output_includes_class_name(self) -> None:
-        """Default output path includes module class name."""
-        # The single-model generate_output_path produces {slug}_perf.json
-        path = generate_output_path("bert-base-uncased")
-        assert "bert-base-uncased" in str(path)
+        """Default output path includes the model slug and module class name."""
+        # Single-model layout: ~/.cache/winml/perf/<slug>/<timestamp>.json
+        plain = generate_output_path("bert-base-uncased")
+        assert "bert-base-uncased" in str(plain)
 
-        # The module-mode output path (from _perf_modules) is
-        # {slug}_{module_class}_perf.json -- tested via the inline logic
-        # in _perf_modules. Here we verify the format difference:
-        from pathlib import Path
-
-        slug = "bert-base-uncased"
-        module_class = "BertAttention"
-        module_path = Path(f"{slug}_{module_class}_perf.json")
-        assert module_class in str(module_path)
-        assert str(module_path) != str(path)
+        # Module-mode layout: ~/.cache/winml/perf/<slug>/<module_class>/<timestamp>.json
+        module_path = generate_output_path("bert-base-uncased", module_class="BertAttention")
+        assert "bert-base-uncased" in str(module_path)
+        assert "BertAttention" in str(module_path)
+        # Module-mode is nested one level deeper than plain.
+        assert module_path.parent.parent == plain.parent
 
 
 class TestPerfModuleParameterForwarding:
