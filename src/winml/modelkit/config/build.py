@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -821,9 +822,9 @@ def _build_submodule_config(
 
     # Build InputTensorSpec for EACH input tensor (not just the first).
     # Use the submodule's actual forward-arg names so build_hf_model can
-    # call submodule(**kwargs) correctly (e.g., ResNetStage expects `input`,
-    # ResNetBottleNeckLayer expects `hidden_state`). Fall back to generic
-    # input_{i} only when names were not discovered.
+    # call submodule(**kwargs) correctly — submodule forward args may be
+    # positional (e.g. `input`) or keyword (e.g. `hidden_state`). Fall back
+    # to generic input_{i} only when names were not discovered.
     def _input_name(i: int) -> str:
         if i < len(sub_info.input_names) and sub_info.input_names[i]:
             return sub_info.input_names[i]
@@ -1120,10 +1121,8 @@ def _find_submodules_by_class(
 
             # Without hook data, derive names from the forward signature so
             # build_hf_model can invoke the submodule with the correct kwargs.
-            import inspect as _inspect
-
             try:
-                sig = _inspect.signature(layer_info.module.forward)
+                sig = inspect.signature(layer_info.module.forward)
                 layer_input_names = [p.name for p in sig.parameters.values() if p.name != "self"][
                     : len(layer_input_shapes)
                 ]

@@ -578,11 +578,10 @@ def _perf_modules(
     # Instantiate parent with init weights (no pretrained download).
     # Submodule configs intentionally drop `loader.task`, so re-resolve the
     # parent task from the model_id — the same path `generate_hf_build_config`
-    # used to compute module_path. Without this, models whose architectures
-    # field differs from the first supported task for their model_type (e.g.
-    # microsoft/resnet-50: architectures=ResNetForImageClassification but
-    # supported_tasks[0]=feature-extraction) instantiate the wrong parent
-    # class and get_submodule() raises AttributeError.
+    # used to compute module_path. Without this, models whose `architectures`
+    # field maps to a different task than `get_supported_tasks(model_type)[0]`
+    # instantiate the wrong parent class and `get_submodule()` raises
+    # AttributeError.
     model_type = module_configs[0].loader.model_type
     if not model_type:
         raise click.ClickException("module configs missing model_type")
