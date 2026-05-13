@@ -861,12 +861,12 @@ class TestBuildSubmoduleConfig:
 
 
 # =============================================================================
-# TestFindSubmodulesByClass - exercises the signature-fallback branch
+# TestFindSubmodulesByClass - signature-fallback and no-match paths
 # =============================================================================
 
 
 class TestFindSubmodulesByClass:
-    """Tests for _find_submodules_by_class signature-fallback branch."""
+    """Tests for _find_submodules_by_class branches."""
 
     def test_signature_fallback_when_hook_data_empty(self) -> None:
         """Empty hook_data triggers inspect.signature fallback for input_names."""
@@ -907,15 +907,6 @@ class TestFindSubmodulesByClass:
 
         assert len(results) == 1
         assert results[0].input_names == ["hidden_state"]
-
-
-# =============================================================================
-# TestFindSubmodulesByClass - no-match path surfaces available class names
-# =============================================================================
-
-
-class TestFindSubmodulesByClass:
-    """Tests for _find_submodules_by_class error reporting."""
 
     def test_no_match_raises_with_available_classes(self) -> None:
         """Wrong class name raises SubmoduleClassNotFoundError listing real classes."""
