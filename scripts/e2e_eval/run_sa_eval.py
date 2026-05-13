@@ -48,6 +48,7 @@ from sa_comparison import (
     get_level_patterns,
     get_sa_summary,
     parse_sa_json,
+    resolve_auto_ep_device,
     run_sa_with_info,
 )
 from sa_report import generate_sa_html_report
@@ -162,8 +163,8 @@ def stage2_sa_pre(
     model_dir: Path,
     graph_opt_path: Path,
     use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
+    ep: str = "auto",
+    device: str = "auto",
 ) -> tuple[dict[str, str], dict, list[dict]] | None:
     """Run SA with information on graph_optimized.onnx.
 
@@ -244,8 +245,8 @@ def stage4_sa_post(
     model_dir: Path,
     sa_opt_path: Path,
     use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
+    ep: str = "auto",
+    device: str = "auto",
 ) -> tuple[dict[str, str], list[dict]] | None:
     """Run SA on sa_optimized.onnx.
 
@@ -410,8 +411,8 @@ def evaluate_model(
     model_entry: dict,
     output_dir: Path,
     use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
+    ep: str = "auto",
+    device: str = "auto",
 ) -> dict | None:
     """Run the 4+1 stage SA eval pipeline for a single model."""
     hf_id = model_entry["hf_id"]
@@ -687,11 +688,20 @@ def main() -> None:
     )
     parser.add_argument(
         "--ep",
-        default="QNNExecutionProvider",
-        help="Execution provider (default: QNNExecutionProvider)",
+        default="auto",
+        help="Execution provider (default: auto-detects based on available hardware/EPs)",
     )
-    parser.add_argument("--device", default="NPU", help="Target device (default: NPU)")
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help="Target device (default: auto-detects available device, NPU > GPU > CPU)",
+    )
     args = parser.parse_args()
+
+    # Resolve "auto" once up-front so all per-model invocations share the
+    # same EP/device target (and the resolution is logged once).
+    args.ep, args.device = resolve_auto_ep_device(args.ep, args.device)
+    safe_print(f"Target: {args.ep} on {args.device}")
 
     output_dir = args.output_dir or Path(f"sa_eval_results/{date.today().isoformat()}")
     output_dir.mkdir(parents=True, exist_ok=True)

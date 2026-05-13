@@ -425,7 +425,10 @@ def _render_analysis_summary(
     required=False, optional_message="If not specified, analyzes all supported EPs"
 )
 @cli_utils.device_option(
-    required=False, optional_message="If not specified, uses NPU as default", default="NPU"
+    required=False,
+    optional_message="If not specified, auto-detects available device",
+    default="auto",
+    include_auto=True,
 )
 @cli_utils.verbosity_options
 @cli_utils.build_config_option
@@ -533,9 +536,28 @@ def analyze(
 
         ep_normalized = normalize_ep_name(ep)
 
+        # Resolve "auto" device using sysinfo (NPU > GPU > CPU priority).
+        # When the user omits --device, click sets it to the default "auto";
+        # we resolve it here so all downstream consumers (validation, label,
+        # analyzer.analyze) see the concrete device.
+        # An explicit ``--device auto`` is treated the same as omission.
+        # Normalize to uppercase ("NPU"/"GPU"/"CPU"): the auto-choice list is
+        # lowercase ("auto"/"cpu"/"gpu"/"npu") and click case-folds choices.
+        device_explicit = cli_utils.is_cli_provided(ctx, "device") and (
+            device is not None and device.lower() != "auto"
+        )
+        if device is None or device.lower() == "auto":
+            from ..sysinfo import resolve_device
+
+            resolved, _ = resolve_device("auto")
+            device = resolved.upper()
+            logger.info("Auto-detected device: %s", device)
+        else:
+            device = device.upper()
+
         # Validate only when the user explicitly specified --device
         if (
-            cli_utils.is_cli_provided(ctx, "device")
+            device_explicit
             and ep_normalized
             and device
             and not has_rule_data_for_ep(ep_normalized, device)
@@ -556,7 +578,7 @@ def analyze(
             sys.exit(2)
 
         ep_label = ep_normalized or "all EPs"
-        device_label = device or "NPU"
+        device_label = device
         logger.info("Analyzing model: %s", model)
         logger.info("Target: %s on %s", ep_label, device_label)
 

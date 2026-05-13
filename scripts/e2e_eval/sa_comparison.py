@@ -27,11 +27,68 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+def resolve_auto_ep_device(ep: str = "auto", device: str = "auto") -> tuple[str, str]:
+    """Resolve "auto" EP and/or device to concrete values via sysinfo.
+
+    Auto-detection priority: NPU > GPU > CPU. The chosen EP is the first
+    available execution provider whose device-mapping includes the chosen
+    device (e.g., on an NPU machine with QNN installed → ``QNNExecutionProvider``
+    + ``NPU``).
+
+    If the user explicitly passes a non-"auto" EP or device, that value is
+    preserved.
+
+    Falls back to ``CPUExecutionProvider`` + ``CPU`` if no available EP
+    matches the chosen device, ensuring the SA eval pipeline always has a
+    valid target.
+    """
+    from winml.modelkit.sysinfo.device import (
+        _get_available_devices,
+        _get_available_eps,
+        get_ep_device_map,
+    )
+
+    if device.lower() == "auto":
+        device = _get_available_devices()[0].upper()
+
+    if ep.lower() == "auto":
+        ep_device_map = get_ep_device_map()
+        available_eps = _get_available_eps()
+        device_lower = device.lower()
+        # Pick the first available EP whose device mapping includes the
+        # chosen device. Order of insertion in get_ep_device_map() is the
+        # priority (NPU vendors first).
+        match = next(
+            (
+                cand
+                for cand in ep_device_map
+                if cand in available_eps
+                and device_lower in ep_device_map[cand].split("/")
+            ),
+            None,
+        )
+        if match is None:
+            # Fall back to any EP (regardless of availability) that targets
+            # the chosen device — keeps SA eval functional in environments
+            # where ORT EP discovery is unavailable but rule data exists.
+            match = next(
+                (
+                    cand
+                    for cand, devs in ep_device_map.items()
+                    if device_lower in devs.split("/")
+                ),
+                "CPUExecutionProvider",
+            )
+        ep = match
+
+    return ep, device
+
+
 def run_sa_with_info(
     onnx_path: Path,
     output_path: Path,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
+    ep: str = "auto",
+    device: str = "auto",
 ) -> tuple[dict[str, str], dict, list[dict]]:
     """Run SA using Python API with information enabled.
 
@@ -41,6 +98,9 @@ def run_sa_with_info(
     Args:
         onnx_path: Input ONNX model to analyze.
         output_path: Path to write the SA JSON result.
+        ep: Execution provider name. Pass ``"auto"`` (default) to auto-detect
+            via :func:`resolve_auto_ep_device`.
+        device: Target device. Pass ``"auto"`` (default) to auto-detect.
 
     Returns:
         (classifications, optim_config, info_items) where:
@@ -49,6 +109,8 @@ def run_sa_with_info(
           - info_items: list of {pattern_id, explanation, has_actions} for non-SUPPORTED
     """
     from winml.modelkit.analyze import AnalyzerConfig, ONNXStaticAnalyzer
+
+    ep, device = resolve_auto_ep_device(ep, device)
 
     config = AnalyzerConfig(enable_information=True)
     analyzer = ONNXStaticAnalyzer(config=config)

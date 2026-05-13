@@ -660,6 +660,68 @@ class TestAnalyzeCommandIntegration:
         assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
 
+    @patch("winml.modelkit.sysinfo.resolve_device")
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_device_auto_detected_when_omitted(
+        self,
+        mock_analyzer_class: MagicMock,
+        mock_resolve_device: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """When --device is omitted, the CLI should auto-detect via sysinfo."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        # Pretend a CPU-only machine: resolve_device("auto") returns "cpu".
+        mock_resolve_device.return_value = ("cpu", ["cpu"])
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "QNNExecutionProvider"],
+        )
+
+        assert result.exit_code == 0
+        mock_resolve_device.assert_called_with("auto")
+        # Auto-detected device is forwarded to the analyzer in upper-case form.
+        call_kwargs = mock_instance.analyze.call_args[1]
+        assert call_kwargs["device"] == "CPU"
+
+    @patch("winml.modelkit.sysinfo.resolve_device")
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_device_auto_explicit_resolved_same_as_omitted(
+        self,
+        mock_analyzer_class: MagicMock,
+        mock_resolve_device: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Explicit ``--device auto`` should resolve via sysinfo (no validation)."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        mock_resolve_device.return_value = ("npu", ["npu", "cpu"])
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "QNNExecutionProvider", "--device", "auto"],
+        )
+
+        assert result.exit_code == 0
+        mock_resolve_device.assert_called_with("auto")
+        call_kwargs = mock_instance.analyze.call_args[1]
+        assert call_kwargs["device"] == "NPU"
+
 
 class TestAnalyzeEPDeviceValidation:
     """Test EP + device validation in analyze command."""
