@@ -181,7 +181,7 @@ from ..onnx.external_data import try_load_external_initializer_array
 from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 from .op_input_gen.op_input_gen import OpInputGenerator
-from .utils import get_attribute_proto_value, make_hashable
+from .utils import get_attribute_proto_value, make_hashable, make_stable_node_key
 
 
 logger = logging.getLogger(__name__)
@@ -325,7 +325,7 @@ def _make_stable_node_key(node: Any, node_idx: int) -> str:
     Returns:
         Stable internal node key.
     """
-    return node.name if node.name else f"node_{node_idx}"
+    return make_stable_node_key(node, node_idx)
 
 
 def opschema_to_pattern_schema(op_schema: OpSchema) -> "PatternSchema":

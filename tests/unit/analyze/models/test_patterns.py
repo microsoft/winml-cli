@@ -27,11 +27,7 @@ from winml.modelkit.pattern.models import (  # Pattern name collision with patte
     Pattern,
     SubgraphPattern,
 )
-
-
-def _stable_test_node_keys(node_protos):
-    """Build stable keys with the same fallback policy as matcher internals."""
-    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(node_protos)]
+from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 
 
 def create_pattern_match_for_testing(pattern, node_protos):

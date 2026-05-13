@@ -43,6 +43,7 @@ from winml.modelkit.pattern import (
     SkeletonMatchResult,
     get_pattern_input_generator,
 )
+from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +51,6 @@ from winml.modelkit.pattern import (
 # ---------------------------------------------------------------------------
 
 TEST_DOMAIN_VERSIONS: dict[ONNXDomain, int] = {ONNXDomain.AI_ONNX: 17}
-
-
-def _stable_test_node_keys(nodes: list[onnx.NodeProto]) -> list[str]:
-    """Build stable keys with the same fallback policy as matcher internals."""
-    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(nodes)]
 
 
 # ---------------------------------------------------------------------------

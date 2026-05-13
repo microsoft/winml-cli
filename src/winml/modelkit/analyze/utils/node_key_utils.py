@@ -15,10 +15,12 @@ from collections.abc import Sequence
 
 import onnx
 
+from ...pattern.utils import make_stable_node_key as _shared_make_stable_node_key
+
 
 def make_stable_node_key(node: onnx.NodeProto, index: int) -> str:
     """Create a stable non-empty key for a node in a graph snapshot."""
-    return node.name if node.name else f"node_{index}"
+    return _shared_make_stable_node_key(node, index)
 
 
 def build_node_key_by_node_id(graph_nodes: Sequence[onnx.NodeProto]) -> dict[int, str]:

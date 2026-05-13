@@ -13,11 +13,7 @@ from onnx import TensorProto, helper
 
 from winml.modelkit.analyze import ONNXModel, PatternExtractor
 from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, SubgraphPattern
-
-
-def _stable_test_node_keys(nodes):
-    """Build stable keys with the same fallback policy as matcher internals."""
-    return [node.name if node.name else f"node_{idx}" for idx, node in enumerate(nodes)]
+from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 
 
 @pytest.fixture
