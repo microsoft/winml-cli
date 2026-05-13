@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -565,14 +564,14 @@ def _perf_modules(
             ep=ep,
         )
     except Exception as e:
-        console.print(f"[red]Error generating module configs: {e}[/red]")
         if verbose:
             logger.exception("Module config generation failed")
-        sys.exit(3)
+        raise click.ClickException(f"Error generating module configs: {e}") from e
 
     if not module_configs:
-        console.print(f"[yellow]No modules matching '{module_class}' found[/yellow]")
-        sys.exit(0)
+        # User-error: --module pattern didn't match. Exit non-zero so CI
+        # doesn't silently treat a typo'd module name as success.
+        raise click.UsageError(f"No modules matching '{module_class}' found")
 
     console.print(f"[dim]Found {len(module_configs)} {module_class} instances[/dim]")
 
@@ -586,8 +585,7 @@ def _perf_modules(
     # class and get_submodule() raises AttributeError.
     model_type = module_configs[0].loader.model_type
     if not model_type:
-        console.print("[red]Error: module configs missing model_type[/red]")
-        sys.exit(3)
+        raise click.ClickException("module configs missing model_type")
 
     from ..loader import resolve_loader_config
 
@@ -1405,11 +1403,11 @@ def perf(
             console.print(f"[green]Op-trace saved to:[/green] {trace_output}")
 
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] Model not found: {e}")
-        sys.exit(3)
+        # User-error: bad model path. UsageError so the exit code (2) matches
+        # the convention used by Click for argument problems.
+        raise click.UsageError(f"Model not found: {e}") from e
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] Benchmark failed: {e}")
         if verbose:
             logger.exception("Benchmark failed")
-        sys.exit(4)
+        raise click.ClickException(f"Benchmark failed: {e}") from e
