@@ -379,7 +379,6 @@ markers = [
   # Hardware Markers
   "npu: Tests requiring NPU hardware",
   "gpu: Tests requiring GPU hardware",
-  "ep(name): Tests requiring a specific execution provider (qnn, openvino, dml, cuda, nv_tensorrt_rtx, vitisai, coreml, rocm)",
 
   # Environment Markers (Backend)
   "ep(name): marks tests requiring a specific execution provider",
