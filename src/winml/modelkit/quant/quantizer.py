@@ -175,8 +175,6 @@ def quantize_onnx(
         # resolution.  output_path.parent is guaranteed to exist (caller mkdir).
         abs_model_input = str(Path(model_path).resolve())
         abs_model_output = str(Path(output_path).resolve())
-        # Ensure output parent exists; subsequent os.chdir requires it.
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         # Remove stale output artifacts from a previous build.  ORT/onnx refuse
         # to overwrite an existing external-data sidecar (e.g. quantized.onnx.data),
         # raising FileExistsError, so we proactively clear them here.

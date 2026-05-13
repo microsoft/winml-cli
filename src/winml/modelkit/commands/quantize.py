@@ -100,10 +100,10 @@ console = Console()
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.option(
-    "--model-id",
+    "--model-name",
     type=str,
     default=None,
-    help="HuggingFace model ID (e.g., 'microsoft/resnet-50'). When provided "
+    help="HuggingFace model name (e.g., 'microsoft/resnet-50'). When provided "
     "with --task, enables task-aware calibration datasets using the model's preprocessor.",
 )
 @click.option(
@@ -127,7 +127,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
-    model_id: str | None,
+    model_name: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -163,6 +163,7 @@ def quantize(
     # Apply build config defaults (CLI explicit options take precedence).
     # Only read the JSON for what explicitly specified in config file.
     if config_file is not None:
+        cli_utils.load_build_config(config_file)  # validate; raises click.UsageError
         qc = (json.loads(config_file.read_text()) or {}).get("quant") or {}
         if not cli_utils.is_cli_provided(ctx, "samples") and "samples" in qc:
             samples = qc["samples"]
@@ -178,8 +179,8 @@ def quantize(
             symmetric = qc["symmetric"]
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
             task = qc["task"]
-        if not cli_utils.is_cli_provided(ctx, "model_id") and "model_name" in qc:
-            model_id = qc["model_name"]
+        if not cli_utils.is_cli_provided(ctx, "model_name") and "model_name" in qc:
+            model_name = qc["model_name"]
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -192,6 +193,7 @@ def quantize(
     # Determine output path
     if output is None:
         output = model.parent / f"{model.stem}_qdq.onnx"
+    output.parent.mkdir(parents=True, exist_ok=True)
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
@@ -212,7 +214,7 @@ def quantize(
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,
-        model_name=model_id,
+        model_name=model_name,
     )
 
     # Display dataset info from config

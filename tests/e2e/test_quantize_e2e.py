@@ -20,7 +20,6 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 import pytest
-from onnx import TensorProto, helper, numpy_helper
 
 from winml.modelkit.commands.quantize import quantize as quantize_cmd
 
@@ -39,21 +38,21 @@ pytestmark = [pytest.mark.e2e]
 
 def _build_tiny_onnx(path: Path, *, with_metadata: bool = True) -> None:
     rng = np.random.default_rng(42)
-    x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 16])
-    y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])
-    w1 = numpy_helper.from_array(rng.standard_normal((16, 8), dtype=np.float32), "W1")
-    b1 = numpy_helper.from_array(rng.standard_normal((8,), dtype=np.float32), "B1")
-    w2 = numpy_helper.from_array(rng.standard_normal((8, 4), dtype=np.float32), "W2")
-    b2 = numpy_helper.from_array(rng.standard_normal((4,), dtype=np.float32), "B2")
+    x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 16])
+    y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 4])
+    w1 = onnx.numpy_helper.from_array(rng.standard_normal((16, 8), dtype=np.float32), "W1")
+    b1 = onnx.numpy_helper.from_array(rng.standard_normal((8,), dtype=np.float32), "B1")
+    w2 = onnx.numpy_helper.from_array(rng.standard_normal((8, 4), dtype=np.float32), "W2")
+    b2 = onnx.numpy_helper.from_array(rng.standard_normal((4,), dtype=np.float32), "B2")
     nodes = [
-        helper.make_node("MatMul", ["input", "W1"], ["mm1"], name="MatMul_1"),
-        helper.make_node("Add", ["mm1", "B1"], ["add1"], name="Add_1"),
-        helper.make_node("Relu", ["add1"], ["relu1"], name="Relu_1"),
-        helper.make_node("MatMul", ["relu1", "W2"], ["mm2"], name="MatMul_2"),
-        helper.make_node("Add", ["mm2", "B2"], ["output"], name="Add_2"),
+        onnx.helper.make_node("MatMul", ["input", "W1"], ["mm1"], name="MatMul_1"),
+        onnx.helper.make_node("Add", ["mm1", "B1"], ["add1"], name="Add_1"),
+        onnx.helper.make_node("Relu", ["add1"], ["relu1"], name="Relu_1"),
+        onnx.helper.make_node("MatMul", ["relu1", "W2"], ["mm2"], name="MatMul_2"),
+        onnx.helper.make_node("Add", ["mm2", "B2"], ["output"], name="Add_2"),
     ]
-    graph = helper.make_graph(nodes, "tiny_quantizable", [x], [y], [w1, b1, w2, b2])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    graph = onnx.helper.make_graph(nodes, "tiny_quantizable", [x], [y], [w1, b1, w2, b2])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
     model.ir_version = 8
     if with_metadata:
         meta = model.metadata_props.add()
@@ -77,21 +76,21 @@ def tiny_onnx_external(tmp_path_factory: pytest.TempPathFactory) -> Path:
     d = tmp_path_factory.mktemp("tiny_quant_ext")
     p = d / "tiny_ext.onnx"
     rng = np.random.default_rng(43)
-    x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 64])
-    y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 8])
-    w1 = numpy_helper.from_array(rng.standard_normal((64, 32), dtype=np.float32), "W1")
-    b1 = numpy_helper.from_array(rng.standard_normal((32,), dtype=np.float32), "B1")
-    w2 = numpy_helper.from_array(rng.standard_normal((32, 8), dtype=np.float32), "W2")
-    b2 = numpy_helper.from_array(rng.standard_normal((8,), dtype=np.float32), "B2")
+    x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 64])
+    y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 8])
+    w1 = onnx.numpy_helper.from_array(rng.standard_normal((64, 32), dtype=np.float32), "W1")
+    b1 = onnx.numpy_helper.from_array(rng.standard_normal((32,), dtype=np.float32), "B1")
+    w2 = onnx.numpy_helper.from_array(rng.standard_normal((32, 8), dtype=np.float32), "W2")
+    b2 = onnx.numpy_helper.from_array(rng.standard_normal((8,), dtype=np.float32), "B2")
     nodes = [
-        helper.make_node("MatMul", ["input", "W1"], ["mm1"]),
-        helper.make_node("Add", ["mm1", "B1"], ["add1"]),
-        helper.make_node("Relu", ["add1"], ["relu1"]),
-        helper.make_node("MatMul", ["relu1", "W2"], ["mm2"]),
-        helper.make_node("Add", ["mm2", "B2"], ["output"]),
+        onnx.helper.make_node("MatMul", ["input", "W1"], ["mm1"]),
+        onnx.helper.make_node("Add", ["mm1", "B1"], ["add1"]),
+        onnx.helper.make_node("Relu", ["add1"], ["relu1"]),
+        onnx.helper.make_node("MatMul", ["relu1", "W2"], ["mm2"]),
+        onnx.helper.make_node("Add", ["mm2", "B2"], ["output"]),
     ]
-    graph = helper.make_graph(nodes, "tiny_ext_quantizable", [x], [y], [w1, b1, w2, b2])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    graph = onnx.helper.make_graph(nodes, "tiny_ext_quantizable", [x], [y], [w1, b1, w2, b2])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
     model.ir_version = 8
     onnx.checker.check_model(model)
     onnx.save(model, str(p))
@@ -109,14 +108,20 @@ def tiny_onnx_external(tmp_path_factory: pytest.TempPathFactory) -> Path:
 # Real HF-exported ONNX fixtures for per-task calibration dataset coverage
 #
 # Each fixture lazily exports the model via `winml export` to a persistent
-# cache under ~/.cache/winml/test_fixtures/ so that subsequent test runs
-# reuse the file (cold first run: ~30-90s per model; warm: ~0s).
+# cache under <project>/temp/test_fixtures/quantize/ so that subsequent test
+# runs reuse the file (cold first run: ~30-90s per model; warm: ~0s).
+# Cache lives in the project tree (per CLAUDE.md convention) so CI cleanup
+# and `.gitignore` can find it.
 # Marked with `network` because the first run downloads from HuggingFace.
 # ---------------------------------------------------------------------------
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_FIXTURE_CACHE_ROOT = _PROJECT_ROOT / "temp" / "test_fixtures" / "quantize"
+
+
 def _export_hf_to_onnx(hf_id: str, task: str, slug: str) -> Path:
-    cache = Path.home() / ".cache" / "winml" / "test_fixtures" / slug
+    cache = _FIXTURE_CACHE_ROOT / slug
     cache.mkdir(parents=True, exist_ok=True)
     out = cache / "model.onnx"
     if out.exists():
@@ -234,9 +239,9 @@ def _assert_quantized_output(
                 qdq_scale_names.add(node.input[1])
     for init in model.graph.initializer:
         if init.name in qdq_init_names:
-            assert init.data_type != TensorProto.UNDEFINED, init.name
+            assert init.data_type != onnx.TensorProto.UNDEFINED, init.name
         if init.name in qdq_scale_names:
-            arr = numpy_helper.to_array(init)
+            arr = onnx.numpy_helper.to_array(init)
             assert np.all(np.isfinite(arr)), f"non-finite scale {init.name}"
             assert np.all(arr > 0), f"non-positive scale {init.name}: {arr}"
 
@@ -245,7 +250,7 @@ def _assert_quantized_output(
         sess = ort.InferenceSession(str(output_onnx), providers=["CPUExecutionProvider"])
         rng = np.random.default_rng(7)
 
-        # ORT type names → numpy generator. Integer inputs (token IDs,
+        # ORT type names -> numpy generator. Integer inputs (token IDs,
         # attention masks, token_type_ids) require integer data; float inputs
         # (image pixels, embeddings) require float data.
         # Integer range is constrained to [0, 1] so embedding lookups
@@ -299,7 +304,7 @@ class TestPrecision:
         out = tmp_path / "a1.onnx"
         r = _invoke(runner, ["-m", str(tiny_onnx), "-o", str(out), "--samples", "4"])
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
-        assert _zero_point_dtype(model, "QuantizeLinear") == TensorProto.UINT8
+        assert _zero_point_dtype(model, "QuantizeLinear") == onnx.TensorProto.UINT8
         meta = {p.key: p.value for p in model.metadata_props}
         assert meta.get("test_marker") == "preserved"
 
@@ -310,7 +315,7 @@ class TestPrecision:
             ["-m", str(tiny_onnx), "-o", str(out), "--precision", "int8", "--samples", "4"],
         )
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
-        assert _zero_point_dtype(model, "QuantizeLinear") == TensorProto.UINT8
+        assert _zero_point_dtype(model, "QuantizeLinear") == onnx.TensorProto.UINT8
 
     def test_precision_int16_preset(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         out = tmp_path / "a3.onnx"
@@ -321,7 +326,7 @@ class TestPrecision:
         model = _assert_quantized_output(
             input_onnx=tiny_onnx, output_onnx=out, stdout=r.output, run_inference=False
         )
-        assert _weight_dq_zero_point_dtype(model) == TensorProto.INT16
+        assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT16
 
     def test_precision_w8a16_preset(self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path):
         out = tmp_path / "a4.onnx"
@@ -335,7 +340,7 @@ class TestPrecision:
         weight_inits = {"W1", "W2", "B1", "B2"}
         for node in model.graph.node:
             if node.op_type == "QuantizeLinear" and node.input[0] not in weight_inits:
-                assert _dtype_of_init(model, node.input[2]) == TensorProto.UINT16
+                assert _dtype_of_init(model, node.input[2]) == onnx.TensorProto.UINT16
                 break
         else:
             raise AssertionError("no activation QuantizeLinear")
@@ -355,7 +360,7 @@ class TestPrecision:
             ],
         )
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
-        assert _weight_dq_zero_point_dtype(model) == TensorProto.INT8
+        assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT8
 
     def test_unknown_precision_falls_back_to_uint8(
         self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
@@ -366,7 +371,7 @@ class TestPrecision:
             ["-m", str(tiny_onnx), "-o", str(out), "--precision", "fp16", "--samples", "4"],
         )
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
-        assert _zero_point_dtype(model, "QuantizeLinear") == TensorProto.UINT8
+        assert _zero_point_dtype(model, "QuantizeLinear") == onnx.TensorProto.UINT8
 
 
 # ===========================================================================
@@ -439,7 +444,7 @@ class TestQuantOptions:
         }
         for init in model.graph.initializer:
             if init.name in weight_zp_names:
-                arr = numpy_helper.to_array(init)
+                arr = onnx.numpy_helper.to_array(init)
                 assert np.all(arr == 0), f"zp {init.name}: {arr}"
 
 
@@ -455,9 +460,13 @@ class TestPerTaskDatasets:
         out = tmp_path / "d1.onnx"
         r = _invoke(
             runner,
-            ["-m", str(tiny_onnx), "-o", str(out), "--task", "random", "--samples", "4"],
+            [
+                "-m", str(tiny_onnx), "-o", str(out),
+                "--task", "random", "--samples", "4", "-v",
+            ],
         )
         _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
+        assert "Creating random dataset with RandomDataset" in r.output, r.output
 
     @pytest.mark.network
     def test_task_image_classification_dataset(
@@ -469,11 +478,12 @@ class TestPerTaskDatasets:
             [
                 "-m", str(onnx_imgcls), "-o", str(out),
                 "--task", "image-classification",
-                "--model-id", "microsoft/resnet-50",
-                "--samples", "4",
+                "--model-name", "microsoft/resnet-50",
+                "--samples", "4", "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_imgcls, output_onnx=out, stdout=r.output)
+        assert "Creating image-classification dataset with ImageDataset" in r.output, r.output
 
     @pytest.mark.network
     def test_task_text_classification_dataset(
@@ -485,11 +495,12 @@ class TestPerTaskDatasets:
             [
                 "-m", str(onnx_txtcls), "-o", str(out),
                 "--task", "text-classification",
-                "--model-id", "Intel/bert-base-uncased-mrpc",
-                "--samples", "4",
+                "--model-name", "Intel/bert-base-uncased-mrpc",
+                "--samples", "4", "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_txtcls, output_onnx=out, stdout=r.output)
+        assert "Creating text-classification dataset with TextDataset" in r.output, r.output
 
     @pytest.mark.network
     def test_task_object_detection_dataset(
@@ -501,11 +512,14 @@ class TestPerTaskDatasets:
             [
                 "-m", str(onnx_objdet), "-o", str(out),
                 "--task", "object-detection",
-                "--model-id", "hustvl/yolos-small",
-                "--samples", "4",
+                "--model-name", "hustvl/yolos-small",
+                "--samples", "4", "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_objdet, output_onnx=out, stdout=r.output)
+        assert (
+            "Creating object-detection dataset with ObjectDetectionDataset" in r.output
+        ), r.output
 
     @pytest.mark.network
     def test_task_image_segmentation_dataset(
@@ -517,11 +531,14 @@ class TestPerTaskDatasets:
             [
                 "-m", str(onnx_imgseg), "-o", str(out),
                 "--task", "image-segmentation",
-                "--model-id", "nvidia/segformer-b0-finetuned-ade-512-512",
-                "--samples", "4",
+                "--model-name", "nvidia/segformer-b0-finetuned-ade-512-512",
+                "--samples", "4", "-v",
             ],
         )
         _assert_quantized_output(input_onnx=onnx_imgseg, output_onnx=out, stdout=r.output)
+        assert (
+            "Creating image-segmentation dataset with ImageSegmentationDataset" in r.output
+        ), r.output
 
     def test_unsupported_task_falls_back_to_random_dataset(
         self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
@@ -646,11 +663,11 @@ class TestBuildConfigPrecedence:
                 "--samples", "4",
             ],
         )
-        # uint16 activations may not run on CPU EP — skip S7/S9
+        # uint16 activations may not run on CPU EP â€” skip S7/S9
         model = _assert_quantized_output(
             input_onnx=tiny_onnx, output_onnx=out, stdout=r.output, run_inference=False
         )
-        assert _weight_dq_zero_point_dtype(model) == TensorProto.INT16
+        assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT16
 
 
 # ===========================================================================
@@ -735,7 +752,7 @@ class TestConfigPrecedenceSweep:
             ["-m", str(tiny_onnx), "-o", str(out), "--config", str(bc), "--samples", "4"],
         )
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
-        assert _weight_dq_zero_point_dtype(model) == TensorProto.INT8
+        assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT8
 
     def test_per_channel_from_config(
         self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
@@ -783,7 +800,7 @@ class TestConfigPrecedenceSweep:
         }
         for init in model.graph.initializer:
             if init.name in weight_zp_names:
-                arr = numpy_helper.to_array(init)
+                arr = onnx.numpy_helper.to_array(init)
                 assert np.all(arr == 0), f"symmetric from config not applied; zp={arr}"
 
     def test_task_from_config(

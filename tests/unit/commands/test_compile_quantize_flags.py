@@ -164,27 +164,26 @@ class TestQuantizeCliConfigPrecedence:
 
     Regression tests for the bug where ``from_dict`` filled missing JSON keys
     with dataclass defaults, which the precedence block then treated as if
-    they came from the file — silently overriding ``--precision``.
+    they came from the file - silently overriding ``--precision``.
     """
 
     @staticmethod
     def _setup(tmp_path):
         import numpy as np
         import onnx
-        from onnx import TensorProto, helper, numpy_helper
 
         rng = np.random.default_rng(0)
-        x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 4])
-        y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2])
-        w = numpy_helper.from_array(rng.standard_normal((4, 2), dtype=np.float32), "W")
-        graph = helper.make_graph(
-            [helper.make_node("MatMul", ["input", "W"], ["output"])],
+        x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 4])
+        y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 2])
+        w = onnx.numpy_helper.from_array(rng.standard_normal((4, 2), dtype=np.float32), "W")
+        graph = onnx.helper.make_graph(
+            [onnx.helper.make_node("MatMul", ["input", "W"], ["output"])],
             "tiny",
             [x],
             [y],
             [w],
         )
-        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
         model.ir_version = 8
         model_path = tmp_path / "tiny.onnx"
         onnx.save(model, str(model_path))
@@ -276,10 +275,11 @@ class TestQuantizeCliConfigPrecedence:
             tmp_path,
         )
         assert cfg.weight_type == "int16"
+        assert cfg.activation_type == "uint8"
         # With --precision unset and JSON not setting activation_type, the
         # resolver falls back to default uint8 for activation. The contract:
         # JSON's silence about activation_type must not be misread as
-        # "user wants uint8" — it stays at the CLI-default sentinel which
+        # "user wants uint8" - it stays at the CLI-default sentinel which
         # _resolve_quant_types then maps to uint8 (since precision is None).
         # But weight_type comes from JSON unambiguously. This pins the
         # weight_type value.
@@ -294,6 +294,7 @@ class TestQuantizeCliConfigPrecedence:
             tmp_path,
         )
         assert cfg.activation_type == "uint16"
+        assert cfg.weight_type == "uint8"
         # With JSON not setting weight_type, weight_type stays at CLI sentinel
         # None, _resolve_quant_types falls back to uint8. Pin activation_type.
 
@@ -327,4 +328,44 @@ class TestQuantizeCliConfigPrecedence:
         )
         assert cfg.calibration_method == "entropy"
         assert cfg.samples == 7
+
+
+class TestQuantizeConfigValidation:
+    """Build-config parse/shape errors surface as friendly click.UsageError."""
+
+    @staticmethod
+    def _setup(tmp_path):
+        return TestQuantizeCliConfigPrecedence._setup(tmp_path)
+
+    @staticmethod
+    def _invoke(args):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        return CliRunner().invoke(quantize_cmd, args, obj={}, catch_exceptions=False)
+
+    def test_malformed_json_raises_usage_error(self, tmp_path):
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "bad.json"
+        bc.write_text('{"quant":', encoding="utf-8")
+        r = self._invoke(["-m", str(model), "--config", str(bc)])
+        assert r.exit_code != 0
+        assert "Invalid JSON in build config" in r.output
+
+    def test_empty_config_raises_usage_error(self, tmp_path):
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "empty.json"
+        bc.write_text("", encoding="utf-8")
+        r = self._invoke(["-m", str(model), "--config", str(bc)])
+        assert r.exit_code != 0
+        assert "Config file is empty" in r.output
+
+    def test_non_object_top_level_raises_usage_error(self, tmp_path):
+        model, _ = self._setup(tmp_path)
+        bc = tmp_path / "list.json"
+        bc.write_text("[]", encoding="utf-8")
+        r = self._invoke(["-m", str(model), "--config", str(bc)])
+        assert r.exit_code != 0
+        assert "Build config must be a JSON object" in r.output
 
