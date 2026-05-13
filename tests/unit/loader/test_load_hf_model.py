@@ -183,6 +183,36 @@ class TestModelArchitectureOverrideFast:
         assert call["task"] is None  # Auto-detect
         assert call["model_class"] is None
 
+    def test_bert_tiny_uses_model_specific_default_task(self, monkeypatch):
+        """bert-tiny should use model-specific default task when task is omitted."""
+        from unittest.mock import MagicMock
+
+        import winml.modelkit.loader.hf as hf_module
+
+        resolve_calls = []
+
+        def mock_resolve(config, task=None, model_class=None):
+            task = task or "feature-extraction"
+            resolve_calls.append({"task": task, "model_class": model_class})
+            mock_class = MagicMock()
+            mock_class.__name__ = "AutoDetectedModel"
+            return task, mock_class
+
+        mock_config = MagicMock()
+
+        def mock_load_hf_config(*args, **kwargs):
+            return mock_config
+
+        monkeypatch.setattr(hf_module, "resolve_task_and_model_class", mock_resolve)
+        monkeypatch.setattr(hf_module, "AutoConfig", MagicMock(from_pretrained=mock_load_hf_config))
+
+        load_hf_model("  PRAJJWAL1/BERT-TINY  ")
+
+        assert len(resolve_calls) > 0
+        call = resolve_calls[-1]
+        assert call["task"] == "feature-extraction"
+        assert call["model_class"] is None
+
 
 class TestTasksManagerIntegration:
     """Tests for TasksManager integration with specific tasks.
