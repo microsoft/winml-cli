@@ -1128,8 +1128,10 @@ def _run_onnx_benchmark(
     "module_class",
     default=None,
     type=str,
-    help="HF module class name for per-module benchmarking (e.g., 'BertAttention'). "
-    "Builds and benchmarks each instance separately.",
+    help="PyTorch module class name (NOT a dotted module path) for per-module "
+    "benchmarking. Every instance of the class in the model is built and "
+    "benchmarked separately. Example: '--module BertAttention' (correct), "
+    "not '--module encoder.layer.0.attention' (a path, will not match).",
 )
 @click.option(
     "--monitor",
