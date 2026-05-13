@@ -23,6 +23,7 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
 )
 from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError
 from winml.modelkit.analyze.utils.model_utils import DUMMY_FLOAT
+from winml.modelkit.analyze.utils.node_key_utils import resolve_stable_node_key
 from winml.modelkit.onnx import ONNXDomain
 
 
@@ -356,4 +357,12 @@ class TestStableNodeKeyResolution:
 
         unknown_unnamed_node = helper.make_node("Relu", ["x"], ["y"])
         with pytest.raises(KeyError, match="unnamed node outside RuntimeCheckerQuery model graph"):
-            query._get_stable_node_key(unknown_unnamed_node)
+            resolve_stable_node_key(
+                unknown_unnamed_node,
+                node_key_by_node_id=query._node_key_by_node_id,
+                graph_nodes=query._graph_nodes,
+                unknown_unnamed_error=(
+                    "Cannot resolve stable key for unnamed node outside "
+                    "RuntimeCheckerQuery model graph."
+                ),
+            )

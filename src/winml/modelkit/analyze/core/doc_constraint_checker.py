@@ -110,18 +110,6 @@ class DocConstraintChecker:
         # Alternatives support not yet implemented
         self.alternatives: list[PatternAlternative] = []
 
-    def _get_stable_node_key(self, node: onnx.NodeProto) -> str:
-        """Resolve stable analyzer key for a node."""
-        return resolve_stable_node_key(
-            node,
-            node_key_by_node_id=self._node_key_by_node_id,
-            graph_nodes=self._graph_nodes,
-            unknown_unnamed_error=(
-                "Cannot resolve stable key for unnamed node outside "
-                "DocConstraintChecker model graph."
-            ),
-        )
-
     def _load_constraints(self) -> dict[str, pd.DataFrame]:
         """Load operator constraints from JSON file.
 
@@ -354,7 +342,15 @@ class DocConstraintChecker:
         Returns:
             PatternRuntime with check results
         """
-        node_key = self._get_stable_node_key(node)
+        node_key = resolve_stable_node_key(
+            node,
+            node_key_by_node_id=self._node_key_by_node_id,
+            graph_nodes=self._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside "
+                "DocConstraintChecker model graph."
+            ),
+        )
         pattern_match = node_to_pattern_match(node, node_key)
         op_type = node.op_type
 

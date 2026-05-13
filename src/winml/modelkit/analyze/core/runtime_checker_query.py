@@ -1075,18 +1075,6 @@ class RuntimeCheckerQuery:
         # since_version cache keyed by (op, domain, model_opset)
         self._since_version_cache: dict[tuple[str, str, int], int] = {}
 
-    def _get_stable_node_key(self, node: onnx.NodeProto) -> str:
-        """Resolve stable analyzer key for a node."""
-        return resolve_stable_node_key(
-            node,
-            node_key_by_node_id=self._node_key_by_node_id,
-            graph_nodes=self._graph_nodes,
-            unknown_unnamed_error=(
-                "Cannot resolve stable key for unnamed node outside "
-                "RuntimeCheckerQuery model graph."
-            ),
-        )
-
     def _collect_qdq_types(self) -> None:
         """Collect QDQ types from the model.
 
@@ -2288,7 +2276,15 @@ class RuntimeCheckerQuery:
         custom_checker_name: str | None = None
         conditions_ms: int | None = None
         parquet_rules_ms: int | None = None
-        node_key = self._get_stable_node_key(node)
+        node_key = resolve_stable_node_key(
+            node,
+            node_key_by_node_id=self._node_key_by_node_id,
+            graph_nodes=self._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside "
+                "RuntimeCheckerQuery model graph."
+            ),
+        )
 
         pattern_match_start = time.perf_counter()
         pattern_match = node_to_pattern_match(node, node_key)

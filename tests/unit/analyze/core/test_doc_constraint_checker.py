@@ -10,6 +10,7 @@ import pytest
 from onnx import TensorProto, helper
 
 from winml.modelkit.analyze.core.doc_constraint_checker import DocConstraintChecker
+from winml.modelkit.analyze.utils.node_key_utils import resolve_stable_node_key
 
 
 def test_doc_constraint_checker_rejects_unknown_unnamed_node(monkeypatch: pytest.MonkeyPatch):
@@ -34,4 +35,12 @@ def test_doc_constraint_checker_rejects_unknown_unnamed_node(monkeypatch: pytest
 
     unknown_unnamed_node = helper.make_node("Relu", ["x"], ["y"])
     with pytest.raises(KeyError, match="unnamed node outside DocConstraintChecker model graph"):
-        checker._get_stable_node_key(unknown_unnamed_node)
+        resolve_stable_node_key(
+            unknown_unnamed_node,
+            node_key_by_node_id=checker._node_key_by_node_id,
+            graph_nodes=checker._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside "
+                "DocConstraintChecker model graph."
+            ),
+        )
