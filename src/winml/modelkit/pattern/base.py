@@ -311,23 +311,6 @@ def _merge_mappings(mappings: list[dict[int, str]]) -> dict[int, str] | None:
     return merged
 
 
-def _make_stable_node_key(node: Any, node_idx: int) -> str:
-    """Build a stable internal node key for pattern matching internals.
-
-    ONNX node names are optional. For unnamed nodes, we use a deterministic
-    fallback based on graph order so all lookup tables and matching results
-    can use a consistent identifier.
-
-    Args:
-        node: ONNX node object.
-        node_idx: Node index in graph order.
-
-    Returns:
-        Stable internal node key.
-    """
-    return make_stable_node_key(node, node_idx)
-
-
 def opschema_to_pattern_schema(op_schema: OpSchema) -> "PatternSchema":
     """Convert an ONNX OpSchema to a PatternSchema.
 
@@ -1364,7 +1347,7 @@ class PatternMatcher:
                 self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
 
         for node_idx, node in enumerate(self.graph.node):
-            node_name = _make_stable_node_key(node, node_idx)
+            node_name = make_stable_node_key(node, node_idx)
 
             # Build node lookup
             self.node_lookup[node_name] = node
@@ -1697,7 +1680,7 @@ class PatternMatcher:
                 edge_partial_matching_results[graph_input.name] = []
 
         for node_idx, node in enumerate(self.graph.node):
-            node_name = _make_stable_node_key(node, node_idx)
+            node_name = make_stable_node_key(node, node_idx)
             # touch output edges
             for out_edge in node.output:
                 edge_partial_matching_results[out_edge] = []
@@ -1951,7 +1934,7 @@ class PatternRewriter:
         # Keep per-node stable keys in lockstep with graph.node so unnamed
         # node keys do not drift when nodes are deleted/inserted during rewrite.
         graph_node_keys: list[str] = [
-            _make_stable_node_key(node, idx) for idx, node in enumerate(graph.node)
+            make_stable_node_key(node, idx) for idx, node in enumerate(graph.node)
         ]
         used_graph_node_keys = set(graph_node_keys)
         generated_node_key_counter = 0

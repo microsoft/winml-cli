@@ -136,11 +136,6 @@ class ONNXModel(BaseModel):
         instance._initialize_node_key_index()
         return instance
 
-    @staticmethod
-    def _make_stable_node_key(node: onnx.NodeProto, index: int) -> str:
-        """Create a stable non-empty key for a node within its graph."""
-        return make_stable_node_key(node, index)
-
     def _initialize_node_key_index(self) -> None:
         """Build node sidecar maps for stable key lookup."""
         model = self.get_model()
@@ -150,7 +145,7 @@ class ONNXModel(BaseModel):
         node_by_name: dict[str, onnx.NodeProto] = {}
 
         for index, node in enumerate(graph_nodes):
-            stable_key = self._make_stable_node_key(node, index)
+            stable_key = make_stable_node_key(node, index)
             node_by_key[stable_key] = node
             if node.name and node.name not in node_by_name:
                 node_by_name[node.name] = node
