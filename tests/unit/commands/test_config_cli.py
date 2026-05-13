@@ -46,8 +46,7 @@ def runner() -> CliRunner:
 @pytest.fixture
 def onnx_model_path(tmp_path: Path) -> Path:
     """Create a valid minimal ONNX model for local-only CLI tests."""
-    import onnx
-    from onnx import TensorProto, helper
+    from onnx import TensorProto, helper, save
 
     x_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 10])
     y_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 5])
@@ -58,7 +57,7 @@ def onnx_model_path(tmp_path: Path) -> Path:
     model.ir_version = 8
 
     onnx_path = tmp_path / "test_model.onnx"
-    onnx.save(model, str(onnx_path))
+    save(model, str(onnx_path))
     return onnx_path
 
 
