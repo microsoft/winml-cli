@@ -19,7 +19,14 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
-from .ep_device import AmbiguousMatch, DeviceNotFound, EPDevice, EPMonitorMismatch, expand_ep_name
+from .ep_device import (
+    AmbiguousMatch,
+    DeviceNotFound,
+    EPDevice,
+    EPMonitorMismatch,
+    expand_ep_name,
+    lookup_device_spec,
+)
 from .ep_registry import WinMLEPRegistry
 from .monitor.ep_monitor import EPMonitor
 from .stats import PerfStats
@@ -79,18 +86,22 @@ class PerfContext:
 
 
 def _ep_defaults(ep_device: EPDevice) -> dict[str, str]:
-    """EP-specific defaults driven by ep_device.device.
+    """EP-specific defaults from the EPDeviceSpec catalog.
 
     Most EPs return {} — they pick up settings via ep_config.provider_options
-    and ep_monitor.get_provider_options(). Only EPs that must signal a
-    backend/device kind at registration time appear here.
+    and ep_monitor.get_provider_options(). Only EPs that have measured
+    default_provider_options in EP_DEVICE_SPECS contribute non-empty results.
 
     Note: QNNExecutionProvider does NOT need ``backend_type`` here.
     When using ``add_provider_for_devices()``, the OrtEpDevice handle already
     encodes the backend target (NPU→HTP, GPU→GPU, CPU→CPU). Passing
     ``backend_type`` explicitly crashes ORT 1.23.5 with a native exit 127.
+
+    Returns a fresh dict copy so callers can mutate without aliasing the
+    catalog entry's immutable Mapping.
     """
-    return {}
+    spec = lookup_device_spec(ep_device.ep, ep_device.device)
+    return dict(spec.default_provider_options) if spec else {}
 
 
 def _build_provider_options(

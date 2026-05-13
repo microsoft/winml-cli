@@ -6,17 +6,22 @@
 
 from .ep_device import (
     _VALID_DEVICES,
+    EP_DEVICE_SPECS,
     VALID_EPS,
     AmbiguousMatch,
     DeviceNotFound,
     EPDevice,
+    EPDeviceSpec,
     EPMonitorMismatch,
     EPNotDiscovered,
     EPRegistrationFailed,
     canonicalize_ep_name,
+    default_device_for_ep,
+    default_ep_for_device,
     ep_to_device,
     expand_ep_name,
     get_provider_for_device,
+    lookup_device_spec,
     resolve_device,
     short_ep_name,
 )
@@ -32,11 +37,13 @@ from .stats import PerfStats
 
 
 __all__ = [
+    "EP_DEVICE_SPECS",
     "VALID_EPS",
     "_VALID_DEVICES",
     "AmbiguousMatch",
     "DeviceNotFound",
     "EPDevice",
+    "EPDeviceSpec",
     "EPMonitor",
     "EPMonitorMismatch",
     "EPNotDiscovered",
@@ -53,9 +60,12 @@ __all__ = [
     "WinMLQairtSession",
     "WinMLSession",
     "canonicalize_ep_name",
+    "default_device_for_ep",
+    "default_ep_for_device",
     "ep_to_device",
     "expand_ep_name",
     "get_provider_for_device",
+    "lookup_device_spec",
     "resolve_device",
     "short_ep_name",
 ]

@@ -54,14 +54,21 @@ def _ort_dev(name: str, vid: int, did: int) -> MagicMock:
 
 
 def test_build_provider_options_qnn_defaults_only(qnn_npu: EPDevice) -> None:
-    """No config, no monitor -> empty dict.
+    """No config, no monitor -> burst-mode defaults from EPDeviceSpec catalog.
 
     QNNExecutionProvider does not need ``backend_type`` when using
-    add_provider_for_devices(): the OrtEpDevice handle already encodes
-    the backend target (NPU->HTP). Passing backend_type crashes ORT 1.23.5.
+    add_provider_for_devices() — the OrtEpDevice handle already encodes the
+    backend target (NPU->HTP). Passing backend_type crashes ORT 1.23.5.
+
+    The QNN-NPU catalog entry ships with htp_performance_mode='burst' and
+    htp_graph_finalization_optimization_mode='3' (verified 2026-05-13:
+    +3x throughput on ResNet-50 vs default mode).
     """
     opts = _build_provider_options(qnn_npu, ep_config=None, ep_monitor=None)
-    assert opts == {}
+    assert opts == {
+        "htp_performance_mode": "burst",
+        "htp_graph_finalization_optimization_mode": "3",
+    }
 
 
 def test_build_provider_options_user_overrides_defaults(qnn_npu: EPDevice) -> None:
@@ -90,7 +97,10 @@ def test_ep_defaults_unknown_ep_returns_empty(cpu_ep: EPDevice) -> None:
 
 
 def test_build_session_options_no_monitor_qnn_npu(qnn_npu: EPDevice) -> None:
-    """qnn+npu with no monitor: returns SessionOptions bound to the matching OrtEpDevice."""
+    """qnn+npu with no monitor: returns SessionOptions bound to the matching OrtEpDevice.
+
+    Burst-mode defaults from the EPDeviceSpec catalog are passed as provider_options.
+    """
     chosen = _ort_dev("NPU", 0x4D4F, 0x0001)
     sibling = _ort_dev("GPU", 0x4D4F, 0x0002)
     fake_so = MagicMock()
@@ -101,7 +111,13 @@ def test_build_session_options_no_monitor_qnn_npu(qnn_npu: EPDevice) -> None:
         mock_reg.get_instance.return_value.register_ep.return_value = [chosen, sibling]
         result = _build_session_options(qnn_npu, ep_config=None, ep_monitor=None)
     assert result is fake_so
-    fake_so.add_provider_for_devices.assert_called_once_with([chosen], {})
+    fake_so.add_provider_for_devices.assert_called_once_with(
+        [chosen],
+        {
+            "htp_performance_mode": "burst",
+            "htp_graph_finalization_optimization_mode": "3",
+        },
+    )
     fake_so.add_session_config_entry.assert_not_called()
 
 

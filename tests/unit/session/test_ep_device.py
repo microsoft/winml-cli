@@ -166,3 +166,133 @@ def test_short_ep_name_cuda_tensorrt_round_trip() -> None:
     """Round-trip via expand and short for cuda/tensorrt."""
     for short in ("cuda", "tensorrt"):
         assert short_ep_name(expand_ep_name(short)) == short
+
+
+# --- EPDeviceSpec catalog tests -------------------------------------------
+
+
+def test_ep_device_specs_count() -> None:
+    """The catalog must contain exactly 13 variants."""
+    from winml.modelkit.session import EP_DEVICE_SPECS
+
+    assert len(EP_DEVICE_SPECS) == 13
+
+
+def test_lookup_device_spec_qnn_npu() -> None:
+    """lookup_device_spec returns the QNN-NPU entry with burst defaults."""
+    from winml.modelkit.session import lookup_device_spec
+
+    spec = lookup_device_spec("QNNExecutionProvider", "npu")
+    assert spec is not None
+    assert spec.ep == "QNNExecutionProvider"
+    assert spec.device == "npu"
+    assert spec.default_provider_options["htp_performance_mode"] == "burst"
+    assert spec.default_provider_options["htp_graph_finalization_optimization_mode"] == "3"
+
+
+def test_lookup_device_spec_unknown_returns_none() -> None:
+    """lookup_device_spec returns None for unknown (ep, device) pairs."""
+    from winml.modelkit.session import lookup_device_spec
+
+    assert lookup_device_spec("UnknownEP", "npu") is None
+    assert lookup_device_spec("QNNExecutionProvider", "unknown_device") is None
+
+
+def test_lookup_device_spec_empty_defaults() -> None:
+    """Non-QNN-NPU entries have empty default_provider_options (TODO entries)."""
+    from winml.modelkit.session import lookup_device_spec
+
+    for ep, device in [
+        ("DmlExecutionProvider", "gpu"),
+        ("CPUExecutionProvider", "cpu"),
+        ("CUDAExecutionProvider", "gpu"),
+        ("QNNExecutionProvider", "gpu"),
+    ]:
+        spec = lookup_device_spec(ep, device)
+        assert spec is not None, f"Expected {ep}/{device} in catalog"
+        assert dict(spec.default_provider_options) == {}, (
+            f"{ep}/{device} should have empty defaults until measured"
+        )
+
+
+def test_default_device_for_ep_qnn() -> None:
+    """default_device_for_ep returns 'npu' for QNN (first variant in catalog)."""
+    from winml.modelkit.session import default_device_for_ep
+
+    assert default_device_for_ep("QNNExecutionProvider") == "npu"
+
+
+def test_default_device_for_ep_dml() -> None:
+    """default_device_for_ep returns 'gpu' for DML (single variant)."""
+    from winml.modelkit.session import default_device_for_ep
+
+    assert default_device_for_ep("DmlExecutionProvider") == "gpu"
+
+
+def test_default_device_for_ep_cpu() -> None:
+    """default_device_for_ep returns 'cpu' for CPU EP."""
+    from winml.modelkit.session import default_device_for_ep
+
+    assert default_device_for_ep("CPUExecutionProvider") == "cpu"
+
+
+def test_default_device_for_ep_unknown_returns_none() -> None:
+    """default_device_for_ep returns None for unknown EP."""
+    from winml.modelkit.session import default_device_for_ep
+
+    assert default_device_for_ep("UnknownExecutionProvider") is None
+
+
+def test_default_ep_for_device_npu() -> None:
+    """default_ep_for_device returns QNNExecutionProvider for npu (first in catalog)."""
+    from winml.modelkit.session import default_ep_for_device
+
+    assert default_ep_for_device("npu") == "QNNExecutionProvider"
+
+
+def test_default_ep_for_device_gpu() -> None:
+    """default_ep_for_device returns OpenVINOExecutionProvider for gpu (first in catalog)."""
+    from winml.modelkit.session import default_ep_for_device
+
+    assert default_ep_for_device("gpu") == "OpenVINOExecutionProvider"
+
+
+def test_default_ep_for_device_cpu() -> None:
+    """default_ep_for_device returns OpenVINOExecutionProvider for cpu (first in catalog)."""
+    from winml.modelkit.session import default_ep_for_device
+
+    # OpenVINO-CPU comes before QNN-CPU and CPUExecutionProvider in the catalog
+    assert default_ep_for_device("cpu") == "OpenVINOExecutionProvider"
+
+
+def test_default_ep_for_device_unknown_returns_none() -> None:
+    """default_ep_for_device returns None for unknown device."""
+    from winml.modelkit.session import default_ep_for_device
+
+    assert default_ep_for_device("unknown_device") is None
+
+
+def test_ep_device_spec_is_frozen() -> None:
+    """EPDeviceSpec is frozen — mutation raises FrozenInstanceError."""
+    from dataclasses import FrozenInstanceError
+
+    from winml.modelkit.session import EPDeviceSpec
+
+    spec = EPDeviceSpec(ep="QNNExecutionProvider", device="npu")
+    with pytest.raises(FrozenInstanceError):
+        spec.ep = "DmlExecutionProvider"  # type: ignore[misc]
+
+
+def test_ep_device_spec_default_factory_is_fresh() -> None:
+    """Each EPDeviceSpec with no options gets a new empty dict (not shared)."""
+    from winml.modelkit.session import EPDeviceSpec
+
+    s1 = EPDeviceSpec(ep="DmlExecutionProvider", device="gpu")
+    s2 = EPDeviceSpec(ep="CUDAExecutionProvider", device="gpu")
+    # They should be equal (both empty) but not the same object
+    assert dict(s1.default_provider_options) == {}
+    assert dict(s2.default_provider_options) == {}
+    # The dict() copy from lookup_device_spec guarantees mutability for callers
+    d = dict(s1.default_provider_options)
+    d["key"] = "value"
+    assert "key" not in s1.default_provider_options
