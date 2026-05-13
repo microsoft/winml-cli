@@ -382,6 +382,7 @@ markers = [
   "ep(name): Tests requiring a specific execution provider (qnn, openvino, dml, cuda, nv_tensorrt_rtx, vitisai, coreml, rocm)",
 
   # Environment Markers (Backend)
+  "ep(name): marks tests requiring a specific execution provider",
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
   "cuda: marks tests requiring CUDA runtime",
