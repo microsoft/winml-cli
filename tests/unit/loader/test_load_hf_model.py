@@ -192,10 +192,11 @@ class TestModelArchitectureOverrideFast:
         resolve_calls = []
 
         def mock_resolve(config, task=None, model_class=None):
+            task = task or "feature-extraction"
             resolve_calls.append({"task": task, "model_class": model_class})
             mock_class = MagicMock()
             mock_class.__name__ = "AutoDetectedModel"
-            return task or "feature-extraction", mock_class
+            return task, mock_class
 
         mock_config = MagicMock()
 
