@@ -177,7 +177,12 @@ class TestONNXModelValidation:
         add_node = helper.make_node("Add", ["input", "input"], ["mid"])
         relu_node = helper.make_node("Relu", ["mid"], ["output"])
 
-        graph_def = helper.make_graph([add_node, relu_node], "unnamed_graph", [input_tensor], [output_tensor])
+        graph_def = helper.make_graph(
+            [add_node, relu_node],
+            "unnamed_graph",
+            [input_tensor],
+            [output_tensor],
+        )
         onnx_model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid("", 12)])
 
         model = ONNXModel.from_onnx_model(onnx_model, "unnamed.onnx")

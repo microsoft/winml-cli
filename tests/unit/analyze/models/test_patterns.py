@@ -17,6 +17,7 @@ Tests verify:
 import pytest
 from pydantic import ValidationError
 
+from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.pattern import (
     OperatorPattern,
     PatternMatchResult,
@@ -27,7 +28,6 @@ from winml.modelkit.pattern.models import (  # Pattern name collision with patte
     Pattern,
     SubgraphPattern,
 )
-from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 
 
 def create_pattern_match_for_testing(pattern, node_protos):

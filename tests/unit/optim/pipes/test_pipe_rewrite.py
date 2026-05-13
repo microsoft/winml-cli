@@ -26,6 +26,7 @@ import onnx
 import onnx.helper as oh
 import pytest
 
+from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.optim.pipes.rewrite import RewritePipe, RewritePipeConfig, _detect_conflicts
 from winml.modelkit.optim.pipes.rewrite_rules import (
@@ -43,7 +44,6 @@ from winml.modelkit.pattern import (
     SkeletonMatchResult,
     get_pattern_input_generator,
 )
-from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
 
 
 # ---------------------------------------------------------------------------

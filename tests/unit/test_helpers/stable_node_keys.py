@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
-import onnx
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    import onnx
 
 from winml.modelkit.pattern.utils import make_stable_node_key
 

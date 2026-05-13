@@ -11,9 +11,13 @@ These helpers centralize the analyzer rule for stable node keys:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-import onnx
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import onnx
 
 from ...pattern.utils import make_stable_node_key
 

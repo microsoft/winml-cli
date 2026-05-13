@@ -1082,7 +1082,8 @@ class RuntimeCheckerQuery:
             node_key_by_node_id=self._node_key_by_node_id,
             graph_nodes=self._graph_nodes,
             unknown_unnamed_error=(
-                "Cannot resolve stable key for unnamed node outside RuntimeCheckerQuery model graph."
+                "Cannot resolve stable key for unnamed node outside "
+                "RuntimeCheckerQuery model graph."
             ),
         )
 
