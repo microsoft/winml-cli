@@ -723,8 +723,7 @@ def _perf_modules(
 
     # Write JSON report
     if output is None:
-        slug = hf_model.replace("/", "_").replace("\\", "_")
-        output = Path(f"{slug}_{module_class}_perf.json")
+        output = generate_output_path(hf_model, module_class=module_class)
 
     module_report = {
         "model_id": hf_model,
@@ -838,18 +837,28 @@ def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
         json.dump(result.to_dict(), f, indent=2)
 
 
-def generate_output_path(model_id: str) -> Path:
-    """Generate default output path from model ID.
+def generate_output_path(model_id: str, *, module_class: str | None = None) -> Path:
+    r"""Generate default output path under the user's cache directory.
 
-    For ONNX files: uses the file stem (e.g., "model.onnx" -> "model_perf.json").
-    For HF model IDs: slugifies org/name
-    (e.g., "microsoft/resnet-50" -> "microsoft_resnet-50_perf.json").
+    Returns ``~/.cache/winml/perf/<slug>[/<module_class>]/<timestamp>.json``
+    so repeated runs accumulate under a stable per-model directory without
+    polluting CWD (see #551). The timestamp is generated at call time using
+    local time, format ``YYYYMMDD-HHMMSS``.
+
+    For ONNX inputs, the file stem is used as the slug
+    (e.g., ``model.onnx`` -> ``model``). For HF model IDs, ``/`` and ``\``
+    are replaced with ``_`` (e.g., ``microsoft/resnet-50`` ->
+    ``microsoft_resnet-50``).
     """
     p = Path(model_id)
-    if p.suffix.lower() == ".onnx":
-        return Path(f"{p.stem}_perf.json")
-    slug = model_id.replace("/", "_").replace("\\", "_")
-    return Path(f"{slug}_perf.json")
+    slug = p.stem if p.suffix.lower() == ".onnx" else model_id.replace("/", "_").replace("\\", "_")
+
+    out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
+    if module_class:
+        out_dir = out_dir / module_class
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return out_dir / f"{timestamp}.json"
 
 
 # =============================================================================
@@ -1099,7 +1108,11 @@ def _run_onnx_benchmark(
     "-o",
     type=click.Path(path_type=Path),
     default=None,
-    help="Output JSON file path. Defaults to '{model_slug}_perf.json'",
+    help=(
+        f"Output JSON file path. Defaults to a timestamped file under "
+        f"'{Path.home() / '.cache' / 'winml' / 'perf'}', "
+        f"namespaced by model slug (and module class when --module is set)."
+    ),
 )
 @click.option(
     "--batch-size",
