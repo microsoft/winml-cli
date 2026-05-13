@@ -275,9 +275,8 @@ def _build_modules(
     "--no-compile/--compile",
     "no_compile",
     default=None,
-    help="Override compilation from config. --no-compile forces skip; "
-    "--compile forces enable (config must have a compile section). "
-    "Default: inherit from config file.",
+    help="Override compilation. --compile forces enable (config must have a compile section). "
+    "Default: compilation is disabled unless --compile is passed.",
 )
 @click.option(
     "--ep",
@@ -378,6 +377,10 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
+    # Disable compilation by default unless the user explicitly passed --compile.
+    if no_compile is None:
+        no_compile = True
+
     # If ep unspecified, attempt to auto-select a suitable EP from the registry
     if ep is None:
         from ..session import WinMLEPRegistry
@@ -421,6 +424,26 @@ def build(
                 config_or_configs.compile = None
 
         is_module_mode = isinstance(config_or_configs, list)
+
+        # If --device was explicitly provided, patch the compile config so the
+        # correct device_type is passed to the EP (e.g. QNN GPU vs NPU).
+        # The compile config is built at config-generation time and defaults to
+        # whatever the auto-selected device was — CLI --device must override it.
+        if cli_utils.is_cli_provided(ctx, "device") and device:
+            from ..compiler.configs import WinMLCompileConfig
+
+            def _patch_device(cfg: WinMLBuildConfig) -> None:
+                if cfg.compile is not None and cfg.compile.ep_config is not None:
+                    provider = cfg.compile.ep_config.provider
+                    patched = WinMLCompileConfig.for_provider(provider, device=device)
+                    if patched is not None:
+                        cfg.compile = patched
+
+            if is_module_mode:
+                for _cfg in config_or_configs:
+                    _patch_device(_cfg)
+            else:
+                _patch_device(config_or_configs)
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
