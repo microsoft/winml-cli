@@ -15,14 +15,19 @@ A skill has a one-line `description` in its YAML frontmatter. That description i
 
 ## How to iterate
 
+History lives at `trigger_eval/rounds/<UTC-datetime>/`. Each round is a snapshot of `(description, queries, judge_responses, results)` at the time the round was created. The latest round's `results.json` is the current state.
+
 ### Step 1 — Read the current state
 
 ```
-trigger_eval/queries.json        — current 20 queries
-trigger_eval/results.json        — last grading run (if any)
+trigger_eval/queries.json                          canonical query set (current)
+trigger_eval/rounds/<latest>/results.json          most recent grading
+trigger_eval/rounds/<latest>/description.md        description snapshot at that round
 ```
 
-If `results.json` shows < 100%, look at which queries failed. Each fail is either over-trigger or under-trigger and points at how the description needs to change.
+`python run.py --grade` defaults to the latest round.
+
+If the latest results.json shows < 100%, look at which queries failed. Each fail is either over-trigger or under-trigger and points at how the description needs to change.
 
 ### Step 2 — Decide what to change
 
@@ -55,17 +60,20 @@ Design rules for good queries:
 
 Open `.claude/skills/winml-modelkit/SKILL.md`. Edit the `description:` line in the YAML frontmatter at the top. Keep it pushy ("Use this skill whenever the user mentions...") because agents tend to under-trigger by default.
 
-### Step 4 — Render the judge prompt
+### Step 4 — Open a new round
 
 ```bash
-python trigger_eval/run.py --render-prompt > trigger_eval/judge_prompt.txt
+python trigger_eval/run.py --new-round
 ```
 
-This bundles the current description + all queries from `queries.json` into a single prompt for the judge.
+This creates `trigger_eval/rounds/<now-UTC>/` and writes inside it:
+- `description.md` — snapshot of current SKILL.md description
+- `queries.json` — snapshot of current queries.json
+- `judge_prompt.txt` — rendered prompt for the judge (gitignored — derived)
 
 ### Step 5 — Spawn the judge subagent
 
-The driving agent uses the Agent tool. Prompt: pipe in `judge_prompt.txt` and instruct the subagent to save its JSON array of decisions to `trigger_eval/judge_responses.json`. Required output schema:
+The driving agent uses the Agent tool. Prompt: pipe in `rounds/<datetime>/judge_prompt.txt` and instruct the subagent to save its JSON array of decisions to `rounds/<datetime>/judge_responses.json`. Required output schema:
 
 ```json
 [
@@ -80,7 +88,9 @@ The driving agent uses the Agent tool. Prompt: pipe in `judge_prompt.txt` and in
 python trigger_eval/run.py --grade
 ```
 
-Prints accuracy + per-query failures. Writes `results.json`.
+By default grades the latest round. To grade a specific round: `--grade <datetime>`.
+
+Prints accuracy + per-query failures. Writes `results.json` into the round directory.
 
 ### Step 7 — Iterate
 
@@ -88,7 +98,7 @@ If accuracy < target, look at the failures:
 - **Over-trigger**: tighten the description (be more specific about what's in scope).
 - **Under-trigger**: broaden the description or add explicit "use this skill when..." cues.
 
-Re-render, re-spawn judge, re-grade.
+Edit SKILL.md description, then `--new-round` (creates a fresh datetime dir), re-spawn judge, re-grade. Old rounds stay in `rounds/` as trajectory evidence.
 
 ## Cost per iteration
 

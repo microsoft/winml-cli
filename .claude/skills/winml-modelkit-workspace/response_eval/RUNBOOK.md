@@ -2,7 +2,7 @@
 
 Pillar 2: given the skill loads, does the agent give sound advice? Iterate the skill body against case-by-case concept assertions + static command-shape checks.
 
-This RUNBOOK is **agent-facing** — when a user says "iterate response", "add a response case", or "let's push iter-N", the agent driving the conversation follows these steps.
+This RUNBOOK is **agent-facing** — when a user says "iterate response", "add a response case", or "let's push <UTC-datetime>", the agent driving the conversation follows these steps.
 
 ## What this measures
 
@@ -17,8 +17,8 @@ Each case is run twice per iteration: **with_skill** (skill loaded) and **withou
 ### Step 1 — Read the current state
 
 ```
-response_eval/iterations/iter-N/benchmark.md           — latest iteration's pass rate
-response_eval/iterations/iter-N/eval-*/grading.json    — per-case results
+response_eval/iterations/<UTC-datetime>/benchmark.md           — latest iteration's pass rate
+response_eval/iterations/<UTC-datetime>/eval-*/grading.json    — per-case results
 response_eval/cases.json                                — canonical case list
 ```
 
@@ -41,16 +41,17 @@ Look at which assertions failed. Each failure is one of:
 
 ### Step 4 — Set up the next iteration directory
 
-Pick `N+1` where N is the highest existing `iter-*` number.
+Use the current UTC datetime as the new iteration's name (format `YYYYMMDD-HHMMSS`). The previous iteration's directory becomes the source for layout + baselines.
 
 ```bash
 cd response_eval/iterations
-cp -r iter-N iter-(N+1)
+# Replace placeholders with real datetimes (e.g., 20260513-160500)
+cp -r <prev-UTC-datetime> <new-UTC-datetime>
 
 # Clear with_skill outputs and gradings — we'll regenerate
-rm iter-(N+1)/eval-*/with_skill/run-1/outputs/response.md
-rm iter-(N+1)/eval-*/with_skill/run-1/grading.json
-rm iter-(N+1)/eval-*/with_skill/run-1/timing.json
+rm <new-UTC-datetime>/eval-*/with_skill/run-1/outputs/response.md
+rm <new-UTC-datetime>/eval-*/with_skill/run-1/grading.json
+rm <new-UTC-datetime>/eval-*/with_skill/run-1/timing.json
 
 # baselines are reused if the SKILL.md body is the only change
 # (the baseline doesn't load the skill, so its responses are skill-version-agnostic)
@@ -62,17 +63,17 @@ For each case in `cases.json`, spawn a subagent (parallel). The prompt should:
 - Include the case prompt verbatim
 - Give the path to the new SKILL.md and tell the agent to read it first
 - Explicitly tell the agent **this is chat mode** — it should write a response with commands as text, NOT execute any commands
-- Specify where to save the response: `iter-(N+1)/eval-<case_id>/with_skill/run-1/outputs/response.md`
+- Specify where to save the response: `<new-UTC-datetime>/eval-<case_id>/with_skill/run-1/outputs/response.md`
 
 After each subagent completes, save its `total_tokens`, `tool_uses`, `duration_ms` as `timing.json` in the same directory.
 
 ### Step 6 — Grade
 
-This is the **manual judgment step**. For each case, read the new response and compare against the assertions in `cases.json`. Write your judgments into `iter-(N+1)/grade.py`:
+This is the **manual judgment step**. For each case, read the new response and compare against the assertions in `cases.json`. Write your judgments into `<new-UTC-datetime>/grade.py`:
 
 ```python
-# iterations/iter-(N+1)/grade.py
-# Copy structure from iter-N/grade.py; update or replace per-case entries.
+# iterations/<new-UTC-datetime>/grade.py
+# Copy structure from <UTC-datetime>/grade.py; update or replace per-case entries.
 gradings = {
     "eval-<case_id>": [
         ("<assertion text>", True|False, "<evidence quote from response>"),
@@ -87,16 +88,16 @@ gradings = {
 Run it:
 
 ```bash
-python iterations/iter-(N+1)/grade.py
+python iterations/<new-UTC-datetime>/grade.py
 ```
 
 ### Step 7 — Static CLI command verification
 
 ```bash
-python response_eval/run_full_verify.py iter-(N+1)
+python response_eval/run_full_verify.py <new-UTC-datetime>
 ```
 
-Writes `iter-(N+1)/cli_verification.md` — flags any case where the agent quoted an invalid flag.
+Writes `<new-UTC-datetime>/cli_verification.md` — flags any case where the agent quoted an invalid flag.
 
 ### Step 8 — Aggregate benchmark
 
@@ -104,7 +105,7 @@ If skill-creator tooling is available:
 
 ```bash
 cd <path-to-skill-creator>
-python -m scripts.aggregate_benchmark <workspace>/response_eval/iterations/iter-(N+1) --skill-name winml-modelkit
+python -m scripts.aggregate_benchmark <workspace>/response_eval/iterations/<new-UTC-datetime> --skill-name winml-modelkit
 ```
 
 Otherwise build benchmark.md by hand:
@@ -113,12 +114,12 @@ Otherwise build benchmark.md by hand:
 
 ### Step 9 — Compare and decide
 
-Read `iter-(N+1)/benchmark.md` against `iter-N/benchmark.md`:
+Read `<new-UTC-datetime>/benchmark.md` against `<UTC-datetime>/benchmark.md`:
 - Did with_skill pass rate go up?
 - Did the assertion that was failing now pass?
 - Any regressions in other cases?
 
-If yes → ship iter-(N+1) as the new baseline. If no → revert SKILL.md edits or try a different angle.
+If yes → ship <new-UTC-datetime> as the new baseline. If no → revert SKILL.md edits or try a different angle.
 
 ## Adding a new case
 
@@ -141,8 +142,8 @@ If yes → ship iter-(N+1) as the new baseline. If no → revert SKILL.md edits 
 
 4. Create the per-iteration directory for the next iter:
    ```
-   iter-(N+1)/eval-<name>/{with_skill,without_skill}/run-1/outputs/
-   iter-(N+1)/eval-<name>/eval_metadata.json     ← copy from cases.json with the same prompt + assertions
+   <new-UTC-datetime>/eval-<name>/{with_skill,without_skill}/run-1/outputs/
+   <new-UTC-datetime>/eval-<name>/eval_metadata.json     ← copy from cases.json with the same prompt + assertions
    ```
 
 5. Spawn BOTH with_skill AND baseline subagents for the new case (baseline can't be reused from previous iter since this case didn't exist).
@@ -171,7 +172,7 @@ This pillar runs each case once per iteration (no Pass@K). LLM variance in respo
 
 ## Common pitfalls
 
-- **Forgetting to reuse baseline**: if you only changed SKILL.md body, baselines from iter-N are still valid for iter-(N+1). Don't waste subagent calls.
+- **Forgetting to reuse baseline**: if you only changed SKILL.md body, baselines from <UTC-datetime> are still valid for <new-UTC-datetime>. Don't waste subagent calls.
 - **Writing grade.py before reading responses**: judgments must be backed by evidence quotes. Read first, judge second.
 - **Adding too many cases at once**: each new case should expose a specific gap. Don't bulk-add untargeted cases.
 - **Not running `run_full_verify.py`**: the static command check is cheap and catches fabricated flags. Always run it as part of the iteration.

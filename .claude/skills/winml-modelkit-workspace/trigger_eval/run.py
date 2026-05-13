@@ -1,52 +1,66 @@
 """Trigger eval runner — Pillar 1.
 
-For each query in queries.json, ask a judge LLM (here, a Claude subagent
-through the parent's Agent tool — invoked manually for this MVP) whether
-the skill's description would load for the user prompt. Compare against
-should_trigger label.
+Each "round" is a snapshot of (description, queries, judge responses, results) at a
+moment in time, stored as `rounds/<UTC-datetime>/`. Top-level files (`queries.json`,
+`run.py`, `RUNBOOK.md`) are the canonical source; rounds/ is the history.
 
-Out scope: this script doesn't drive the subagent itself (parent agent does
-that). It just provides the prompt template and the grader.
+Workflow:
+  1. `python run.py --new-round`
+        creates a new `rounds/<now>/` directory, snapshots the current description
+        from SKILL.md + the current queries.json, and renders judge_prompt.txt into it.
+  2. The parent agent spawns a judge subagent with the rendered prompt and saves the
+     JSON output to `rounds/<that-datetime>/judge_responses.json`.
+  3. `python run.py --grade`
+        finds the latest round, reads judge_responses.json, compares to queries.json
+        labels, writes results.json into the round directory.
 
-Usage:
-    1. Parent calls render_judge_prompt() to build a single prompt with the
-       skill description + all 20 queries
-    2. Parent spawns a subagent with that prompt; subagent answers Y/N for each
-    3. Parent saves subagent's JSON output as judge_responses.json
-    4. python run.py --grade  -- to score against ground truth
+Round directory contents:
+  description.md            snapshot of SKILL.md description at this round
+  queries.json              snapshot of queries.json at this round
+  judge_prompt.txt          rendered prompt (gitignored — derived)
+  judge_responses.json      judge subagent output
+  results.json              grading output
 """
 from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).parent
 SKILL = Path(r"C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit/SKILL.md")
 QUERIES = HERE / "queries.json"
-RESPONSES = HERE / "judge_responses.json"
-RESULTS = HERE / "results.json"
+ROUNDS_DIR = HERE / "rounds"
+DATETIME_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
 def extract_description(skill_path: Path) -> str:
-    """Pull the `description:` value from the SKILL.md YAML frontmatter."""
     text = skill_path.read_text(encoding="utf-8")
     m = re.search(r"^---\s*\n(.+?)\n---", text, re.DOTALL)
     if not m:
         raise ValueError("No YAML frontmatter found in SKILL.md")
     fm = m.group(1)
-    # description may span multiple lines until next top-level key; grab everything after "description:"
     dm = re.search(r"^description:\s*(.+?)(?=^\w+:|\Z)", fm, re.MULTILINE | re.DOTALL)
     if not dm:
         raise ValueError("No `description:` field found in frontmatter")
     return dm.group(1).strip()
 
 
-def render_judge_prompt() -> str:
-    """Render the prompt for a judge subagent to score all queries at once."""
-    description = extract_description(SKILL)
-    queries = json.loads(QUERIES.read_text(encoding="utf-8"))
+def latest_round() -> Path | None:
+    if not ROUNDS_DIR.exists():
+        return None
+    candidates = sorted(
+        c for c in ROUNDS_DIR.iterdir()
+        if c.is_dir() and DATETIME_RE.match(c.name)
+    )
+    return candidates[-1] if candidates else None
+
+
+def render_judge_prompt(description: str, queries: list[dict]) -> str:
     lines: list[str] = []
     lines.append("You are simulating how an AI coding-assistant agent decides whether to load a skill.")
     lines.append("")
@@ -70,19 +84,35 @@ def render_judge_prompt() -> str:
     return "\n".join(lines)
 
 
-def grade() -> dict:
-    """Compare judge_responses.json against queries.json labels."""
+def new_round() -> Path:
+    """Create a new round directory with snapshots of description + queries + prompt."""
+    now = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    round_dir = ROUNDS_DIR / now
+    round_dir.mkdir(parents=True, exist_ok=True)
+
+    description = extract_description(SKILL)
     queries = json.loads(QUERIES.read_text(encoding="utf-8"))
-    if not RESPONSES.exists():
-        raise FileNotFoundError(f"{RESPONSES} not found — run the judge subagent first")
-    responses = json.loads(RESPONSES.read_text(encoding="utf-8"))
+
+    (round_dir / "description.md").write_text(description + "\n", encoding="utf-8")
+    shutil.copy2(QUERIES, round_dir / "queries.json")
+    (round_dir / "judge_prompt.txt").write_text(
+        render_judge_prompt(description, queries), encoding="utf-8"
+    )
+    return round_dir
+
+
+def grade(round_dir: Path) -> dict:
+    queries = json.loads((round_dir / "queries.json").read_text(encoding="utf-8"))
+    responses_path = round_dir / "judge_responses.json"
+    if not responses_path.exists():
+        raise FileNotFoundError(f"{responses_path} not found — spawn the judge subagent first")
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
 
     by_id = {r["id"]: r for r in responses}
     rows = []
     correct = 0
-    false_pos = 0  # judge said YES, label was NO (over-trigger)
-    false_neg = 0  # judge said NO, label was YES (under-trigger)
-
+    false_pos = 0
+    false_neg = 0
     for i, q in enumerate(queries):
         r = by_id.get(i)
         if not r:
@@ -99,13 +129,9 @@ def grade() -> dict:
             elif not predicted and q["should_trigger"]:
                 false_neg += 1
         rows.append({
-            "id": i,
-            "query": q["query"],
-            "expected": q["should_trigger"],
-            "predicted": predicted,
-            "correct": is_correct,
-            "reason": r.get("reason", ""),
-            "rationale": q.get("rationale", ""),
+            "id": i, "query": q["query"], "expected": q["should_trigger"],
+            "predicted": predicted, "correct": is_correct,
+            "reason": r.get("reason", ""), "rationale": q.get("rationale", ""),
         })
 
     n = len(queries)
@@ -116,9 +142,8 @@ def grade() -> dict:
     specificity = (n_neg - false_pos) / n_neg if n_neg else 0.0
 
     return {
-        "total": n,
-        "correct": correct,
-        "accuracy": round(accuracy, 4),
+        "round": round_dir.name,
+        "total": n, "correct": correct, "accuracy": round(accuracy, 4),
         "false_positives_over_trigger": false_pos,
         "false_negatives_under_trigger": false_neg,
         "recall_on_positives": round(recall, 4),
@@ -128,20 +153,32 @@ def grade() -> dict:
 
 
 def main(argv: list[str]) -> int:
-    if "--render-prompt" in argv:
-        print(render_judge_prompt())
+    if "--new-round" in argv:
+        round_dir = new_round()
+        print(f"New round: {round_dir.name}")
+        print(f"  description.md, queries.json, judge_prompt.txt written to {round_dir}")
+        print(f"  Next: spawn judge subagent with judge_prompt.txt, save JSON to {round_dir / 'judge_responses.json'}")
         return 0
     if "--grade" in argv:
-        report = grade()
-        RESULTS.write_text(json.dumps(report, indent=2))
-        # Human-readable summary
-        print(f"Trigger eval results:")
+        # Allow override: --grade <round-name>
+        round_name = None
+        for i, a in enumerate(argv):
+            if a == "--grade" and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                round_name = argv[i + 1]
+        if round_name:
+            round_dir = ROUNDS_DIR / round_name
+        else:
+            round_dir = latest_round()
+            if not round_dir:
+                raise SystemExit("No rounds found. Run `--new-round` first.")
+        report = grade(round_dir)
+        (round_dir / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"Trigger eval results [{round_dir.name}]:")
         print(f"  Accuracy: {report['correct']}/{report['total']} = {report['accuracy']:.0%}")
         print(f"  Over-trigger (false positives):  {report['false_positives_over_trigger']}")
         print(f"  Under-trigger (false negatives): {report['false_negatives_under_trigger']}")
         print(f"  Recall on should-trigger:        {report['recall_on_positives']:.0%}")
         print(f"  Specificity on should-not-trigger: {report['specificity_on_negatives']:.0%}")
-        print()
         for r in report["rows"]:
             if not r["correct"]:
                 tag = "OVER" if r["predicted"] and not r["expected"] else "UNDER"

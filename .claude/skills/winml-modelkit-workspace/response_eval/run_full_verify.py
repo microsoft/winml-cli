@@ -1,11 +1,14 @@
 """Run verify_commands.py across all with_skill responses in an iteration, write a markdown report.
 
 Usage:
-    python run_full_verify.py [iter-name]      # default: latest iter-* directory
+    python run_full_verify.py [iteration-name]   # default: latest iteration directory
+
+Iteration directories are named by UTC datetime (YYYYMMDD-HHMMSS).
 """
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,11 +17,16 @@ HERE = Path(__file__).resolve().parent      # response_eval/
 VERIFY = HERE / "verify_commands.py"
 ITER_ROOT = HERE / "iterations"
 
+DATETIME_RE = re.compile(r"^\d{8}-\d{6}$")
+
 
 def latest_iter() -> Path:
-    candidates = sorted(ITER_ROOT.glob("iter-*"))
+    candidates = sorted(
+        c for c in ITER_ROOT.iterdir()
+        if c.is_dir() and DATETIME_RE.match(c.name)
+    )
     if not candidates:
-        raise SystemExit(f"No iter-* directories found under {ITER_ROOT}")
+        raise SystemExit(f"No datetime iteration directories found under {ITER_ROOT}")
     return candidates[-1]
 
 

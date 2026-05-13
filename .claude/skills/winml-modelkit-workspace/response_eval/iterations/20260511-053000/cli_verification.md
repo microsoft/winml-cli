@@ -1,4 +1,4 @@
-# iter-3 — CLI command verification report
+# 20260511-053000 — CLI command verification report
 
 Static check only: parse `winml` commands from each response, verify subcommand exists and every flag appears in `winml <cmd> --help`. No bare positional model arg.
 
