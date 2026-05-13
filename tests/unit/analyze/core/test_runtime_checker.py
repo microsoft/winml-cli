@@ -76,6 +76,7 @@ def sample_pattern_match() -> PatternMatchResult:
     skeleton_result = SkeletonMatchResult(
         pattern=pattern,
         matched_nodes=[node_proto],
+        matched_node_keys=[node_proto.name if node_proto.name else f"{node_proto.op_type}_node"],
         matcher=None,
     )
 
@@ -435,7 +436,12 @@ class TestRuntimeCheckerIntegration:
                 op_type=node.op_type,
                 description="",
             )
-            skeleton = SkeletonMatchResult(pattern=pattern, matched_nodes=[node], matcher=None)
+            skeleton = SkeletonMatchResult(
+                pattern=pattern,
+                matched_nodes=[node],
+                matched_node_keys=[node.name if node.name else f"{node.op_type}_node"],
+                matcher=None,
+            )
             return PatternMatchResult(
                 skeleton_match_result=skeleton,
                 schema_input_to_value={},

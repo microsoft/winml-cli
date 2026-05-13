@@ -168,3 +168,22 @@ class TestONNXModelValidation:
             output_count=1,
         )
         assert model.opset_version == opset
+
+    def test_stable_node_key_sidecar_for_unnamed_nodes(self):
+        """Test unnamed nodes get stable sidecar keys and can be reverse-looked-up."""
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3])
+
+        add_node = helper.make_node("Add", ["input", "input"], ["mid"])
+        relu_node = helper.make_node("Relu", ["mid"], ["output"])
+
+        graph_def = helper.make_graph([add_node, relu_node], "unnamed_graph", [input_tensor], [output_tensor])
+        onnx_model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid("", 12)])
+
+        model = ONNXModel.from_onnx_model(onnx_model, "unnamed.onnx")
+        graph = model.get_graph()
+
+        assert model.get_node_key(graph.node[0]) == "node_0"
+        assert model.get_node_key(graph.node[1]) == "node_1"
+        assert model.get_node_by_key("node_0") is graph.node[0]
+        assert model.get_node_by_key("node_1") is graph.node[1]

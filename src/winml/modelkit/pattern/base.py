@@ -311,6 +311,23 @@ def _merge_mappings(mappings: list[dict[int, str]]) -> dict[int, str] | None:
     return merged
 
 
+def _make_stable_node_key(node: Any, node_idx: int) -> str:
+    """Build a stable internal node key for pattern matching internals.
+
+    ONNX node names are optional. For unnamed nodes, we use a deterministic
+    fallback based on graph order so all lookup tables and matching results
+    can use a consistent identifier.
+
+    Args:
+        node: ONNX node object.
+        node_idx: Node index in graph order.
+
+    Returns:
+        Stable internal node key.
+    """
+    return node.name if node.name else f"node_{node_idx}"
+
+
 def opschema_to_pattern_schema(op_schema: OpSchema) -> "PatternSchema":
     """Convert an ONNX OpSchema to a PatternSchema.
 
@@ -1347,7 +1364,7 @@ class PatternMatcher:
                 self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
 
         for node_idx, node in enumerate(self.graph.node):
-            node_name = node.name or f"node_{node_idx}"
+            node_name = _make_stable_node_key(node, node_idx)
 
             # Build node lookup
             self.node_lookup[node_name] = node
@@ -1679,7 +1696,8 @@ class PatternMatcher:
             if graph_input.name:
                 edge_partial_matching_results[graph_input.name] = []
 
-        for _idx, node in enumerate(self.graph.node):
+        for node_idx, node in enumerate(self.graph.node):
+            node_name = _make_stable_node_key(node, node_idx)
             # touch output edges
             for out_edge in node.output:
                 edge_partial_matching_results[out_edge] = []
@@ -1695,13 +1713,19 @@ class PatternMatcher:
                 input_slots = node_input_slots[subgraph_node]
                 src_slot_matched = True
                 for dst_slot, input_edge in enumerate(node.input):
-                    edge_info = self.edge_info_by_name[input_edge][node.name]
-                    if dst_slot in input_slots:
-                        # check 1: src_slot match
-                        src, src_slot = input_slots[dst_slot]
-                        if src >= 0 and edge_info.src_slot != src_slot:
-                            src_slot_matched = False
-                            break
+                    if dst_slot not in input_slots:
+                        continue
+
+                    edge_info = self.edge_info_by_name.get(input_edge, {}).get(node_name)
+                    if edge_info is None:
+                        src_slot_matched = False
+                        break
+
+                    # check 1: src_slot match
+                    src, src_slot = input_slots[dst_slot]
+                    if src >= 0 and edge_info.src_slot != src_slot:
+                        src_slot_matched = False
+                        break
                     # else:
                     # print("TODO: input slot unspecified: ")
                 if not src_slot_matched:
@@ -1711,35 +1735,39 @@ class PatternMatcher:
                 dst_slot_partial_mappings = []
                 # src_node_matched = True
                 for dst_slot, input_edge in enumerate(node.input):
-                    edge_info = self.edge_info_by_name[input_edge][node.name]
-                    if dst_slot in input_slots:
-                        src, src_slot = input_slots[dst_slot]
-                        if src < 0:
-                            mapping = {src: input_edge}
-                            dst_slot_partial_mappings.append([mapping])
-                        else:
-                            if input_edge not in edge_partial_matching_results:
-                                assert input_edge in self.constant_and_initializer_names, (
-                                    f"Edge {input_edge} not in "
-                                    f"partial matching results or "
-                                    f"constants/initializers"
-                                )
-                                # cannot match non-constant/
-                                # initializer edges, since src >= 0
-                                dst_slot_partial_mappings.append([])
-                                # src_node_matched = False
-                                continue
-                            src_matched_mappings = [
-                                partial_mapping.node_mapping.copy()
-                                for partial_mapping in edge_partial_matching_results[input_edge]
-                                if (
-                                    src in partial_mapping.node_mapping
-                                    and edge_info.src_name == partial_mapping.node_mapping[src]
-                                )
-                            ]
-                            dst_slot_partial_mappings.append(src_matched_mappings)
-                    else:
+                    if dst_slot not in input_slots:
                         continue  # edge not specified in subgraph, skipping adding mapping
+
+                    edge_info = self.edge_info_by_name.get(input_edge, {}).get(node_name)
+                    if edge_info is None:
+                        dst_slot_partial_mappings.append([])
+                        continue
+
+                    src, src_slot = input_slots[dst_slot]
+                    if src < 0:
+                        mapping = {src: input_edge}
+                        dst_slot_partial_mappings.append([mapping])
+                    else:
+                        if input_edge not in edge_partial_matching_results:
+                            assert input_edge in self.constant_and_initializer_names, (
+                                f"Edge {input_edge} not in "
+                                f"partial matching results or "
+                                f"constants/initializers"
+                            )
+                            # cannot match non-constant/
+                            # initializer edges, since src >= 0
+                            dst_slot_partial_mappings.append([])
+                            # src_node_matched = False
+                            continue
+                        src_matched_mappings = [
+                            partial_mapping.node_mapping.copy()
+                            for partial_mapping in edge_partial_matching_results[input_edge]
+                            if (
+                                src in partial_mapping.node_mapping
+                                and edge_info.src_name == partial_mapping.node_mapping[src]
+                            )
+                        ]
+                        dst_slot_partial_mappings.append(src_matched_mappings)
 
                 # if not src_node_matched:
                 #     continue
@@ -1754,7 +1782,7 @@ class PatternMatcher:
                     merged_mapping = _merge_mappings(mapping_combination)
                     if merged_mapping is not None:
                         # valid mapping
-                        merged_mapping[subgraph_node] = node.name
+                        merged_mapping[subgraph_node] = node_name
                         valid_merged_mappings.append(merged_mapping)
                 # TODO: attach partial result to node of edge?
                 for out_edge in node.output:
@@ -1791,6 +1819,7 @@ class PatternMatcher:
                             SkeletonMatchResult(
                                 pattern=pattern,
                                 matched_nodes=matched_nodes_list,
+                                matched_node_keys=matched_node_names,
                                 matcher=self,
                                 inputs=inputs,
                                 output=output,
@@ -1945,8 +1974,7 @@ class PatternRewriter:
                 # careful implementation to make it actually faster
                 node_name_to_idx: dict[str, int] = {}
                 for idx, node in enumerate(graph.node):
-                    assert node.name is not None, "All nodes must have names for rewriting."
-                    node_name_to_idx[node.name] = idx
+                    node_name_to_idx[_make_stable_node_key(node, idx)] = idx
                 skeleton_match = match_result.skeleton_match_result
 
                 # Check if removable

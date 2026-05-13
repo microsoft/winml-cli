@@ -64,16 +64,24 @@ class SkeletonMatchResult:
     inputs: list[str] = field(default_factory=list)
     output: str = ""
     removable: bool = False
+    matched_node_keys: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validate that stable node keys are provided for each matched node."""
+        if len(self.matched_node_keys) != len(self.matched_nodes):
+            raise ValueError(
+                "matched_node_keys must be provided and aligned with matched_nodes "
+                f"(got {len(self.matched_node_keys)} keys for {len(self.matched_nodes)} nodes)"
+            )
 
     @property
     def matched_node_names(self) -> list[str]:
         """Get matched node names as strings.
 
         Returns:
-            List of node name strings. For unnamed nodes, returns formatted
-            name like "OpType_node" (e.g., "Conv_node").
+            List of stable internal node keys used by matcher internals.
         """
-        return [node.name if node.name else f"{node.op_type}_node" for node in self.matched_nodes]
+        return self.matched_node_keys
 
 
 @dataclass
@@ -148,23 +156,26 @@ class PatternMatchResult:
         try:
             from ..analyze import ONNXOp
 
+            node_names = self.skeleton_match_result.matched_node_names
+
             return [
                 ONNXOp(
-                    node_name=node.name if node.name else f"{node.op_type}_node",
+                    node_name=node_names[idx],
                     op_type=node.op_type,
                     namespace=node.domain if node.domain else "ai.onnx",
                 )
-                for node in self.skeleton_match_result.matched_nodes
+                for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
             ]
         except ImportError:
             # When used outside analyze context, return node info as dicts
+            node_names = self.skeleton_match_result.matched_node_names
             return [
                 {
-                    "node_name": node.name if node.name else f"{node.op_type}_node",
+                    "node_name": node_names[idx],
                     "op_type": node.op_type,
                     "namespace": node.domain if node.domain else "ai.onnx",
                 }
-                for node in self.skeleton_match_result.matched_nodes
+                for idx, node in enumerate(self.skeleton_match_result.matched_nodes)
             ]
 
     @property

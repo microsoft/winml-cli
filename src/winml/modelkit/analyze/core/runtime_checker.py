@@ -144,6 +144,7 @@ class RuntimeChecker:
                 device_type=self._device,
                 model_path=self._model.model_path,
                 dynamic_axis_strict_mode=self._dynamic_axis_strict_mode,
+                node_key_by_node_id=self._model.get_node_key_map(),
             )
 
         return self._query
@@ -407,7 +408,7 @@ class RuntimeChecker:
         summary_dict["subgraph_runtime_check_result"] = pattern_results
 
         merge_start = time.perf_counter()
-        # Build node_name -> PatternRuntime from pattern_results
+        # Build stable node key -> PatternRuntime from pattern_results
         node_to_pattern_runtime: dict[str, PatternRuntime] = {}
         for pr in pattern_results:
             if (
@@ -416,17 +417,17 @@ class RuntimeChecker:
                 and hasattr(pr.pattern_match, "skeleton_match_result")
             ):
                 smr = pr.pattern_match.skeleton_match_result
-                if smr and smr.matched_nodes:
-                    for node in smr.matched_nodes:
-                        node_to_pattern_runtime[node.name] = pr
+                if smr and smr.matched_node_names:
+                    for node_key in smr.matched_node_names:
+                        node_to_pattern_runtime[node_key] = pr
 
         # Override matching op_results
         merged = []
         for op_r in summary_dict["op_runtime_check_result"]:
-            node_name = self._get_node_name(op_r)
-            if node_name in node_to_pattern_runtime:
+            node_key = self._get_node_key(op_r)
+            if node_key in node_to_pattern_runtime:
                 # Replace with pattern-level result, keeping original pattern_match for traceability
-                pr = node_to_pattern_runtime[node_name]
+                pr = node_to_pattern_runtime[node_key]
                 merged.append(
                     PatternRuntime(
                         pattern_id=op_r.pattern_id,  # keep original op pattern_id
@@ -457,13 +458,13 @@ class RuntimeChecker:
 
         return summary_dict
 
-    def _get_node_name(self, op_runtime: PatternRuntime) -> str:
-        """Extract the original node name from an op-level PatternRuntime."""
+    def _get_node_key(self, op_runtime: PatternRuntime) -> str:
+        """Extract stable node key from an op-level PatternRuntime."""
         pm = op_runtime.pattern_match
         if pm and hasattr(pm, "skeleton_match_result"):
-            nodes = pm.skeleton_match_result.matched_nodes
-            if nodes:
-                return nodes[0].name
+            node_keys = pm.skeleton_match_result.matched_node_names
+            if node_keys:
+                return node_keys[0]
         return ""
 
     def _make_op_key(self, node: onnx.NodeProto) -> str:

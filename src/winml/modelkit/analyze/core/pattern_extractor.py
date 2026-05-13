@@ -412,7 +412,7 @@ class PatternExtractor:
 
         Args:
             pattern: SubgraphPattern definition
-            grouped_nodes: Dict mapping tag to list of (node_name, tag) tuples
+            grouped_nodes: Dict mapping tag to list of (node identifier, tag) tuples
             source_type: Source of the match ("hierarchy_tag" or "htp_metadata")
 
         Returns:
@@ -425,7 +425,6 @@ class PatternExtractor:
         # are based on tags rather than topology matching.
 
         detected_matches: list[PatternMatchResult] = []
-        model_proto = self._model.get_model()
 
         for tag, node_list in grouped_nodes.items():
             logger.debug(
@@ -435,22 +434,25 @@ class PatternExtractor:
                 pattern.semantic_label,
             )
 
-            # Extract node names
-            matched_node_names = [node_name for node_name, _ in node_list]
-
-            # Convert node names to NodeProto objects
-            node_name_to_proto = {node.name: node for node in model_proto.graph.node}
-            matched_nodes = [
-                node_name_to_proto[name]
-                for name in matched_node_names
-                if name in node_name_to_proto
-            ]
+            # Resolve identifiers to NodeProto and normalize to stable keys.
+            matched_node_identifiers = [node_identifier for node_identifier, _ in node_list]
+            matched_nodes = []
+            matched_node_keys = []
+            for node_identifier in matched_node_identifiers:
+                node_proto = self._model.get_node_by_key(node_identifier)
+                if node_proto is None:
+                    node_proto = self._model.get_node_by_name(node_identifier)
+                if node_proto is None:
+                    continue
+                matched_nodes.append(node_proto)
+                matched_node_keys.append(self._model.get_node_key(node_proto))
 
             # Create a minimal SkeletonMatchResult for API compatibility
             # This is a placeholder since hierarchy_tag matches don't have full skeleton info
             skeleton_result = SkeletonMatchResult(
                 pattern=pattern,  # Use the SubgraphPattern directly
                 matched_nodes=matched_nodes,
+                matched_node_keys=matched_node_keys,
                 matcher=None,  # type: ignore
                 inputs=[],
                 output="",
@@ -516,7 +518,7 @@ class PatternExtractor:
             if pattern_label in hierarchy_tag:
                 if hierarchy_tag not in grouped_nodes:
                     grouped_nodes[hierarchy_tag] = []
-                grouped_nodes[hierarchy_tag].append((node.name, hierarchy_tag))
+                grouped_nodes[hierarchy_tag].append((self._model.get_node_key(node), hierarchy_tag))
 
         # Create PatternMatch instances
         detected_matches = self._create_pattern_matches(

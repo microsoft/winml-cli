@@ -318,7 +318,7 @@ class TestLocalEPFallback:
             node=node,
             op_domain=ONNXDomain.AI_ONNX,
             opset_version=17,
-            pattern_match=node_to_pattern_match(node),
+            pattern_match=node_to_pattern_match(node, "add_node"),
             node_tags=[],
             fallback_reason="rules_not_found",
         )

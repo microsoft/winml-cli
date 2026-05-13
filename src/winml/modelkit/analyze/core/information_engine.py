@@ -153,7 +153,11 @@ class InformationEngine:
 
             init_doc_checker_start = time.perf_counter()
             self._doc_checker = DocConstraintChecker(
-                model_proto, ep, self._device, skip_shape_inference=skip_inference
+                model_proto,
+                ep,
+                self._device,
+                skip_shape_inference=skip_inference,
+                node_key_by_node_id=self._model.get_node_key_map(),
             )
             init_doc_checker_ms = int((time.perf_counter() - init_doc_checker_start) * 1000)
             doc_checker_initialized = True
@@ -613,14 +617,11 @@ class InformationEngine:
                 onnx_op.op_type,
             )
 
-            # Find the actual ONNX NodeProto from model
+            # Resolve ONNX NodeProto from stable sidecar key
             node_lookup_start = time.perf_counter()
-            model_proto = self._model.get_model()
-            node = None
-            for graph_node in model_proto.graph.node:
-                if graph_node.name == node_name:
-                    node = graph_node
-                    break
+            node = self._model.get_node_by_key(node_name)
+            if node is None:
+                node = self._model.get_node_by_name(node_name)
             node_lookup_ms = int((time.perf_counter() - node_lookup_start) * 1000)
 
             if node is None:

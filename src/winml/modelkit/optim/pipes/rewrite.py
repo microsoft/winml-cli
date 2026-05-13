@@ -67,8 +67,7 @@ def _detect_conflicts(
     """
     node_to_match_indices: dict[str, list[int]] = {}
     for i, m in enumerate(matches):
-        for node in m.skeleton_match_result.matched_nodes:
-            node_name = node.name if node.name else f"{node.op_type}_node"
+        for node_name in m.skeleton_match_result.matched_node_names:
             node_to_match_indices.setdefault(node_name, []).append(i)
 
     conflicting_indices: set[int] = set()
@@ -194,11 +193,10 @@ class RewritePipe(BasePipe):
 
             for group in conflicts:
                 names = [m.skeleton_match_result.pattern.__class__.__name__ for m in group]
-                shared_nodes = [
-                    node.name
-                    for node in group[0].skeleton_match_result.matched_nodes
-                    if any(node in other.skeleton_match_result.matched_nodes for other in group[1:])
+                shared_node_sets = [
+                    set(m.skeleton_match_result.matched_node_names) for m in group
                 ]
+                shared_nodes = sorted(set.intersection(*shared_node_sets))
                 logger.warning(
                     "RewritePipe: conflict detected — %d matches share nodes %s; "
                     "skipping all conflicting matches: %s",

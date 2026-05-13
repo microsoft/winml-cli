@@ -91,6 +91,7 @@ def encode_rule_condition_value_for_parquet(value: object) -> str:
 
 def node_to_pattern_match(
     node: NodeProto,
+    stable_node_key: str,
 ) -> PatternMatchResult:
     """Convert an ONNX node to a PatternMatchResult object.
 
@@ -98,6 +99,7 @@ def node_to_pattern_match(
 
     Args:
         node: ONNX NodeProto to convert
+        stable_node_key: Stable non-empty node key for analyzer pipeline
 
     Returns:
         PatternMatchResult object representing the operator pattern
@@ -139,6 +141,7 @@ def node_to_pattern_match(
     skeleton_result = SkeletonMatchResult(
         pattern=operator_pattern,
         matched_nodes=[node],
+        matched_node_keys=[stable_node_key],
         matcher=None,  # type: ignore
         inputs=[],
         output="",

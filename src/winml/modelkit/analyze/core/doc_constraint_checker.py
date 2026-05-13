@@ -73,6 +73,7 @@ class DocConstraintChecker:
         ep_name: str,
         device_type: str,
         skip_shape_inference: bool = False,
+        node_key_by_node_id: dict[int, str] | None = None,
     ) -> None:
         """Initialize doc constraint checker.
 
@@ -82,6 +83,7 @@ class DocConstraintChecker:
             device_type: Device type (e.g., "NPU")
             skip_shape_inference: If True, assume model_proto already has shape
                 inference applied (avoids expensive redundant inference).
+            node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
         """
         if skip_shape_inference:
             self.model_proto = model_proto
@@ -90,6 +92,13 @@ class DocConstraintChecker:
         self.ep_name = ep_name
         self.device_type = device_type
         self.valueinfo = collect_valueinfo_dict(self.model_proto)
+        if node_key_by_node_id is not None:
+            self._node_key_by_node_id = dict(node_key_by_node_id)
+        else:
+            self._node_key_by_node_id = {
+                id(node): (node.name if node.name else f"node_{index}")
+                for index, node in enumerate(self.model_proto.graph.node)
+            }
 
         # Load ONNX to target EP operator mapping
         self.mapping_config = self._load_mapping_config()
@@ -99,6 +108,13 @@ class DocConstraintChecker:
 
         # Alternatives support not yet implemented
         self.alternatives: list[PatternAlternative] = []
+
+    def _get_stable_node_key(self, node: onnx.NodeProto) -> str:
+        """Resolve stable analyzer key for a node."""
+        stable_key = self._node_key_by_node_id.get(id(node))
+        if stable_key is not None:
+            return stable_key
+        return node.name if node.name else f"node_obj_{id(node)}"
 
     def _load_constraints(self) -> dict[str, pd.DataFrame]:
         """Load operator constraints from JSON file.
@@ -332,7 +348,8 @@ class DocConstraintChecker:
         Returns:
             PatternRuntime with check results
         """
-        pattern_match = node_to_pattern_match(node)
+        node_key = self._get_stable_node_key(node)
+        pattern_match = node_to_pattern_match(node, node_key)
         op_type = node.op_type
 
         # Skip certain operators

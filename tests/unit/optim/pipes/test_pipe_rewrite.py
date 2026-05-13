@@ -105,6 +105,7 @@ def _make_mock_match(node_names: list[str]) -> PatternMatchResult:
     skeleton = SkeletonMatchResult(
         pattern=_MockPattern(),  # type: ignore[arg-type]
         matched_nodes=nodes,
+        matched_node_keys=[n.name if n.name else f"{n.op_type}_node" for n in nodes],
         matcher=None,  # type: ignore[arg-type]
     )
     return PatternMatchResult(

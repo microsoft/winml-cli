@@ -42,6 +42,7 @@ def create_pattern_match_for_testing(pattern, node_protos):
     skeleton_result = SkeletonMatchResult(
         pattern=pattern,
         matched_nodes=node_protos,
+        matched_node_keys=[n.name if n.name else f"{n.op_type}_node" for n in node_protos],
         matcher=None,
     )
 
@@ -378,6 +379,7 @@ class TestPatternMatchValidation:
         skeleton_result = SkeletonMatchResult(
             pattern=op_pattern,
             matched_nodes=[node_proto],
+            matched_node_keys=[node_proto.name if node_proto.name else f"{node_proto.op_type}_node"],
             matcher=None,
         )
 
@@ -416,6 +418,7 @@ class TestPatternMatchValidation:
         empty_skeleton = SkeletonMatchResult(
             pattern=op_pattern,
             matched_nodes=[],
+            matched_node_keys=[],
             matcher=None,
         )
         match_empty = PatternMatchResult(

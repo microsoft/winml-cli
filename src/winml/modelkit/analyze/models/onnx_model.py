@@ -60,6 +60,9 @@ class ONNXModel(BaseModel):
 
     # Cache for deserialized model to avoid repeated parsing
     _cached_model: onnx.ModelProto | None = None
+    _node_key_by_node_id: dict[int, str] | None = None
+    _node_by_key: dict[str, onnx.NodeProto] | None = None
+    _node_by_name: dict[str, onnx.NodeProto] | None = None
 
     model_config = {
         "arbitrary_types_allowed": True,
@@ -124,7 +127,31 @@ class ONNXModel(BaseModel):
         )
         # Store ModelProto by reference instead of serializing to bytes
         object.__setattr__(instance, "_cached_model", model)
+        instance._initialize_node_key_index()
         return instance
+
+    @staticmethod
+    def _make_stable_node_key(node: onnx.NodeProto, index: int) -> str:
+        """Create a stable non-empty key for a node within its graph."""
+        return node.name if node.name else f"node_{index}"
+
+    def _initialize_node_key_index(self) -> None:
+        """Build node sidecar maps for stable key lookup."""
+        model = self.get_model()
+        node_key_by_node_id: dict[int, str] = {}
+        node_by_key: dict[str, onnx.NodeProto] = {}
+        node_by_name: dict[str, onnx.NodeProto] = {}
+
+        for index, node in enumerate(model.graph.node):
+            stable_key = self._make_stable_node_key(node, index)
+            node_key_by_node_id[id(node)] = stable_key
+            node_by_key[stable_key] = node
+            if node.name and node.name not in node_by_name:
+                node_by_name[node.name] = node
+
+        object.__setattr__(self, "_node_key_by_node_id", node_key_by_node_id)
+        object.__setattr__(self, "_node_by_key", node_by_key)
+        object.__setattr__(self, "_node_by_name", node_by_name)
 
     def get_graph(self) -> onnx.GraphProto:
         """Deserialize and return ONNX graph.
@@ -151,3 +178,45 @@ class ONNXModel(BaseModel):
                 "No cached ModelProto available. ONNXModel must be created via from_onnx_model()."
             )
         return self._cached_model
+
+    def get_node_key(self, node: onnx.NodeProto) -> str:
+        """Get the stable sidecar key for a node."""
+        node_key_by_node_id = self._node_key_by_node_id
+        if node_key_by_node_id is None:
+            self._initialize_node_key_index()
+            node_key_by_node_id = self._node_key_by_node_id
+
+        if node_key_by_node_id is None:
+            raise RuntimeError("Node key index is unavailable.")
+
+        node_id = id(node)
+        stable_key = node_key_by_node_id.get(node_id)
+        if stable_key is not None:
+            return stable_key
+
+        # Fallback for nodes not from this model graph.
+        return node.name if node.name else f"node_obj_{node_id}"
+
+    def get_node_by_key(self, node_key: str) -> onnx.NodeProto | None:
+        """Resolve a stable sidecar key to a node."""
+        node_by_key = self._node_by_key
+        if node_by_key is None:
+            self._initialize_node_key_index()
+            node_by_key = self._node_by_key
+        return node_by_key.get(node_key) if node_by_key is not None else None
+
+    def get_node_by_name(self, node_name: str) -> onnx.NodeProto | None:
+        """Resolve original ONNX node name to a node when available."""
+        node_by_name = self._node_by_name
+        if node_by_name is None:
+            self._initialize_node_key_index()
+            node_by_name = self._node_by_name
+        return node_by_name.get(node_name) if node_by_name is not None else None
+
+    def get_node_key_map(self) -> dict[int, str]:
+        """Get a copy of node-id to stable-key sidecar mapping."""
+        node_key_by_node_id = self._node_key_by_node_id
+        if node_key_by_node_id is None:
+            self._initialize_node_key_index()
+            node_key_by_node_id = self._node_key_by_node_id
+        return dict(node_key_by_node_id) if node_key_by_node_id is not None else {}
