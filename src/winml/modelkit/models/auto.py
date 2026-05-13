@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..cache import get_cache_dir, get_cache_key, get_model_dir
-from ..loader import load_hf_model
 from ..loader.task import get_task_abbrev
 
 # Import task mapping from winml/ subpackage
@@ -386,27 +385,17 @@ class WinMLAutoModel:
 
         cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key())
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
-        final_path = output_dir / (f"{cache_key}_model.onnx" if cache_key else "model.onnx")
 
         # =====================================================================
-        # [3] LOAD PHASE - Load HF model with weights (Heavyweight, ~30-60s)
-        #     Skipped when ONNX artifact is already cached.
+        # [3] CONFIG PROBE - Lightweight AutoConfig fetch for model_type only.
+        #     Model weights are loaded inside build_hf_model() when needed.
         # =====================================================================
         effective_trust = trust_remote_code or (
             build_config.loader.trust_remote_code if build_config.loader else False
         )
-        if final_path.exists() and not force_rebuild:
-            from transformers import AutoConfig
+        from transformers import AutoConfig
 
-            hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
-            pytorch_model = None
-            logger.info("ONNX artifact cached, skipping model load: %s", final_path)
-        else:
-            pytorch_model, hf_config, _ = load_hf_model(
-                model_name_or_path=model_id,
-                task=resolved_task,
-                trust_remote_code=effective_trust,
-            )
+        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
         model_type = getattr(hf_config, "model_type", "unknown")
         logger.debug("Model type: %s, task: %s", model_type, resolved_task)
 
@@ -421,7 +410,7 @@ class WinMLAutoModel:
             config=config,
             output_dir=output_dir,
             model_id=model_id,
-            pytorch_model=pytorch_model,
+            pytorch_model=None,
             rebuild=force_rebuild,
             trust_remote_code=trust_remote_code,
             cache_key=cache_key,
