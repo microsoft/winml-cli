@@ -78,7 +78,7 @@ def create_simple_conv_model() -> onnx.ModelProto:
     model = helper.make_model(
         graph,
         opset_imports=[helper.make_opsetid("", 13)],
-        producer_name="ModelKit Test Fixture Generator",
+        producer_name="WinML CLI Test Fixture Generator",
     )
 
     # Check model validity
@@ -193,7 +193,7 @@ def create_multi_op_model() -> onnx.ModelProto:
     model = helper.make_model(
         graph,
         opset_imports=[helper.make_opsetid("", 13)],
-        producer_name="ModelKit Test Fixture Generator",
+        producer_name="WinML CLI Test Fixture Generator",
     )
 
     onnx.checker.check_model(model)

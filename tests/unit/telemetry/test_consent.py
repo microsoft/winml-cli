@@ -127,7 +127,7 @@ def test_read_same_version_honored(isolated_config):
 
 
 def test_read_newer_version_honored(isolated_config):
-    # A config written by a newer ModelKit (higher version) must be
+    # A config written by a newer WinML CLI (higher version) must be
     # honored, not silently re-prompted.
     isolated_config.parent.mkdir(parents=True, exist_ok=True)
     isolated_config.write_text(

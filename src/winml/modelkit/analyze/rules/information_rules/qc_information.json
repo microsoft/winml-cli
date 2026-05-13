@@ -15,7 +15,7 @@
                     }
                 ],
                 "enabled": true,
-                "details": "The ai.onnx Attention operator (opset 23+) may not be supported on this hardware. Use the ModelKit rewrite flag to expand it to the individual scaled dot-product attention subgraph (Transpose, Mul, MatMul, Add, Softmax, MatMul) which has broader hardware support."
+                "details": "The ai.onnx Attention operator (opset 23+) may not be supported on this hardware. Use the WinML CLI rewrite flag to expand it to the individual scaled dot-product attention subgraph (Transpose, Mul, MatMul, Add, Softmax, MatMul) which has broader hardware support."
             }
         ],
         "enabled": true,

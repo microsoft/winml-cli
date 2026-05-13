@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Early warning filter configuration for ModelKit.
+"""Early warning filter configuration for WinML CLI.
 
 This module configures warning filters ON IMPORT. It MUST have no dependencies
 on modelkit subpackages to avoid triggering the import chain that loads
@@ -12,7 +12,7 @@ Usage:
     from . import _warnings  # Filters are configured automatically
 
 Environment Variables:
-    MODELKIT_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
+    WINMLCLI_SHOW_ALL_WARNINGS: Set to "1" or "true" to disable warning suppression
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _configure() -> None:
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
     # Allow users to see all warnings if they want
-    if os.environ.get("MODELKIT_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("WINMLCLI_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
         return
 
     # =========================================================================
@@ -65,7 +65,11 @@ def _configure() -> None:
             msg = record.getMessage()
             return not any(s in msg for s in self._SUPPRESSED)
 
-    logging.getLogger("transformers.pipelines.base").addFilter(_PipelineNoiseFilter())
+    for logger_name in (
+        "transformers.pipelines.base",
+        "transformers.models.auto.image_processing_auto",
+    ):
+        logging.getLogger(logger_name).addFilter(_PipelineNoiseFilter())
 
     # =========================================================================
     # Warning filters (for warnings.warn() calls)
@@ -81,10 +85,9 @@ def _configure() -> None:
     # NOTE: TracerWarning (from torch.jit) is intentionally NOT filtered here.
     # Importing torch.jit at startup would pull all of torch (~1.7s) into
     # `winml --help` and violate the CLI import budget (tests/cli/test_import_time.py).
-    # During ONNX export, build.py already wraps the export call in
+    # During ONNX export, export_pytorch() wraps torch.onnx.export in
     # `warnings.catch_warnings()` + `filterwarnings("ignore")`, which is strictly
-    # broader than a TracerWarning-only filter. Direct callers of export_pytorch()
-    # that want the same suppression can apply it locally at the call site.
+    # broader than a TracerWarning-only filter.
 
     # Diffusers
     warnings.filterwarnings(

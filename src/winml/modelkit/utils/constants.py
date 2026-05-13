@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Shared constants for ModelKit."""
+"""Shared constants for WinML CLI."""
 
 import onnxruntime as ort
 

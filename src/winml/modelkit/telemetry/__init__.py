@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""ModelKit telemetry - OneCollector-backed CLI usage and error reporting.
+"""WinML CLI telemetry - OneCollector-backed CLI usage and error reporting.
 
 Public surface: :class:`Telemetry` (the singleton) and :class:`ActionGroup`
 (the Click group subclass that auto-instruments registered subcommands).

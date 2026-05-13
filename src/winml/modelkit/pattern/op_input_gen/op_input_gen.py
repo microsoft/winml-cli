@@ -12,6 +12,7 @@ import zlib
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -44,6 +45,29 @@ _OP_INPUT_GENERATOR_REGISTRY: dict[str, type["OpInputGenerator"]] = {}
 
 # Error message pattern for QNN EP setup failure
 _QNN_EP_SETUP_FAILURE_PATTERN = "Failed to setup so cleaning up"
+
+# Global compile/run counters for check_on_ep() progress reporting.
+_TEST_PHASE_GLOBAL_COUNT = {
+    "compile": {"success": 0, "failed": 0, "all": 0},
+    "run": {"success": 0, "failed": 0, "all": 0},
+}
+_TEST_PHASE_GLOBAL_COUNT_LOCK = Lock()
+
+
+def _increment_test_phase_global_count(phase: str, success: bool) -> dict[str, int]:
+    """Increment and return cumulative counts for a test phase."""
+    if phase not in _TEST_PHASE_GLOBAL_COUNT:
+        raise ValueError(f"Unsupported test phase: {phase}")
+
+    with _TEST_PHASE_GLOBAL_COUNT_LOCK:
+        phase_count = _TEST_PHASE_GLOBAL_COUNT[phase]
+        phase_count["all"] += 1
+        if success:
+            phase_count["success"] += 1
+        else:
+            phase_count["failed"] += 1
+        # Return a snapshot to avoid reading a mutable dict after releasing the lock.
+        return dict(phase_count)
 
 
 def _check_qnn_ep_setup_failure(result: dict) -> None:
@@ -1495,7 +1519,22 @@ class OpInputGenerator(ABC):
         cases_skipped = 0
         from ...analyze.runtime_checker.runner import ResilientRunner
 
+        isolate_case_execution = ep_checker.needs_case_isolation()
+
         with ResilientRunner(capture_output=capture_output, timeout_sec=60) as runner:
+            def _run_ep_check(
+                fn: Callable[[Any, Any], dict[str, Any]],
+                model_bytes: bytes,
+                ep_checker_inputs: dict[str, Any],
+            ) -> dict[str, Any]:
+                if isolate_case_execution:
+                    with ResilientRunner(
+                        capture_output=capture_output,
+                        timeout_sec=60,
+                    ) as case_runner:
+                        return case_runner.run(fn, model_bytes, ep_checker_inputs)
+                return runner.run(fn, model_bytes, ep_checker_inputs)
+
             for case_idx, (kwargs, tags) in enumerate(self.iter()):
                 # Check if we've reached the case limit
                 if n_cases is not None and case_idx >= n_cases:
@@ -1543,19 +1582,34 @@ class OpInputGenerator(ABC):
                         }
 
                     compile_result = (
-                        runner.run(ep_checker.check_compile, model_bytes, ep_checker_inputs)
+                        _run_ep_check(ep_checker.check_compile, model_bytes, ep_checker_inputs)
                         if not dry_run
                         else _dry_run_result()
                     )
                     _check_qnn_ep_setup_failure(compile_result)
 
                     # TODO: if compilation succeeded, maybe skip run test?
-                    if compile_result["result"]["success"]:
-                        print(f"{Fore.GREEN}Compilation test passed.{Style.RESET_ALL}")
+                    compile_success = compile_result["result"]["success"]
+                    compile_count = _increment_test_phase_global_count("compile", compile_success)
+
+                    if compile_success:
+                        print(
+                            f"{Fore.GREEN}Compilation test passed. "
+                            f"count: success<{compile_count['success']}> "
+                            f"failed<{compile_count['failed']}> "
+                            f"all<{compile_count['all']}>"
+                            f"{Style.RESET_ALL}"
+                        )
                     else:
-                        print(f"{Fore.RED}Compilation test failed.{Style.RESET_ALL}")
+                        print(
+                            f"{Fore.RED}Compilation test failed. "
+                            f"count: success<{compile_count['success']}> "
+                            f"failed<{compile_count['failed']}> "
+                            f"all<{compile_count['all']}>"
+                            f"{Style.RESET_ALL}"
+                        )
                     if (
-                        not compile_result["result"]["success"] and save_failed_model
+                        not compile_success and save_failed_model
                     ) or save_model:
                         if save_dir is None:
                             save_dir = (
@@ -1621,16 +1675,31 @@ class OpInputGenerator(ABC):
                         onnx.save(onnx_model, onnx_path)
                         print(f"Saved model to {onnx_path}. {Style.RESET_ALL}")
                     run_result = (
-                        runner.run(ep_checker.check_run, model_bytes, ep_checker_inputs)
+                        _run_ep_check(ep_checker.check_run, model_bytes, ep_checker_inputs)
                         if not dry_run
                         else _dry_run_result()
                     )
                     _check_qnn_ep_setup_failure(run_result)
 
-                    if run_result["result"]["success"]:
-                        print(f"{Fore.GREEN}Run test passed.{Style.RESET_ALL}")
+                    run_success = run_result["result"]["success"]
+                    run_count = _increment_test_phase_global_count("run", run_success)
+
+                    if run_success:
+                        print(
+                            f"{Fore.GREEN}Run test passed. "
+                            f"count: success<{run_count['success']}> "
+                            f"failed<{run_count['failed']}> "
+                            f"all<{run_count['all']}>"
+                            f"{Style.RESET_ALL}"
+                        )
                     else:
-                        print(f"{Fore.RED}Run test failed.{Style.RESET_ALL}")
+                        print(
+                            f"{Fore.RED}Run test failed. "
+                            f"count: success<{run_count['success']}> "
+                            f"failed<{run_count['failed']}> "
+                            f"all<{run_count['all']}>"
+                            f"{Style.RESET_ALL}"
+                        )
                     final_tags["check_result"] = {
                         "compile": compile_result,
                         "run": run_result,
