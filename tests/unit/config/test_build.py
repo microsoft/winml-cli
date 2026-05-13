@@ -24,12 +24,12 @@ import winml.modelkit.models  # noqa: F401
 from winml.modelkit.commands.config import config as config_command
 from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
 from winml.modelkit.config import (
+    SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
     generate_onnx_build_config,
 )
 from winml.modelkit.config.build import (
-    SubmoduleClassNotFoundError,
     SubmoduleInfo,
     _build_submodule_config,
     resolve_quant_compile_config,
