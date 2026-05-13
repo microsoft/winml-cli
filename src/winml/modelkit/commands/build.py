@@ -379,6 +379,12 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
+    # Early validation: -m is required when -c is omitted.
+    # Must run BEFORE EP auto-selection (which loads native DLLs) so that
+    # missing-argument errors are raised cheaply without touching hardware.
+    if config_file is None and not model_id:
+        raise click.UsageError("-m/--model is required when -c is not provided.")
+
     # If ep unspecified, attempt to auto-select a suitable EP from the registry
     if ep is None:
         from ..session import WinMLEPRegistry
