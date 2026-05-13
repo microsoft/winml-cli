@@ -99,6 +99,12 @@ console = Console()
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.option(
+    "--model-name",
+    type=str,
+    default=None,
+    help="HuggingFace model ID for task-aware calibration tokenizer/processor.",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -119,6 +125,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
+    model_name: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -200,6 +207,7 @@ def quantize(
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,
+        model_name=model_name,
     )
 
     # Display dataset info from config
