@@ -1,112 +1,118 @@
-#################################################################################
-#                              OneBranch Pipelines                              #
-# This pipeline was created by EasyStart from a sample located at:              #
-#   https://aka.ms/obpipelines/easystart/samples                                #
-# Documentation:  https://aka.ms/obpipelines                                    #
-# Yaml Schema:    https://aka.ms/obpipelines/yaml/schema                        #
-# Retail Tasks:   https://aka.ms/obpipelines/tasks                              #
-# Support:        https://aka.ms/onebranchsup                                   #
-#################################################################################
+name: $(BuildDefinitionName)_$(date:yyMM).$(date:dd)$(rev:rrr)
 
-trigger: none # https://aka.ms/obpipelines/triggers
+trigger: none
 
-parameters: # parameters are shown up in ADO UI in a build queue time
-- name: 'debug'
-  displayName: 'Enable debug output'
-  type: boolean
-  default: false
+parameters:
 - name: OFFICIAL_BUILD_ID
-  displayName: 'Specify which run to use (the pipeline build ID)'
+  displayName: 'Specify which official build run to use (pipeline build ID)'
   type: string
-
-variables:
-  CDP_DEFINITION_BUILD_COUNT: $[counter('', 0)] # needed for onebranch.pipeline.version task https://aka.ms/obpipelines/versioning
-  DEBIAN_FRONTEND: noninteractive
-  LinuxContainerImage: 'mcr.microsoft.com/onebranch/azurelinux/build:3.0' # https://eng.ms/docs/products/onebranch/infrastructureandimages/containerimages/linuximages/marinerazurelinux/azurelinux
-  WindowsContainerImage: 'onebranch.azurecr.io/windows/ltsc2022/vse2022:latest' # https://aka.ms/obpipelines/containers
 
 resources:
   repositories:
-    - repository: templates
-      type: git
-      name: OneBranch.Pipelines/GovernedTemplates
-      ref: refs/heads/main
+  - repository: 1ESPipelineTemplates
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
 
 extends:
-  template: v2/OneBranch.Official.CrossPlat.yml@templates # https://aka.ms/obpipelines/templates
+  template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
   parameters:
-    git:
-      fetchDepth: -1
-    featureFlags:
-      EnableCDPxPAT: false
-      WindowsHostVersion: '1ESWindows2022'
-    globalSdl:
-      tsa:
-        enabled: false
-
+    pool:
+      isCustom: true
+      name: 'ProjectReunionESPool-2022'
+      # Need a clone of MMS2022 with artifact windows-1es-pt-prerequisites-v2 installed to satisfy 1ESPT.
+      # https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/onboardingesteams/create-agent-image
+      demands: ImageOverride -equals MMS2022-1ES-GPT
     stages:
     - stage: Release
       displayName: 'Release to GitHub'
       condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
       jobs:
-      - job: CreateGitHubRelease
-        displayName: 'Create GitHub Release'
-        pool:
-          type: windows
-
-        variables:
-          ob_outputDirectory: '$(Build.SourcesDirectory)\out'
+      - job: Prepare
+        displayName: 'Prepare GitHub Release Assets'
+        templateContext:
+          outputs:
+          - output: pipelineArtifact
+            displayName: 'Publish staged release assets'
+            targetPath: $(Build.SourcesDirectory)/release_assets
+            artifactName: GitHubReleaseAssets
 
         steps:
-          - task: DownloadPipelineArtifact@2
-            displayName: 'Download build artifacts'
-            inputs:
-              buildType: 'specific'
-              project: '320d2220-0d58-42de-ae76-6f774e8e5eef'
-              definition: '191314'
-              buildVersionToDownload: 'specific'
-              pipelineId: ${{ parameters.OFFICIAL_BUILD_ID }}
-              targetPath: '$(Pipeline.Workspace)'
+        - task: DownloadPipelineArtifact@2
+          displayName: 'Download official build artifacts'
+          inputs:
+            buildType: 'specific'
+            project: '320d2220-0d58-42de-ae76-6f774e8e5eef'
+            definition: '191314'
+            buildVersionToDownload: 'specific'
+            pipelineId: ${{ parameters.OFFICIAL_BUILD_ID }}
+            targetPath: '$(Build.SourcesDirectory)/official_build'
 
-          - powershell: |
-              $content = Get-Content "$(Build.SourcesDirectory)\pyproject.toml" -Raw
-              if ($content -match 'version\s*=\s*"([^"]+)"') {
-                  $version = $matches[1]
-                  $tag = "v$version"
-                  Write-Host "Version: $version"
-                  Write-Host "Tag: $tag"
-                  Write-Host "##vso[task.setvariable variable=ReleaseVersion]$version"
-                  Write-Host "##vso[task.setvariable variable=ReleaseTag]$tag"
-              } else {
-                  Write-Error "Could not parse version from pyproject.toml"
-                  exit 1
-              }
-            displayName: 'Extract version from pyproject.toml'
+        - task: PowerShell@2
+          displayName: 'Stage wheels + parquets'
+          inputs:
+            targetType: 'inline'
+            script: |
+              $src = "$(Build.SourcesDirectory)/official_build"
+              $dst = "$(Build.SourcesDirectory)/release_assets"
+              New-Item -ItemType Directory -Path $dst -Force | Out-Null
 
-          - powershell: |
-              $artifactDir = "$(Pipeline.Workspace)"
-              $outDir = "$(ob_outputDirectory)"
-              New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-              $wheels = Get-ChildItem "$artifactDir" -Filter "*.whl" -Recurse
-              $parquets = Get-ChildItem "$artifactDir" -Filter "*.parquet" -Recurse
+              $wheels = Get-ChildItem $src -Filter "*.whl" -Recurse
+              $parquets = Get-ChildItem $src -Filter "*.parquet" -Recurse
+
+              if ($wheels.Count -eq 0) { throw "no wheel found under $src" }
+
               Write-Host "Found $($wheels.Count) wheel(s) and $($parquets.Count) parquet file(s)"
-              $wheels | Copy-Item -Destination $outDir
-              $parquets | Copy-Item -Destination $outDir
-            displayName: 'Stage release assets'
+              $wheels | Copy-Item -Destination $dst
+              $parquets | Copy-Item -Destination $dst
 
-          - task: GitHubRelease@1
-            displayName: 'Create GitHub Release'
-            inputs:
-              gitHubConnection: 'ModelKit'
-              repositoryName: 'microsoft/WinML-ModelKit'
-              action: create
-              target: '$(Build.SourceVersion)'
-              tagSource: userSpecifiedTag
-              tag: '$(ReleaseTag)'
-              title: 'ModelKit $(ReleaseTag)'
-              assets: |
-                $(ob_outputDirectory)\*.whl
-                $(ob_outputDirectory)\*.parquet
-              isDraft: false
-              isPreRelease: true
-              addChangeLog: false
+              Write-Host "Staged GitHub release assets:"
+              Get-ChildItem $dst | ForEach-Object { Write-Host (" - {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
+
+      - job: CreateGitHubRelease
+        displayName: 'Create GitHub Release'
+        dependsOn: Prepare
+        templateContext:
+          type: releaseJob   # Required, this indicates this job is a release job
+          isProduction: true # Required, must be 'true' or 'false'
+          inputs:
+          - input: pipelineArtifact
+            artifactName: GitHubReleaseAssets
+            targetPath: $(Build.SourcesDirectory)/release_assets
+
+        steps:
+        - task: PowerShell@2
+          displayName: 'Extract version from wheel filename'
+          inputs:
+            targetType: 'inline'
+            script: |
+              $wheel = Get-ChildItem "$(Build.SourcesDirectory)/release_assets/*.whl" | Select-Object -First 1
+              if (-not $wheel) { throw "no wheel found in staged assets" }
+              # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
+              # PEP 503 normalizes "winml-modelkit" -> "winml_modelkit" in filenames.
+              if ($wheel.Name -notmatch '^winml_modelkit-([^-]+)-') {
+                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_modelkit-<version>-...'"
+              }
+              $version = $matches[1]
+              $tag = "v$version"
+              Write-Host "Version: $version"
+              Write-Host "Tag: $tag"
+              Write-Host "##vso[task.setvariable variable=ReleaseVersion]$version"
+              Write-Host "##vso[task.setvariable variable=ReleaseTag]$tag"
+
+        - task: GitHubRelease@1
+          displayName: 'Create GitHub Release'
+          inputs:
+            gitHubConnection: 'ModelKit'
+            repositoryName: 'microsoft/WinML-ModelKit'
+            action: create
+            target: '$(Build.SourceVersion)'
+            tagSource: userSpecifiedTag
+            tag: '$(ReleaseTag)'
+            title: 'ModelKit $(ReleaseTag)'
+            assets: |
+              $(Build.SourcesDirectory)/release_assets/*.whl
+              $(Build.SourcesDirectory)/release_assets/*.parquet
+            isDraft: false
+            isPreRelease: true
+            addChangeLog: false
