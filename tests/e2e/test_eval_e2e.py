@@ -4,24 +4,23 @@
 # --------------------------------------------------------------------------
 """E2E functional tests for the `winml eval` CLI command.
 
-Plan: ``temp/eval_e2e_commands.md``.
-
-Each test invokes ``winml eval`` end-to-end against a real (small) model +
-~4 dataset samples and asserts exit code + expected output keys + finite
-metric values. These tests do NOT assert metric magnitudes — that's the
-accuracy regression suite under ``scripts/e2e_eval/run_eval.py``.
+Each test invokes ``winml eval`` end-to-end against a real (small) model
+with ``--samples 10`` and asserts exit code + expected metric keys +
+values within a sanity range. These tests do NOT assert metric magnitudes
+for accuracy regression — that's the suite under
+``scripts/e2e_eval/run_eval.py``.
 
 Markers:
     e2e: Auto-skipped unless ``pytest -m e2e`` is passed.
 
-Group layout (see plan for rationale):
-    A. Per-task success (13 cases)
-    B. Alternative model-input forms (2 cases)
-    C. Output behavior (1 case)
-    D. ``--schema`` parametrized (13 sub-tests)
-    E. ``--device`` / ``--ep`` (2 cases)
-    F. Additional options & branches (8 cases)
-    G. CLI-validation error paths (5 cases, fast)
+Group layout:
+    TestEvalPerTask           one success run per registered task (13)
+    TestEvalModelInputForms   ONNX-file and split-encoder ``-m`` forms (2)
+    TestEvalOutput            ``-o`` path creation (1)
+    TestEvalSchema            ``--schema --task <t>`` for every task (13)
+    TestEvalDeviceAndEp       ``--device`` / ``--ep`` (2)
+    TestEvalAdditionalOptions other options & branches (8)
+    TestEvalErrorPaths        CLI-validation error paths (6, fast)
 """
 
 from __future__ import annotations
@@ -158,7 +157,7 @@ class TestEvalPerTask:
     """
 
     def test_image_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.1 — HF evaluate.evaluator("image-classification") returns `accuracy`.
+        # HF evaluate.evaluator("image-classification") returns `accuracy`.
         # --streaming avoids caching full mini-imagenet (~1-2 GB).
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -174,7 +173,7 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "accuracy", 0.5, 1.0)
 
     def test_text_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.2 — model aligned with CLI default dataset (nyu-mll/glue/mrpc).
+        # Model aligned with CLI default dataset (nyu-mll/glue/mrpc).
         # HF evaluate.evaluator("text-classification") returns `accuracy`.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -188,7 +187,6 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_token_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.3
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "dslim/bert-base-NER",
@@ -206,7 +204,7 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "overall_accuracy", 0.8, 1.0)
 
     def test_object_detection(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.4 — COCO val is ~6 GB; --streaming keeps only the bytes needed
+        # COCO val is ~6 GB; --streaming keeps only the bytes needed
         # for the sampled subset.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -224,7 +222,6 @@ class TestEvalPerTask:
             assert -1.0 <= v <= 1.0, f"{k}={v} outside [-1, 1]"
 
     def test_image_segmentation(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.5
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "nvidia/segformer-b1-finetuned-ade-512-512",
@@ -239,7 +236,6 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_question_answering(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.6
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "distilbert/distilbert-base-cased-distilled-squad",
@@ -255,7 +251,6 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "f1", 5.0, 100.0)
 
     def test_feature_extraction(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.7
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "sentence-transformers/all-MiniLM-L6-v2",
@@ -269,7 +264,7 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
     def test_sentence_similarity(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.8 (alias for feature-extraction)
+        # Alias for feature-extraction.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "sentence-transformers/all-MiniLM-L6-v2",
@@ -283,7 +278,7 @@ class TestEvalPerTask:
     def test_image_feature_extraction(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # A.9 — kNN accuracies reported as percentages 0..100.
+        # kNN accuracies reported as percentages 0..100.
         # --streaming avoids caching mini-imagenet.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -304,7 +299,7 @@ class TestEvalPerTask:
         assert top1 <= top5, f"top1 ({top1}) must be <= top5 ({top5})"
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.10 — only test that exercises non-auto --precision
+        # Only test that exercises non-auto --precision.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Salesforce/blip-image-captioning-base",
@@ -334,7 +329,7 @@ class TestEvalPerTask:
         assert isinstance(m["n_samples"], int) and m["n_samples"] >= 0
 
     def test_fill_mask(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.11 — pseudo-perplexity >= 1 (perplexity is exp of non-neg NLL).
+        # Pseudo-perplexity >= 1 (perplexity is exp of non-neg NLL).
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "distilbert/distilbert-base-uncased",
@@ -352,7 +347,7 @@ class TestEvalPerTask:
     def test_zero_shot_classification(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # A.12 — zero-shot uses ClassificationMetric → accuracy + f1.
+        # Zero-shot uses ClassificationMetric → accuracy + f1.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "cross-encoder/nli-deberta-v3-small",
@@ -370,7 +365,6 @@ class TestEvalPerTask:
     def test_zero_shot_image_classification(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # A.13
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "openai/clip-vit-base-patch32",
@@ -396,7 +390,6 @@ class TestEvalModelInputForms:
     def test_onnx_file_mode_monolithic(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # B.1
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
 
@@ -425,7 +418,6 @@ class TestEvalModelInputForms:
     def test_onnx_file_mode_split_encoder(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # B.2
         hf_id = "openai/clip-vit-base-patch32"
         task = "zero-shot-image-classification"
 
@@ -471,7 +463,6 @@ class TestEvalOutput:
     def test_creates_nested_output_dir(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # C.1
         out = tmp_path / "nested" / "subdir" / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -511,7 +502,6 @@ _ALL_TASKS = [
 class TestEvalSchema:
     @pytest.mark.parametrize("task", _ALL_TASKS)
     def test_schema_for_each_task(self, runner: CliRunner, task: str) -> None:
-        # D
         result = _invoke(runner, ["--schema", "--task", task])
         assert "Dataset schema" in result.output
 
@@ -523,7 +513,7 @@ class TestEvalSchema:
 
 class TestEvalDeviceAndEp:
     def test_device_cpu(self, runner: CliRunner, tmp_path: Path) -> None:
-        # E.1 — CPU works on every box. ResNet-50 is a small, fast image
+        # CPU works on every box. ResNet-50 is a small, fast image
         # classifier well-suited to a CPU smoke test (no per-token forward
         # passes like fill-mask).
         out = tmp_path / "result.json"
@@ -542,7 +532,7 @@ class TestEvalDeviceAndEp:
     def test_device_npu_and_ep_qnn(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # E.2 — combined --device + --ep
+        # Combined --device + --ep.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "google/vit-base-patch16-224",
@@ -566,7 +556,6 @@ class TestEvalAdditionalOptions:
     def test_dataset_name_explicit(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # F.1
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -584,7 +573,6 @@ class TestEvalAdditionalOptions:
     def test_label_mapping_image_segmentation(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # F.2
         from pathlib import Path as _Path
 
         label_map = _Path(ADE20K_LABEL_MAP)
@@ -608,7 +596,7 @@ class TestEvalAdditionalOptions:
     def test_config_file_basic(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # F.3 — `eval` section provides task + samples
+        # `eval` section provides task + samples.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({
             "loader": {"task": "text-classification"},
@@ -629,7 +617,7 @@ class TestEvalAdditionalOptions:
     def test_config_file_cli_override(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # F.4 — CLI wins over config file
+        # CLI wins over config file.
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({
             "loader": {"task": "text-classification"},
@@ -651,7 +639,7 @@ class TestEvalAdditionalOptions:
     def test_auto_task_detection(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # F.5 — no --task flag; CLI infers from HF model
+        # No --task flag; CLI infers from HF model.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -667,7 +655,7 @@ class TestEvalAdditionalOptions:
     def test_precision_warning_for_prebuilt_onnx(
         self, runner: CliRunner, tmp_path: Path, caplog,
     ) -> None:
-        # F.6 — pre-built ONNX + --precision emits warning, still succeeds
+        # Pre-built ONNX + --precision emits warning, still succeeds.
         import logging as _logging
 
         hf_id = "google/vit-base-patch16-224"
@@ -702,7 +690,7 @@ class TestEvalAdditionalOptions:
     def test_dataset_script_with_column_remap(
         self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
     ) -> None:
-        # F.7 — --dataset-script + --column + --trust-remote-code (good path)
+        # --dataset-script + --column + --trust-remote-code (happy path).
         ds_path = tmp_path / "tiny_textcls"
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -723,7 +711,6 @@ class TestEvalAdditionalOptions:
     def test_dataset_script_without_trust_remote_code(
         self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
     ) -> None:
-        # F.8 — error path
         ds_path = tmp_path / "tiny_textcls"
         result = _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -745,7 +732,6 @@ class TestEvalErrorPaths:
     def test_bad_column_format(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # G.1
         result = _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
             "--task", "text-classification",
@@ -760,7 +746,6 @@ class TestEvalErrorPaths:
     def test_missing_label_mapping_file(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # G.2
         missing = tmp_path / "does-not-exist.json"
         result = _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -777,7 +762,6 @@ class TestEvalErrorPaths:
     def test_bogus_dataset_name(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # G.3
         result = _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
             "--task", "text-classification",
@@ -792,13 +776,12 @@ class TestEvalErrorPaths:
         )
 
     def test_schema_without_task(self, runner: CliRunner) -> None:
-        # G.4
         result = _invoke(runner, ["--schema"], expect_success=False)
         assert result.exit_code != 0
         assert "--task" in result.output, result.output
 
     def test_schema_bogus_task(self, runner: CliRunner) -> None:
-        # G.6 — get_evaluator_class ValueError wrapped as UsageError
+        # get_evaluator_class ValueError wrapped as UsageError.
         result = _invoke(
             runner, ["--schema", "--task", "not-a-real-task"],
             expect_success=False,
@@ -813,7 +796,7 @@ class TestEvalErrorPaths:
     def test_onnx_file_without_model_id(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # G.5 — needs a real .onnx file path that exists; reuse warmed cache
+        # Needs a real .onnx file path that exists; reuse warmed cache.
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
         _invoke(runner, ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES])

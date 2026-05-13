@@ -86,16 +86,14 @@ class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""
 
     def test_registered_task_returns_class(self):
-        from winml.modelkit.eval.evaluate import (
-            _EVALUATOR_REGISTRY,
-            get_evaluator_class,
-        )
+        from winml.modelkit.eval import get_evaluator_class
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
         for task, expected_cls in _EVALUATOR_REGISTRY.items():
             assert get_evaluator_class(task) is expected_cls
 
     def test_unsupported_task_raises_value_error(self):
-        from winml.modelkit.eval.evaluate import get_evaluator_class
+        from winml.modelkit.eval import get_evaluator_class
 
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
             get_evaluator_class("made-up-task")

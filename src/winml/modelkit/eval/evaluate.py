@@ -114,8 +114,8 @@ _DEFAULT_DATASETS: dict[str, dict] = {
             "label_column": "answers",
         },
     },
-    "feature-extraction": _FE_DEFAULT,
-    "sentence-similarity": _FE_DEFAULT,
+    "feature-extraction": dict(_FE_DEFAULT),
+    "sentence-similarity": dict(_FE_DEFAULT),
     "image-feature-extraction": {
         "path": "timm/mini-imagenet",
         "split": "test",
@@ -233,7 +233,10 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
         import json as _json
 
         logger.warning(
-            "--dataset is not specified, use default dataset for task '%s':\n%s",
+            "--dataset is not specified; using default dataset for task '%s'. "
+            "Any user-supplied --split / --column / --streaming / --dataset-name "
+            "(or equivalent fields in the eval config) are ignored — the keys "
+            "below take precedence:\n%s",
             config.task,
             _json.dumps(default, indent=2),
         )
