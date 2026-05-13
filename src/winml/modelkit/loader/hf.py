@@ -33,7 +33,6 @@ from transformers import AutoConfig
 
 from .task import (
     _detect_task_from_config,
-    get_default_task_for_model_id,
     normalize_task,
     resolve_task_and_model_class,
 )
@@ -223,12 +222,8 @@ def load_hf_model(
         # Detect task if not provided
         task = _detect_task_from_config(hf_config) if task is None else normalize_task(task)
     else:
-        if task is None and model_class is None:
-            task = get_default_task_for_model_id(model_name_or_path)
-            if task is not None:
-                logger.info("Using model-specific default task %s for %s", task, model_name_or_path)
-
         # Standard resolution via resolve_task_and_model_class()
+        # (model-id task overrides are handled inside _detect_task_from_config)
         try:
             task, resolved_class = resolve_task_and_model_class(
                 hf_config,

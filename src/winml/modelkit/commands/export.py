@@ -385,33 +385,6 @@ def export(
         else:
             console.print(f"[dim]Detected task: {detected_task}[/dim]")
 
-        # Retry I/O tensor resolution if initial auto-resolution failed
-        if not cfg.input_tensors:
-            try:
-                from ..export import resolve_export_config as resolve_cfg
-
-                auto_export_cfg, _ = resolve_cfg(
-                    model_id=model,
-                    task=detected_task,
-                    shape_config=shape_overrides if not input_specs else None,
-                )
-                if auto_export_cfg.input_tensors:
-                    input_specs_dicts = [t.to_dict() for t in auto_export_cfg.input_tensors]
-                    cfg = WinMLExportConfig.from_dict(
-                        {**cfg.to_dict(), "input_tensors": input_specs_dicts}
-                    )
-                    console.print(
-                        f"[dim]Resolved input specs after task detection: "
-                        f"{[t.name for t in cfg.input_tensors]}[/dim]"
-                    )
-                if auto_export_cfg.output_tensors and not cfg.output_tensors:
-                    output_specs_dicts = [t.to_dict() for t in auto_export_cfg.output_tensors]
-                    cfg = WinMLExportConfig.from_dict(
-                        {**cfg.to_dict(), "output_tensors": output_specs_dicts}
-                    )
-            except Exception as e:
-                logger.debug("Retry I/O tensor resolution failed: %s", e)
-
         export_stats = export_onnx(
             model=pytorch_model,
             output_path=output_path,

@@ -254,6 +254,19 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     """
     from optimum.exporters.tasks import TasksManager
 
+    # [0] Per-model-id default task override (e.g., prajjwal1/bert-tiny).
+    # Applies before architecture resolution so models with no
+    # config.architectures field can still be auto-detected.
+    model_name_or_path = getattr(config, "_name_or_path", "") or ""
+    override_task = (
+        get_default_task_for_model_id(model_name_or_path) if model_name_or_path else None
+    )
+    if override_task is not None:
+        logger.info(
+            "Using model-specific default task %s for %s", override_task, model_name_or_path
+        )
+        return resolve_task_and_model_class(config, task=override_task)
+
     # [1] Resolve architecture class from config.
     # If config.architectures is missing/empty, this raises ValueError and the
     # caller should provide task explicitly.
