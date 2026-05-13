@@ -417,6 +417,7 @@ def build(
             config_or_configs = generate_build_config(
                 model_id,
                 trust_remote_code=trust_remote_code,
+                device=device,
             )
             if no_quant:
                 config_or_configs.quant = None
@@ -425,14 +426,16 @@ def build(
 
         is_module_mode = isinstance(config_or_configs, list)
 
-        # If --device was explicitly provided, patch the compile config so the
-        # correct device_type is passed to the EP (e.g. QNN GPU vs NPU).
-        # The compile config is built at config-generation time and defaults to
-        # whatever the auto-selected device was — CLI --device must override it.
+        # If --device was explicitly provided, patch compile config and clear
+        # quant for CPU/GPU (neither device uses quantization by default).
         if cli_utils.is_cli_provided(ctx, "device") and device:
             from ..compiler.configs import WinMLCompileConfig
 
             def _patch_device(cfg: WinMLBuildConfig) -> None:
+                from ..config import resolve_quant_compile_config
+
+                resolved_quant, _ = resolve_quant_compile_config(device=device)
+                cfg.quant = resolved_quant
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)

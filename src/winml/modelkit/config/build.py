@@ -174,12 +174,14 @@ class WinMLBuildConfig:
         result: dict = {}
         if not self.auto:
             result["auto"] = False
-        result.update({
-            "export": self.export.to_dict() if self.export is not None else None,
-            "optim": self.optim.to_dict(),
-            "quant": self.quant.to_dict() if self.quant is not None else None,
-            "compile": self.compile.to_dict() if self.compile is not None else None,
-        })
+        result.update(
+            {
+                "export": self.export.to_dict() if self.export is not None else None,
+                "optim": self.optim.to_dict(),
+                "quant": self.quant.to_dict() if self.quant is not None else None,
+                "compile": self.compile.to_dict() if self.compile is not None else None,
+            }
+        )
         # Only include loader if it has non-default values
         loader_dict = self.loader.to_dict()
         if loader_dict:
@@ -617,34 +619,23 @@ def generate_hf_build_config(
         task=parent_config.loader.task,
     )
 
-    # Apply policy: set compile provider from detected hardware
-    if policy.device != "auto":
-        # Quant config (weight_type and activation_type are always both-None or both-set)
-        if policy.weight_type is not None:
-            if parent_config.quant is None:
-                parent_config.quant = WinMLQuantizationConfig()
-            parent_config.quant.weight_type = policy.weight_type
-            parent_config.quant.activation_type = policy.activation_type
-        else:
-            parent_config.quant = None
-
-        # Compile config
-        parent_config.compile = WinMLCompileConfig.for_provider(
-            policy.compile_provider,
-            device=policy.device,
-        )
+    # Apply policy: resolve_device() always returns a concrete device so
+    # policy.device is never "auto" here.
+    # Quant config (weight_type and activation_type are always both-None or both-set)
+    if policy.weight_type is not None:
+        if parent_config.quant is None:
+            parent_config.quant = WinMLQuantizationConfig()
+        parent_config.quant.weight_type = policy.weight_type
+        parent_config.quant.activation_type = policy.activation_type
     else:
-        # Even in auto/auto mode, set compile provider from detected hardware
-        # instead of preserving the hardcoded EPConfig default (#412).
-        from .precision import get_provider_for_device
+        # CPU/GPU: precision is float (fp16/fp32) — no quantization
+        parent_config.quant = None
 
-        hw_provider = get_provider_for_device(resolved_device)
-        if hw_provider is not None:
-            parent_config.compile = WinMLCompileConfig.for_provider(
-                hw_provider,
-            )
-        # When hw_provider is None (CPU-only), keep the default compile config
-        # so the pipeline still has a valid compile section.
+    # Compile config
+    parent_config.compile = WinMLCompileConfig.for_provider(
+        policy.compile_provider,
+        device=policy.device,
+    )
 
     # no_compile overrides policy — applied last so it always wins
     if no_compile:
