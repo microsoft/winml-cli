@@ -28,6 +28,7 @@ import click
 from rich.logging import RichHandler
 
 from ..utils import cli as cli_utils
+from ..utils.cli import build_config_option
 from ..utils.console import (
     detect_model_source,
     get_console,
@@ -50,6 +51,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 console = get_console()
 
+_CONFIG_AUTO_LABEL = "(auto)"
+
 
 # =============================================================================
 # CLI HELPERS
@@ -57,7 +60,7 @@ console = get_console()
 
 
 def _load_config(
-    config_file: str,
+    config_file: Path,
     *,
     no_quant: bool = False,
     no_compile: bool | None = None,
@@ -84,11 +87,10 @@ def _load_config(
     """
     from ..config import WinMLBuildConfig
 
-    config_path = Path(config_file)
     try:
-        content = config_path.read_text()
+        content = config_file.read_text()
         if not content.strip():
-            raise click.UsageError(f"Config file is empty: {config_path}")
+            raise click.UsageError(f"Config file is empty: {config_file}")
         data = json.loads(content)
     except json.JSONDecodeError as e:
         raise click.UsageError(f"Invalid JSON in config: {e}") from e
@@ -229,15 +231,7 @@ def _build_modules(
 
 
 @click.command("build")
-@click.option(
-    "-c",
-    "--config",
-    "config_file",
-    type=click.Path(exists=True),
-    required=False,
-    default=None,
-    help="WinMLBuildConfig JSON file. If omitted, config is auto-generated from -m.",
-)
+@build_config_option
 @click.option(
     "-m",
     "--model",
@@ -323,7 +317,7 @@ def _build_modules(
 @click.pass_context
 def build(
     ctx: click.Context,
-    config_file: str | None,
+    config_file: Path | None,
     model_id: str | None,
     output_dir: str | None,
     use_cache: bool,
@@ -422,9 +416,12 @@ def build(
                 model_id,
                 trust_remote_code=trust_remote_code,
             )
+            # Apply CLI overrides to the auto-generated config.
+            # generate_build_config() doesn't accept these flags directly because
+            # quant/compile skipping is a CLI concern, not a config-generation one.
             if no_quant:
                 config_or_configs.quant = None
-            if no_compile:
+            if no_compile is True:
                 config_or_configs.compile = None
         is_module_mode = isinstance(config_or_configs, list)
 
@@ -458,7 +455,7 @@ def build(
             print_setup(
                 console,
                 model=model_id or "random-init",
-                config=Path(config_file).name if config_file else "(auto)",
+                config=config_file.name if config_file else _CONFIG_AUTO_LABEL,
                 output=str(resolved_dir),
                 source="HuggingFace",
             )
@@ -583,7 +580,7 @@ def build(
 def _run_single_build(
     *,
     config: WinMLBuildConfig,
-    config_file: str | None,
+    config_file: Path | None,
     model_id: str | None,
     resolved_dir: Path,
     rebuild: bool,
@@ -610,7 +607,7 @@ def _run_single_build(
     else:
         model_label = f"{model_id}  [dim](pretrained)[/dim]"
 
-    config_label = Path(config_file).name if config_file else "(auto)"
+    config_label = config_file.name if config_file else _CONFIG_AUTO_LABEL
 
     # ── 🔧 Setup section ────────────────────────────────────────
     print_setup(

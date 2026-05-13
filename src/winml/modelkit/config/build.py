@@ -178,7 +178,7 @@ class WinMLBuildConfig:
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
-                "optim": self.optim.to_dict(),
+                "optim": self.optim.to_dict() if self.optim is not None else None,
                 "quant": self.quant.to_dict() if self.quant is not None else None,
                 "compile": self.compile.to_dict() if self.compile is not None else None,
             }
