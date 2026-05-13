@@ -119,7 +119,6 @@ _DEFAULT_DATASETS: dict[str, dict] = {
     "image-feature-extraction": {
         "path": "timm/mini-imagenet",
         "split": "test",
-        "samples": 1000,
     },
     "fill-mask": {
         "path": "Salesforce/wikitext",

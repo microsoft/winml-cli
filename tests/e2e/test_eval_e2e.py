@@ -45,7 +45,11 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.e2e]
 
-SAMPLES = "4"
+# 10 samples keeps each e2e run short while giving enough signal for
+# range-based assertions. Shuffle uses a fixed seed=42 (see
+# ``DatasetConfig.seed`` default), so the sampled subset is deterministic
+# across runs on the same dataset.
+SAMPLES = "10"
 ADE20K_LABEL_MAP = "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json"
 
 
@@ -122,6 +126,26 @@ def _assert_metrics_present(output_path: Path, required_keys: list[str]) -> dict
     return data
 
 
+def _assert_in_range(
+    metrics: dict, key: str, lo: float, hi: float,
+) -> None:
+    """Assert ``metrics[key]`` is a finite number within ``[lo, hi]``.
+
+    Use this for tasks where the metric is a bounded score (e.g. accuracy 0..1
+    or top-k accuracy 0..100). The bounds are deliberately wide — they prove
+    the value is sane, not that it matches a baseline.
+    """
+    assert key in metrics, f"missing metric {key!r}; got {sorted(metrics)}"
+    value = metrics[key]
+    assert isinstance(value, (int, float)), (
+        f"metric {key} not numeric: {value!r} ({type(value).__name__})"
+    )
+    assert math.isfinite(value), f"metric {key} is not finite: {value}"
+    assert lo <= value <= hi, (
+        f"metric {key}={value} outside expected range [{lo}, {hi}]"
+    )
+
+
 # ===========================================================================
 # A. Per-task success path
 # ===========================================================================
@@ -134,18 +158,24 @@ class TestEvalPerTask:
     """
 
     def test_image_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.1
+        # A.1 — HF evaluate.evaluator("image-classification") returns `accuracy`.
+        # --streaming avoids caching full mini-imagenet (~1–2 GB).
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "google/vit-base-patch16-224",
             "--task", "image-classification",
+            "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy"])
+        # ViT-base full ImageNet ≈ 0.81; floor at 0.5 still catches
+        # broken-pipeline regressions on 10 samples.
+        _assert_in_range(data["metrics"], "accuracy", 0.5, 1.0)
 
     def test_text_classification(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.2 — model aligned with CLI default dataset (nyu-mll/glue/mrpc)
+        # A.2 — model aligned with CLI default dataset (nyu-mll/glue/mrpc).
+        # HF evaluate.evaluator("text-classification") returns `accuracy`.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "Intel/bert-base-uncased-mrpc",
@@ -153,7 +183,9 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy"])
+        # bert-mrpc full MRPC ≈ 0.86; MRPC majority baseline ≈ 0.68.
+        _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_token_classification(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.3
@@ -164,21 +196,32 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(
+        data = _assert_metrics_present(
             out,
             ["overall_precision", "overall_recall", "overall_f1", "overall_accuracy"],
         )
+        # bert-base-NER full CoNLL: f1 ≈ 0.91, accuracy ≈ 0.98.
+        for k in ("overall_precision", "overall_recall", "overall_f1"):
+            _assert_in_range(data["metrics"], k, 0.5, 1.0)
+        _assert_in_range(data["metrics"], "overall_accuracy", 0.8, 1.0)
 
     def test_object_detection(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.4
+        # A.4 — COCO val is ~6 GB; --streaming keeps only the bytes needed
+        # for the sampled subset.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "hustvl/yolos-small",
             "--task", "object-detection",
+            "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["map", "map_50", "mar_100"])
+        data = _assert_metrics_present(out, ["map", "map_50", "mar_100"])
+        # COCO mAP / mAR are bounded by [0, 1]; torchmetrics may report -1
+        # when no positives are sampled, which is acceptable for tiny N.
+        for k in ("map", "map_50", "mar_100"):
+            v = data["metrics"][k]
+            assert -1.0 <= v <= 1.0, f"{k}={v} outside [-1, 1]"
 
     def test_image_segmentation(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.5
@@ -192,7 +235,8 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["mean_iou"])
+        data = _assert_metrics_present(out, ["mean_iou"])
+        _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_question_answering(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.6
@@ -203,7 +247,12 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["exact_match", "f1"])
+        data = _assert_metrics_present(out, ["exact_match", "f1"])
+        # distilbert-squad full SQuAD v1: EM ≈ 77, F1 ≈ 85 (percentages).
+        # Both are harsh on N=10 (heavy per-sample variance with seed=42).
+        # Loose floors guard against degenerate output, not magnitude.
+        _assert_in_range(data["metrics"], "exact_match", 5.0, 100.0)
+        _assert_in_range(data["metrics"], "f1", 5.0, 100.0)
 
     def test_feature_extraction(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.7
@@ -214,8 +263,10 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        data = json.loads(out.read_text())
-        assert data["metrics"], f"no metrics: {data}"
+        # Spearman correlation reported as percentage in [-100, 100].
+        # MiniLM-L6-v2 full STSB ≈ 80; 10-sample noise can be large.
+        data = _assert_metrics_present(out, ["cosine_spearman"])
+        _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
     def test_sentence_similarity(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.8 (alias for feature-extraction)
@@ -226,22 +277,31 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        data = json.loads(out.read_text())
-        assert data["metrics"], f"no metrics: {data}"
+        data = _assert_metrics_present(out, ["cosine_spearman"])
+        _assert_in_range(data["metrics"], "cosine_spearman", 40.0, 100.0)
 
     def test_image_feature_extraction(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # A.9
+        # A.9 — kNN accuracies reported as percentages 0..100.
+        # --streaming avoids caching mini-imagenet.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "facebook/dinov2-small",
             "--task", "image-feature-extraction",
+            "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        data = json.loads(out.read_text())
-        assert data["metrics"], f"no metrics: {data}"
+        data = _assert_metrics_present(
+            out, ["knn_top1_accuracy", "knn_top5_accuracy"],
+        )
+        # DINOv2 features cluster strongly on mini-imagenet.
+        _assert_in_range(data["metrics"], "knn_top1_accuracy", 30.0, 100.0)
+        _assert_in_range(data["metrics"], "knn_top5_accuracy", 60.0, 100.0)
+        top1 = data["metrics"]["knn_top1_accuracy"]
+        top5 = data["metrics"]["knn_top5_accuracy"]
+        assert top1 <= top5, f"top1 ({top1}) must be <= top5 ({top5})"
 
     def test_image_to_text_fp16(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.10 — only test that exercises non-auto --precision
@@ -256,11 +316,25 @@ class TestEvalPerTask:
             "--precision", "fp16",
             "-o", str(out),
         ])
-        data = json.loads(out.read_text())
-        assert data["metrics"], f"no metrics: {data}"
+        # CER and CIDEr depend on optional libs (jiwer, pycocoevalcap), and
+        # the BLIP captioning model currently falls back to a generic
+        # Seq2Seq path in WinML (text2text-generation), which may produce
+        # zero valid samples on tiny N. The CLI contract here is "exit 0
+        # and produce the metric keys"; magnitude is exercised in the
+        # accuracy regression suite, not in this functional test.
+        data = _assert_metrics_present(out, ["cer", "cider", "n_samples"])
+        m = data["metrics"]
+        for k, hi in (("cer", 10.0), ("cider", 20.0)):
+            v = m[k]
+            assert v is None or (
+                isinstance(v, (int, float))
+                and math.isfinite(v)
+                and 0.0 <= v <= hi
+            ), f"metric {k}={v!r} not None or in [0,{hi}]"
+        assert isinstance(m["n_samples"], int) and m["n_samples"] >= 0
 
     def test_fill_mask(self, runner: CliRunner, tmp_path: Path) -> None:
-        # A.11
+        # A.11 — pseudo-perplexity >= 1 (perplexity is exp of non-neg NLL).
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "distilbert/distilbert-base-uncased",
@@ -268,13 +342,17 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        data = json.loads(out.read_text())
-        assert data["metrics"], f"no metrics: {data}"
+        data = _assert_metrics_present(out, ["pseudo_perplexity", "nll"])
+        # Pseudo-perplexity over a 10-sample wikitext stream can vary
+        # widely (we observed ~3000 with seed=42). Cap is set well above
+        # observed to catch genuine numerical blowup, not normal noise.
+        _assert_in_range(data["metrics"], "pseudo_perplexity", 1.0, 1e5)
+        _assert_in_range(data["metrics"], "nll", 0.0, 15.0)
 
     def test_zero_shot_classification(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
-        # A.12
+        # A.12 — zero-shot uses ClassificationMetric → accuracy + f1.
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "cross-encoder/nli-deberta-v3-small",
@@ -282,7 +360,12 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy", "f1"])
+        # nli-deberta-v3-small zero-shot on AG News, N=10. 4-class random
+        # baseline = 0.25; tiny-N variance can push real models below
+        # baseline. Use a very loose floor here.
+        _assert_in_range(data["metrics"], "accuracy", 0.1, 1.0)
+        _assert_in_range(data["metrics"], "f1", 0.1, 1.0)
 
     def test_zero_shot_image_classification(
         self, runner: CliRunner, tmp_path: Path,
@@ -295,7 +378,11 @@ class TestEvalPerTask:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["top1_accuracy"])
+        data = _assert_metrics_present(out, ["top1_accuracy", "top5_accuracy"])
+        # CLIP-ViT-B/32 zero-shot on CIFAR-100: top1 ≈ 0.63, top5 ≈ 0.88
+        # (full set). Floors leave headroom for tiny-N variance.
+        _assert_in_range(data["metrics"], "top1_accuracy", 30.0, 100.0)
+        _assert_in_range(data["metrics"], "top5_accuracy", 60.0, 100.0)
 
 
 # ===========================================================================
@@ -313,8 +400,10 @@ class TestEvalModelInputForms:
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
 
-        # Warm cache via HF id.
-        _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
+        # Warm cache via HF id (use streaming to avoid mini-imagenet cache).
+        _invoke(runner, [
+            "-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES,
+        ])
 
         cache_dir = find_cache_dir(hf_id, task=task)
         assert cache_dir is not None, "expected cache after warm run"
@@ -326,10 +415,12 @@ class TestEvalModelInputForms:
             "-m", str(onnx_files[0]),
             "--model-id", hf_id,
             "--task", task,
+            "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.5, 1.0)
 
     def test_onnx_file_mode_split_encoder(
         self, runner: CliRunner, tmp_path: Path,
@@ -365,7 +456,8 @@ class TestEvalModelInputForms:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["top1_accuracy"])
+        _assert_in_range(data["metrics"], "top1_accuracy", 30.0, 100.0)
 
 
 # ===========================================================================
@@ -431,17 +523,21 @@ class TestEvalSchema:
 
 class TestEvalDeviceAndEp:
     def test_device_cpu(self, runner: CliRunner, tmp_path: Path) -> None:
-        # E.1 — CPU works on every box
+        # E.1 — CPU works on every box. ResNet-50 is a small, fast image
+        # classifier well-suited to a CPU smoke test (no per-token forward
+        # passes like fill-mask).
         out = tmp_path / "result.json"
         _invoke(runner, [
-            "-m", "distilbert/distilbert-base-uncased",
-            "--task", "fill-mask",
+            "-m", "microsoft/resnet-50",
+            "--task", "image-classification",
             "--device", "cpu",
+            "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        data = json.loads(out.read_text())
-        assert data["metrics"], f"no metrics: {data}"
+        data = _assert_metrics_present(out, ["accuracy"])
+        # ResNet-50 full ImageNet ≈ 0.76; mini-imagenet is shifted, floor 0.4.
+        _assert_in_range(data["metrics"], "accuracy", 0.4, 1.0)
 
     def test_device_npu_and_ep_qnn(
         self, runner: CliRunner, tmp_path: Path,
@@ -453,10 +549,12 @@ class TestEvalDeviceAndEp:
             "--task", "image-classification",
             "--device", "npu",
             "--ep", "qnn",
+            "--streaming",
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.5, 1.0)
 
 
 # ===========================================================================
@@ -480,7 +578,8 @@ class TestEvalAdditionalOptions:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
 
     def test_label_mapping_image_segmentation(
         self, runner: CliRunner, tmp_path: Path,
@@ -503,7 +602,8 @@ class TestEvalAdditionalOptions:
             "--samples", SAMPLES,
             "-o", str(out),
         ])
-        _assert_metrics_present(out, ["mean_iou"])
+        data = _assert_metrics_present(out, ["mean_iou"])
+        _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_config_file_basic(
         self, runner: CliRunner, tmp_path: Path,
@@ -521,6 +621,7 @@ class TestEvalAdditionalOptions:
             "-o", str(out),
         ])
         data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
         assert data["dataset"]["samples"] == 5, (
             f"expected samples=5 from config, got {data['dataset']['samples']}"
         )
@@ -542,6 +643,7 @@ class TestEvalAdditionalOptions:
             "-o", str(out),
         ])
         data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
         assert data["dataset"]["samples"] == 7, (
             f"expected CLI override samples=7, got {data['dataset']['samples']}"
         )
@@ -557,6 +659,7 @@ class TestEvalAdditionalOptions:
             "-o", str(out),
         ])
         data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.6, 1.0)
         assert data.get("task") == "text-classification", (
             f"expected auto-detected task, got {data.get('task')!r}"
         )
@@ -570,7 +673,7 @@ class TestEvalAdditionalOptions:
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
 
-        _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
+        _invoke(runner, ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES])
 
         cache_dir = find_cache_dir(hf_id, task=task)
         assert cache_dir is not None
@@ -584,6 +687,7 @@ class TestEvalAdditionalOptions:
                 "--model-id", hf_id,
                 "--task", task,
                 "--precision", "fp16",
+                "--streaming",
                 "--samples", SAMPLES,
                 "-o", str(out),
             ])
@@ -613,7 +717,8 @@ class TestEvalAdditionalOptions:
             "-o", str(out),
         ])
         assert ds_path.exists(), "dataset script did not write to --dataset path"
-        _assert_metrics_present(out, ["accuracy"])
+        data = _assert_metrics_present(out, ["accuracy"])
+        _assert_in_range(data["metrics"], "accuracy", 0.0, 1.0)
 
     def test_dataset_script_without_trust_remote_code(
         self, runner: CliRunner, tmp_path: Path, tiny_textcls_script: Path,
@@ -692,13 +797,26 @@ class TestEvalErrorPaths:
         assert result.exit_code != 0
         assert "--task" in result.output, result.output
 
+    def test_schema_bogus_task(self, runner: CliRunner) -> None:
+        # G.6 — get_evaluator_class ValueError wrapped as UsageError
+        result = _invoke(
+            runner, ["--schema", "--task", "not-a-real-task"],
+            expect_success=False,
+        )
+        assert result.exit_code != 0
+        out_lower = result.output.lower()
+        assert ("not-a-real-task" in out_lower
+                or "unknown" in out_lower
+                or "unsupported" in out_lower
+                or "invalid" in out_lower), result.output
+
     def test_onnx_file_without_model_id(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
         # G.5 — needs a real .onnx file path that exists; reuse warmed cache
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
-        _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
+        _invoke(runner, ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES])
         cache_dir = find_cache_dir(hf_id, task=task)
         assert cache_dir is not None
         onnx_files = list(cache_dir.glob("*_model.onnx"))
