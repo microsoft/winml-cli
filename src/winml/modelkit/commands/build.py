@@ -377,10 +377,6 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
-    # Disable compilation by default unless the user explicitly passed --compile.
-    if no_compile is None:
-        no_compile = True
-
     # If ep unspecified, attempt to auto-select a suitable EP from the registry
     if ep is None:
         from ..session import WinMLEPRegistry
@@ -421,6 +417,10 @@ def build(
             )
             if no_quant:
                 config_or_configs.quant = None
+            # Auto-generated configs: compile disabled by default unless
+            # --compile was explicitly passed (no_compile=False).
+            if no_compile is None:
+                no_compile = True
             if no_compile:
                 config_or_configs.compile = None
 
