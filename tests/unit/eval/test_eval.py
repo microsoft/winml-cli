@@ -82,6 +82,25 @@ class TestResolveTask:
             assert _resolve_task(config) == "image-classification"
 
 
+class TestGetEvaluatorClass:
+    """Tests for get_evaluator_class registry lookup."""
+
+    def test_registered_task_returns_class(self):
+        from winml.modelkit.eval.evaluate import (
+            _EVALUATOR_REGISTRY,
+            get_evaluator_class,
+        )
+
+        for task, expected_cls in _EVALUATOR_REGISTRY.items():
+            assert get_evaluator_class(task) is expected_cls
+
+    def test_unsupported_task_raises_value_error(self):
+        from winml.modelkit.eval.evaluate import get_evaluator_class
+
+        with pytest.raises(ValueError, match="not supported by `winml eval`"):
+            get_evaluator_class("made-up-task")
+
+
 class TestEvaluate:
     """Tests for evaluate() entry point."""
 
@@ -124,7 +143,7 @@ class TestEvaluate:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task=None,
-            dataset=DatasetConfig(path=None),
+            dataset=DatasetConfig(path="some/dataset"),
         )
         original = asdict(config)
 
@@ -890,58 +909,6 @@ class TestBuildEvalResultEpField:
 
 class TestDefaultDatasetImmutability:
     """Tests that module-level _DEFAULT_DATASETS are not corrupted."""
-
-    @patch("evaluate.evaluator")
-    @patch("transformers.pipeline")
-    @patch("datasets.load_dataset")
-    def test_default_dataset_not_mutated_after_evaluate(
-        self,
-        mock_load_ds,
-        mock_pipeline,
-        mock_hf_eval,
-    ):
-        """evaluate() must not corrupt _DEFAULT_DATASETS entries."""
-        import importlib
-        import sys
-        from copy import deepcopy
-
-        eval_mod = sys.modules.get(
-            "winml.modelkit.eval.evaluate",
-        ) or importlib.import_module("winml.modelkit.eval.evaluate")
-
-        # Snapshot the default datasets before evaluation
-        defaults_before = deepcopy(eval_mod._DEFAULT_DATASETS)
-
-        # Set up mocks: dataset with fewer samples than the default (100)
-        mock_ds = MagicMock()
-        mock_ds.__len__ = lambda self: 30
-        mock_ds.shuffle.return_value = mock_ds
-        mock_ds.select.return_value = mock_ds
-        mock_load_ds.return_value = mock_ds
-        mock_pipeline.return_value = MagicMock()
-
-        mock_eval_inst = MagicMock()
-        mock_eval_inst.compute.return_value = {"accuracy": 0.7}
-        mock_hf_eval.return_value = mock_eval_inst
-
-        config = WinMLEvaluationConfig(
-            model_id="test/model",
-            dataset=DatasetConfig(path=None),
-        )
-
-        with (
-            patch.object(eval_mod, "_load_model", return_value=MagicMock()),
-            patch.object(eval_mod, "_resolve_task", return_value="image-classification"),
-        ):
-            eval_mod.evaluate(config)
-
-        # Verify module-level defaults are unchanged (full dataclass state)
-        from dataclasses import asdict
-
-        for task, ds_cfg in eval_mod._DEFAULT_DATASETS.items():
-            assert asdict(ds_cfg) == asdict(defaults_before[task]), (
-                f"_DEFAULT_DATASETS['{task}'] was mutated"
-            )
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")

@@ -209,8 +209,8 @@ class TestImageFeatureExtractionEvaluatorRegistry:
 
         assert "image-feature-extraction" in _DEFAULT_DATASETS
         ds = _DEFAULT_DATASETS["image-feature-extraction"]
-        assert ds.path == "timm/mini-imagenet"
-        assert ds.samples == 1000
+        assert ds["path"] == "timm/mini-imagenet"
+        assert ds["samples"] == 1000
 
 
 # ---------------------------------------------------------------------------

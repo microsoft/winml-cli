@@ -12,7 +12,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from ..datasets.config import DatasetConfig
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
@@ -34,6 +33,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
+    "image-classification": WinMLEvaluator,
     "text-classification": WinMLTextClassificationEvaluator,
     "sequence-classification": WinMLTextClassificationEvaluator,
     "next-sentence-prediction": WinMLTextClassificationEvaluator,
@@ -50,109 +50,102 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "zero-shot-image-classification": WinMLZeroShotImageClassificationEvaluator,
 }
 
-_FE_DEFAULT = DatasetConfig(
-    path="mteb/stsbenchmark-sts",
-    split="test",
-    samples=100,
-    shuffle=True,
-    streaming=True,
-    columns_mapping={
+
+def get_evaluator_class(task: str) -> type[WinMLEvaluator]:
+    """Return the evaluator class for *task*, or raise ValueError if unsupported."""
+    cls = _EVALUATOR_REGISTRY.get(task)
+    if cls is None:
+        supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
+        raise ValueError(
+            f"Task '{task}' is not supported by `winml eval`. "
+            f"Supported tasks: {supported}."
+        )
+    return cls
+
+_FE_DEFAULT = {
+    "path": "mteb/stsbenchmark-sts",
+    "split": "test",
+    "streaming": True,
+    "columns_mapping": {
         "input_column_1": "sentence1",
         "input_column_2": "sentence2",
         "score_column": "score",
     },
-)
+}
 
-_DEFAULT_DATASETS: dict[str, DatasetConfig] = {
-    "image-classification": DatasetConfig(
-        path="timm/mini-imagenet",
-        split="test",
-        samples=100,
-        shuffle=True,
-    ),
-    "text-classification": DatasetConfig(
-        path="nyu-mll/glue",
-        name="mrpc",
-        split="validation",
-        samples=100,
-        shuffle=True,
-        columns_mapping={
+_DEFAULT_DATASETS: dict[str, dict] = {
+    "image-classification": {
+        "path": "timm/mini-imagenet",
+        "split": "test",
+    },
+    "text-classification": {
+        "path": "nyu-mll/glue",
+        "name": "mrpc",
+        "split": "validation",
+        "columns_mapping": {
             "input_column": "sentence1",
             "second_input_column": "sentence2",
         },
-    ),
-    "token-classification": DatasetConfig(
-        path="BramVanroy/conll2003",
-        split="validation",
-        samples=100,
-        shuffle=True,
-        columns_mapping={
+    },
+    "token-classification": {
+        "path": "BramVanroy/conll2003",
+        "split": "validation",
+        "columns_mapping": {
             "label_column": "ner_tags",
         },
-    ),
-    "object-detection": DatasetConfig(
-        path="detection-datasets/coco",
-        split="val",
-        samples=100,
-        shuffle=True,
-        columns_mapping={
+    },
+    "object-detection": {
+        "path": "detection-datasets/coco",
+        "split": "val",
+        "columns_mapping": {
             "annotation_column": "objects",
             "bbox_key": "bbox",
             "category_key": "category",
             "box_format": "xyxy",
         },
-    ),
-    "question-answering": DatasetConfig(
-        path="rajpurkar/squad",
-        split="validation",
-        samples=100,
-        shuffle=True,
-        columns_mapping={
+    },
+    "question-answering": {
+        "path": "rajpurkar/squad",
+        "split": "validation",
+        "columns_mapping": {
             "question_column": "question",
             "context_column": "context",
             "id_column": "id",
             "label_column": "answers",
         },
-    ),
+    },
     "feature-extraction": _FE_DEFAULT,
     "sentence-similarity": _FE_DEFAULT,
-    "image-feature-extraction": DatasetConfig(
-        path="timm/mini-imagenet",
-        split="test",
-        samples=1000,
-        shuffle=True,
-    ),
-    "fill-mask": DatasetConfig(
-        path="Salesforce/wikitext",
-        name="wikitext-2-raw-v1",
-        split="test",
-        samples=100,
-        shuffle=True,
-        streaming=True,
-        columns_mapping={"input_column": "text"},
-    ),
-    "zero-shot-classification": DatasetConfig(
-        path="fancyzhx/ag_news",
-        split="test",
-        samples=100,
-        shuffle=True,
-        columns_mapping={
+    "image-feature-extraction": {
+        "path": "timm/mini-imagenet",
+        "split": "test",
+        "samples": 1000,
+    },
+    "fill-mask": {
+        "path": "Salesforce/wikitext",
+        "name": "wikitext-2-raw-v1",
+        "split": "test",
+        "streaming": True,
+        "columns_mapping": {"input_column": "text"},
+    },
+    "zero-shot-classification": {
+        "path": "fancyzhx/ag_news",
+        "split": "test",
+        "columns_mapping": {
             "input_column": "text",
             "label_column": "label",
             "candidate_labels": "World,Sports,Business,Sci/Tech",
             "hypothesis_template": "This text is about {}.",
         },
-    ),
-    "zero-shot-image-classification": DatasetConfig(
-        path="uoft-cs/cifar100",
-        split="test",
-        samples=100,
-        shuffle=True,
-        columns_mapping={
+    },
+    "zero-shot-image-classification": {
+        "path": "uoft-cs/cifar100",
+        "split": "test",
+        "columns_mapping": {
             "input_column": "img",
             "label_column": "fine_label",
         },
-    ),
+    },
 }
 
 
@@ -236,14 +229,17 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             raise ValueError(
                 f"No dataset provided and no default for task '{config.task}'. Use --dataset."
             )
-        config.dataset = deepcopy(default)
-        logger.info(
-            "Using default dataset for %s: %s",
+        for k, v in default.items():
+            setattr(config.dataset, k, deepcopy(v))
+        import json as _json
+
+        logger.warning(
+            "--dataset is not specified, use default dataset for task '%s':\n%s",
             config.task,
-            default.path,
+            _json.dumps(default, indent=2),
         )
 
-    cls = _EVALUATOR_REGISTRY.get(config.task, WinMLEvaluator)
+    cls = get_evaluator_class(config.task)
     task_evaluator = cls(config, model)
     metrics = task_evaluator.compute()
 
