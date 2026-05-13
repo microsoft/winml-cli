@@ -1,0 +1,48 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` before any build/benchmark work.",
+      "passed": true,
+      "evidence": "Step 1: 'uv run winml inspect -m google/vit-base-patch16-224' to confirm Supported."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+      "passed": true,
+      "evidence": "Quote: 'QNN (Qualcomm's NPU EP on Snapdragon X Elite) should be a real option.'"
+    },
+    {
+      "text": "Recommends building once and running `winml perf` twice.",
+      "passed": true,
+      "evidence": "Quote: 'The clean approach is to build once and then run perf twice, pointing each run at the right artifact for that EP.'"
+    },
+    {
+      "text": "Specifies that CPU run uses optimized (pre-compile) artifact, NOT QNN-compiled.",
+      "passed": true,
+      "evidence": "Quote: 'The optimized one is your CPU benchmark target; the compiled one is the NPU target.'"
+    },
+    {
+      "text": "Warns EP-compiled artifacts are EP-locked.",
+      "passed": true,
+      "evidence": "Quote: 'The QNN-compiled .onnx is EP-locked -- you cannot run it on CPU and get meaningful numbers.'"
+    },
+    {
+      "text": "Directs to `--help` or uses common patterns; no fabricated flags.",
+      "passed": true,
+      "evidence": "All flags verified via --help."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 7,
+    "failed": 0,
+    "total": 7
+  }
+}

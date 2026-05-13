@@ -1,0 +1,48 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` before any build/benchmark work.",
+      "passed": false,
+      "evidence": "No winml inspect. Goes straight to `optimum-cli export onnx`."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+      "passed": true,
+      "evidence": "'NPU (QNN EP): the Hexagon NPU on X Elite effectively requires quantized models'."
+    },
+    {
+      "text": "Recommends building once and running `winml perf` twice.",
+      "passed": false,
+      "evidence": "Exports once but then quantizes specifically for NPU (creating a separate QDQ file), then benchmarks. Doesn't have the 'shared build, two perf runs over different EP artifacts' framing \u00e2\u20ac\u201d runs CPU on FP32 and NPU on INT8 with different files."
+    },
+    {
+      "text": "Specifies that CPU run uses optimized (pre-compile) artifact, NOT QNN-compiled.",
+      "passed": false,
+      "evidence": "Has no notion of a 'compiled artifact' since it doesn't use the winml pipeline. CPU uses FP32 ONNX, NPU uses separately-quantized QDQ file."
+    },
+    {
+      "text": "Warns EP-compiled artifacts are EP-locked.",
+      "passed": false,
+      "evidence": "Never mentions EP-locking. Some QNN gotchas (silent CPU fallback, ARM64 build) but not this specific failure mode."
+    },
+    {
+      "text": "Directs to --help or uses common patterns; no fabricated flags.",
+      "passed": true,
+      "evidence": "Real ORT/QNN APIs."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.4286,
+    "passed": 3,
+    "failed": 4,
+    "total": 7
+  }
+}

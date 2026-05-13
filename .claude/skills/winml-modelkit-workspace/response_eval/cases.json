@@ -1,0 +1,78 @@
+{
+  "skill_name": "winml-modelkit",
+  "evals": [
+    {
+      "id": 1,
+      "name": "snapdragon-resnet-build",
+      "prompt": "i just got a snapdragon x elite dev box and i want to run microsoft/resnet-50 on the npu. can you walk me through getting it built and benchmarked? i want to see latency numbers at the end. give me actual commands i can copy paste.",
+      "assertions": [
+        {"id": "inspect-first", "text": "Recommends `winml inspect` (or equivalent inspection step) before kicking off the rest of the pipeline."},
+        {"id": "identifies-qnn", "text": "Identifies QNN as the correct EP for Snapdragon X Elite."},
+        {"id": "no-wrong-ep", "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path."},
+        {"id": "covers-pipeline-stages", "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build)."},
+        {"id": "ends-with-benchmark", "text": "Includes a benchmark step (winml perf or equivalent) that produces latency numbers."},
+        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns."}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "ryzen-ai-quick-benchmark",
+      "prompt": "I have an AMD Ryzen AI laptop and I want to know the fastest way to see how fast facebook/convnext-tiny-224 runs on my NPU. I don't really care about the artifact, just the number.",
+      "assertions": [
+        {"id": "identifies-vitisai", "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU."},
+        {"id": "single-perf-command", "text": "Recommends a single `winml perf` invocation as the primary action."},
+        {"id": "no-full-pipeline", "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate steps."},
+        {"id": "inspect-as-sanity-check", "text": "Mentions running `winml inspect` first as a sanity check."},
+        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns."}
+      ]
+    },
+    {
+      "id": 3,
+      "name": "llm-out-of-scope",
+      "prompt": "Can you help me convert microsoft/Phi-3-mini-4k-instruct to run on my Intel NPU? I want to use winml or whatever the windows ml toolkit is.",
+      "assertions": [
+        {"id": "identifies-as-llm", "text": "Identifies Phi-3 as a decoder-only LLM / generative model."},
+        {"id": "out-of-scope-clearly", "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged)."},
+        {"id": "no-build-pipeline", "text": "Does NOT walk the user through export/optimize/quantize/compile/build."},
+        {"id": "mentions-roadmap-or-alternative", "text": "Mentions LLM support is on the roadmap OR suggests a legitimate alternative."}
+      ]
+    },
+    {
+      "id": 4,
+      "name": "npu-vs-cpu-comparison",
+      "prompt": "i have a ViT model (google/vit-base-patch16-224) and im trying to decide whether to ship the NPU version or just use CPU. running on a snapdragon x elite. whats the cleanest way to get apples-to-apples latency numbers from both?",
+      "assertions": [
+        {"id": "inspect-first", "text": "Recommends `winml inspect` (or equivalent inspection step) before any build/benchmark work."},
+        {"id": "identifies-qnn", "text": "Identifies QNN as the EP for Snapdragon X Elite NPU."},
+        {"id": "build-once-perf-twice", "text": "Recommends building the model once and then running `winml perf` twice — once on NPU, once on CPU — rather than building two separate pipelines."},
+        {"id": "cpu-uses-pre-compile", "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact."},
+        {"id": "ep-locked-warning", "text": "Warns that EP-compiled artifacts are EP-locked / can't be run on a different EP and produce nonsense numbers."},
+        {"id": "no-fabricated-flags", "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns."}
+      ]
+    },
+    {
+      "id": 5,
+      "name": "is-model-supported",
+      "prompt": "Before I commit to building `nvidia/segformer-b1-finetuned-ade-512-512` end-to-end on my Intel NPU, is there a way to know if it's going to make it through the full pipeline? Burned half a day last time on a model that exported fine but then died at the optimize stage.",
+      "assertions": [
+        {"id": "recommends-inspect", "text": "Recommends `winml inspect` as the first, cheapest check (config-only, no weights download)."},
+        {"id": "recommends-analyze", "text": "Recommends `winml analyze` after inspect — explicitly to find op patterns that won't survive optimize/quantize for the target EP."},
+        {"id": "identifies-openvino", "text": "Identifies OpenVINO as the EP for Intel NPU."},
+        {"id": "explains-analyze-role", "text": "Explains analyze's role: a linter that classifies operators as supported / partial / unsupported per EP (so the user knows WHY this answers their question)."},
+        {"id": "no-just-try-it", "text": "Does NOT just say \"build the full pipeline and see what happens\" — that's exactly the workflow the user already said burned them."}
+      ]
+    },
+    {
+      "id": 6,
+      "name": "optimize-failure-recovery",
+      "prompt": "i'm building microsoft/swin-large-patch4-window7-224 for QNN on snapdragon x elite. inspect and export went through fine but winml optimize keeps erroring with something about an unsupported op pattern. what do i do?",
+      "assertions": [
+        {"id": "run-analyze", "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step."},
+        {"id": "analyze-names-op", "text": "Explains that analyze's linter will name the offending op pattern per EP (i.e., tells the user what analyze will tell THEM)."},
+        {"id": "no-hand-edit-onnx", "text": "Does NOT recommend hand-editing the ONNX graph."},
+        {"id": "try-different-config-or-escalate", "text": "Suggests either trying a different optim/quant config to dodge the unsupported pattern OR escalating to \"this model isn't a fit for this EP\". Avoids dead-ending."},
+        {"id": "reads-error-message", "text": "Encourages reading the actual error message (which names op/EP/stage) before guessing — doesn't jump to generic advice."}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "passed": true,
+      "evidence": "'use ONNX Runtime with the VitisAI EP and run `onnxruntime_perf_test`.'"
+    },
+    {
+      "text": "Recommends a single one-shot benchmark as the primary action.",
+      "passed": false,
+      "evidence": "Walks through 4 explicit steps: install Ryzen AI software, export, INT8 quantize with Quark, then run perf_test. Not a 'fastest path to the number' answer."
+    },
+    {
+      "text": "Does NOT instruct the user to run export, optimize, quantize, and compile as separate steps.",
+      "passed": false,
+      "evidence": "Steps 2 and 3 explicitly require `optimum-cli export onnx` and then `quark quantize` before the user can benchmark."
+    },
+    {
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "passed": false,
+      "evidence": "Never mentions winml. Performs a Device-Manager NPU check instead, but that's environment-level, not model-level."
+    },
+    {
+      "text": "Either directs the user to `--help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Real Quark and onnxruntime_perf_test flags."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.4,
+    "passed": 2,
+    "failed": 3,
+    "total": 5
+  }
+}

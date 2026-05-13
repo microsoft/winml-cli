@@ -1,0 +1,33 @@
+{
+  "eval_id": 3,
+  "eval_name": "llm-out-of-scope",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies Phi-3 as a decoder-only LLM / generative model.",
+      "passed": true,
+      "evidence": "'It's a decoder-only generative LLM, and the current ModelKit pipeline is built for classic deep learning models...'"
+    },
+    {
+      "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged).",
+      "passed": true,
+      "evidence": "'Unfortunately, Phi-3-mini-4k-instruct isn't something the WinML ModelKit (`winml` CLI) can handle today.' Direct, no hedge."
+    },
+    {
+      "text": "Does NOT walk the user through winml build pipeline.",
+      "passed": true,
+      "evidence": "No winml export/build/optimize/quantize/compile commands appear in the response."
+    },
+    {
+      "text": "Mentions LLM roadmap OR a legitimate alternative.",
+      "passed": true,
+      "evidence": "Both: 'LLM support (with LoRA) is on the public ModelKit roadmap for late 2026' + alternatives (OpenVINO GenAI, ONNX Runtime GenAI, Optimum-Intel)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 4,
+    "failed": 0,
+    "total": 4
+  }
+}

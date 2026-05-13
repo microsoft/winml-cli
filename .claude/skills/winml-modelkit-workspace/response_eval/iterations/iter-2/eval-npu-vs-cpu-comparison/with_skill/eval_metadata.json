@@ -1,0 +1,13 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "prompt": "i have a ViT model (google/vit-base-patch16-224) and im trying to decide whether to ship the NPU version or just use CPU. running on a snapdragon x elite. whats the cleanest way to get apples-to-apples latency numbers from both?",
+  "assertions": [
+    {"id": "inspect-first", "text": "Recommends `winml inspect` before any build/benchmark work."},
+    {"id": "identifies-qnn", "text": "Identifies QNN as the EP for Snapdragon X Elite NPU."},
+    {"id": "build-once-perf-twice", "text": "Recommends building the model once and running `winml perf` twice (NPU + CPU)."},
+    {"id": "cpu-uses-pre-compile", "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact."},
+    {"id": "ep-locked-warning", "text": "Warns that EP-compiled artifacts are EP-locked."},
+    {"id": "no-fabricated-flags", "text": "Directs to --help or uses only common patterns."}
+  ]
+}

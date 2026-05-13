@@ -1,0 +1,43 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "passed": true,
+      "evidence": "Quote: '--device npu on a Ryzen AI box routes to the VitisAI EP.'"
+    },
+    {
+      "text": "Recommends a single `winml perf` invocation (or equivalent one-shot benchmark) as the primary action.",
+      "passed": true,
+      "evidence": "Two commands (sys + perf). Quote: 'That is it. perf will print mean/median/p95 latency'."
+    },
+    {
+      "text": "Does NOT instruct the user to run all of export, analyze, optimize, quantize, and compile as separate explicit steps.",
+      "passed": true,
+      "evidence": "Quote: 'skip the build pipeline entirely and let winml perf do download + export + optimize + quantize + compile in one shot'."
+    },
+    {
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "passed": false,
+      "evidence": "Response uses prior knowledge ('ConvNeXT is a CNN -- in scope for ModelKit') and winml sys as sanity checks, but does NOT run winml inspect."
+    },
+    {
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "All flags verified live via winml <cmd> --help."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.8333,
+    "passed": 5,
+    "failed": 1,
+    "total": 6
+  }
+}

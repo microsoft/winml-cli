@@ -1,0 +1,43 @@
+{
+  "eval_id": 6,
+  "eval_name": "optimize-failure-recovery",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml analyze` against the exported ONNX as the first diagnostic step.",
+      "passed": true,
+      "evidence": "'1. Run `winml analyze` against the exported ONNX, targeting QNN. That's the linter step.'"
+    },
+    {
+      "text": "Explains analyze will name the offending op pattern per EP.",
+      "passed": true,
+      "evidence": "'classifies every op as supported / partial / unsupported for the QNN EP and will usually name the offending pattern'."
+    },
+    {
+      "text": "Does NOT recommend hand-editing the ONNX graph.",
+      "passed": true,
+      "evidence": "'The fix is almost always picking a configuration that doesn't emit the problematic fused pattern \u00e2\u20ac\u201d don't hand-edit the ONNX.'"
+    },
+    {
+      "text": "Suggests trying different optim/quant config OR escalating to 'not a fit'.",
+      "passed": true,
+      "evidence": "Both: '3. Try a different optimize configuration to dodge the pattern' + '4. ...the honest answer is to either fall back to a smaller Swin variant, try a different EP... or accept partial offload.'"
+    },
+    {
+      "text": "Encourages reading actual error message before guessing.",
+      "passed": true,
+      "evidence": "'2. Read the optimize error carefully. ModelKit's errors are normally specific (op name + stage).'"
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All 3 winml commands verified runnable against `--help`."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}

@@ -1,0 +1,654 @@
+{
+  "metadata": {
+    "skill_name": "winml-modelkit",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-05-11T06:15:19Z",
+    "evals_run": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 5,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 50.2,
+        "tokens": 26263,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml inspect` as the first, cheapest check (config-only).",
+          "passed": true,
+          "evidence": "Step 1 winml inspect; 'reads only the model config (no weights, no GPU).'"
+        },
+        {
+          "text": "Recommends `winml analyze` after inspect.",
+          "passed": true,
+          "evidence": "Step 2 winml analyze --ep ov --device npu."
+        },
+        {
+          "text": "Identifies OpenVINO as the EP for Intel NPU.",
+          "passed": true,
+          "evidence": "Quote: 'For your Intel NPU, the EP is OpenVINO (--ep ov, --device npu).'"
+        },
+        {
+          "text": "Explains analyze's role: linter that classifies operators as supported/partial/unsupported per EP.",
+          "passed": true,
+          "evidence": "Quote: 'analyze runs a static lint of every operator in the exported ONNX against the target EP and tells you which ops are supported / partial / unsupported.'"
+        },
+        {
+          "text": "Does NOT just say 'build the full pipeline and see what happens'.",
+          "passed": true,
+          "evidence": "Explicit section 'Why not just run winml build and let it fail fast?' justifying the pre-flight."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 6 winml commands verified runnable against --help."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 37.6,
+        "tokens": 24203,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies Phi-3 as a decoder-only LLM / generative model.",
+          "passed": true,
+          "evidence": "Quote: 'Phi-3 is a generative decoder-only LLM, and that whole family (GPT, LLaMA, Phi, Mistral, Qwen, Stable Diffusion, seq2seq generators) is explicitly out of scope.'"
+        },
+        {
+          "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged).",
+          "passed": true,
+          "evidence": "Quote: 'Short version: WinML ModelKit can not do this yet.' + 'explicitly out of scope for the current pipeline.'"
+        },
+        {
+          "text": "Does NOT walk the user through export/optimize/quantize/compile/build.",
+          "passed": true,
+          "evidence": "No winml build pipeline commands recommended."
+        },
+        {
+          "text": "Mentions LLM support is on the roadmap OR suggests a legitimate alternative.",
+          "passed": true,
+          "evidence": "Both: 'late 2026' roadmap + OpenVINO GenAI / ONNX Runtime GenAI / DirectML alternatives. Notes 'None of those go through winml.'"
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 2 winml commands verified runnable against --help."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 66.3,
+        "tokens": 29763,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml inspect` before any build/benchmark work.",
+          "passed": true,
+          "evidence": "Step 1: 'uv run winml inspect -m google/vit-base-patch16-224' to confirm Supported."
+        },
+        {
+          "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+          "passed": true,
+          "evidence": "Quote: 'QNN (Qualcomm's NPU EP on Snapdragon X Elite) should be a real option.'"
+        },
+        {
+          "text": "Recommends building once and running `winml perf` twice.",
+          "passed": true,
+          "evidence": "Quote: 'The clean approach is to build once and then run perf twice, pointing each run at the right artifact for that EP.'"
+        },
+        {
+          "text": "Specifies that CPU run uses optimized (pre-compile) artifact, NOT QNN-compiled.",
+          "passed": true,
+          "evidence": "Quote: 'The optimized one is your CPU benchmark target; the compiled one is the NPU target.'"
+        },
+        {
+          "text": "Warns EP-compiled artifacts are EP-locked.",
+          "passed": true,
+          "evidence": "Quote: 'The QNN-compiled .onnx is EP-locked -- you cannot run it on CPU and get meaningful numbers.'"
+        },
+        {
+          "text": "Directs to `--help` or uses common patterns; no fabricated flags.",
+          "passed": true,
+          "evidence": "All flags verified via --help."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 5 winml commands verified runnable against --help."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 6,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 59.2,
+        "tokens": 31259,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step.",
+          "passed": true,
+          "evidence": "Quote: 'Run analyze against your exported ONNX (not the HF id) and target QNN' with concrete command."
+        },
+        {
+          "text": "Explains analyze's linter will name the offending op pattern per EP.",
+          "passed": true,
+          "evidence": "Quote: 'it lints every operator and pattern per EP and will name the offending op or pattern explicitly'."
+        },
+        {
+          "text": "Does NOT recommend hand-editing the ONNX graph.",
+          "passed": true,
+          "evidence": "Quote: 'do not hand-edit the ONNX graph'."
+        },
+        {
+          "text": "Suggests trying different optim/quant config OR escalating to 'not a fit'.",
+          "passed": true,
+          "evidence": "Both: --disable-... toggles + --optim-config flow + escalation path."
+        },
+        {
+          "text": "Encourages reading actual error message before guessing.",
+          "passed": true,
+          "evidence": "Asks user to share analyze JSON / 'just the offending pattern name'; lists Swin patterns 'If the error mentions a specific op'."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 6 winml commands verified runnable against --help."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8333,
+        "passed": 5,
+        "failed": 1,
+        "total": 6,
+        "time_seconds": 42.6,
+        "tokens": 26746,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+          "passed": true,
+          "evidence": "Quote: '--device npu on a Ryzen AI box routes to the VitisAI EP.'"
+        },
+        {
+          "text": "Recommends a single `winml perf` invocation (or equivalent one-shot benchmark) as the primary action.",
+          "passed": true,
+          "evidence": "Two commands (sys + perf). Quote: 'That is it. perf will print mean/median/p95 latency'."
+        },
+        {
+          "text": "Does NOT instruct the user to run all of export, analyze, optimize, quantize, and compile as separate explicit steps.",
+          "passed": true,
+          "evidence": "Quote: 'skip the build pipeline entirely and let winml perf do download + export + optimize + quantize + compile in one shot'."
+        },
+        {
+          "text": "Mentions running `winml inspect` first as a sanity check.",
+          "passed": false,
+          "evidence": "Response uses prior knowledge ('ConvNeXT is a CNN -- in scope for ModelKit') and winml sys as sanity checks, but does NOT run winml inspect."
+        },
+        {
+          "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+          "passed": true,
+          "evidence": "All flags verified live via winml <cmd> --help."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 4 winml commands verified runnable against --help."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 74.9,
+        "tokens": 30425,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml inspect` (or equivalent inspection step) before kicking off the rest of the pipeline.",
+          "passed": true,
+          "evidence": "Section 2 Inspect the model runs winml inspect -m microsoft/resnet-50 before any build step."
+        },
+        {
+          "text": "Identifies QNN as the correct EP for Snapdragon X Elite.",
+          "passed": true,
+          "evidence": "Quote: 'Snapdragon X Elite means we are targeting the QNN execution provider on the Hexagon NPU.'"
+        },
+        {
+          "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path.",
+          "passed": true,
+          "evidence": "Only QNN; no OpenVINO/VitisAI."
+        },
+        {
+          "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build).",
+          "passed": true,
+          "evidence": "Uses config+build path; lists 'export to analyze to optimize to quantize to compile' as what build runs."
+        },
+        {
+          "text": "Includes a benchmark step (`winml perf` or equivalent) that produces latency numbers.",
+          "passed": true,
+          "evidence": "Section 5 winml perf with --iterations 500 --warmup 50 --monitor, reports mean/p50/p95/p99."
+        },
+        {
+          "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns.",
+          "passed": true,
+          "evidence": "Quote: 'If any step errors out, run winml <that-command> --help -- flags evolve, and the CLI is the source of truth.'"
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 7 winml commands verified runnable against --help."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 5,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 3,
+        "failed": 3,
+        "total": 6,
+        "time_seconds": 19.6,
+        "tokens": 19053,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml inspect` as the cheapest first check (config-only).",
+          "passed": false,
+          "evidence": "No winml inspect. Suggests manually reading `config.json` on the HF page."
+        },
+        {
+          "text": "Recommends `winml analyze` after inspect.",
+          "passed": false,
+          "evidence": "No winml analyze. Suggests running ORT's graph optimizer standalone + manually checking partition reports."
+        },
+        {
+          "text": "Identifies OpenVINO as EP for Intel NPU.",
+          "passed": true,
+          "evidence": "'OpenVINO EP or the DirectML/Intel NPU provider, depending on your stack' \u00e2\u20ac\u201d names OpenVINO as primary option."
+        },
+        {
+          "text": "Explains analyze's role: linter classifies operators per EP.",
+          "passed": false,
+          "evidence": "No mention of an analyze/linter tool. The pre-flight is much more DIY."
+        },
+        {
+          "text": "Does NOT just say 'build and see'.",
+          "passed": true,
+          "evidence": "Five-step structured pre-flight, not a 'try it' answer."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "Response uses no winml commands (trivially passes)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 4,
+        "failed": 1,
+        "total": 5,
+        "time_seconds": 26.2,
+        "tokens": 19640,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies Phi-3 as a decoder-only LLM / generative model.",
+          "passed": true,
+          "evidence": "Treats Phi-3 as an LLM throughout \u00e2\u20ac\u201d discusses INT4 weight-only quantization, KV cache shape constraints, etc."
+        },
+        {
+          "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged).",
+          "passed": false,
+          "evidence": "Goes the opposite direction: 'getting Phi-3-mini onto an Intel NPU via Windows ML is doable'. Never says winml ModelKit (the toolkit named in the user's question) doesn't support LLMs."
+        },
+        {
+          "text": "Does NOT walk the user through winml build pipeline as if Phi-3 will go through it.",
+          "passed": true,
+          "evidence": "Doesn't use winml-style commands; routes the user to OpenVINO GenAI / optimum-intel instead."
+        },
+        {
+          "text": "Mentions LLM roadmap OR a legitimate alternative.",
+          "passed": true,
+          "evidence": "Suggests OpenVINO Model Optimizer / optimum-intel / OpenVINO GenAI / ONNX Runtime + OpenVINO EP."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "Response uses no winml commands (trivially passes)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.4286,
+        "passed": 3,
+        "failed": 4,
+        "total": 7,
+        "time_seconds": 24.9,
+        "tokens": 19642,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml inspect` before any build/benchmark work.",
+          "passed": false,
+          "evidence": "No winml inspect. Goes straight to `optimum-cli export onnx`."
+        },
+        {
+          "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+          "passed": true,
+          "evidence": "'NPU (QNN EP): the Hexagon NPU on X Elite effectively requires quantized models'."
+        },
+        {
+          "text": "Recommends building once and running `winml perf` twice.",
+          "passed": false,
+          "evidence": "Exports once but then quantizes specifically for NPU (creating a separate QDQ file), then benchmarks. Doesn't have the 'shared build, two perf runs over different EP artifacts' framing \u00e2\u20ac\u201d runs CPU on FP32 and NPU on INT8 with different files."
+        },
+        {
+          "text": "Specifies that CPU run uses optimized (pre-compile) artifact, NOT QNN-compiled.",
+          "passed": false,
+          "evidence": "Has no notion of a 'compiled artifact' since it doesn't use the winml pipeline. CPU uses FP32 ONNX, NPU uses separately-quantized QDQ file."
+        },
+        {
+          "text": "Warns EP-compiled artifacts are EP-locked.",
+          "passed": false,
+          "evidence": "Never mentions EP-locking. Some QNN gotchas (silent CPU fallback, ARM64 build) but not this specific failure mode."
+        },
+        {
+          "text": "Directs to --help or uses common patterns; no fabricated flags.",
+          "passed": true,
+          "evidence": "Real ORT/QNN APIs."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "Response uses no winml commands (trivially passes)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 6,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.6667,
+        "passed": 4,
+        "failed": 2,
+        "total": 6,
+        "time_seconds": 28.6,
+        "tokens": 20026,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml analyze` against the exported ONNX as the first diagnostic step.",
+          "passed": false,
+          "evidence": "No mention of winml analyze. Goes straight to verbose logging + onnxsim + opset checks."
+        },
+        {
+          "text": "Explains analyze will name the offending op pattern per EP.",
+          "passed": false,
+          "evidence": "Same \u00e2\u20ac\u201d no analyze tool in the response."
+        },
+        {
+          "text": "Does NOT recommend hand-editing the ONNX graph.",
+          "passed": true,
+          "evidence": "Doesn't suggest direct ONNX graph editing. (Does suggest patching PyTorch model code with `torch.cat`/slice replacements for `torch.roll` \u00e2\u20ac\u201d invasive source-model surgery, but not ONNX-graph editing.)"
+        },
+        {
+          "text": "Suggests trying different optim/quant config OR escalating to 'not a fit'.",
+          "passed": true,
+          "evidence": "Offers multiple paths: onnxsim, pin opset, simplification, CPU fallback for offending subgraph (hybrid execution)."
+        },
+        {
+          "text": "Encourages reading actual error message before guessing.",
+          "passed": true,
+          "evidence": "Step 1 is 'Pin down the exact failing op/pattern' via verbose logs, and the response ends with 'Can you paste the exact error line from `winml optimize`?'."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "All 1 winml commands verified runnable against `--help`."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 3,
+        "failed": 3,
+        "total": 6,
+        "time_seconds": 37.5,
+        "tokens": 20506,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+          "passed": true,
+          "evidence": "'use ONNX Runtime with the VitisAI EP and run `onnxruntime_perf_test`.'"
+        },
+        {
+          "text": "Recommends a single one-shot benchmark as the primary action.",
+          "passed": false,
+          "evidence": "Walks through 4 explicit steps: install Ryzen AI software, export, INT8 quantize with Quark, then run perf_test. Not a 'fastest path to the number' answer."
+        },
+        {
+          "text": "Does NOT instruct the user to run export, optimize, quantize, and compile as separate steps.",
+          "passed": false,
+          "evidence": "Steps 2 and 3 explicitly require `optimum-cli export onnx` and then `quark quantize` before the user can benchmark."
+        },
+        {
+          "text": "Mentions running `winml inspect` first as a sanity check.",
+          "passed": false,
+          "evidence": "Never mentions winml. Performs a Device-Manager NPU check instead, but that's environment-level, not model-level."
+        },
+        {
+          "text": "Either directs the user to `--help`, OR uses only common/plausible flag patterns.",
+          "passed": true,
+          "evidence": "Real Quark and onnxruntime_perf_test flags."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "Response uses no winml commands (trivially passes)."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8571,
+        "passed": 6,
+        "failed": 1,
+        "total": 7,
+        "time_seconds": 31.4,
+        "tokens": 20156,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends `winml inspect` before kicking off the rest of the pipeline.",
+          "passed": false,
+          "evidence": "Never mentions winml CLI at all. Goes straight to optimum-cli + onnxruntime; no support check before downloading and quantizing."
+        },
+        {
+          "text": "Identifies QNN as the correct EP for Snapdragon X Elite.",
+          "passed": true,
+          "evidence": "'ONNX Runtime with the QNN execution provider \u00e2\u20ac\u201d that's what targets the Hexagon NPU on Snapdragon X.'"
+        },
+        {
+          "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path.",
+          "passed": true,
+          "evidence": "Only QNN mentioned."
+        },
+        {
+          "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build).",
+          "passed": true,
+          "evidence": "Walks through env setup -> export (optimum-cli) -> static quantize (QDQ) -> provider sanity check -> perf_test. Multi-stage."
+        },
+        {
+          "text": "Includes a benchmark step that produces latency numbers.",
+          "passed": true,
+          "evidence": "`onnxruntime_perf_test.exe -e qnn -r 200 -t 10 -m times` and CPU comparison."
+        },
+        {
+          "text": "Does NOT invent fabricated flags.",
+          "passed": true,
+          "evidence": "Uses real onnxruntime_perf_test flags; sources Quark/quantize APIs from actual ORT docs."
+        },
+        {
+          "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+          "passed": true,
+          "evidence": "Response uses no winml commands (trivially passes)."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 0.9722,
+        "stddev": 0.0681,
+        "min": 0.8333,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 55.1333,
+        "stddev": 14.2884,
+        "min": 37.6,
+        "max": 74.9
+      },
+      "tokens": {
+        "mean": 28109.8333,
+        "stddev": 2776.4866,
+        "min": 24203,
+        "max": 31259
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.6254,
+        "stddev": 0.1767,
+        "min": 0.4286,
+        "max": 0.8571
+      },
+      "time_seconds": {
+        "mean": 28.0333,
+        "stddev": 6.0922,
+        "min": 19.6,
+        "max": 37.5
+      },
+      "tokens": {
+        "mean": 19837.1667,
+        "stddev": 505.2787,
+        "min": 19053,
+        "max": 20506
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.35",
+      "time_seconds": "+27.1",
+      "tokens": "+8273"
+    }
+  },
+  "notes": []
+}

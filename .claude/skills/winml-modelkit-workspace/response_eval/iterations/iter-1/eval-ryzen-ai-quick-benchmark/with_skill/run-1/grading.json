@@ -1,0 +1,38 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "passed": true,
+      "evidence": "'on a Ryzen AI laptop the AMD NPU is targeted via the **VitisAI** execution provider.'"
+    },
+    {
+      "text": "Recommends a single `winml perf` invocation as the primary action.",
+      "passed": true,
+      "evidence": "'use `winml perf` directly on the Hugging Face ID. It will download, export, and optimize as needed before timing.' + 'That single invocation is the fastest path to a latency number'."
+    },
+    {
+      "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate explicit steps.",
+      "passed": true,
+      "evidence": "'no separate export/optimize/compile dance required' \u00e2\u20ac\u201d only sys, inspect, and perf as the actual steps."
+    },
+    {
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "passed": true,
+      "evidence": "'`winml inspect facebook/convnext-tiny-224` ... non-negotiable \u00e2\u20ac\u201d it reads only the config and tells you the model is supported.'"
+    },
+    {
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "'I don't want to guess flag spellings, so check `winml perf --help` for the exact name of the EP flag and any auto-device option.'"
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  }
+}

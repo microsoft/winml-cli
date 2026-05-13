@@ -1,0 +1,38 @@
+{
+  "eval_id": 3,
+  "eval_name": "llm-out-of-scope",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Identifies Phi-3 as a decoder-only LLM / generative model.",
+      "passed": true,
+      "evidence": "Treats Phi-3 as an LLM throughout \u00e2\u20ac\u201d discusses INT4 weight-only quantization, KV cache shape constraints, etc."
+    },
+    {
+      "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged).",
+      "passed": false,
+      "evidence": "Goes the opposite direction: 'getting Phi-3-mini onto an Intel NPU via Windows ML is doable'. Never says winml ModelKit (the toolkit named in the user's question) doesn't support LLMs."
+    },
+    {
+      "text": "Does NOT walk the user through winml build pipeline as if Phi-3 will go through it.",
+      "passed": true,
+      "evidence": "Doesn't use winml-style commands; routes the user to OpenVINO GenAI / optimum-intel instead."
+    },
+    {
+      "text": "Mentions LLM roadmap OR a legitimate alternative.",
+      "passed": true,
+      "evidence": "Suggests OpenVINO Model Optimizer / optimum-intel / OpenVINO GenAI / ONNX Runtime + OpenVINO EP."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.8,
+    "passed": 4,
+    "failed": 1,
+    "total": 5
+  }
+}

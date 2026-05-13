@@ -1,0 +1,38 @@
+{
+  "eval_id": 3,
+  "eval_name": "llm-out-of-scope",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies Phi-3 as a decoder-only LLM / generative model.",
+      "passed": true,
+      "evidence": "Quote: 'Phi-3 is a generative decoder-only LLM, and that whole family (GPT, LLaMA, Phi, Mistral, Qwen, Stable Diffusion, seq2seq generators) is explicitly out of scope.'"
+    },
+    {
+      "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged).",
+      "passed": true,
+      "evidence": "Quote: 'Short version: WinML ModelKit can not do this yet.' + 'explicitly out of scope for the current pipeline.'"
+    },
+    {
+      "text": "Does NOT walk the user through export/optimize/quantize/compile/build.",
+      "passed": true,
+      "evidence": "No winml build pipeline commands recommended."
+    },
+    {
+      "text": "Mentions LLM support is on the roadmap OR suggests a legitimate alternative.",
+      "passed": true,
+      "evidence": "Both: 'late 2026' roadmap + OpenVINO GenAI / ONNX Runtime GenAI / DirectML alternatives. Notes 'None of those go through winml.'"
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  }
+}

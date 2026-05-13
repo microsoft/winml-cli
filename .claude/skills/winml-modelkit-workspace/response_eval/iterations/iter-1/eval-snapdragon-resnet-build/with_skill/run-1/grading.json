@@ -1,0 +1,43 @@
+{
+  "eval_id": 1,
+  "eval_name": "snapdragon-resnet-build",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` before kicking off the rest of the pipeline.",
+      "passed": true,
+      "evidence": "Section '1. Inspect the model (non-negotiable)' runs `winml inspect -m microsoft/resnet-50` before any build step."
+    },
+    {
+      "text": "Identifies QNN as the correct EP for Snapdragon X Elite.",
+      "passed": true,
+      "evidence": "'The execution provider you want is **QNN** (Qualcomm's), and the device is **NPU**.'"
+    },
+    {
+      "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path.",
+      "passed": true,
+      "evidence": "Only QNN is mentioned throughout; no recommendation of OpenVINO or VitisAI."
+    },
+    {
+      "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build).",
+      "passed": true,
+      "evidence": "Uses `winml config` + `winml build --compile`; explicitly names export -> optimize -> quantize -> compile as what `build` runs."
+    },
+    {
+      "text": "Includes a benchmark step (`winml perf` or equivalent) that produces latency numbers.",
+      "passed": true,
+      "evidence": "Step 4 is `winml perf ... --iterations 200 --warmup 20 --monitor`; describes mean/p50/p90/p99 output."
+    },
+    {
+      "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns. Does NOT invent fabricated flags.",
+      "passed": true,
+      "evidence": "Explicit note at the end: 'All flags above came from `winml <cmd> --help` \u00e2\u20ac\u201d run that yourself if anything looks off in your version; flags evolve.'"
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "eval_id": 5,
+  "eval_name": "is-model-supported",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` as the cheapest first check (config-only).",
+      "passed": true,
+      "evidence": "'Step 1: `winml inspect ...` This reads only the model config (no weights, no export, no hardware spin-up).'"
+    },
+    {
+      "text": "Recommends `winml analyze` after inspect.",
+      "passed": true,
+      "evidence": "'Step 2: `winml analyze` against the exported ONNX, targeting the OpenVINO EP.'"
+    },
+    {
+      "text": "Identifies OpenVINO as EP for Intel NPU.",
+      "passed": true,
+      "evidence": "'targeting the OpenVINO EP (Intel NPU).'"
+    },
+    {
+      "text": "Explains analyze's role: linter classifies operators per EP.",
+      "passed": true,
+      "evidence": "'The analyzer runs an operator-level linter and tags every op as supported / partial / unsupported for the EP you're targeting.'"
+    },
+    {
+      "text": "Does NOT just say 'build and see'.",
+      "passed": true,
+      "evidence": "Explicit two-step pre-flight (inspect + analyze) before committing to the full build."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable \u2014 every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": false,
+      "evidence": "verify_commands.py found 1 broken command(s): - `winml inspect nvidia/segformer-b1-finetuned-ade-512-512` has positional arg(s) ['nvidia/segformer-b1-finetuned-ade-512-512'] but `winml inspect` is flag-only"
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.8333,
+    "passed": 5,
+    "failed": 1,
+    "total": 6
+  }
+}

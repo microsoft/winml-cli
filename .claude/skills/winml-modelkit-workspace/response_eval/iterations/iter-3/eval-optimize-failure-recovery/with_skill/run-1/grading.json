@@ -1,0 +1,43 @@
+{
+  "eval_id": 6,
+  "eval_name": "optimize-failure-recovery",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step.",
+      "passed": true,
+      "evidence": "Quote: 'Run analyze against your exported ONNX (not the HF id) and target QNN' with concrete command."
+    },
+    {
+      "text": "Explains analyze's linter will name the offending op pattern per EP.",
+      "passed": true,
+      "evidence": "Quote: 'it lints every operator and pattern per EP and will name the offending op or pattern explicitly'."
+    },
+    {
+      "text": "Does NOT recommend hand-editing the ONNX graph.",
+      "passed": true,
+      "evidence": "Quote: 'do not hand-edit the ONNX graph'."
+    },
+    {
+      "text": "Suggests trying different optim/quant config OR escalating to 'not a fit'.",
+      "passed": true,
+      "evidence": "Both: --disable-... toggles + --optim-config flow + escalation path."
+    },
+    {
+      "text": "Encourages reading actual error message before guessing.",
+      "passed": true,
+      "evidence": "Asks user to share analyze JSON / 'just the offending pattern name'; lists Swin patterns 'If the error mentions a specific op'."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}
