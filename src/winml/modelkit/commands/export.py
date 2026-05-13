@@ -242,66 +242,83 @@ def export(
             console.print(f"[bold red]Failed to load export config:[/bold red] {e}")
             raise click.ClickException(f"Failed to load export config: {e}") from e
 
-    # Load input/output specifications
+    # Load input/output specifications.
+    #
+    # We ALWAYS run Optimum auto-resolution because it provides authoritative
+    # output_tensors (names that match the actual ONNX graph). --input-specs
+    # then overrides input_tensors only; output_tensors stays from Optimum so
+    # tasks like feature-extraction don't trip torch.onnx.export with extra
+    # dataclass field names that aren't in the traced graph.
     input_tensors: list[InputTensorSpec] | None = None
     output_tensors: list[OutputTensorSpec] | None = None
+
+    # Load shape overrides from JSON
+    shape_overrides = None
+    if shape_config:
+        try:
+            with shape_config.open() as f:
+                shape_overrides = json.load(f)
+            if not isinstance(shape_overrides, dict):
+                raise click.ClickException(
+                    f"--shape-config must contain a JSON object, "
+                    f"got {type(shape_overrides).__name__}"
+                )
+        except json.JSONDecodeError as e:
+            raise click.ClickException(
+                f"Invalid JSON in --shape-config: {shape_config}: {e}"
+            ) from e
+        console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
+
+    # Always auto-resolve input/output tensors via loader + Optimum
+    try:
+        from ..export import resolve_export_config as resolve_cfg
+
+        auto_export_cfg, _ = resolve_cfg(
+            model_id=model,
+            task=task,
+            shape_config=shape_overrides,
+        )
+        if auto_export_cfg.input_tensors:
+            input_tensors = auto_export_cfg.input_tensors
+            console.print(
+                f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
+            )
+        if auto_export_cfg.output_tensors:
+            output_tensors = auto_export_cfg.output_tensors
+            console.print(
+                f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
+            )
+    except Exception as e:
+        logger.debug("I/O tensor auto-resolution failed: %s", e)
+
+    # --input-specs overrides individual fields on the auto-resolved input_tensors.
+    # Names matched against auto-resolve get their dtype/shape patched; unknown
+    # names are appended. output_tensors are left untouched.
     if input_specs:
         try:
             with input_specs.open() as f:
                 input_specs_dict = json.load(f)
-            # Convert dict format to InputTensorSpec list
-            input_tensors = []
-            for name, spec in input_specs_dict.items():
-                input_tensors.append(
-                    InputTensorSpec(
-                        name=name,
-                        dtype=spec.get("dtype", "float32"),
-                        shape=tuple(spec.get("shape", [])) if spec.get("shape") else None,
-                    )
-                )
-            console.print(f"[dim]Loaded {len(input_tensors)} input specifications[/dim]")
         except Exception as e:
             console.print(f"[bold red]Failed to load input specs:[/bold red] {e}")
             raise click.ClickException(f"Failed to load input specs: {e}") from e
-    else:
-        # Load shape overrides from JSON (outside catch-all so errors propagate)
-        shape_overrides = None
-        if shape_config:
-            try:
-                with shape_config.open() as f:
-                    shape_overrides = json.load(f)
-                if not isinstance(shape_overrides, dict):
-                    raise click.ClickException(
-                        f"--shape-config must contain a JSON object, "
-                        f"got {type(shape_overrides).__name__}"
-                    )
-            except json.JSONDecodeError as e:
-                raise click.ClickException(
-                    f"Invalid JSON in --shape-config: {shape_config}: {e}"
-                ) from e
-            console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
 
-        # Auto-resolve input/output tensors via loader + Optimum
-        try:
-            from ..export import resolve_export_config as resolve_cfg
-
-            auto_export_cfg, _ = resolve_cfg(
-                model_id=model,
-                task=task,
-                shape_config=shape_overrides,
-            )
-            if auto_export_cfg.input_tensors:
-                input_tensors = auto_export_cfg.input_tensors
-                console.print(
-                    f"[dim]Auto-resolved input specs: {[t.name for t in input_tensors]}[/dim]"
+        if input_tensors is None:
+            input_tensors = []
+        by_name = {t.name: t for t in input_tensors}
+        for name, spec in input_specs_dict.items():
+            shape = tuple(spec["shape"]) if spec.get("shape") else None
+            dtype = spec.get("dtype")
+            if name in by_name:
+                existing = by_name[name]
+                if dtype is not None:
+                    existing.dtype = dtype
+                if shape is not None:
+                    existing.shape = shape
+            else:
+                input_tensors.append(
+                    InputTensorSpec(name=name, dtype=dtype or "float32", shape=shape)
                 )
-            if auto_export_cfg.output_tensors:
-                output_tensors = auto_export_cfg.output_tensors
-                console.print(
-                    f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
-                )
-        except Exception as e:
-            logger.debug("I/O tensor auto-resolution failed: %s", e)
+        console.print(f"[dim]Applied input-spec overrides: {list(input_specs_dict.keys())}[/dim]")
 
     # Build WinMLExportConfig from loaded settings
     config_kwargs = {}
