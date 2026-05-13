@@ -29,6 +29,7 @@ from winml.modelkit.config import (
     generate_onnx_build_config,
 )
 from winml.modelkit.config.build import (
+    SubmoduleClassNotFoundError,
     SubmoduleInfo,
     _build_submodule_config,
     resolve_quant_compile_config,
@@ -795,6 +796,55 @@ class TestBuildSubmoduleConfig:
 
         # Empty list is falsy, so input_tensors should be set to None
         assert result.export.input_tensors is None
+
+
+# =============================================================================
+# TestFindSubmodulesByClass - no-match path surfaces available class names
+# =============================================================================
+
+
+class TestFindSubmodulesByClass:
+    """Tests for _find_submodules_by_class error reporting."""
+
+    def test_no_match_raises_with_available_classes(self) -> None:
+        """Wrong class name raises SubmoduleClassNotFoundError listing real classes."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class Inner(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(8, 16)
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.linear(x)
+
+        class Wrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inner = Inner()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.inner(x)
+
+        model = Wrapper()
+
+        with pytest.raises(SubmoduleClassNotFoundError) as exc_info:
+            _find_submodules_by_class(
+                model,
+                "ResNetStage",  # doesn't exist in this model
+                input_shapes=[(1, 8)],
+                input_dtypes=["float32"],
+            )
+
+        err = exc_info.value
+        assert err.class_name == "ResNetStage"
+        # The real submodule classes must be reported, sorted.
+        assert "Inner" in err.available_classes
+        assert "Linear" in err.available_classes
+        assert err.available_classes == sorted(err.available_classes)
 
 
 # =============================================================================

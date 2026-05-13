@@ -81,6 +81,39 @@ class TestPerfModuleFlag:
         assert result.exit_code != 0, result.output
         assert "No modules matching" in result.output
 
+    def test_module_no_match_lists_available_classes(self) -> None:
+        """SubmoduleClassNotFoundError surfaces the available class names
+        plus a `Did you mean…?` suggestion."""
+        from winml.modelkit.config import SubmoduleClassNotFoundError
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                side_effect=SubmoduleClassNotFoundError(
+                    "ResNetStag",  # typo of ResNetStage
+                    ["Conv2d", "Linear", "ResNetStage", "ResNetBottleNeckLayer"],
+                ),
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                ["perf", "-m", "fake/model", "--module", "ResNetStag"],
+            )
+        assert result.exit_code != 0, result.output
+        assert "No modules matching 'ResNetStag'" in result.output
+        # Close-match suggestion (difflib should pick ResNetStage).
+        assert "Did you mean" in result.output
+        assert "ResNetStage" in result.output
+        # Full list also shown.
+        assert "Available module class names" in result.output
+        assert "Conv2d" in result.output
+        assert "Linear" in result.output
+
     def test_module_default_output_includes_class_name(self) -> None:
         """Default output path includes module class name."""
         # The single-model generate_output_path produces {slug}_perf.json

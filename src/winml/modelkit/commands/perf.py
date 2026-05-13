@@ -542,11 +542,12 @@ def _perf_modules(
             device-to-provider mapping when set.
         precision: Precision mode passed through to the build stage.
     """
+    import difflib
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
-    from ..config import generate_hf_build_config
+    from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
 
@@ -563,14 +564,25 @@ def _perf_modules(
             precision=precision,
             ep=ep,
         )
+    except SubmoduleClassNotFoundError as e:
+        # User-error: --module pattern didn't match. List what's available so
+        # the user can correct the typo without re-discovering classes manually.
+        msg = [f"No modules matching '{e.class_name}' found."]
+        suggestions = difflib.get_close_matches(e.class_name, e.available_classes, n=5)
+        if suggestions:
+            msg.append(f"Did you mean: {', '.join(suggestions)}?")
+        if e.available_classes:
+            msg.append("Available module class names in this model:")
+            msg.append("  " + "\n  ".join(e.available_classes))
+        raise click.UsageError("\n".join(msg)) from e
     except Exception as e:
         if verbose:
             logger.exception("Module config generation failed")
         raise click.ClickException(f"Error generating module configs: {e}") from e
 
     if not module_configs:
-        # User-error: --module pattern didn't match. Exit non-zero so CI
-        # doesn't silently treat a typo'd module name as success.
+        # Defense-in-depth: _find_submodules_by_class now raises on no match,
+        # but keep this branch for builders that might bypass it.
         raise click.UsageError(f"No modules matching '{module_class}' found")
 
     console.print(f"[dim]Found {len(module_configs)} {module_class} instances[/dim]")
