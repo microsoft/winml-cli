@@ -487,6 +487,81 @@ class TestCliOpTracingDispatch:
         assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}: {result.output}"
         assert "degraded" in result.output.lower() or "notice" in result.output.lower()
 
+    def test_no_data_status_does_not_write_json(self, tmp_path: Path):
+        """A3: when op-tracing returns status='no_data', the benchmark JSON
+        must NOT be written to disk before the CLI exits 4.
+
+        Pre-fix: write_json_report() ran before the op-trace status check,
+        so the JSON artifact was always written — misleading CI consumers
+        that parsed the file despite the exit-4 signal.
+
+        Post-fix: the JSON write is inside the valid-trace branch, after all
+        sys.exit(4) guards.
+        """
+        from unittest.mock import MagicMock, call, patch
+
+        from winml.modelkit.commands.perf import BenchmarkResult
+        from winml.modelkit.session.monitor.op_metrics import OpTraceResult
+
+        config = MagicMock()
+        config.model_id = "fake/model"
+        config.task = None
+        config.device = "npu"
+        config.precision = "auto"
+        config.iterations = 1
+        config.warmup = 0
+        config.batch_size = 1
+        bench_result = BenchmarkResult(config=config)
+
+        trace = OpTraceResult(
+            model="fake/model",
+            device="npu",
+            tracing_level="basic",
+            status="no_data",
+            error="profiler CSV missing",
+        )
+        mock_ctx = MagicMock()
+        mock_ctx.monitor.result = trace
+        mock_benchmark = MagicMock()
+        mock_benchmark.run.return_value = bench_result
+        mock_benchmark._perf_ctx = mock_ctx
+
+        write_calls: list = []
+
+        def _capture_write(*args, **kwargs):
+            write_calls.append(call(*args, **kwargs))
+
+        runner = CliRunner()
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                return_value=mock_benchmark,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report", side_effect=_capture_write),
+        ):
+            output_path = tmp_path / "perf_result.json"
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    "fake/model",
+                    "--device",
+                    "npu",
+                    "--op-tracing",
+                    "basic",
+                    "-o",
+                    str(output_path),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 4, f"Expected exit 4, got {result.exit_code}: {result.output}"
+        assert write_calls == [], (
+            f"write_json_report must NOT be called when op-trace status='no_data' "
+            f"(exit 4 path); got {len(write_calls)} call(s)"
+        )
+
 
 # ===========================================================================
 # Hardware-gated CLI E2E (SC-1)

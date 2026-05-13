@@ -19,7 +19,11 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from ..session import EPDevice  # noqa: TC004
 
 
 @dataclass
@@ -78,6 +82,10 @@ class WinMLCompileConfig:
     # Target EP settings
     ep_config: EPConfig = field(default_factory=EPConfig)
 
+    # Resolved EP+device pair (set by CLI or API callers; None means compile
+    # stage will infer from ep_config.provider via resolve_device()).
+    ep_device: EPDevice | None = None
+
     # Behavior
     validate: bool = True
     verbose: bool = False
@@ -86,6 +94,26 @@ class WinMLCompileConfig:
     def device(self) -> str:
         """Get device/provider name for backward compatibility."""
         return self.ep_config.provider
+
+    @classmethod
+    def for_ep_device(cls, ep_device: EPDevice) -> WinMLCompileConfig:
+        """Factory that creates a config from a fully-resolved EPDevice.
+
+        The ep_device is stored on the config and threaded to the compile
+        stage so that resolve_device() is only called once at the CLI boundary.
+
+        Args:
+            ep_device: Fully-resolved (EP, device) binding.
+
+        Returns:
+            WinMLCompileConfig bound to the given EPDevice.
+        """
+        from ..session import short_ep_name
+
+        provider = short_ep_name(ep_device.ep)
+        base = cls.for_provider(provider) or cls(ep_config=EPConfig(provider=provider))
+        base.ep_device = ep_device
+        return base
 
     @classmethod
     def for_provider(cls, provider: str | None) -> WinMLCompileConfig | None:
@@ -239,7 +267,7 @@ class WinMLCompileConfig:
         Returns only EP-related fields. Quantization settings are
         serialized separately by WinMLQuantizationConfig.
         """
-        return {
+        d: dict[str, Any] = {
             "execution_provider": self.ep_config.provider,
             "provider_options": self.ep_config.provider_options,
             "enable_ep_context": self.ep_config.enable_ep_context,
@@ -250,6 +278,9 @@ class WinMLCompileConfig:
             ),
             "validate": self.validate,
         }
+        if self.ep_device is not None:
+            d["ep_device"] = self.ep_device.to_dict()
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
@@ -265,6 +296,8 @@ class WinMLCompileConfig:
         Returns:
             WinMLCompileConfig instance.
         """
+        from ..session import EPDevice as _EPDevice
+
         ep_config = EPConfig(
             provider=data.get("execution_provider", "qnn"),
             provider_options=data.get("provider_options", {}),
@@ -274,8 +307,13 @@ class WinMLCompileConfig:
             qnn_sdk_root=(Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None),
         )
 
+        ep_device = None
+        if "ep_device" in data and data["ep_device"] is not None:
+            ep_device = _EPDevice.from_dict(data["ep_device"])
+
         return cls(
             ep_config=ep_config,
+            ep_device=ep_device,
             validate=data.get("validate", True),
             verbose=data.get("verbose", False),
         )

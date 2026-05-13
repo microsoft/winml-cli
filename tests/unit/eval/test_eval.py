@@ -794,7 +794,7 @@ class TestLoadModel:
     @pytest.fixture(autouse=True)
     def _mock_resolve_device(self):
         """Mock resolve_device in evaluate so unit tests don't hit live EP registry."""
-        from winml.modelkit.session.ep_device import EPDevice
+        from winml.modelkit.session import EPDevice
 
         fake_cpu = EPDevice(
             ep="CPUExecutionProvider",
@@ -803,7 +803,7 @@ class TestLoadModel:
             device_id=0x0001,
         )
         with patch(
-            "winml.modelkit.session.ep_device.resolve_device",
+            "winml.modelkit.session.resolve_device",
             return_value=fake_cpu,
         ):
             yield

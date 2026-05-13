@@ -7,6 +7,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from winml.modelkit.session.monitor.qnn import parse_qhas
 
 
@@ -155,3 +157,67 @@ def test_parse_qhas_uses_authoritative_qnn_op_type_for_name():
         f"QHAS path leaked ONNX op symbols into name; got {sorted(onnx_symbols_in_names)}. "
         f"This indicates the leaf-split heuristic was wrongly applied to QHAS data."
     )
+
+
+# ---------------------------------------------------------------------------
+# A2: named KeyError on missing QHAS fields (Bundle A)
+# ---------------------------------------------------------------------------
+
+
+def test_qnn_internal_missing_key_named_in_error():
+    """A2: a bare dict[key] access raises an opaque KeyError that the outer
+    _try_qhas except silently swallows, degrading to 'basic_fallback' with
+    no record of which field was missing.
+
+    After the fix, missing required fields raise KeyError with the field name
+    in the message so the outer handler can log it for SDK schema drift
+    diagnosis.
+
+    Test: feed _extract_summary a QHAS structure whose htp_overall_summary
+    row is missing the required 'time_us' field, and assert the raised
+    KeyError message contains the field name.
+    """
+    import copy
+
+    from winml.modelkit.session.monitor.qnn._internal import _extract_summary
+
+    data = _load_qhas()["data"]
+    broken = copy.deepcopy(data)
+    # Remove a required field from the first summary row.
+    del broken["htp_overall_summary"]["data"][0]["time_us"]
+
+    with pytest.raises(KeyError) as exc_info:
+        _extract_summary(broken)
+
+    msg = str(exc_info.value)
+    assert "time_us" in msg, (
+        f"KeyError message must name the missing field 'time_us' so SDK schema "
+        f"drift is diagnosable; got: {msg!r}"
+    )
+
+
+def test_qnn_internal_missing_transform_key_named_in_error():
+    """A2 (transform path): _transform_op raises a named KeyError when a
+    required field is absent from a qnn_op_instances_nodes entry.
+
+    Covers the 'cycles' / 'qnn_op_type' / 'qnn_op' / 'percent_active_cycles'
+    group of required fields in _transform_op.
+    """
+    import pytest
+
+    from winml.modelkit.session.monitor.qnn._internal import _transform_op
+
+    # A minimal valid op dict with one required field removed.
+    op = {
+        "qnn_op_type": "Conv2d",
+        "qnn_op": "/resnet/Conv_token_1_2",
+        "percent_active_cycles": 12.5,
+        # "cycles" intentionally omitted
+        "num_htp_ops": 1,
+    }
+
+    with pytest.raises(KeyError) as exc_info:
+        _transform_op(op, cycle_to_us=0.005)
+
+    msg = str(exc_info.value)
+    assert "cycles" in msg, f"KeyError message must name the missing field 'cycles'; got: {msg!r}"

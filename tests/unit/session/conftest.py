@@ -33,7 +33,7 @@ import onnxruntime as ort
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.session.ep_device import EPDevice
+from winml.modelkit.session import EPDevice
 from winml.modelkit.session.session import WinMLSession
 
 

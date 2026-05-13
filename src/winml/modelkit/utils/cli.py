@@ -8,7 +8,15 @@ from pathlib import Path
 
 import click
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+from ..session import _VALID_DEVICES, VALID_EPS
+
+
+# Sorted lowercase device choices consistent with the rest of the codebase.
+# Previously SUPPORTED_DEVICES = ["CPU", "GPU", "NPU"] (uppercase — bug).
+_DEVICE_CHOICES = sorted(_VALID_DEVICES)
+
+# Sorted short EP names sourced from the session facade (single source of truth).
+_EP_CHOICES = sorted(VALID_EPS)
 
 
 def model_option(required=True):
@@ -53,25 +61,25 @@ def ep_option(required=True, optional_message=None):
         "--ep",
         required=required,
         default=None,
-        type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
+        type=click.Choice(_EP_CHOICES, case_sensitive=False),
         help=help_text,
     )
 
 
-def device_option(required=True, optional_message=None, default="NPU"):
+def device_option(required=True, optional_message=None, default="npu"):
     """Add --device option to a Click command.
 
     Args:
         required: Whether the device option is required (default: True)
         optional_message: Message to append to help text when
-            optional (e.g., "If not specified, uses NPU as
+            optional (e.g., "If not specified, uses npu as
             default.")
-        default: Default value when optional (default: "NPU")
+        default: Default value when optional (default: "npu")
 
     Returns:
         Decorator function
     """
-    help_text = "Target device type (CPU, GPU, NPU)"
+    help_text = "Target device type (cpu, gpu, npu)"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
@@ -79,7 +87,7 @@ def device_option(required=True, optional_message=None, default="NPU"):
         "--device",
         required=required,
         default=default if not required else None,
-        type=click.Choice(SUPPORTED_DEVICES, case_sensitive=True),
+        type=click.Choice(_DEVICE_CHOICES, case_sensitive=False),
         help=help_text,
     )
 

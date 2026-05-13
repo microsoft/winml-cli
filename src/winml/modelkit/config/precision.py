@@ -14,6 +14,17 @@ import logging
 import re
 from dataclasses import dataclass
 
+# EP / device taxonomy — single source of truth lives in session/ep_device.py,
+# exposed through the session/ facade.  These names are used within this
+# module's logic; they are NOT re-exported from config/__init__.py
+# (callers must use `from ..session import ...`).
+from ..session import (
+    _VALID_DEVICES,
+    VALID_EPS,
+    ep_to_device,
+    get_provider_for_device,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,43 +71,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     8: "uint8",
     16: "uint16",
 }
-
-# Device -> compile provider mapping (default when no --ep override)
-_DEVICE_TO_PROVIDER: dict[str, str | None] = {
-    "npu": "qnn",
-    "gpu": "dml",
-    "cpu": None,
-}
-
-
-def get_provider_for_device(device: str) -> str | None:
-    """Get the default compile provider for a resolved device.
-
-    Args:
-        device: Resolved device name ("npu", "gpu", "cpu").
-
-    Returns:
-        Provider name (e.g., "qnn", "dml") or None for CPU.
-    """
-    return _DEVICE_TO_PROVIDER.get(device)
-
-
-# EP -> device inference (when --ep is given without --device)
-_EP_TO_DEVICE: dict[str, str] = {
-    "qnn": "npu",
-    "vitisai": "npu",
-    "dml": "gpu",
-    "migraphx": "gpu",
-    "tensorrt": "gpu",
-    "cuda": "gpu",
-    "openvino": "gpu",
-    "cpu": "cpu",
-}
-
-# Valid EP names (matches WinMLCompileConfig.for_provider() factories)
-VALID_EPS = frozenset(_EP_TO_DEVICE.keys())
-
-_VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 # Named precision presets (non-mixed)
 _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
@@ -252,7 +226,7 @@ def resolve_precision(
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}")
         # Infer device from EP when device is "auto"
         if device == "auto":
-            device = _EP_TO_DEVICE[ep]
+            device = ep_to_device(ep)
             logger.info("Inferred device '%s' from EP '%s'", device, ep)
 
     # --- Both auto: no-op, keep config defaults ---
@@ -293,7 +267,7 @@ def resolve_precision(
             )
 
     # EP override takes precedence over device→provider mapping
-    compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
+    compile_provider = ep if ep else get_provider_for_device(resolved_device)
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

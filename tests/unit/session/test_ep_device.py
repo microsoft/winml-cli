@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.session.ep_device import (
+from winml.modelkit.session import (
     AmbiguousMatch,
     DeviceNotFound,
     EPDevice,
@@ -60,13 +60,13 @@ def test_expand_ep_name_short_form() -> None:
 
 
 def test_expand_ep_name_passthrough() -> None:
-    """Already-canonical names flow through unchanged."""
+    """Already-full names flow through unchanged."""
     assert expand_ep_name("QNNExecutionProvider") == "QNNExecutionProvider"
     assert expand_ep_name("CPUExecutionProvider") == "CPUExecutionProvider"
 
 
 def test_expand_ep_name_alias_casing() -> None:
-    """Mixed-case canonical aliases are normalized."""
+    """Mixed-case full-name aliases are normalized to canonical casing."""
     assert expand_ep_name("NvTensorRTRTXExecutionProvider") == "NvTensorRtRtxExecutionProvider"
 
 
@@ -136,8 +136,8 @@ def test_resolve_device_ambiguous_raises() -> None:
 # --- short_ep_name tests ---------------------------------------------------
 
 
-def test_short_ep_name_known_canonical() -> None:
-    """Canonical EP names map back to their short forms."""
+def test_short_ep_name_known_full() -> None:
+    """Full EP names map back to their short forms."""
     assert short_ep_name("QNNExecutionProvider") == "qnn"
     assert short_ep_name("OpenVINOExecutionProvider") == "openvino"
     assert short_ep_name("DmlExecutionProvider") == "dml"
@@ -145,12 +145,24 @@ def test_short_ep_name_known_canonical() -> None:
 
 
 def test_short_ep_name_unknown_falls_back() -> None:
-    """Unknown canonical names fall back to a stripped lowercase form."""
+    """Unknown full names fall back to a stripped lowercase form."""
     assert short_ep_name("SomeFutureExecutionProvider") == "somefuture"
     assert short_ep_name("AlreadyShort") == "alreadyshort"
 
 
 def test_short_ep_name_round_trip_with_expand() -> None:
-    """short_ep_name and expand_ep_name are inverses for canonical names."""
+    """short_ep_name and expand_ep_name are inverses for full names."""
     for short in ("qnn", "openvino", "vitisai", "dml", "cpu"):
+        assert short_ep_name(expand_ep_name(short)) == short
+
+
+def test_expand_ep_name_cuda_tensorrt() -> None:
+    """cuda and tensorrt short names expand to canonical ORT EP names."""
+    assert expand_ep_name("cuda") == "CUDAExecutionProvider"
+    assert expand_ep_name("tensorrt") == "TensorrtExecutionProvider"
+
+
+def test_short_ep_name_cuda_tensorrt_round_trip() -> None:
+    """Round-trip via expand and short for cuda/tensorrt."""
+    for short in ("cuda", "tensorrt"):
         assert short_ep_name(expand_ep_name(short)) == short

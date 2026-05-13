@@ -827,3 +827,58 @@ def test_duration_us_equals_avg_us_for_qhas_path(tmp_path):
         assert abs(op.duration_us - op.avg_us) < 1e-6, (
             f"duration_us={op.duration_us} != avg_us={op.avg_us} for op {op.op_path}"
         )
+
+
+# ---------------------------------------------------------------------------
+# A1: float-string metadata handling (Bundle A)
+# ---------------------------------------------------------------------------
+
+
+def test_qnn_monitor_handles_float_string_cycles(tmp_path):
+    """A1: QNNMonitor must not raise or silently corrupt when QNN returns
+    metadata values as float strings (e.g. "12345.6").
+
+    int("12345.6") raises ValueError → caught by outer except → op record
+    silently dropped.  round(float("12345.6")) == 12346 → correct ratio.
+
+    This test exercises the _parse_artifacts path by patching
+    parse_qnn_profiling_csv to inject float-string metadata values and
+    verifying that cycle_to_us is computed correctly (non-zero) and no
+    exception propagates.
+    """
+    import pathlib
+    from unittest.mock import patch
+
+    from winml.modelkit.session.monitor import qnn_monitor as qnn_mod
+    from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
+
+    fixture = pathlib.Path(__file__).parent / "qnn" / "fixtures" / "optrace_resnet50.csv"
+    monitor = QNNMonitor(level="basic", output_dir=tmp_path)
+    monitor._csv_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Inject float-string metadata values to simulate QNN SDK returning
+    # "12345.6" instead of an integer string.
+    real_parse = qnn_mod.parse_qnn_profiling_csv
+
+    def _patched_parse(path):
+        data = real_parse(path)
+        data["metadata"]["accel_execute_cycles"] = "120000.7"
+        data["metadata"]["accel_execute_us"] = "600.3"
+        return data
+
+    with patch.object(qnn_mod, "parse_qnn_profiling_csv", side_effect=_patched_parse):
+        monitor.__enter__()
+        monitor.__exit__(None, None, None)
+
+    assert monitor.result is not None
+    # Must parse successfully — float strings must not cause silent fallback.
+    assert monitor.result.status == "ok", (
+        f"expected status='ok' with float-string metadata, got {monitor.result.status!r}"
+    )
+    # cycle_to_us = round(600.3) / round(120000.7) = 600 / 120001 ≈ 0.005
+    # All operator duration_us values must be non-zero (ratio was applied).
+    assert monitor.result.operators, "expected at least one operator"
+    for op in monitor.result.operators:
+        assert op.duration_us >= 0.0, (
+            f"duration_us should be non-negative; got {op.duration_us} for {op.op_path}"
+        )

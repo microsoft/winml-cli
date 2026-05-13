@@ -2,63 +2,18 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for --device/--ep flags in compile and --precision in quantize."""
+"""Tests for --precision in quantize and device display label in compile."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from winml.modelkit.commands.compile import _resolve_compile_provider
 from winml.modelkit.commands.quantize import _resolve_quant_types
+from winml.modelkit.session import EPDevice
 
 
-# =============================================================================
-# _resolve_compile_provider tests
-# =============================================================================
-
-
-class TestResolveCompileProvider:
-    """Test compile provider resolution from device + ep flags."""
-
-    def test_npu_defaults_to_qnn(self):
-        assert _resolve_compile_provider("npu", None) == "qnn"
-
-    def test_gpu_defaults_to_dml(self):
-        assert _resolve_compile_provider("gpu", None) == "dml"
-
-    def test_cpu_returns_cpu(self):
-        assert _resolve_compile_provider("cpu", None) == "cpu"
-
-    def test_auto_defaults_to_qnn(self):
-        # auto maps to qnn (NPU-first, like DEVICE_POLICY_MAP)
-        result = _resolve_compile_provider("auto", None)
-        # auto is not in _DEVICE_TO_PROVIDER, falls through to "qnn" default
-        assert result == "qnn"
-
-    def test_ep_overrides_device(self):
-        """ep takes priority over device mapping."""
-        assert _resolve_compile_provider("npu", "migraphx") == "migraphx"
-        assert _resolve_compile_provider("gpu", "vitisai") == "vitisai"
-        assert _resolve_compile_provider("cpu", "tensorrt") == "tensorrt"
-
-    def test_ep_is_lowercased(self):
-        assert _resolve_compile_provider("gpu", "MIGraphX") == "migraphx"
-        assert _resolve_compile_provider("gpu", "TENSORRT") == "tensorrt"
-
-    @pytest.mark.parametrize(
-        "ep",
-        ["qnn", "dml", "migraphx", "tensorrt", "vitisai", "openvino", "cpu"],
-    )
-    def test_all_valid_eps(self, ep):
-        """All valid EP names resolve correctly."""
-        result = _resolve_compile_provider("npu", ep)
-        assert result == ep
-
-    def test_device_case_insensitive(self):
-        assert _resolve_compile_provider("NPU", None) == "qnn"
-        assert _resolve_compile_provider("GPU", None) == "dml"
+def _fake_ep_device(ep: str, device: str) -> EPDevice:
+    return EPDevice(ep=ep, device=device, vendor_id=0, device_id=0, vendor="")
 
 
 # =============================================================================
@@ -124,7 +79,7 @@ class TestResolveQuantTypes:
 
 
 class TestCompileDeviceDisplayLabel:
-    """Device label in compile summary must reflect the resolved EP, not the CLI default."""
+    """Device label in compile summary must reflect the resolved EPDevice.device."""
 
     def test_dml_ep_shows_gpu_device(self, tmp_path):
         from click.testing import CliRunner
@@ -141,6 +96,10 @@ class TestCompileDeviceDisplayLabel:
         mock_result.total_time = None
 
         with (
+            patch(
+                "winml.modelkit.commands.compile.resolve_device",
+                return_value=_fake_ep_device("DmlExecutionProvider", "gpu"),
+            ),
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             patch("winml.modelkit.compiler.WinMLCompileConfig"),

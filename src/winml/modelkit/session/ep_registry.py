@@ -171,15 +171,29 @@ class WinMLEPRegistry:
         # Plugin EP path: catalog knows about it, register from DLL.
         if ep_name in self._ep_paths:
             if ep_name not in self._registered_eps:
-                dll_path = self._ep_paths[ep_name]
-                try:
-                    ort.register_execution_provider_library(ep_name, dll_path)
-                except Exception as exc:
-                    raise EPRegistrationFailed(
-                        f"ort.register_execution_provider_library({ep_name!r}, "
-                        f"{dll_path!r}) failed: {exc}"
-                    ) from exc
-                self._registered_eps.append(ep_name)
+                # Defensive: another singleton (e.g. winml.py:WinML) may have
+                # already called ort.register_execution_provider_library for
+                # this EP in the same process.  ORT's C++ layer is NOT
+                # idempotent — a second registration of the same DLL calls
+                # exit(127) with no Python traceback.  Check ORT's live device
+                # list before attempting the DLL load.
+                already_loaded = any(d.ep_name == ep_name for d in ort.get_ep_devices())
+                if already_loaded:
+                    logger.debug(
+                        "EP %s already loaded by another caller; skipping DLL register",
+                        ep_name,
+                    )
+                    self._registered_eps.append(ep_name)
+                else:
+                    dll_path = self._ep_paths[ep_name]
+                    try:
+                        ort.register_execution_provider_library(ep_name, dll_path)
+                    except Exception as exc:
+                        raise EPRegistrationFailed(
+                            f"ort.register_execution_provider_library({ep_name!r}, "
+                            f"{dll_path!r}) failed: {exc}"
+                        ) from exc
+                    self._registered_eps.append(ep_name)
             return [d for d in ort.get_ep_devices() if d.ep_name == ep_name]
 
         # Not in catalog — might be a bundled EP (e.g. CPUExecutionProvider,

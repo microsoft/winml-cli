@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.models.auto import WinMLAutoModel
-from winml.modelkit.session.ep_device import EPDevice
+from winml.modelkit.session import EPDevice
 
 
 if TYPE_CHECKING:

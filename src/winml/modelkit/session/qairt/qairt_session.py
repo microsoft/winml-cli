@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...utils.python_env import ensure_venv
-from ..ep_device import EPDevice, resolve_device
+from .. import EPDevice, resolve_device
 from ..session import SessionState, WinMLSession
 
 
@@ -234,7 +234,14 @@ class WinMLQairtSession(WinMLSession):
         """Create ORT InferenceSession from EPContext model."""
         import onnxruntime as ort
 
-        sess_options = self._build_session_options(self._device)
+        from ..session import _build_session_options
+
+        sess_options = _build_session_options(
+            self._ep_device,
+            self._ep_config,
+            None,
+            self._base_session_options,
+        )
         self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
         self._state = SessionState.COMPILED
 

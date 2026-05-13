@@ -93,6 +93,18 @@ class WinML:
         for name, path in self._ep_paths.items():
             for module in modules:
                 if name not in self._registered_eps[module.__name__]:
+                    # Defensive guard: ORT's register_execution_provider_library is NOT
+                    # idempotent — a second call for the same DLL calls C++ exit(127) with
+                    # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
+                    # WinMLEPRegistry (session/ep_registry.py) may have already registered
+                    # this EP in the same process.  Consult the live ORT device list first.
+                    try:
+                        already_loaded = any(d.ep_name == name for d in module.get_ep_devices())
+                    except Exception:
+                        already_loaded = False  # conservative: attempt the load
+                    if already_loaded:
+                        self._registered_eps[module.__name__].append(name)
+                        continue
                     try:
                         module.register_execution_provider_library(name, path)
                         self._registered_eps[module.__name__].append(name)

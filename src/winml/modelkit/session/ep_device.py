@@ -16,8 +16,12 @@ at session-build time and never stored on EPDevice itself.
 from __future__ import annotations
 
 import importlib
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any, Final
+
+
+logger = logging.getLogger(__name__)
 
 
 # --- exceptions ------------------------------------------------------------
@@ -93,46 +97,106 @@ def canonicalize_ep_name(name: str) -> str:
     return _EP_NAME_ALIASES.get(name.lower(), name)
 
 
-_SHORT_TO_CANONICAL: Final[dict[str, str]] = {
+_SHORT_TO_FULL: Final[dict[str, str]] = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
+    "cuda": "CUDAExecutionProvider",
+    "tensorrt": "TensorrtExecutionProvider",
     "dml": "DmlExecutionProvider",
     "cpu": "CPUExecutionProvider",
 }
 
 
 def expand_ep_name(name: str) -> str:
-    """Expand a short EP name to canonical; passthrough if already canonical.
+    """Expand a short EP name to its full form; passthrough if already full.
 
     "xxx" is the short form of "xxxExecutionProvider" (case-folded for
-    lookup). Already-canonical names flow through canonicalize_ep_name()
+    lookup). Already-full names flow through canonicalize_ep_name()
     for casing fixes (e.g. NvTensorRTRTX -> NvTensorRtRtx).
     """
-    canonical = _SHORT_TO_CANONICAL.get(name.lower())
-    if canonical is not None:
-        return canonical
+    full = _SHORT_TO_FULL.get(name.lower())
+    if full is not None:
+        return full
     return canonicalize_ep_name(name)
 
 
-# Inverse of _SHORT_TO_CANONICAL — built lazily so any future additions to
-# _SHORT_TO_CANONICAL are picked up automatically.
-_CANONICAL_TO_SHORT: Final[dict[str, str]] = {v: k for k, v in _SHORT_TO_CANONICAL.items()}
+# Inverse of _SHORT_TO_FULL — built lazily so any future additions to
+# _SHORT_TO_FULL are picked up automatically.
+_FULL_TO_SHORT: Final[dict[str, str]] = {v: k for k, v in _SHORT_TO_FULL.items()}
 
 
-def short_ep_name(canonical: str) -> str:
-    """Inverse of expand_ep_name: canonical EP name -> short form.
+def short_ep_name(full: str) -> str:
+    """Inverse of expand_ep_name: full EP name -> short form.
 
     Returns the short alias if known (e.g. ``"QNNExecutionProvider"`` -> ``"qnn"``).
-    Falls back to ``canonical.removesuffix("ExecutionProvider").lower()`` for
-    unknown canonical names so the function never raises — the caller can
+    Falls back to ``full.removesuffix("ExecutionProvider").lower()`` for
+    unknown full names so the function never raises — the caller can
     then validate against their own short-name allowlist.
     """
-    if canonical in _CANONICAL_TO_SHORT:
-        return _CANONICAL_TO_SHORT[canonical]
-    return canonical.removesuffix("ExecutionProvider").lower()
+    if full in _FULL_TO_SHORT:
+        return _FULL_TO_SHORT[full]
+    return full.removesuffix("ExecutionProvider").lower()
+
+
+# --- EP / device taxonomy --------------------------------------------------
+# Single authoritative source.  config/precision.py imports from here
+# (via the session facade) so there is no duplication.
+
+# EP short name  ->  device category
+_EP_TO_DEVICE: Final[dict[str, str]] = {
+    "qnn": "npu",
+    "vitisai": "npu",
+    "dml": "gpu",
+    "migraphx": "gpu",
+    "tensorrt": "gpu",
+    "cuda": "gpu",
+    "openvino": "gpu",
+    "cpu": "cpu",
+}
+
+# Device category -> default compile provider (None = built-in CPU EP)
+_DEVICE_TO_PROVIDER: Final[dict[str, str | None]] = {
+    "npu": "qnn",
+    "gpu": "dml",
+    "cpu": None,
+}
+
+# Public frozensets for callers that only need membership tests
+VALID_EPS: Final[frozenset[str]] = frozenset(_EP_TO_DEVICE.keys())
+_VALID_DEVICES: Final[frozenset[str]] = frozenset({"npu", "gpu", "cpu"})
+
+
+def get_provider_for_device(device: str) -> str | None:
+    """Get the default compile provider for a resolved device.
+
+    Args:
+        device: Resolved device name (``"npu"``, ``"gpu"``, ``"cpu"``).
+
+    Returns:
+        Provider name (e.g. ``"qnn"``, ``"dml"``) or ``None`` for CPU.
+    """
+    return _DEVICE_TO_PROVIDER.get(device)
+
+
+def ep_to_device(ep: str) -> str:
+    """Map an EP short name to its device category.
+
+    Args:
+        ep: EP short name (e.g. ``"qnn"``, ``"dml"``).
+
+    Returns:
+        Device category string: ``"npu"``, ``"gpu"``, or ``"cpu"``.
+
+    Raises:
+        ValueError: If *ep* is not a recognised EP short name.
+    """
+    ep_lower = ep.lower()
+    if ep_lower not in _EP_TO_DEVICE:
+        raise ValueError(f"Unknown EP '{ep}'. Known EPs: {sorted(_EP_TO_DEVICE.keys())}")
+    return _EP_TO_DEVICE[ep_lower]
 
 
 # --- resolution ------------------------------------------------------------
@@ -155,24 +219,76 @@ def _get_ep_registry() -> Any:
     return WinMLEPRegistry
 
 
-def resolve_device(ep: str, device: str) -> EPDevice:
-    """Resolve a (user-friendly EP name, device kind) pair to an EPDevice.
+def resolve_device(
+    ep: str | None = None,
+    device: str | None = None,
+) -> EPDevice:
+    """Resolve a (EP name, device kind) pair to an EPDevice.
+
+    Deduction matrix:
+        both given   -> validate + return
+        ep only      -> _EP_TO_DEVICE[ep] gives device
+        device only  -> _DEVICE_TO_PROVIDER[device] gives ep
+        neither      -> sysinfo auto-detect: pick strongest device,
+                        then fall through to the device-only path
 
     Args:
-        ep: User-supplied EP name. Short forms (e.g. "qnn") are expanded
-            via expand_ep_name().
-        device: "cpu" | "gpu" | "npu" (case-insensitive).
+        ep: User-supplied EP name (short form e.g. ``"qnn"`` or full).
+            ``None`` deduces from *device*.
+        device: ``"cpu"`` | ``"gpu"`` | ``"npu"`` (case-insensitive).
+            ``None`` deduces from *ep* or sysinfo.
 
     Raises:
+        ValueError:           Unknown EP or device string.
         EPNotDiscovered:      EP plugin not in catalog or MODELKIT_EP_PATH.
         EPRegistrationFailed: ort.register_execution_provider_library raised.
         DeviceNotFound:       EP registered, but no matching OrtEpDevice.
         AmbiguousMatch:       multiple OrtEpDevice match after dedup.
     """
-    ep_canonical = expand_ep_name(ep)
+    # --- deduction phase ---------------------------------------------------
+    if ep is None and device is None:
+        # Auto-detect: pick strongest available device via sysinfo
+        from ..sysinfo import resolve_device_category
+
+        resolved_device_str, _ = resolve_device_category(device="auto")
+        device = resolved_device_str
+
+    if ep is not None and device is None:
+        # ep given, device missing — infer from taxonomy
+        ep_lower = ep.lower()
+        # Normalise to short form for lookup (e.g. "QNNExecutionProvider" -> "qnn")
+        ep_short = (
+            ep_lower if ep_lower in _EP_TO_DEVICE else short_ep_name(expand_ep_name(ep_lower))
+        )
+        if ep_short not in _EP_TO_DEVICE:
+            raise ValueError(
+                f"Cannot deduce device for EP '{ep}'. Known EPs: {sorted(_EP_TO_DEVICE.keys())}"
+            )
+        device = _EP_TO_DEVICE[ep_short]
+        logger.debug("Deduced device=%r from ep=%r", device, ep)
+
+    if device is not None and ep is None:
+        # device given, ep missing — infer default EP
+        device_lower = device.lower()
+        if device_lower not in _DEVICE_TO_PROVIDER:
+            raise ValueError(
+                f"Unknown device '{device}'. Expected one of: {sorted(_VALID_DEVICES)}"
+            )
+        default_ep = _DEVICE_TO_PROVIDER[device_lower]
+        # cpu maps to None (built-in); fall back to "cpu" short name
+        ep = default_ep if default_ep is not None else "cpu"
+        device = device_lower
+        logger.debug("Deduced ep=%r from device=%r", ep, device)
+
+    # At this point both ep and device are non-None strings (type-checker aid)
+    assert ep is not None
+    assert device is not None
+
+    # --- resolution phase --------------------------------------------------
+    ep_full = expand_ep_name(ep)
     device_lower = device.lower()
     registry_cls = _get_ep_registry()
-    devices = registry_cls.get_instance().register_ep(ep_canonical)
+    devices = registry_cls.get_instance().register_ep(ep_full)
 
     matching = [d for d in devices if d.device.type.name.lower() == device_lower]
 
@@ -191,21 +307,20 @@ def resolve_device(ep: str, device: str) -> EPDevice:
             (d.device.type.name, hex(d.device.vendor_id), hex(d.device.device_id)) for d in devices
         ]
         raise DeviceNotFound(
-            f"No OrtEpDevice for {ep_canonical} matches device={device_lower!r}. "
-            f"Available: {available}"
+            f"No OrtEpDevice for {ep_full} matches device={device_lower!r}. Available: {available}"
         )
     if len(deduped) > 1:
         conflicting = [
             (d.device.type.name, hex(d.device.vendor_id), hex(d.device.device_id)) for d in deduped
         ]
         raise AmbiguousMatch(
-            f"Multiple OrtEpDevice match {ep_canonical}+{device_lower} after "
+            f"Multiple OrtEpDevice match {ep_full}+{device_lower} after "
             f"dedup: {conflicting}. This is a registry bug; not a user error."
         )
 
     chosen = deduped[0]
     return EPDevice(
-        ep=ep_canonical,
+        ep=ep_full,
         device=device_lower,
         vendor_id=chosen.device.vendor_id,
         device_id=chosen.device.device_id,

@@ -294,6 +294,20 @@ def _aggregate_operators(
 # ---------------------------------------------------------------------------
 
 
+def _require(d: dict, key: str, context: str) -> Any:
+    """Return ``d[key]``, raising a named :exc:`KeyError` if absent.
+
+    The plain ``d[key]`` form raises an opaque ``KeyError: 'key'`` that
+    the outer ``_try_qhas`` ``except Exception`` catches and logs as
+    ``"basic_fallback"`` *without* recording which key was missing.
+    Surfacing the key name in the exception message lets the outer handler
+    log it verbatim, making SDK schema drift diagnosable from the log.
+    """
+    if key not in d:
+        raise KeyError(f"Required QHAS field {key!r} is missing in {context}")
+    return d[key]
+
+
 def parse_qhas(qhas_data: dict) -> dict:
     """Parse a QHAS JSON structure into normalised summary + operator list.
 
@@ -308,7 +322,7 @@ def parse_qhas(qhas_data: dict) -> dict:
     dict
         ``{"summary": {...}, "operators": [...]}``.
     """
-    data = qhas_data["data"]
+    data = _require(qhas_data, "data", "QHAS root")
     summary = _extract_summary(data)
 
     # Derive a cycle-to-microsecond factor from the summary.
@@ -338,21 +352,22 @@ def _extract_summary(data: dict) -> dict:
     if not rows:
         return {}
     raw = rows[0]
+    ctx = "htp_overall_summary row"
     return {
-        "inference_us": raw["time_us"],
-        "execute_us": raw["graph_execute_us"],
-        "inf_per_s": raw["inf_per_s"],
-        "timeline_cycles": raw["timeline_cycles"],
-        "utilization_pct": raw["percent_utilization"],
-        "dram_read_bytes": raw["total_dram_read"],
-        "dram_write_bytes": raw["total_dram_write"],
-        "vtcm_read_bytes": raw["total_vtcm_read"],
-        "vtcm_write_bytes": raw["total_vtcm_write"],
-        "vtcm_peak_bytes": raw["peak_vtcm_alloc"],
-        "qnn_nodes": raw["qnn_nodes"],
-        "htp_nodes": raw["htp_nodes"],
-        "unique_qnn_ops": raw["unique_qnn_ops"],
-        "unique_htp_ops": raw["unique_htp_ops"],
+        "inference_us": _require(raw, "time_us", ctx),
+        "execute_us": _require(raw, "graph_execute_us", ctx),
+        "inf_per_s": _require(raw, "inf_per_s", ctx),
+        "timeline_cycles": _require(raw, "timeline_cycles", ctx),
+        "utilization_pct": _require(raw, "percent_utilization", ctx),
+        "dram_read_bytes": _require(raw, "total_dram_read", ctx),
+        "dram_write_bytes": _require(raw, "total_dram_write", ctx),
+        "vtcm_read_bytes": _require(raw, "total_vtcm_read", ctx),
+        "vtcm_write_bytes": _require(raw, "total_vtcm_write", ctx),
+        "vtcm_peak_bytes": _require(raw, "peak_vtcm_alloc", ctx),
+        "qnn_nodes": _require(raw, "qnn_nodes", ctx),
+        "htp_nodes": _require(raw, "htp_nodes", ctx),
+        "unique_qnn_ops": _require(raw, "unique_qnn_ops", ctx),
+        "unique_htp_ops": _require(raw, "unique_htp_ops", ctx),
     }
 
 
@@ -362,7 +377,8 @@ def _transform_op(op: dict, cycle_to_us: float) -> dict:
     Converts raw cycle counts to microseconds and computes derived
     metrics such as VTCM hit ratio and dominant-path duration.
     """
-    cycles = op["cycles"]
+    ctx = "qnn_op_instances_nodes entry"
+    cycles = _require(op, "cycles", ctx)
     duration_us = cycles * cycle_to_us
 
     dp_cycles = op.get("num_dominant_path_cycles_htp_0")
@@ -399,11 +415,11 @@ def _transform_op(op: dict, cycle_to_us: float) -> dict:
     # so L1 always misses and L2 (``qnn_op_type``) wrongly wins.
     # The strip is idempotent on already-clean strings.
     return {
-        "name": op["qnn_op_type"],
-        "op_path": _TOKEN_SUFFIX.sub("", op["qnn_op"]),
+        "name": _require(op, "qnn_op_type", ctx),
+        "op_path": _TOKEN_SUFFIX.sub("", _require(op, "qnn_op", ctx)),
         "cycles": cycles,
         "duration_us": duration_us,
-        "percent_of_total": op["percent_active_cycles"],
+        "percent_of_total": _require(op, "percent_active_cycles", ctx),
         "dominant_path_us": dominant_path_us,
         "num_htp_ops": op.get("num_htp_ops", 0),
         "dram_read_bytes": dram_read,

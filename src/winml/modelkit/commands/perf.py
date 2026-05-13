@@ -33,7 +33,7 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
-    from ..session.ep_device import EPDevice
+    from ..session import EPDevice
     from ..session.monitor.ep_monitor import EPMonitor
     from ..session.stats import PerfStats
 
@@ -457,7 +457,7 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..session.ep_device import resolve_device
+        from ..session import resolve_device
         from ..sysinfo import resolve_device_category
 
         model_id = self.config.model_id
@@ -468,10 +468,8 @@ class PerfBenchmark:
         resolved_device, _ = resolve_device_category(device=self.config.device)
 
         # Resolve (ep, device) to EPDevice at the CLI boundary.
-        # ep may be None (auto), in which case derive a default from the device.
-        _default_ep_for_device = {"cpu": "cpu", "npu": "qnn", "gpu": "dml"}
-        ep_str = self.config.ep or _default_ep_for_device.get(resolved_device, "cpu")
-        ep_device = resolve_device(ep=ep_str, device=resolved_device)
+        # resolve_device deduces the missing side (ep or device) automatically.
+        ep_device = resolve_device(ep=self.config.ep or None, device=resolved_device)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -766,8 +764,7 @@ def _perf_modules(
                 )
 
                 # Benchmark using WinMLSession
-                from ..session import WinMLSession
-                from ..session.ep_device import resolve_device
+                from ..session import WinMLSession, resolve_device
 
                 # CPU sniff — uses live resolve_device; future opt: cache
                 session = WinMLSession(
@@ -1543,15 +1540,13 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..session.ep_device import resolve_device
+            from ..session import resolve_device
             from ..sysinfo import resolve_device_category
 
             resolved_device, _ = resolve_device_category(device=config.device)
 
-            # Resolve to an EPDevice: use explicit --ep if given, else default per device.
-            _default_ep_for_device = {"cpu": "cpu", "npu": "qnn", "gpu": "dml"}
-            ep_str = config.ep or _default_ep_for_device.get(resolved_device, "cpu")
-            ep_device = resolve_device(ep_str, resolved_device)
+            # Resolve to an EPDevice: resolve_device deduces missing ep or device.
+            ep_device = resolve_device(ep=config.ep or None, device=resolved_device)
 
             result = _run_onnx_benchmark(
                 model_path,
@@ -1573,10 +1568,6 @@ def perf(
         # Display console report
         display_console_report(result, console)
 
-        # Write JSON report
-        write_json_report(result, output)
-        console.print(f"[green]Results saved to:[/green] {output}")
-
         # =================================================================
         # Op-tracing post-benchmark report
         # Op-tracing is integrated into session.perf(monitor=...) via
@@ -1586,6 +1577,10 @@ def perf(
         # NFR-2: when op_tracing was requested, missing/failed profiling data
         # is an ERROR (exit 4), NOT a soft warning. The only degraded-success
         # status is "basic_fallback" (yellow notice, exit 0).
+        #
+        # A3: the JSON report write is intentionally deferred to AFTER this
+        # status check so that a failed op-trace (exit 4) does NOT leave a
+        # misleading JSON artifact on disk for CI consumers.
         # =================================================================
         if op_tracing:
             from ..session.monitor.report import display_op_trace_report, write_op_trace_json
@@ -1620,6 +1615,12 @@ def perf(
                     "(QHAS unavailable; set QNN_SDK_ROOT to enable)."
                 )
 
+            # Op-trace status is valid (ok or basic_fallback) — safe to write
+            # the benchmark JSON now.  Writing after the guard means a failed
+            # op-trace (exit 4 above) leaves no JSON artifact on disk.
+            write_json_report(result, output)
+            console.print(f"[green]Results saved to:[/green] {output}")
+
             if top_k is not None:
                 display_op_trace_report(trace_result, console, top_n=top_k)
             else:
@@ -1634,6 +1635,10 @@ def perf(
                 trace_json=str(trace_output),
                 profiling_csv=profiling_csv,
             )
+        else:
+            # No op-tracing: write JSON immediately after the console report.
+            write_json_report(result, output)
+            console.print(f"[green]Results saved to:[/green] {output}")
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] Model not found: {e}")

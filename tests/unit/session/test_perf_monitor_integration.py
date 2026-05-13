@@ -38,7 +38,7 @@ def _make_cpu_session(model_path):
     The real OrtEpDevice is passed to register_ep() so that
     add_provider_for_devices() receives a genuine handle and ORT can run.
     """
-    from winml.modelkit.session.ep_device import EPDevice
+    from winml.modelkit.session import EPDevice
     from winml.modelkit.session.session import WinMLSession
 
     cpu_dev = _get_real_cpu_ort_device()
@@ -56,26 +56,6 @@ def _make_cpu_session(model_path):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
-
-def test_active_session_option_entries_applied_in_build():
-    """_build_session_options applies monitor-contributed entries on the returned SessionOptions."""
-    from winml.modelkit.session.session import WinMLSession
-
-    # Construct without going through __init__ to avoid file I/O
-    session = WinMLSession.__new__(WinMLSession)
-    session._device = "cpu"
-    session._ep = None
-    session._session_options = ort.SessionOptions()
-    session._provider_options = {}
-    session._active_session_option_entries = {
-        "session.disable_cpu_ep_fallback": "1",
-    }
-
-    opts = session._build_session_options("cpu")
-    # ORT doesn't expose a clean read-back API for session config entries,
-    # but the call should not raise and should return a SessionOptions
-    assert isinstance(opts, ort.SessionOptions)
 
 
 def test_active_session_option_entries_default_empty():
@@ -191,7 +171,7 @@ def test_monitor_enter_raises_leaves_session_clean():
     (which calls WinMLEPRegistry). The mock therefore must stay active across the
     entire perf() call.
     """
-    from winml.modelkit.session.ep_device import EPDevice
+    from winml.modelkit.session import EPDevice
     from winml.modelkit.session.monitor.ep_monitor import EPMonitor
     from winml.modelkit.session.session import WinMLSession
 

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.session.ep_device import AmbiguousMatch, DeviceNotFound, EPDevice
+from winml.modelkit.session import AmbiguousMatch, DeviceNotFound, EPDevice
 from winml.modelkit.session.session import (
     _build_provider_options,
     _build_session_options,
@@ -148,3 +148,49 @@ def test_build_session_options_ambiguous_match_raises(qnn_npu: EPDevice) -> None
         mock_reg.get_instance.return_value.register_ep.return_value = [a, b]
         with pytest.raises(AmbiguousMatch):
             _build_session_options(qnn_npu, ep_config=None, ep_monitor=None)
+
+
+def test_ort_session_options_same_key_overwrites() -> None:
+    """ORT's add_session_config_entry overwrites on repeated same-key calls.
+
+    Pins the semantic that _build_session_options relies on: when called twice
+    with the same base_session_options, the second monitor's session-config entries
+    overwrite the first rather than accumulating silently.  If ORT ever changes to
+    raise or append, this assertion catches the regression immediately.
+    """
+    import onnxruntime as ort
+
+    so = ort.SessionOptions()
+    so.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+    # Second write to the same key must NOT raise and must overwrite.
+    so.add_session_config_entry("session.disable_cpu_ep_fallback", "0")
+    assert so.get_session_config_entry("session.disable_cpu_ep_fallback") == "0", (
+        "ORT add_session_config_entry must overwrite same-key entries. "
+        "If this fails, ORT semantics have changed and _build_session_options "
+        "needs a defensive copy to prevent monitor entries from accumulating."
+    )
+
+
+def test_build_session_options_repeated_calls_do_not_accumulate(qnn_npu: EPDevice) -> None:
+    """Repeatedly calling _build_session_options with the same base (MagicMock) and
+    different monitors writes the correct session-config entries each time.
+
+    Uses a MagicMock as the base so add_provider_for_devices is not type-checked
+    against real OrtEpDevice.  The ORT overwrite semantics are pinned in the
+    companion test test_ort_session_options_same_key_overwrites.
+    """
+    chosen = _ort_dev("NPU", 0x4D4F, 0x0001)
+    monitor_a = _stub_monitor(prov={}, sess={"session.disable_cpu_ep_fallback": "1"})
+    monitor_b = _stub_monitor(prov={}, sess={"session.disable_cpu_ep_fallback": "0"})
+    fake_so = MagicMock()
+
+    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+        mock_reg.get_instance.return_value.register_ep.return_value = [chosen]
+        _build_session_options(qnn_npu, None, monitor_a, fake_so)
+        _build_session_options(qnn_npu, None, monitor_b, fake_so)
+
+    # add_session_config_entry should have been called exactly twice.
+    assert fake_so.add_session_config_entry.call_count == 2
+    calls = fake_so.add_session_config_entry.call_args_list
+    assert calls[0] == (("session.disable_cpu_ep_fallback", "1"),)
+    assert calls[1] == (("session.disable_cpu_ep_fallback", "0"),)

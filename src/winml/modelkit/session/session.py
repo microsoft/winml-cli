@@ -237,11 +237,6 @@ class WinMLSession:
         self._device: str = ep_device.device
         self._persist_jit: bool = ep_config.enable_ep_context if ep_config else False
         self._embed_context: bool = ep_config.embed_context if ep_config else False
-        # _session_options stored for _build_session_options() fallback path.
-        # TODO Task 8/11: remove once _build_session_options is refactored.
-        self._session_options: ort.SessionOptions = (
-            base_session_options if base_session_options is not None else ort.SessionOptions()
-        )
 
         # _session is None until InferenceSession construction completes; __del__
         # reads this attribute, so it must exist before any call that could raise.
@@ -257,20 +252,29 @@ class WinMLSession:
         # Performance tracking (enabled via perf() context manager)
         self._perf_stats: PerfStats | None = None
 
-        # ep_monitor=None — contributed at perf() time, not __init__
-        so = _build_session_options(
-            self._ep_device,
-            self._ep_config,
-            None,
-            self._base_session_options,
-        )
-        self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
+        # Compile workflows defer session creation to compile(); runtime workflows
+        # create the session eagerly here.  ep_monitor=None — contributed at
+        # perf() time, not __init__.
+        if not self._persist_jit:
+            so = _build_session_options(
+                self._ep_device,
+                self._ep_config,
+                None,
+                self._base_session_options,
+            )
+            self._session = ort.InferenceSession(self._onnx_path, sess_options=so)
 
     def compile(self) -> None:
         """Compile model for target device using ModelCompiler API.
 
         Only compiles once per session (idempotent).
         Device is immutable - set at __init__ time.
+
+        For compile workflows (ep_config.enable_ep_context=True) this method
+        runs ort.ModelCompiler.compile_to_file() to produce a .ctx.onnx, then
+        creates the runtime InferenceSession against that compiled artifact.
+        For runtime-only workflows (persist_jit=False) this is a no-op if the
+        session was already created eagerly in __init__.
         """
         # If already compiled, ignore (idempotent)
         if self._session is not None:
@@ -280,67 +284,63 @@ class WinMLSession:
 
         target_device = self._device
 
-        # Resolve auto device
-        if target_device == "auto":
-            target_device = self._detect_best_device()
-            self._device = target_device  # Update instance device
-
         if self._is_verbose():
             logger.info("Compiling for device: %s", target_device)
 
-        # Determine model path (original or EPContext)
+        # Derive the output ctx path from the original model path.
         ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_{target_device}_ctx.onnx"
         model_path = self._onnx_path
 
-        # Check for existing fresh EPContext
-        if (
-            self._persist_jit
-            and ctx_path.exists()
-            and ctx_path.stat().st_mtime >= self._onnx_path.stat().st_mtime
-        ):
-            model_path = ctx_path
-            logger.info("Using cached EPContext: %s", ctx_path)
-
-        # Compile if needed (persist_jit=True and no cache)
         # Native QNN SDK compiler writes progress to stdout/stderr;
         # redirect to log file to keep the console clean.
         compile_log = self._onnx_path.parent / "compile.log"
 
-        if self._persist_jit and model_path == self._onnx_path:
-            # Skip ModelCompiler if input model is already compiled (EPContext)
-            if is_compiled_onnx(self._onnx_path):
-                logger.info("Model already compiled (EPContext), skipping ModelCompiler")
-            else:
-                try:
-                    sess_options = self._build_session_options(target_device)
+        # Check for existing fresh EPContext (skip re-compile if cache is fresh).
+        if ctx_path.exists() and ctx_path.stat().st_mtime >= self._onnx_path.stat().st_mtime:
+            model_path = ctx_path
+            logger.info("Using cached EPContext: %s", ctx_path)
+        elif is_compiled_onnx(self._onnx_path):
+            # Input model is already an EPContext — use it directly.
+            logger.info("Model already compiled (EPContext), skipping ModelCompiler")
+        else:
+            # AOT compile to .ctx.onnx via ort.ModelCompiler.
+            try:
+                so = _build_session_options(
+                    self._ep_device,
+                    self._ep_config,
+                    None,  # no monitor at compile time
+                    self._base_session_options,
+                )
+                model_compiler = ort.ModelCompiler(
+                    so,
+                    str(self._onnx_path),
+                    embed_compiled_data_into_model=self._embed_context,
+                )
+                with _suppress_native_output(compile_log):
+                    model_compiler.compile_to_file(str(ctx_path))
 
-                    model_compiler = ort.ModelCompiler(
-                        sess_options,
-                        str(self._onnx_path),
-                        embed_compiled_data_into_model=self._embed_context,
-                    )
-                    with _suppress_native_output(compile_log):
-                        model_compiler.compile_to_file(str(ctx_path))
+                if ctx_path.exists():
+                    model_path = ctx_path
+                    logger.info("Compiled to EPContext: %s", ctx_path)
 
-                    # Use compiled model if it was created
-                    if ctx_path.exists():
-                        model_path = ctx_path
-                        logger.info("Compiled to EPContext: %s", ctx_path)
-
-                except Exception as e:
-                    # Some EPs don't support compilation - fall back to original
-                    logger.warning("ModelCompiler failed, using original: %s", e)
+            except Exception as e:
+                # Some EPs don't support compilation — fall back to original model.
+                logger.warning("ModelCompiler failed, using original: %s", e)
 
         try:
-            # Create InferenceSession
-            sess_options = self._build_session_options(target_device)
+            # Create the runtime InferenceSession against the (possibly compiled) model.
+            runtime_so = _build_session_options(
+                self._ep_device,
+                self._ep_config,
+                None,
+                self._base_session_options,
+            )
             with _suppress_native_output(compile_log):
-                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+                session = ort.InferenceSession(str(model_path), sess_options=runtime_so)
 
-            # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()
             logger.info(
-                "Session created with policy %s, providers: %s",
+                "Session created for device %s, providers: %s",
                 target_device,
                 actual_providers,
             )
@@ -358,18 +358,8 @@ class WinMLSession:
                 suggestion=self._get_compile_suggestion(target_device, e),
             ) from e
 
-        # Store session
         self._session = session
         self._state = SessionState.COMPILED
-
-        # Resolve device label from the primary provider ORT actually selected
-        if self._device == "auto" and actual_providers:
-            from ..sysinfo.device import get_ep_device_map
-
-            ep_map = get_ep_device_map()
-            resolved = ep_map.get(actual_providers[0])
-            if resolved and "/" not in resolved:
-                self._device = resolved
 
     def run(
         self,
@@ -456,31 +446,6 @@ class WinMLSession:
     def _is_verbose(self) -> bool:
         """Check if verbose logging is enabled via environment variable."""
         return os.getenv("WINMLSESSION_VERBOSE", "").lower() in ("1", "true", "yes")
-
-    def _build_session_options(self, device: str) -> ort.SessionOptions:
-        """Build ORT SessionOptions from instance session_options and device.
-
-        # TODO Task 8 [bridge]: this method is retained so existing compile() callers
-        # keep working until perf() is refactored. Delete and inline ep_device logic
-        # into compile() once Task 8 lands.
-        """
-        # Policy-based selection (default path — kept for compile() compatibility)
-        opts = self._session_options
-        _device_policy_map = {
-            "npu": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,
-            "gpu": ort.OrtExecutionProviderDevicePolicy.PREFER_GPU,
-            "cpu": ort.OrtExecutionProviderDevicePolicy.PREFER_CPU,
-            "auto": ort.OrtExecutionProviderDevicePolicy.PREFER_NPU,
-        }
-        policy = _device_policy_map.get(
-            device.lower(), ort.OrtExecutionProviderDevicePolicy.PREFER_NPU
-        )
-        opts.set_provider_selection_policy(policy)
-        # Apply monitor-contributed session config entries
-        for key, value in self._active_session_option_entries.items():
-            opts.add_session_config_entry(key, value)
-
-        return opts
 
     @staticmethod
     def _build_op_type_map(onnx_path: Path | None) -> dict[str, str]:
@@ -867,22 +832,17 @@ class WinMLSession:
         self,
         node: onnx.NodeProto,
         graph: onnx.GraphProto | None = None,
-        *,
-        device: str | None = None,
     ) -> bool:
         """Test if a single ONNX node is compatible with an EP.
 
         Wraps the node in a minimal graph, attempts to create an
-        InferenceSession with the target device's policy configuration.
-        Reuses the session's ``_build_session_options`` for consistency.
+        InferenceSession with the session's EPDevice binding.
 
         Args:
             node: ONNX node to test.
             graph: Optional parent graph for shape/type context.
                 When provided, extracts ValueInfoProto for accurate shapes.
                 Without it, uses dummy [1,1] float32 shapes (less accurate).
-            device: Target device for compatibility check (e.g., "npu", "gpu",
-                "cpu"). Defaults to the session's own device.
 
         Returns:
             True if the EP can handle this node, False otherwise.
@@ -892,8 +852,6 @@ class WinMLSession:
             Results are more accurate when graph is provided.
         """
         from onnx import TensorProto, helper
-
-        target_device = device or self._device
 
         if graph is None:
             logger.warning(
@@ -948,8 +906,13 @@ class WinMLSession:
             test_model = helper.make_model(test_graph, opset_imports=[helper.make_opsetid("", 17)])
             test_model.ir_version = 8
 
-            # 3. Try creating session with same device policy
-            sess_options = self._build_session_options(target_device)
+            # 3. Try creating session with same EPDevice binding
+            sess_options = _build_session_options(
+                self._ep_device,
+                self._ep_config,
+                None,
+                self._base_session_options,
+            )
             sess_options.log_severity_level = 4  # Suppress ORT logs during probe
             ort.InferenceSession(
                 test_model.SerializeToString(),

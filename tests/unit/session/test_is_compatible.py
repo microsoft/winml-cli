@@ -32,7 +32,7 @@ def cpu_session(tmp_path: Path) -> WinMLSession:
     import onnx
     import onnxruntime as _ort
 
-    from winml.modelkit.session.ep_device import EPDevice
+    from winml.modelkit.session import EPDevice
 
     # Discover the real CPU OrtEpDevice so add_provider_for_devices() gets
     # a genuine handle and ORT can run inference.

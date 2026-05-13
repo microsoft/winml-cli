@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
     """Mock device resolution helpers to avoid hardware detection in all perf CLI tests."""
-    from winml.modelkit.session.ep_device import EPDevice
+    from winml.modelkit.session import EPDevice
 
     fake_cpu_ep_device = EPDevice(
         ep="CPUExecutionProvider",
@@ -40,7 +40,7 @@ def mock_resolve_device():
             return_value=("cpu", ["cpu"]),
         ),
         patch(
-            "winml.modelkit.session.ep_device.resolve_device",
+            "winml.modelkit.session.resolve_device",
             return_value=fake_cpu_ep_device,
         ),
     ):

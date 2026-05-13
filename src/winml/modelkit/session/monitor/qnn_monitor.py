@@ -436,8 +436,23 @@ class QNNMonitor(EPMonitor):
         artifacts: dict[str, str] = {"csv": str(csv_path)}
 
         # Convert cycles to microseconds via the CSV-reported ratio.
-        total_cycles = int(meta.get("accel_execute_cycles", 0) or 0)
-        accel_us = int(meta.get("accel_execute_us", 0) or 0)
+        # Use round(float(...)) rather than int() so that a float-string
+        # value like "12345.6" (legal QNN SDK output) parses correctly
+        # instead of raising ValueError → silent op-record drop.
+        def _to_int(val: object, field: str) -> int:
+            try:
+                return round(float(val))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                logger.warning(
+                    "QNNMonitor: could not parse %r as a number for metadata field %r; "
+                    "defaulting to 0.  This may corrupt cycle_to_us and duration_us values.",
+                    val,
+                    field,
+                )
+                return 0
+
+        total_cycles = _to_int(meta.get("accel_execute_cycles", 0) or 0, "accel_execute_cycles")
+        accel_us = _to_int(meta.get("accel_execute_us", 0) or 0, "accel_execute_us")
         cycle_to_us = accel_us / total_cycles if total_cycles > 0 else 0.0
 
         # CSV path: no EP-authoritative op type column, so resolve via

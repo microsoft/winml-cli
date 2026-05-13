@@ -22,7 +22,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def mock_ep_registration():
     """Prevent WinML EP registration from loading native DLLs."""
-    from winml.modelkit.session.ep_device import EPDevice
+    from winml.modelkit.session import EPDevice
 
     fake_qnn_npu = EPDevice(
         ep="QNNExecutionProvider",

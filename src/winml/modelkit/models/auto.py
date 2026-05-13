@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from ..cache import get_cache_dir, get_cache_key, get_model_dir
 from ..loader import load_hf_model
 from ..loader.task import get_task_abbrev
-from ..session.ep_device import short_ep_name
+from ..session import short_ep_name
 
 # Import task mapping from winml/ subpackage
 from .winml import get_supported_tasks, get_winml_class
@@ -38,7 +38,7 @@ from .winml import get_supported_tasks, get_winml_class
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
-    from ..session.ep_device import EPDevice
+    from ..session import EPDevice
     from .winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)

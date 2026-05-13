@@ -36,7 +36,7 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ...session.ep_device import EPDevice
+    from ...session import EPDevice
 
 logger = logging.getLogger(__name__)
 
