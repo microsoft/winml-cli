@@ -154,6 +154,12 @@ class TestPerfModuleParameterForwarding:
         fake_session = MagicMock()
         fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
 
+        # _perf_modules calls resolve_loader_config(model_id=...) to recover the
+        # parent task (submodule configs strip it). Stub it so "fake/model" never
+        # hits the HF Hub.
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
         with (
             patch(
                 "winml.modelkit.sysinfo.resolve_device",
@@ -163,6 +169,10 @@ class TestPerfModuleParameterForwarding:
                 "winml.modelkit.config.generate_hf_build_config",
                 return_value=[fake_cfg],
             ) as mock_gen,
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock()),
+            ),
             patch(
                 "winml.modelkit.commands.build._instantiate_parent_model",
                 return_value=MagicMock(),
