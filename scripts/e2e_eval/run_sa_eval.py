@@ -3,27 +3,26 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""SA accuracy evaluation — four-stage self-contained pipeline.
+"""WinML CLI component analysis evaluation pipeline.
 
-Reads models from model_with_acc.json, runs export + graph optimize,
-SA pre-check, capability-driven optimization, SA post-check, and optional
-EPContext diff against cached compiled ONNX.
+Reads models from models_with_acc.json, runs winml build to produce all
+pipeline artifacts, then runs SA pre/post analysis on the build outputs.
 
 Pipeline per model:
-  Stage 1: wmk export + Python optimize_onnx (default)
-           → graph_optimized.onnx
-  Stage 2: ONNXStaticAnalyzer (enable_information=True)
-           → sa_pre.json + optim_config
-  Stage 3: Python optimize_onnx(**optim_config) → sa_optimized.onnx
-  Stage 4: ONNXStaticAnalyzer → sa_post.json
-  Stage 5: EPContext diff (optional, uses ~/.cache/winml/artifacts/)
-           → epcontext comparison vs sa_post predictions
+  Stage 1: winml config  → build_config.json
+  Stage 2: winml build   → export.onnx, optimized.onnx, quantized.onnx,
+                           compiled.onnx, winml_build_config.json
+  Stage 3: SA pre-check  → ONNXStaticAnalyzer on export.onnx → sa_pre.json
+  Stage 4: SA post-check → ONNXStaticAnalyzer on optimized.onnx → sa_post.json
+  Stage 5: EPContext diff → compare_sa_vs_epcontext on compiled.onnx
+  Perf: run winml perf on export.onnx, optimized.onnx, quantized.onnx
 
 Usage:
     uv run python scripts/e2e_eval/run_sa_eval.py
-    uv run python scripts/e2e_eval/run_sa_eval.py --model ProsusAI/finbert
+    uv run python scripts/e2e_eval/run_sa_eval.py --model microsoft/resnet-50
     uv run python scripts/e2e_eval/run_sa_eval.py --output-dir sa_eval_results/2026-03-27
     uv run python scripts/e2e_eval/run_sa_eval.py --use-cache
+    uv run python scripts/e2e_eval/run_sa_eval.py --report-only --output-dir sa_eval_results/2026-05-12
 """
 
 from __future__ import annotations
@@ -82,30 +81,18 @@ def is_cached(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
-def run_wmk_export(hf_id: str, task: str, output: Path) -> tuple[int, str]:
-    """Run wmk export via subprocess. Returns (rc, stderr_tail)."""
-    args = [
-        sys.executable,
-        "-m",
-        "winml.modelkit.cli",
-        "export",
-        "--model",
-        hf_id,
-        "--output",
-        str(output),
-        "--clean-onnx",
-    ]
-    if task:
-        args += ["--task", task]
+def _run_cli(args: list[str]) -> tuple[int, str]:
+    """Run a winml CLI command via subprocess. Returns (rc, combined_output)."""
     result = subprocess.run(  # noqa: S603
-        args,
+        [sys.executable, "-m", "winml.modelkit.cli", *args],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
-    return result.returncode, (result.stderr or "").strip()[-500:]
+    combined = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+    return result.returncode, combined
 
 
 # Map full EP names to the short form accepted by `wmk perf --ep`
@@ -139,11 +126,12 @@ def run_winml_perf(
         except Exception:
             return None
 
+    if not is_cached(onnx_path):
+        safe_print(f"  [{label}] Skipping perf — {onnx_path.name} not found")
+        return None
+
     safe_print(f"  [{label}] Running perf on {onnx_path.name}...")
     cmd = [
-        sys.executable,
-        "-m",
-        "winml.modelkit.cli",
         "perf",
         "-m",
         str(onnx_path),
@@ -160,16 +148,9 @@ def run_winml_perf(
     if ep_arg:
         cmd += ["--ep", ep_arg]
 
-    result = subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-    )
-    if result.returncode != 0 or not is_cached(output_json):
-        safe_print(f"  [{label}] Perf failed (rc={result.returncode})")
+    rc, _ = _run_cli(cmd)
+    if rc != 0 or not is_cached(output_json):
+        safe_print(f"  [{label}] Perf failed (rc={rc})")
         return None
 
     try:
@@ -190,20 +171,19 @@ def run_winml_perf(
 
 
 def cleanup_onnx_artifacts(model_dir: Path) -> None:
-    """Delete intermediate ONNX files after eval, keeping only JSON/log results.
+    """Delete intermediate ONNX and binary artifacts after eval.
 
-    Removes all ``*.onnx`` and ``*.onnx.data`` files (exported, graph_optimized,
-    sa_optimized, quantized, compiled EPContext). JSON result files and perf
-    logs are preserved so --report-only and --use-cache still work for the
-    JSON-driven stages.
+    Removes ``*.onnx``, ``*.onnx.data``, and ``*.bin`` (QNN binary) files.
+    JSON result files and perf logs are preserved so --report-only and
+    --use-cache still work for the JSON-driven stages.
     """
     freed = 0
-    for pattern in ("*.onnx", "*.onnx.data"):
+    for pattern in ("*.onnx", "*.onnx.data", "*.bin"):
         for f in model_dir.glob(pattern):
             size = f.stat().st_size
             f.unlink()
             freed += size
-    safe_print(f"  [cleanup] Freed {freed / 1024**2:.1f} MB of ONNX artifacts")
+    safe_print(f"  [cleanup] Freed {freed / 1024**2:.1f} MB of artifacts")
 
 
 # ---------------------------------------------------------------------------
@@ -211,353 +191,229 @@ def cleanup_onnx_artifacts(model_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def stage1_export_optimize(
+def stage_build(
     hf_id: str,
     task: str,
     model_dir: Path,
     use_cache: bool,
-) -> tuple[Path | None, str | None]:
-    """Export HF model and apply baseline graph optimization.
+    precision: str = "int8",
+    device: str = "npu",
+    ep: str | None = None,
+    run_compile: bool = True,
+    run_quantize: bool = True,
+) -> str | None:
+    """Generate build config and run winml build.
 
-    Returns (graph_optimized_path, None) on success,
-    or (None, skip_reason) on failure.
+    Runs ``winml config`` then ``winml build`` to produce all pipeline
+    artifacts: export.onnx, optimized.onnx, quantized.onnx, compiled.onnx,
+    and winml_build_config.json.
+
+    Returns None on success, or a skip reason string on failure.
     """
-    from winml.modelkit.optim import optimize_onnx
+    config_path = model_dir / "build_config.json"
+    export_path = model_dir / "export.onnx"
+    optimized_path = model_dir / "optimized.onnx"
 
-    exported_path = model_dir / "exported.onnx"
-    graph_opt_path = model_dir / "graph_optimized.onnx"
+    # Skip entire build if key artifacts already exist and cache is enabled
+    if use_cache and is_cached(export_path) and is_cached(optimized_path):
+        safe_print("  [Build] Using cached artifacts (export.onnx, optimized.onnx)")
+        return None
 
-    # Stage 1a: Export (subprocess — HF download + tracing)
-    if use_cache and is_cached(exported_path):
-        safe_print("  [Stage 1a] Export (cached)")
-    else:
-        safe_print(f"  [Stage 1a] Exporting {hf_id}...")
-        rc, stderr = run_wmk_export(hf_id, task, exported_path)
-        if rc != 0 or not is_cached(exported_path):
-            safe_print(f"  [ERROR] Export failed (rc={rc}): {stderr}")
-            return None, "SKIP_EXPORT"
-        safe_print(f"  [Stage 1a] Exported: {exported_path.name}")
+    # Stage 1: Generate config
+    safe_print(f"  [Build] Generating config for {hf_id}...")
+    config_args = [
+        "config",
+        "-m",
+        hf_id,
+        "-d",
+        device,
+        "-p",
+        precision,
+        "-o",
+        str(config_path),
+    ]
+    if task:
+        config_args += ["-t", task]
+    if run_compile:
+        config_args += ["--compile"]
+    if not run_quantize:
+        config_args += ["--no-quant"]
 
-    # Stage 1b: Baseline graph optimization (Python API)
-    if use_cache and is_cached(graph_opt_path):
-        safe_print("  [Stage 1b] Graph optimize (cached)")
-    else:
-        safe_print("  [Stage 1b] Applying baseline graph optimization...")
-        try:
-            optimize_onnx(str(exported_path), str(graph_opt_path))
-        except Exception as e:
-            safe_print(f"  [ERROR] Graph optimize failed: {e}")
-            return None, "SKIP_GRAPH_OPTIM"
-        if not is_cached(graph_opt_path):
-            safe_print("  [ERROR] Graph optimize produced no output")
-            return None, "SKIP_GRAPH_OPTIM"
-        safe_print(f"  [Stage 1b] Optimized: {graph_opt_path.name}")
+    rc, output = _run_cli(config_args)
+    if rc != 0 or not is_cached(config_path):
+        safe_print(f"  [ERROR] Config generation failed (rc={rc}): {output[-300:]}")
+        return "SKIP_EXPORT"
+    safe_print(f"  [Build] Config written: {config_path.name}")
 
-    return graph_opt_path, None
+    # Stage 2: Run winml build
+    safe_print("  [Build] Running winml build...")
+    build_args = [
+        "build",
+        "-c",
+        str(config_path),
+        "-m",
+        hf_id,
+        "-o",
+        str(model_dir),
+        "--ep",
+        _EP_TO_PERF_ARG.get(ep or "", ep or "qnn") if ep else "qnn",
+    ]
+    if not use_cache:
+        build_args += ["--rebuild"]
+    if not run_compile:
+        build_args += ["--no-compile"]
+    if not run_quantize:
+        build_args += ["--no-quant"]
 
+    rc, output = _run_cli(build_args)
 
-def stage2_sa_pre(
-    model_dir: Path,
-    graph_opt_path: Path,
-    use_cache: bool,
-    ep: str = "QNNExecutionProvider",
-    device: str = "NPU",
-) -> tuple[dict[str, str], dict, list[dict]] | None:
-    """Run SA with information on graph_optimized.onnx.
+    # Check for required artifacts regardless of rc (partial builds are useful)
+    if not is_cached(export_path):
+        safe_print(f"  [ERROR] Build failed — no export.onnx produced: {output[-300:]}")
+        return "SKIP_EXPORT"
 
-    Returns (classifications, optim_config, info_items) or None on failure.
-    """
-    sa_pre_path = model_dir / "sa_pre.json"
-    optim_record_path = model_dir / "optimization_flags.json"
+    if not is_cached(optimized_path):
+        safe_print(f"  [ERROR] Build failed — no optimized.onnx produced: {output[-300:]}")
+        return "SKIP_OPTIM"
 
-    if use_cache and is_cached(sa_pre_path) and is_cached(optim_record_path):
-        safe_print("  [Stage 2] SA pre-check (cached)")
-        classifications = parse_sa_json(sa_pre_path, ep=ep)
-        optim_record = json.loads(optim_record_path.read_text(encoding="utf-8"))
-        optim_config = optim_record.get("optim_config", {})
-        info_items = optim_record.get("info_items", [])
-    else:
-        safe_print("  [Stage 2] Running SA pre-check (with recommendations)...")
-        try:
-            classifications, optim_config, info_items = run_sa_with_info(
-                graph_opt_path, sa_pre_path, ep=ep, device=device
-            )
-        except Exception as e:
-            safe_print(f"  [ERROR] SA pre-check failed: {e}")
-            return None
-        # Persist optim_config + info so cache works
-        optim_record_path.write_text(
-            json.dumps({"optim_config": optim_config, "info_items": info_items}, indent=2),
-            encoding="utf-8",
-        )
-
-    if not classifications:
-        safe_print(
-            "  [WARN] SA pre-check: no classifications (no QNN rule data on this machine). "
-            "SA-driven optimization will be skipped; pipeline continues."
-        )
-    else:
-        summary = get_sa_summary(classifications)
-        safe_print(
-            f"  [Stage 2] Pre: SUPPORTED={summary['supported']} PARTIAL={summary['partial']} "
-            f"UNSUPPORTED={summary['unsupported']} UNKNOWN={summary['unknown']} "
-            f"({summary['supported_ratio']:.0%} supported)  optim_flags={list(optim_config.keys())}"
-        )
-    return classifications, optim_config, info_items
+    produced = [
+        p.name
+        for p in model_dir.iterdir()
+        if p.suffix in (".onnx", ".json") and not p.name.startswith("sa_")
+    ]
+    safe_print(f"  [Build] Complete: {', '.join(sorted(produced))}")
+    return None
 
 
-def stage3_capability_optimize(
-    model_dir: Path,
-    graph_opt_path: Path,
-    optim_config: dict,
-    use_cache: bool,
-) -> Path | None:
-    """Run capability-driven optimization using SA's recommended config.
-
-    Uses optimize_onnx Python API directly with WinMLOptimizationConfig kwargs.
-    Returns path to sa_optimized.onnx, or None on failure.
-    """
-    from winml.modelkit.optim import optimize_onnx
-
-    sa_opt_path = model_dir / "sa_optimized.onnx"
-
-    if use_cache and is_cached(sa_opt_path):
-        safe_print(f"  [Stage 3] Capability optimize (cached, config={optim_config})")
-        return sa_opt_path
-
-    safe_print(f"  [Stage 3] Capability optimization (config={optim_config})...")
+def read_optim_flags(model_dir: Path) -> dict:
+    """Read optim flags written by winml build into winml_build_config.json."""
+    config_path = model_dir / "winml_build_config.json"
+    if not config_path.exists():
+        return {}
     try:
-        optimize_onnx(str(graph_opt_path), str(sa_opt_path), **optim_config)
-    except Exception as e:
-        safe_print(f"  [ERROR] Capability optimize failed: {e}")
-        return None
-
-    if not is_cached(sa_opt_path):
-        safe_print("  [ERROR] Capability optimize produced no output")
-        return None
-
-    safe_print(f"  [Stage 3] Optimized: {sa_opt_path.name}")
-    return sa_opt_path
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        return cfg.get("optim", {})
+    except Exception:
+        return {}
 
 
-def stage4_sa_post(
+def stage_sa_pre(
     model_dir: Path,
-    sa_opt_path: Path,
     use_cache: bool,
     ep: str = "QNNExecutionProvider",
     device: str = "NPU",
 ) -> tuple[dict[str, str], list[dict]] | None:
-    """Run SA on sa_optimized.onnx.
+    """Run SA with information on export.onnx (pre-optimization state).
 
     Returns (classifications, info_items) or None on failure.
     """
-    sa_post_path = model_dir / "sa_post.json"
+    export_path = model_dir / "export.onnx"
+    sa_pre_path = model_dir / "sa_pre.json"
 
-    if use_cache and is_cached(sa_post_path):
-        safe_print("  [Stage 4] SA post-check (cached)")
-        classifications = parse_sa_json(sa_post_path, ep=ep)
-        info_items = []
-    else:
-        safe_print("  [Stage 4] Running SA post-check...")
-        try:
-            classifications, _, info_items = run_sa_with_info(
-                sa_opt_path, sa_post_path, ep=ep, device=device
-            )
-        except Exception as e:
-            safe_print(f"  [ERROR] SA post-check failed: {e}")
-            return None
+    if use_cache and is_cached(sa_pre_path):
+        safe_print("  [SA Pre] Cached")
+        classifications = parse_sa_json(sa_pre_path, ep=ep)
+        return classifications, []
+
+    if not is_cached(export_path):
+        safe_print("  [ERROR] SA pre: export.onnx not found")
+        return None
+
+    safe_print("  [SA Pre] Analyzing export.onnx...")
+    try:
+        classifications, _, info_items = run_sa_with_info(
+            export_path, sa_pre_path, ep=ep, device=device
+        )
+    except Exception as e:
+        safe_print(f"  [ERROR] SA pre failed: {e}")
+        return None
 
     if not classifications:
-        safe_print("  [WARN] SA post-check: no classifications (no QNN rule data). Continuing.")
+        safe_print(
+            "  [WARN] SA pre: no classifications (no QNN rule data on this machine). "
+            "Pipeline continues without SA-driven optimization."
+        )
     else:
         summary = get_sa_summary(classifications)
         safe_print(
-            f"  [Stage 4] Post: SUPPORTED={summary['supported']} PARTIAL={summary['partial']} "
+            f"  [SA Pre] SUPPORTED={summary['supported']} PARTIAL={summary['partial']} "
             f"UNSUPPORTED={summary['unsupported']} UNKNOWN={summary['unknown']} "
             f"({summary['supported_ratio']:.0%} supported)"
         )
     return classifications, info_items
 
 
-def _run_compile(
-    onnx_path: Path,
-    output_dir: Path,
-    device: str = "npu",
-    ep: str | None = None,
-) -> tuple[int, str]:
-    """Run wmk compile --device <device> --no-quantize. Returns (rc, stderr_tail)."""
-    cmd = [
-        sys.executable,
-        "-m",
-        "winml.modelkit.cli",
-        "compile",
-        "--model",
-        str(onnx_path),
-        "--device",
-        device,
-        "--no-quantize",
-        "--output-dir",
-        str(output_dir),
-    ]
-    if ep:
-        cmd += ["--ep", ep]
-    result = subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-    )
-    return result.returncode, (result.stderr or "").strip()[-500:]
-
-
-def _compile_and_diff(
-    label: str,
-    onnx_path: Path,
-    compiled_name: str,
-    sa_predictions: dict[str, str],
+def stage_sa_post(
     model_dir: Path,
     use_cache: bool,
-    device: str = "npu",
-    ep: str | None = None,
-) -> dict | None:
-    """Compile an ONNX and compare against SA predictions.
+    ep: str = "QNNExecutionProvider",
+    device: str = "NPU",
+) -> tuple[dict[str, str], list[dict]] | None:
+    """Run SA with information on optimized.onnx (post-optimization state).
 
-    Args:
-        label: Log prefix, e.g. "5a (pre)" or "5b (post)".
-        onnx_path: ONNX to compile (graph_optimized or sa_optimized).
-        compiled_name: Expected output filename, e.g. "graph_optimized_qnn_ctx.onnx".
-        sa_predictions: SA classifications to compare against the compilation result.
-        model_dir: Directory for artifacts.
-        use_cache: Skip compile if compiled_name already exists.
-
-    Returns EPContext comparison dict or None on failure.
+    Returns (classifications, info_items) or None on failure.
     """
-    compiled_path = model_dir / compiled_name
+    optimized_path = model_dir / "optimized.onnx"
+    sa_post_path = model_dir / "sa_post.json"
 
-    if use_cache and is_cached(compiled_path):
-        safe_print(f"  [Stage {label}] Compile (cached): {compiled_path.name}")
+    if use_cache and is_cached(sa_post_path):
+        safe_print("  [SA Post] Cached")
+        classifications = parse_sa_json(sa_post_path, ep=ep)
+        return classifications, []
+
+    if not is_cached(optimized_path):
+        safe_print("  [ERROR] SA post: optimized.onnx not found")
+        return None
+
+    safe_print("  [SA Post] Analyzing optimized.onnx...")
+    try:
+        classifications, _, info_items = run_sa_with_info(
+            optimized_path, sa_post_path, ep=ep, device=device
+        )
+    except Exception as e:
+        safe_print(f"  [ERROR] SA post failed: {e}")
+        return None
+
+    if not classifications:
+        safe_print("  [WARN] SA post: no classifications. Continuing.")
     else:
-        safe_print(f"  [Stage {label}] Compiling {onnx_path.name} → EPContext...")
-        rc, _ = _run_compile(onnx_path, model_dir, device=device, ep=ep)
-        if rc != 0 or not is_cached(compiled_path):
-            safe_print(f"  [Stage {label}] Compile failed (rc={rc}) — skipping diff")
-            return None
-        safe_print(f"  [Stage {label}] Compiled: {compiled_path.name}")
+        summary = get_sa_summary(classifications)
+        safe_print(
+            f"  [SA Post] SUPPORTED={summary['supported']} PARTIAL={summary['partial']} "
+            f"UNSUPPORTED={summary['unsupported']} UNKNOWN={summary['unknown']} "
+            f"({summary['supported_ratio']:.0%} supported)"
+        )
+    return classifications, info_items
+
+
+def stage_epctx_diff(
+    model_dir: Path,
+    sa_post: dict[str, str],
+) -> dict | None:
+    """EPContext diff: compare SA post predictions vs compiled.onnx.
+
+    winml build produces compiled.onnx from the quantized model. Comparing
+    SA post predictions (on optimized.onnx) against the compiled graph
+    identifies false positives and negatives in the SA classifier.
+
+    Returns comparison dict or None if compiled.onnx is not available.
+    """
+    compiled_path = model_dir / "compiled.onnx"
+    if not is_cached(compiled_path):
+        safe_print("  [EPCtx] No compiled.onnx — skipping diff")
+        return None
 
     try:
-        result = compare_sa_vs_epcontext(sa_predictions, compiled_path)
-    except Exception as e:
-        safe_print(f"  [Stage {label}] EPContext diff failed: {e}")
-        return None
-
-    s = result["summary"]
-    safe_print(
-        f"  [Stage {label}] TP={s['tp']} TN={s['tn']} FP={s['fp']} FN={s['fn']} "
-        f"accuracy={s['accuracy']:.0%}"
-    )
-    return result
-
-
-def stage6_quantize(
-    model_dir: Path,
-    sa_opt_path: Path,
-    hf_id: str,
-    task: str,
-    use_cache: bool,
-    precision: str = "int8",
-    samples: int = 10,
-) -> Path | None:
-    """Stage 6: QDQ-quantize sa_optimized.onnx → quantized.onnx.
-
-    Runs ``wmk quantize`` on the SA-optimized model. Skips if the output
-    already exists and use_cache is True.
-
-    Returns the path to the quantized ONNX on success, None on failure.
-    """
-    quantized_path = model_dir / "quantized.onnx"
-
-    if use_cache and is_cached(quantized_path):
-        safe_print(f"  [Stage 6] Quantize (cached): {quantized_path.name}")
-        return quantized_path
-
-    safe_print(f"  [Stage 6] Quantizing {sa_opt_path.name} → {quantized_path.name}...")
-    cmd = [
-        sys.executable,
-        "-m",
-        "winml.modelkit.cli",
-        "quantize",
-        "-m",
-        str(sa_opt_path),
-        "-o",
-        str(quantized_path),
-        "--precision",
-        precision,
-        "--samples",
-        str(samples),
-    ]
-    if task:
-        cmd += ["--task", task]
-    if hf_id:
-        cmd += ["--model-name", hf_id]
-
-    result = subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-    )
-    if result.returncode != 0 or not is_cached(quantized_path):
+        result = compare_sa_vs_epcontext(sa_post, compiled_path)
+        s = result["summary"]
         safe_print(
-            f"  [Stage 6] Quantize failed (rc={result.returncode}): {(result.stderr or '').strip()[-300:]}"
+            f"  [EPCtx] TP={s['tp']} TN={s['tn']} FP={s['fp']} FN={s['fn']} "
+            f"accuracy={s['accuracy']:.0%}"
         )
+        return result
+    except Exception as e:
+        safe_print(f"  [EPCtx] Diff failed: {e}")
         return None
-
-    safe_print(f"  [Stage 6] Quantized: {quantized_path.name}")
-    return quantized_path
-
-
-def stage5_compile_and_diff(
-    model_dir: Path,
-    graph_opt_path: Path,
-    sa_opt_path: Path,
-    sa_pre: dict[str, str],
-    sa_post: dict[str, str],
-    use_cache: bool,
-    device: str = "npu",
-    ep: str | None = None,
-) -> tuple[dict | None, dict | None]:
-    """Stage 5: compile both graph_optimized and sa_optimized, diff each vs its SA.
-
-    - 5a: graph_optimized.onnx  → compiled → compare vs sa_pre predictions
-    - 5b: sa_optimized.onnx     → compiled → compare vs sa_post predictions
-
-    Returns (epcontext_diff_pre, epcontext_diff_post).
-    """
-    diff_pre = _compile_and_diff(
-        "5a (pre)",
-        graph_opt_path,
-        graph_opt_path.stem + "_ctx.onnx",
-        sa_pre,
-        model_dir,
-        use_cache,
-        device=device,
-        ep=ep,
-    )
-    diff_post = _compile_and_diff(
-        "5b (post)",
-        sa_opt_path,
-        sa_opt_path.stem + "_ctx.onnx",
-        sa_post,
-        model_dir,
-        use_cache,
-        device=device,
-        ep=ep,
-    )
-    return diff_pre, diff_post
 
 
 # ---------------------------------------------------------------------------
@@ -576,10 +432,10 @@ def evaluate_model(
     perf_warmup: int = 5,
     run_quantize: bool = True,
     quantize_precision: str = "int8",
-    quantize_samples: int = 10,
+    run_compile: bool = True,
     cleanup: bool = False,
 ) -> dict | None:
-    """Run the 4+1+1 stage SA eval pipeline for a single model."""
+    """Run the winml build + SA analysis pipeline for a single model."""
     hf_id = model_entry["hf_id"]
     task = model_entry.get("task", "")
     model_type = model_entry.get("model_type", "")
@@ -594,33 +450,45 @@ def evaluate_model(
 
     t0 = time.monotonic()
 
-    # Stage 1
-    graph_opt_path, skip_reason = stage1_export_optimize(hf_id, task, model_dir, use_cache)
-    if graph_opt_path is None:
-        return _skip_result(hf_id, task, model_type, skip_reason or "SKIP_EXPORT", model_dir)
+    # Stage 1+2: Generate config + winml build
+    skip_reason = stage_build(
+        hf_id,
+        task,
+        model_dir,
+        use_cache,
+        precision=quantize_precision,
+        device=device.lower(),
+        ep=ep,
+        run_compile=run_compile,
+        run_quantize=run_quantize,
+    )
+    if skip_reason:
+        return _skip_result(hf_id, task, model_type, skip_reason, model_dir)
 
-    # Perf after export and after graph optimize
+    export_path = model_dir / "export.onnx"
+    optimized_path = model_dir / "optimized.onnx"
+    quantized_path = model_dir / "quantized.onnx"
+
+    # Perf: export and optimized
     perf_exported: dict | None = None
-    perf_graph_opt: dict | None = None
     perf_sa_opt: dict | None = None
+    perf_quantized: dict | None = None
 
     if run_perf:
-        exported_path = model_dir / "exported.onnx"
-        if is_cached(exported_path):
-            perf_exported = run_winml_perf(
-                "Perf (exported)",
-                exported_path,
-                model_dir / "exported_perf.json",
-                device=device,
-                ep=ep,
-                iterations=perf_iterations,
-                warmup=perf_warmup,
-                use_cache=use_cache,
-            )
-        perf_graph_opt = run_winml_perf(
-            "Perf (graph_opt)",
-            graph_opt_path,
-            model_dir / "graph_optimized_perf.json",
+        perf_exported = run_winml_perf(
+            "Perf (export)",
+            export_path,
+            model_dir / "exported_perf.json",
+            device=device,
+            ep=ep,
+            iterations=perf_iterations,
+            warmup=perf_warmup,
+            use_cache=use_cache,
+        )
+        perf_sa_opt = run_winml_perf(
+            "Perf (optimized)",
+            optimized_path,
+            model_dir / "optimized_perf.json",
             device=device,
             ep=ep,
             iterations=perf_iterations,
@@ -628,72 +496,38 @@ def evaluate_model(
             use_cache=use_cache,
         )
 
-    # Stage 2
-    pre_result = stage2_sa_pre(model_dir, graph_opt_path, use_cache, ep=ep, device=device)
+    # Stage 3: SA pre-check (on export.onnx)
+    pre_result = stage_sa_pre(model_dir, use_cache, ep=ep, device=device)
     if pre_result is None:
         return _skip_result(hf_id, task, model_type, "SKIP_SA_PRE", model_dir)
-    sa_pre, optim_config, pre_info_items = pre_result
+    sa_pre, pre_info_items = pre_result
 
-    # Stage 3
-    sa_opt_path = stage3_capability_optimize(model_dir, graph_opt_path, optim_config, use_cache)
-    if sa_opt_path is None:
-        return _skip_result(hf_id, task, model_type, "SKIP_OPTIM", model_dir)
-
-    # Perf after SA capability optimization
-    if run_perf:
-        perf_sa_opt = run_winml_perf(
-            "Perf (sa_opt)",
-            sa_opt_path,
-            model_dir / "sa_optimized_perf.json",
-            device=device,
-            ep=ep,
-            iterations=perf_iterations,
-            warmup=perf_warmup,
-            use_cache=use_cache,
-        )
-
-    # Stage 4
-    post_result = stage4_sa_post(model_dir, sa_opt_path, use_cache, ep=ep, device=device)
+    # Stage 4: SA post-check (on optimized.onnx)
+    post_result = stage_sa_post(model_dir, use_cache, ep=ep, device=device)
     if post_result is None:
         return _skip_result(hf_id, task, model_type, "SKIP_SA_POST", model_dir)
     sa_post, post_info_items = post_result
 
-    # Stage 5: compile both ONNXes → EPContext diff pre and post
-    epcontext_diff_pre, epcontext_diff_post = stage5_compile_and_diff(
-        model_dir,
-        graph_opt_path,
-        sa_opt_path,
-        sa_pre,
-        sa_post,
-        use_cache,
-        device=device.lower(),
-        ep=ep,
-    )
+    # Read optimization flags from winml_build_config.json
+    optim_config = read_optim_flags(model_dir)
+    if optim_config:
+        safe_print(f"  [Optim flags] {list(optim_config.keys())}")
 
-    # Stage 6: QDQ quantize
-    quantized_path: Path | None = None
-    perf_quantized: dict | None = None
-    if run_quantize:
-        quantized_path = stage6_quantize(
-            model_dir,
-            sa_opt_path,
-            hf_id,
-            task,
-            use_cache,
-            precision=quantize_precision,
-            samples=quantize_samples,
+    # Stage 5: EPContext diff (on compiled.onnx from build)
+    epctx_result = stage_epctx_diff(model_dir, sa_post)
+
+    # Perf: quantized
+    if run_perf and run_quantize:
+        perf_quantized = run_winml_perf(
+            "Perf (quantized)",
+            quantized_path,
+            model_dir / "quantized_perf.json",
+            device=device,
+            ep=ep,
+            iterations=perf_iterations,
+            warmup=perf_warmup,
+            use_cache=use_cache,
         )
-        if run_perf and quantized_path is not None:
-            perf_quantized = run_winml_perf(
-                "Perf (quantized)",
-                quantized_path,
-                model_dir / "quantized_perf.json",
-                device=device,
-                ep=ep,
-                iterations=perf_iterations,
-                warmup=perf_warmup,
-                use_cache=use_cache,
-            )
 
     elapsed = time.monotonic() - t0
     delta = compute_delta(sa_pre, sa_post)
@@ -712,11 +546,17 @@ def evaluate_model(
             return f"{p['mean']:.2f}ms" if p else "N/A"
 
         safe_print(
-            f"  Perf (mean): exported={_fmt(perf_exported)} "
-            f"→ normalize={_fmt(perf_graph_opt)} "
-            f"→ sa_opt={_fmt(perf_sa_opt)} "
-            f"→ quantize={_fmt(perf_quantized)}"
+            f"  Perf (mean): export={_fmt(perf_exported)} "
+            f"→ optimized={_fmt(perf_sa_opt)} "
+            f"→ quantized={_fmt(perf_quantized)}"
         )
+
+    artifacts: dict = {
+        "exported_onnx": str(export_path),
+        "optimized_onnx": str(optimized_path),
+    }
+    if is_cached(quantized_path):
+        artifacts["quantized_onnx"] = str(quantized_path)
 
     result: dict = {
         "model": hf_id,
@@ -724,14 +564,9 @@ def evaluate_model(
         "model_type": model_type,
         "status": "COMPLETE",
         "elapsed": round(elapsed, 2),
-        "artifacts": {
-            "exported_onnx": str(model_dir / "exported.onnx"),
-            "graph_optimized_onnx": str(graph_opt_path),
-            "sa_optimized_onnx": str(sa_opt_path),
-            **({"quantized_onnx": str(quantized_path)} if quantized_path else {}),
-        },
+        "artifacts": artifacts,
         "sa_pre": {
-            "source_onnx": graph_opt_path.name,
+            "source_onnx": export_path.name,
             "classifications": sa_pre,
             "summary": get_sa_summary(sa_pre),
             "partial_patterns": get_level_patterns(sa_pre, "PARTIAL"),
@@ -743,7 +578,7 @@ def evaluate_model(
             "optim_config": optim_config,
         },
         "sa_post": {
-            "source_onnx": sa_opt_path.name,
+            "source_onnx": optimized_path.name,
             "classifications": sa_post,
             "summary": get_sa_summary(sa_post),
             "partial_patterns": get_level_patterns(sa_post, "PARTIAL"),
@@ -752,20 +587,22 @@ def evaluate_model(
             "info_items": post_info_items,
         },
         "delta": delta,
-    }
-
-    if epcontext_diff_pre:
-        result["epcontext_diff_pre"] = epcontext_diff_pre
-    if epcontext_diff_post:
-        result["epcontext_diff_post"] = epcontext_diff_post
-
-    if run_perf:
-        result["perf"] = {
+        # perf keys match sa_report.py expectations:
+        #   "exported"       → perf_exported_mean (Export column)
+        #   "graph_optimized"→ None (Normalize column — not a separate build stage)
+        #   "sa_optimized"   → perf of optimized.onnx (Optimized column)
+        #   "quantized"      → perf_quantized_mean (Quantize column)
+        "perf": {
             "exported": perf_exported,
-            "graph_optimized": perf_graph_opt,
+            "graph_optimized": None,
             "sa_optimized": perf_sa_opt,
             "quantized": perf_quantized,
-        }
+        },
+    }
+
+    # EPContext diff stored as "post" (compiled.onnx from build is post-SA)
+    if epctx_result:
+        result["epcontext_diff_post"] = epctx_result
 
     out_file = model_dir / "sa_eval_result.json"
     out_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -833,19 +670,15 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
         for pid in r["sa_pre"].get("unknown_patterns", []):
             unknown_pre_counter[pid] += 1
 
-    # EPContext accuracy (where available) — track pre and post separately
-    epctx_pre = [r for r in complete if r.get("epcontext_diff_pre")]
+    # EPContext accuracy — only post (compiled.onnx from build is post-SA)
     epctx_post = [r for r in complete if r.get("epcontext_diff_post")]
     epctx_summary: dict = {
-        "models_with_pre_gt": len(epctx_pre),
+        "models_with_pre_gt": 0,
         "models_with_post_gt": len(epctx_post),
-        "avg_accuracy_pre": round(
-            statistics.mean(r["epcontext_diff_pre"]["summary"]["accuracy"] for r in epctx_pre), 4
-        )
-        if epctx_pre
-        else None,
+        "avg_accuracy_pre": None,
         "avg_accuracy_post": round(
-            statistics.mean(r["epcontext_diff_post"]["summary"]["accuracy"] for r in epctx_post), 4
+            statistics.mean(r["epcontext_diff_post"]["summary"]["accuracy"] for r in epctx_post),
+            4,
         )
         if epctx_post
         else None,
@@ -915,10 +748,8 @@ def build_aggregate_report(results: list[dict], models_input: Path) -> dict:
 
 
 def main() -> None:
-    """Run SA accuracy evaluation pipeline for all models in the registry."""
-    parser = argparse.ArgumentParser(
-        description="SA accuracy evaluation — 4-stage self-contained pipeline"
-    )
+    """Run WinML component analysis evaluation pipeline."""
+    parser = argparse.ArgumentParser(description="WinML CLI component analysis evaluation pipeline")
     parser.add_argument(
         "--models-file",
         type=Path,
@@ -968,23 +799,22 @@ def main() -> None:
     parser.add_argument(
         "--no-quantize",
         action="store_true",
-        help="Skip QDQ quantize step (stage 6)",
+        help="Skip QDQ quantize step",
     )
     parser.add_argument(
         "--quantize-precision",
         default="int8",
-        help="Quantization precision (default: int8)",
+        help="Quantization precision passed to winml config (default: int8)",
     )
     parser.add_argument(
-        "--quantize-samples",
-        type=int,
-        default=10,
-        help="Number of calibration samples for quantize (default: 10)",
+        "--no-compile",
+        action="store_true",
+        help="Skip compilation step (no compiled.onnx / EPContext diff)",
     )
     parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Delete intermediate ONNX files after each model completes to free disk space. "
+        help="Delete ONNX and binary artifacts after each model completes. "
         "JSON result and perf files are preserved.",
     )
     parser.add_argument(
@@ -1050,7 +880,7 @@ def main() -> None:
             perf_warmup=args.perf_warmup,
             run_quantize=not args.no_quantize,
             quantize_precision=args.quantize_precision,
-            quantize_samples=args.quantize_samples,
+            run_compile=not args.no_compile,
             cleanup=args.cleanup,
         )
         if result:
