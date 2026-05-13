@@ -35,6 +35,32 @@ class TestPerfModuleFlag:
         result = runner.invoke(main, ["perf", "--module", "BertAttention"])
         assert result.exit_code != 0
 
+    def test_module_no_match_exits_nonzero(self) -> None:
+        """--module CLASSNAME matching no submodules must exit non-zero.
+
+        Regression guard for #554: previously `sys.exit(0)` masked this
+        as success, which silently broke CI when a module name was typoed.
+        """
+        # _perf_modules calls resolve_device() before generate_hf_build_config(),
+        # so mock both to keep the test hermetic (no hardware probe in CI).
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                return_value=[],
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                ["perf", "-m", "fake/model", "--module", "DoesNotExist"],
+            )
+        assert result.exit_code != 0, result.output
+        assert "No modules matching" in result.output
+
     def test_module_default_output_includes_class_name(self) -> None:
         """Default output path includes module class name."""
         # The single-model generate_output_path produces {slug}_perf.json
@@ -75,6 +101,12 @@ class TestPerfModuleParameterForwarding:
         fake_session = MagicMock()
         fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
 
+        # _perf_modules calls resolve_loader_config(model_id=...) to recover the
+        # parent task (submodule configs strip it). Stub it so "fake/model" never
+        # hits the HF Hub.
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
         with (
             patch(
                 "winml.modelkit.sysinfo.resolve_device",
@@ -84,6 +116,10 @@ class TestPerfModuleParameterForwarding:
                 "winml.modelkit.config.generate_hf_build_config",
                 return_value=[fake_cfg],
             ) as mock_gen,
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock()),
+            ),
             patch(
                 "winml.modelkit.commands.build._instantiate_parent_model",
                 return_value=MagicMock(),

@@ -796,6 +796,117 @@ class TestBuildSubmoduleConfig:
         # Empty list is falsy, so input_tensors should be set to None
         assert result.export.input_tensors is None
 
+    def test_input_names_propagate(self, parent_config: WinMLBuildConfig) -> None:
+        """SubmoduleInfo.input_names propagate to InputTensorSpec.name."""
+        sub_info = SubmoduleInfo(
+            class_name="ResNetBottleNeckLayer",
+            module_path="encoder.stages.0.layers.0",
+            input_shapes=[[1, 64, 32, 32]],
+            output_shapes=[[1, 256, 32, 32]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+            input_names=["hidden_state"],
+        )
+
+        result = _build_submodule_config(sub_info, parent_config)
+
+        assert result.export.input_tensors is not None
+        assert result.export.input_tensors[0].name == "hidden_state"
+
+    def test_input_names_fallback(self, parent_config: WinMLBuildConfig) -> None:
+        """Missing, short, or empty-string input_names fall back to input_{i}."""
+        # Case 1: empty input_names → input_0
+        sub_info_empty = SubmoduleInfo(
+            class_name="Conv2d",
+            module_path="encoder.conv",
+            input_shapes=[[1, 64, 32, 32]],
+            output_shapes=[[1, 128, 16, 16]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+            input_names=[],
+        )
+        result_empty = _build_submodule_config(sub_info_empty, parent_config)
+        assert result_empty.export.input_tensors is not None
+        assert result_empty.export.input_tensors[0].name == "input_0"
+
+        # Case 2: input_names shorter than input_shapes → known name then fallback
+        sub_info_short = SubmoduleInfo(
+            class_name="CrossAttention",
+            module_path="decoder.cross_attn",
+            input_shapes=[[1, 16, 64], [1, 16, 64]],
+            output_shapes=[[1, 16, 64]],
+            input_dtypes=["float32", "float32"],
+            output_dtypes=["float32"],
+            input_names=["hidden_state"],
+        )
+        result_short = _build_submodule_config(sub_info_short, parent_config)
+        assert result_short.export.input_tensors is not None
+        assert result_short.export.input_tensors[0].name == "hidden_state"
+        assert result_short.export.input_tensors[1].name == "input_1"
+
+        # Case 3: empty-string entry → input_{i}
+        sub_info_blank = SubmoduleInfo(
+            class_name="Conv2d",
+            module_path="encoder.conv",
+            input_shapes=[[1, 64, 32, 32]],
+            output_shapes=[[1, 128, 16, 16]],
+            input_dtypes=["float32"],
+            output_dtypes=["float32"],
+            input_names=[""],
+        )
+        result_blank = _build_submodule_config(sub_info_blank, parent_config)
+        assert result_blank.export.input_tensors is not None
+        assert result_blank.export.input_tensors[0].name == "input_0"
+
+
+# =============================================================================
+# TestFindSubmodulesByClass - exercises the signature-fallback branch
+# =============================================================================
+
+
+class TestFindSubmodulesByClass:
+    """Tests for _find_submodules_by_class signature-fallback branch."""
+
+    def test_signature_fallback_when_hook_data_empty(self) -> None:
+        """Empty hook_data triggers inspect.signature fallback for input_names."""
+        import torch
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        class SignatureFallbackSubmodule(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(8, 16)
+
+            def forward(self, hidden_state: torch.Tensor) -> torch.Tensor:
+                return self.linear(hidden_state)
+
+        class SignatureFallbackWrapper(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = SignatureFallbackSubmodule()
+
+            def forward(self, hidden_state: torch.Tensor) -> torch.Tensor:
+                return self.layer(hidden_state)
+
+        model = SignatureFallbackWrapper()
+
+        # Force the fallback path by short-circuiting hook capture.
+        with patch(
+            "winml.modelkit.inspect.module_io_capture.capture_module_io",
+            return_value={},
+        ):
+            results = _find_submodules_by_class(
+                model,
+                "SignatureFallbackSubmodule",
+                input_shapes=[(1, 8)],
+                input_dtypes=["float32"],
+            )
+
+        assert len(results) == 1
+        assert results[0].input_names == ["hidden_state"]
+
 
 # =============================================================================
 # TestConfigCliOverride - CLI tests for --config flag

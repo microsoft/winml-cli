@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -259,6 +260,9 @@ class SubmoduleInfo:
         output_shapes: Shape of each output tensor (e.g., [[1,16,64]])
         input_dtypes: Dtype of each input tensor (e.g., ["float32", "float32"])
         output_dtypes: Dtype of each output tensor (e.g., ["float32"])
+        input_names: Forward-arg names for each input (e.g., ["hidden_state"]
+            or ["pixel_values"]). Empty when hook capture didn't run; callers
+            then fall back to generic ``input_{i}`` names.
     """
 
     class_name: str
@@ -267,6 +271,7 @@ class SubmoduleInfo:
     output_shapes: list[list[int]]
     input_dtypes: list[str]
     output_dtypes: list[str]
+    input_names: list[str] = field(default_factory=list)
 
 
 # =============================================================================
@@ -814,10 +819,20 @@ def _build_submodule_config(
         - Inherited optim/compile from parent
         - Quant with task=None, model_name=None (RandomDataset fallback)
     """
-    # Build InputTensorSpec for EACH input tensor (not just the first)
+
+    # Build InputTensorSpec for EACH input tensor (not just the first).
+    # Use the submodule's actual forward-arg names so build_hf_model can
+    # call submodule(**kwargs) correctly — submodule forward args may be
+    # positional (e.g. `input`) or keyword (e.g. `hidden_state`). Fall back
+    # to generic input_{i} only when names were not discovered.
+    def _input_name(i: int) -> str:
+        if i < len(sub_info.input_names) and sub_info.input_names[i]:
+            return sub_info.input_names[i]
+        return f"input_{i}"
+
     input_tensors = [
         InputTensorSpec(
-            name=f"input_{i}",
+            name=_input_name(i),
             shape=tuple(shape),
             dtype=sub_info.input_dtypes[i] if i < len(sub_info.input_dtypes) else None,
         )
@@ -1081,12 +1096,14 @@ def _find_submodules_by_class(
     results = []
     for full_path, layer_info in torchinfo_modules:
         io_info = hook_data.get(full_path)
+        layer_input_names: list[str] = []
         if io_info and io_info.input_shapes:
             # Prefer hook-captured data (has complete multi-input info)
             layer_input_shapes = io_info.input_shapes
             layer_output_shapes = io_info.output_shapes
             layer_input_dtypes = io_info.input_dtypes
             layer_output_dtypes = io_info.output_dtypes
+            layer_input_names = io_info.input_names
         else:
             # Fall back to torchinfo data (single input only)
             layer_input_shapes = [layer_info.input_size] if layer_info.input_size else []
@@ -1102,6 +1119,16 @@ def _find_submodules_by_class(
             layer_input_dtypes = [param_dtype] * len(layer_input_shapes)
             layer_output_dtypes = [param_dtype] * len(layer_output_shapes)
 
+            # Without hook data, derive names from the forward signature so
+            # build_hf_model can invoke the submodule with the correct kwargs.
+            try:
+                sig = inspect.signature(layer_info.module.forward)
+                layer_input_names = [p.name for p in sig.parameters.values() if p.name != "self"][
+                    : len(layer_input_shapes)
+                ]
+            except (TypeError, ValueError):
+                layer_input_names = []
+
         results.append(
             SubmoduleInfo(
                 class_name=layer_info.class_name,
@@ -1110,6 +1137,7 @@ def _find_submodules_by_class(
                 output_shapes=layer_output_shapes,
                 input_dtypes=layer_input_dtypes,
                 output_dtypes=layer_output_dtypes,
+                input_names=layer_input_names,
             )
         )
 
