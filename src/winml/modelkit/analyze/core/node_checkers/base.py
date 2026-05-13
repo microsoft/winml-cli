@@ -63,7 +63,7 @@ class NodeChecker(ABC):
         opset_version: int,
         pattern_match: PatternMatchResult,
         alternatives: list[PatternAlternative],
-        **kwargs: dict[str, Any],
+        **kwargs: Any,
     ) -> PatternRuntime:
         """Execute custom checking logic for the node.
 

@@ -2,8 +2,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-# Copyright (c) 2025 ModelKit Authors
-# SPDX-License-Identifier: Apache-2.0
 """Conv-related pattern builders for ORT Graph Optimization tests.
 
 This module contains corrected builders for Conv-related optimizations:

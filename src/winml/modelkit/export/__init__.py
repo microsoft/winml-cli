@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WML Export - ONNX Export with Hierarchy Preservation.
+"""WinML Export - ONNX Export with Hierarchy Preservation.
 
 This package provides:
 - WinMLExportConfig with input/output tensor specifications

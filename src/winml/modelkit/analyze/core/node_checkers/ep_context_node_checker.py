@@ -41,7 +41,7 @@ class EPContextNodeChecker(NodeChecker):
         opset_version: int,
         pattern_match: "PatternMatchResult",
         alternatives: "list[PatternAlternative]",
-        **kwargs: dict[str, Any],
+        **kwargs: Any,
     ) -> "PatternRuntime":
         """Check EPContext node partition_name against the execution provider name."""
         ep_name = kwargs.get("ep_name")

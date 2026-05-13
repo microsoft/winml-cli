@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Build command for ModelKit CLI.
+"""Build command for WinML CLI.
 
 Thin CLI wrapper around build_hf_model() and build_onnx_model() APIs.
 The build module owns the pipeline. This command parses flags, loads config,
@@ -11,7 +11,7 @@ auto-detects ONNX vs HF input, calls the appropriate API, and reports results.
 Usage:
     winml build -c config.json -m microsoft/resnet-50 -o output/
     winml build -c config.json -m model.onnx -o output/
-    winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
+    winml build -c config.json -m bert-base-uncased -o output/ --no-quant
     winml build -c config.json -o output/ --use-cache
     winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild -v
 """
@@ -60,7 +60,7 @@ def _load_config(
     config_file: str,
     *,
     no_quant: bool = False,
-    no_compile: bool = False,
+    no_compile: bool | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Load WinMLBuildConfig from JSON file with CLI overrides.
 
@@ -69,13 +69,18 @@ def _load_config(
     Args:
         config_file: Path to JSON config file.
         no_quant: If True, set config.quant = None (skip quantization).
-        no_compile: If True, set config.compile = None (skip compilation).
+        no_compile: ``bool | None`` compile override.
+            ``True``  → ``--no-compile``: force skip compilation.
+            ``False`` → ``--compile``: force enable compilation; raises UsageError if
+                        config has no compile section.
+            ``None``  → neither flag passed: inherit compile settings from config file.
 
     Returns:
         Single WinMLBuildConfig for normal mode, or list for module mode.
 
     Raises:
-        click.UsageError: If config file is invalid.
+        click.UsageError: If config file is invalid or --compile is forced
+            without a compile section in the config.
     """
     from ..config import WinMLBuildConfig
 
@@ -91,8 +96,13 @@ def _load_config(
     def _apply_overrides(cfg: WinMLBuildConfig) -> WinMLBuildConfig:
         if no_quant:
             cfg.quant = None
-        if no_compile:
+        if no_compile is True:
             cfg.compile = None
+        elif no_compile is False and cfg.compile is None:
+            raise click.UsageError(
+                "Cannot enable compilation: no compile section found in the config file. "
+                "Re-run `winml config --compile` to generate a compile-enabled config."
+            )
         return cfg
 
     if isinstance(data, dict):
@@ -246,7 +256,7 @@ def _build_modules(
     "--use-cache",
     is_flag=True,
     default=False,
-    help="Use ModelKit global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
     "--rebuild",
@@ -263,8 +273,10 @@ def _build_modules(
 @click.option(
     "--no-compile/--compile",
     "no_compile",
-    default=True,
-    help="Skip compilation (overrides config). Default: skip.",
+    default=None,
+    help="Override compilation from config. --no-compile forces skip; "
+    "--compile forces enable (config must have a compile section). "
+    "Default: inherit from config file.",
 )
 @click.option(
     "--ep",
@@ -315,7 +327,7 @@ def build(
     use_cache: bool,
     rebuild: bool,
     no_quant: bool,
-    no_compile: bool,
+    no_compile: bool | None,
     no_optimize: bool,
     ep: str | None,
     device: str | None,
@@ -341,7 +353,7 @@ def build(
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
 
-        # Export + optimize only
+        # Export + optimize only (config must have compile=null, or pass --no-compile to force skip)
         winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
 
         # Random-weight build (no download)

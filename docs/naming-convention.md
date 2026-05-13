@@ -1,6 +1,6 @@
-# ModelKit Naming Convention
+# WinML CLI Naming Convention
 
-This document defines the naming rules for the ModelKit codebase. All new code and refactored code must follow these conventions.
+This document defines the naming rules for the WinML CLI codebase. All new code and refactored code must follow these conventions.
 
 ## 1. Acronyms in Class Names
 

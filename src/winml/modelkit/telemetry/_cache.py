@@ -9,8 +9,8 @@ Persists envelopes one-per-line as ``base64(json(envelope))`` so a
 single corrupt line doesn't poison the rest. Multi-process safe via
 :class:`utils._ExclusiveFileLock`.
 
-Default location: ``%USERPROFILE%\.winml\telemetry\modelkit.cache``.
-Override with the ``MODELKIT_TELEMETRY_CACHE_DIR`` env var (developer-
+Default location: ``%USERPROFILE%\.winml\telemetry\winmlcli.cache``.
+Override with the ``WINMLCLI_TELEMETRY_CACHE_DIR`` env var (developer-
 facing only; not for end users).
 
 The cache is intentionally append-only on the failure path and
@@ -38,18 +38,18 @@ from .utils import (
 )
 
 
-_CACHE_FILE_NAME = "modelkit.cache"
+_CACHE_FILE_NAME = "winmlcli.cache"
 
 
 def _cache_dir() -> Path | None:
     r"""Resolve the cache directory.
 
-    Honors the ``MODELKIT_TELEMETRY_CACHE_DIR`` env var; otherwise
+    Honors the ``WINMLCLI_TELEMETRY_CACHE_DIR`` env var; otherwise
     falls back to ``%USERPROFILE%\.winml\telemetry``. Returns ``None``
     when no user home is resolvable — the cache becomes inert in that
     case rather than writing to a CWD-relative path.
     """
-    override = os.environ.get("MODELKIT_TELEMETRY_CACHE_DIR")
+    override = os.environ.get("WINMLCLI_TELEMETRY_CACHE_DIR")
     if override:
         return Path(override)
     home = _resolve_user_home()

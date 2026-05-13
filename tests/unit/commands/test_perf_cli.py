@@ -76,15 +76,6 @@ class TestPerfCliInterface:
         result = runner.invoke(perf, ["-m", "test", "--device", "tpu"], obj={})
         assert result.exit_code != 0
 
-    def test_both_model_and_hf_model_error(self, runner: CliRunner) -> None:
-        result = runner.invoke(
-            perf,
-            ["-m", "model1", "--hf-model", "model2"],
-            obj={},
-        )
-        assert result.exit_code != 0
-        assert "cannot use both" in result.output.lower()
-
     def test_iterations_default_in_help(self, runner: CliRunner) -> None:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0

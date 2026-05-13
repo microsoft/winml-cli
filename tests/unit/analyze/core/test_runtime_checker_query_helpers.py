@@ -15,6 +15,7 @@ from onnx import TensorProto, helper
 from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import (
     RuntimeCheckerQuery,
+    _build_query_signature,
     _build_table_filter_conditions,
     get_query_conditions_for_node,
     node_to_pattern_match,
@@ -93,6 +94,34 @@ class TestBuildTableFilterConditions:
         )
 
         assert result == {}
+
+
+class TestBuildQuerySignature:
+    """Test query-signature construction for result-cache keys."""
+
+    def test_skips_columns_absent_from_filter_conditions(self):
+        """Columns not used by table filter (for example infinite properties) are ignored."""
+        signature = _build_query_signature(
+            column_names=["T_Add", "A_shape", "input_dim"],
+            filter_conditions={
+                "T_Add": "FLOAT",
+                "input_dim": 4,
+            },
+        )
+
+        assert signature == ("FLOAT", 4)
+
+    def test_preserves_column_order_for_present_entries(self):
+        """Signature order follows table-column order after dropping missing columns."""
+        signature = _build_query_signature(
+            column_names=["input_dim", "T_Add", "A_shape"],
+            filter_conditions={
+                "T_Add": "FLOAT",
+                "input_dim": 4,
+            },
+        )
+
+        assert signature == (4, "FLOAT")
 
 
 class TestGetQueryConditionsForNode:

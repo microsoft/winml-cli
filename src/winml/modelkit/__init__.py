@@ -2,9 +2,9 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""WML ModelKit - Accelerate Model Deployment on WinML.
+"""WinML CLI - Accelerate Model Deployment on WinML.
 
-ModelKit provides tools for converting PyTorch models to optimized ONNX format
+WinML CLI provides tools for converting PyTorch models to optimized ONNX format
 with support for QNN (Qualcomm Neural Processing SDK) and OpenVINO backends.
 
 Key Features:
@@ -29,8 +29,16 @@ Usage:
 """
 
 import logging
+import sys
 from importlib.metadata import PackageNotFoundError, version
 
+
+# Force utf-8 stdout/stderr so emoji and Unicode output (rich console, logs,
+# CLI banners) does not raise UnicodeEncodeError on Windows shells that start
+# Python with a charmap codec (e.g., PYTHONIOENCODING=cp1252).
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
