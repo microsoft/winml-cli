@@ -1109,9 +1109,8 @@ def _run_onnx_benchmark(
     type=click.Path(path_type=Path),
     default=None,
     help=(
-        f"Output JSON file path. Defaults to a timestamped file under "
-        f"'{Path.home() / '.cache' / 'winml' / 'perf'}', "
-        f"namespaced by model slug (and module class when --module is set)."
+        "Output JSON file path. Defaults to "
+        "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
     ),
 )
 @click.option(
