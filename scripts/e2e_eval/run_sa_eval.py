@@ -540,7 +540,7 @@ def stage5_compile_and_diff(
     diff_pre = _compile_and_diff(
         "5a (pre)",
         graph_opt_path,
-        graph_opt_path.stem + "_qnn_ctx.onnx",
+        graph_opt_path.stem + "_ctx.onnx",
         sa_pre,
         model_dir,
         use_cache,
@@ -550,7 +550,7 @@ def stage5_compile_and_diff(
     diff_post = _compile_and_diff(
         "5b (post)",
         sa_opt_path,
-        sa_opt_path.stem + "_qnn_ctx.onnx",
+        sa_opt_path.stem + "_ctx.onnx",
         sa_post,
         model_dir,
         use_cache,
