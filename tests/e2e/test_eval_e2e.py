@@ -54,7 +54,7 @@ ADE20K_LABEL_MAP = "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json"
 
 
 @pytest.fixture
-def tiny_textcls_script(tmp_path: "Path") -> "Path":
+def tiny_textcls_script(tmp_path: Path) -> Path:
     """Write a minimal dataset-build script to disk and return its path.
 
     Used to exercise the ``--dataset-script`` CLI code path without
@@ -159,7 +159,7 @@ class TestEvalPerTask:
 
     def test_image_classification(self, runner: CliRunner, tmp_path: Path) -> None:
         # A.1 — HF evaluate.evaluator("image-classification") returns `accuracy`.
-        # --streaming avoids caching full mini-imagenet (~1–2 GB).
+        # --streaming avoids caching full mini-imagenet (~1-2 GB).
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "google/vit-base-patch16-224",
@@ -487,7 +487,7 @@ class TestEvalOutput:
 
 
 # ===========================================================================
-# D. --schema mode (parametrized × 13)
+# D. --schema mode (parametrized x 13)
 # ===========================================================================
 
 
