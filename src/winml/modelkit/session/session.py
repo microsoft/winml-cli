@@ -198,8 +198,8 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                with _suppress_ep_registration_stderr():
-                    registered = registry.register_to_ort()
+                # with _suppress_ep_registration_stderr():
+                registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
             logger.debug("WinML EP init skipped: %s", e)
@@ -476,7 +476,9 @@ class WinMLSession:
         # non-CPU EPs (e.g. OpenVINO) are not probed via get_ep_devices(),
         # which would trigger their native shared-library load and emit
         # version-mismatch warnings even when the model runs on CPU.
-        if device.lower() == "cpu":
+        # Exception: when an explicit EP is set (e.g. --ep openvino --device cpu),
+        # fall through so the EP binding logic below can honour it.
+        if device.lower() == "cpu" and not self._ep:
             opts = self._session_options
             opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
             logger.info("Using PREFER_CPU policy for device cpu")
