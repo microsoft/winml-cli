@@ -1,0 +1,21 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "task": "sentence-similarity",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\gpu\\sentence-transformers_all-MiniLM-L6-v2\\sentence-similarity_w8a16_eval.json",
+  "metrics": {
+    "cosine_spearman": 70.733
+  }
+}

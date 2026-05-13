@@ -1,0 +1,22 @@
+{
+  "model_id": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
+  "task": "zero-shot-classification",
+  "device": "cpu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "fancyzhx/ag_news",
+    "columns_mapping": {
+      "input_column": "text",
+      "label_column": "label",
+      "candidate_labels": "World,Sports,Business,Sci/Tech"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\MoritzLaurer_DeBERTa-v3-large-mnli-fever-anli-ling-wanli\\zero-shot-classification_w8a16_eval.json",
+  "metrics": {
+    "accuracy": 0.77,
+    "f1": 0.7327978311039411
+  }
+}

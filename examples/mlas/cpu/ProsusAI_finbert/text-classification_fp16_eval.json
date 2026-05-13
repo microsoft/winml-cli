@@ -1,0 +1,19 @@
+{
+  "model_id": "ProsusAI/finbert",
+  "task": "text-classification",
+  "device": "cpu",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "privet1mir/finbert_dataset"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\mlas\\cpu\\ProsusAI_finbert\\text-classification_fp16_eval.json",
+  "metrics": {
+    "accuracy": 0.71,
+    "total_time_in_seconds": 21.16394619998755,
+    "samples_per_second": 4.72501673624831,
+    "latency_in_seconds": 0.2116394619998755
+  }
+}

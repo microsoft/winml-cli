@@ -1,4 +1,4 @@
-# OpenVINO (Intel) Test Report
+# OpenVINO (Intel, NPU) Test Report
 
 ## Summary
 

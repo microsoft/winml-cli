@@ -1,0 +1,49 @@
+{
+  "model_id": "Babelscape/wikineural-multilingual-ner",
+  "task": "token-classification",
+  "device": "cpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\Babelscape_wikineural-multilingual-ner\\token-classification_fp16_eval.json",
+  "metrics": {
+    "LOC": {
+      "precision": 0.85,
+      "recall": 0.8225806451612904,
+      "f1": 0.8360655737704918,
+      "number": 62
+    },
+    "MISC": {
+      "precision": 0.48148148148148145,
+      "recall": 0.5416666666666666,
+      "f1": 0.5098039215686274,
+      "number": 24
+    },
+    "ORG": {
+      "precision": 0.8214285714285714,
+      "recall": 0.6388888888888888,
+      "f1": 0.7187499999999999,
+      "number": 36
+    },
+    "PER": {
+      "precision": 1.0,
+      "recall": 0.9818181818181818,
+      "f1": 0.9908256880733944,
+      "number": 55
+    },
+    "overall_precision": 0.834319526627219,
+    "overall_recall": 0.7966101694915254,
+    "overall_f1": 0.815028901734104,
+    "overall_accuracy": 0.9673416067929458,
+    "total_time_in_seconds": 57.66806830000132,
+    "samples_per_second": 1.7340618985151217,
+    "latency_in_seconds": 0.5766806830000132
+  }
+}

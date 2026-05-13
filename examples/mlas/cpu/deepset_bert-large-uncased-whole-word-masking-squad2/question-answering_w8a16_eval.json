@@ -1,0 +1,37 @@
+{
+  "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+  "task": "question-answering",
+  "device": "cpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\mlas\\cpu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_w8a16_eval.json",
+  "metrics": {
+    "exact": 90.0,
+    "f1": 98.00000000000001,
+    "total": 10,
+    "HasAns_exact": 66.66666666666667,
+    "HasAns_f1": 93.33333333333333,
+    "HasAns_total": 3,
+    "NoAns_exact": 100.0,
+    "NoAns_f1": 100.0,
+    "NoAns_total": 7,
+    "best_exact": 90.0,
+    "best_exact_thresh": 0.9763948321342468,
+    "best_f1": 98.00000000000001,
+    "best_f1_thresh": 0.9763948321342468,
+    "total_time_in_seconds": 9.854411499982234,
+    "samples_per_second": 1.0147739416014876,
+    "latency_in_seconds": 0.9854411499982235
+  }
+}

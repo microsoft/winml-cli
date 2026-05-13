@@ -1,0 +1,19 @@
+{
+  "model_id": "ProsusAI/finbert",
+  "task": "text-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "val",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "privet1mir/finbert_dataset"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\nv_tensorrt_rtx\\gpu\\ProsusAI_finbert\\text-classification_fp16_eval.json",
+  "metrics": {
+    "accuracy": 0.71,
+    "total_time_in_seconds": 1.5865784999987227,
+    "samples_per_second": 63.02871241484774,
+    "latency_in_seconds": 0.015865784999987226
+  }
+}

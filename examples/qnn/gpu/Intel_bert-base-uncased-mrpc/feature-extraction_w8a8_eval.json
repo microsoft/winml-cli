@@ -1,0 +1,21 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "task": "feature-extraction",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\gpu\\Intel_bert-base-uncased-mrpc\\feature-extraction_w8a8_eval.json",
+  "metrics": {
+    "cosine_spearman": 45.7326
+  }
+}
