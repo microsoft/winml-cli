@@ -126,6 +126,51 @@ class TestEPContextNodeChecker:
         assert result.result.no_data is False
         assert "does not match ep_name" in result.result.reason
 
+    def test_pattern_id_suffixed_with_ep_label_from_partition_name(
+        self,
+        ep_context_checker,
+        sample_pattern_match,
+    ):
+        """pattern_id is suffixed with an EP label derived from
+        partition_name so multi-EP analysis reports stay disambiguated."""
+        base_id = sample_pattern_match.pattern.pattern_id
+
+        # Canonical ORT format: extract the part before "ExecutionProvider_".
+        node = helper.make_node("EPContext", [], [], partition_name="QNNExecutionProvider_0")
+        result = ep_context_checker.check(
+            node=node,
+            op_domain=ONNXDomain.COM_MICROSOFT,
+            opset_version=1,
+            pattern_match=sample_pattern_match,
+            alternatives=[],
+            ep_name="QNNExecutionProvider",
+        )
+        assert result.pattern_id == f"{base_id} (QNN)"
+
+        # Missing partition_name -> "UNKNOWN_EP".
+        node_missing = helper.make_node("EPContext", [], [])
+        result_missing = ep_context_checker.check(
+            node=node_missing,
+            op_domain=ONNXDomain.COM_MICROSOFT,
+            opset_version=1,
+            pattern_match=sample_pattern_match,
+            alternatives=[],
+            ep_name="DmlExecutionProvider",
+        )
+        assert result_missing.pattern_id == f"{base_id} (UNKNOWN_EP)"
+
+        # Non-canonical partition_name -> used directly.
+        node_short = helper.make_node("EPContext", [], [], partition_name="DML_0")
+        result_short = ep_context_checker.check(
+            node=node_short,
+            op_domain=ONNXDomain.COM_MICROSOFT,
+            opset_version=1,
+            pattern_match=sample_pattern_match,
+            alternatives=[],
+            ep_name="DML",
+        )
+        assert result_short.pattern_id == f"{base_id} (DML_0)"
+
     def test_check_with_alternatives(self, ep_context_checker, sample_pattern_match):
         """Test check preserves alternatives in result."""
         node = helper.make_node("EPContext", [], [], partition_name="DML_test")
