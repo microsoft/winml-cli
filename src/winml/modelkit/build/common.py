@@ -72,6 +72,21 @@ def run_optimize_analyze_loop(
     if not config.auto:
         max_optim_iterations = 0
 
+    # Skip autoconf loop when the specified EP has no rule data for any device.
+    # This is expected for CPUExecutionProvider (supports all ONNX ops natively)
+    # and any other EP without parquet rule files.
+    if max_optim_iterations > 0 and ep is not None:
+        from ..analyze.utils.ep_utils import has_any_rule_data, has_rule_data_for_ep
+        from ..utils.constants import normalize_ep_name
+
+        ep_full = normalize_ep_name(ep)
+        if ep_full is not None and has_any_rule_data():
+            # Check whether any parquet files exist for this EP across common devices.
+            _ep_has_data = any(has_rule_data_for_ep(ep_full, d) for d in ("NPU", "GPU", "CPU"))
+            if not _ep_has_data:
+                logger.info("No rule data for EP '%s' — skipping autoconf analyze loop.", ep_full)
+                max_optim_iterations = 0
+
     t0 = time.monotonic()
 
     # 1. Optimize
