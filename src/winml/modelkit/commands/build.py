@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..config import WinMLBuildConfig
-    from ..utils.constants import EPNameOrAlias
+    from ..utils.constants import EPName, EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -384,7 +384,7 @@ def build(
         from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
-        candidate_eps: list[EPNameOrAlias] = [
+        candidate_eps: list[EPName] = [
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
@@ -803,7 +803,7 @@ def _run_optimize_stage(
             _current_iter[1] = max_iter
             _header_shown[0] = False
 
-        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
+        def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             _current_ep[0] = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())

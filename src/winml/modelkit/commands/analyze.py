@@ -26,7 +26,7 @@ from rich.text import Text
 
 from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
-from ..utils.constants import EPNameOrAlias, normalize_ep_name
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from ..utils.logging import configure_logging
 
 
@@ -130,7 +130,7 @@ def _build_analyzed_text(counts: dict[str, int]) -> Text:
 
 def _build_analysis_table(
     data: dict[str, dict[str, int]],
-    ep_name: str = "",
+    ep_name: EPName | None = None,
     complete: bool = False,
     all_ops: dict[str, int] | None = None,
 ) -> Table:

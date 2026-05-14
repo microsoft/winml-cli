@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     import onnx
 
     from ..compiler.configs import EPConfig
-    from ..utils.constants import EPNameOrAlias
+    from ..utils.constants import EPName, EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -539,7 +539,7 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(device: str, ep_name: str | None = None) -> Any:
+    def _find_ep_device(device: str, ep_name: EPName | None = None) -> Any:
         """Find the first OrtEpDevice matching the given filters.
 
         Behavior:

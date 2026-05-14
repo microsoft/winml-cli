@@ -2,13 +2,19 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+from __future__ import annotations
+
 import sys
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 
-_winml_instance: "WinML | None" = None
+if TYPE_CHECKING:
+    from .utils.constants import EPName
+
+
+_winml_instance: WinML | None = None
 
 
 class WinML:
@@ -16,7 +22,7 @@ class WinML:
 
     _initialized: bool
 
-    def __new__(cls, *args: Any, **kwargs: Any) -> "WinML":
+    def __new__(cls, *args: Any, **kwargs: Any) -> WinML:
         """Create or return the singleton instance."""
         global _winml_instance
         if _winml_instance is None:
@@ -121,7 +127,7 @@ def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> d
 
 def add_ep_for_device(
     session_options: Any,
-    ep_name: str,
+    ep_name: EPName,
     device_type: Any,
     ep_options: dict | None = None,
 ) -> None:

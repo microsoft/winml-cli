@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import EPNameOrAlias, normalize_ep_name
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
@@ -685,7 +685,7 @@ class ONNXStaticAnalyzer:
         logger.info("Analyzing model from ModelProto")
 
         # Determine which EPs to analyze
-        eps_to_analyze: list[str] = []
+        eps_to_analyze: list[EPName] = []
         if ep_normalized is None:
             # Analyze all supported EPs
             eps_to_analyze = [

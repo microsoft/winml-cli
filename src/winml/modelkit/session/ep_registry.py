@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +136,7 @@ class WinMLEPRegistry:
 
         return self._registered_eps.copy()
 
-    def get_ep_library_path(self, ep_name: str) -> str | None:
+    def get_ep_library_path(self, ep_name: EPName) -> str | None:
         """Get the library path for an EP."""
         return self._ep_paths.get(ep_name)
 
@@ -144,7 +148,7 @@ class WinMLEPRegistry:
         """Get list of EPs registered with ORT."""
         return self._registered_eps.copy()
 
-    def is_ep_available(self, ep_name: str) -> bool:
+    def is_ep_available(self, ep_name: EPName) -> bool:
         """Check if an EP is available."""
         return ep_name in self._ep_paths
 
