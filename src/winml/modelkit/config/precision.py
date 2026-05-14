@@ -110,10 +110,30 @@ _MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
 #
 # Ordering of the displayed tuple is preserved in error messages so users
 # see the supported list in a stable, documented order.
+#
+# The named "int8"/"int16" precisions are intentionally excluded everywhere:
+# they were ambiguous about signedness and silently produced uint8/uint16
+# tensors. Users should spell out the mixed form (w8a8 / w8a16) instead.
 _NPU_SUPPORTED_PRECISIONS: tuple[str, ...] = ("auto", "fp16", "w8a8", "w8a16")
+_GPU_SUPPORTED_PRECISIONS: tuple[str, ...] = (
+    "auto",
+    "fp32",
+    "fp16",
+    "w8a8",
+    "w8a16",
+)
+_CPU_SUPPORTED_PRECISIONS: tuple[str, ...] = (
+    "auto",
+    "fp32",
+    "fp16",
+    "w8a8",
+    "w8a16",
+)
 
 _DEVICE_PRECISION_SUPPORT: dict[str, tuple[str, ...]] = {
     "npu": _NPU_SUPPORTED_PRECISIONS,
+    "gpu": _GPU_SUPPORTED_PRECISIONS,
+    "cpu": _CPU_SUPPORTED_PRECISIONS,
 }
 
 

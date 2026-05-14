@@ -290,11 +290,11 @@ class TestConfigFlagVariations:
         _assert_hf_config_structure(data)
 
     # --- --precision ------------------------------------------------------
-    @pytest.mark.parametrize("precision", ["auto", "fp32", "fp16", "int8", "int16"])
+    @pytest.mark.parametrize("precision", ["auto", "fp32", "fp16", "w8a8", "w8a16"])
     def test_every_named_precision(self, precision: str) -> None:
-        """Every named --precision choice should produce a valid config."""
-        # Pair each precision with a compatible device to bypass NPU's
-        # narrow precision matrix (which rejects fp32/int8/int16 by design).
+        """Every supported --precision choice should produce a valid config."""
+        # Pair each precision with a compatible device. NPU rejects fp32, so
+        # we use CPU as a universally-permissive fallback.
         device = "npu" if precision == "auto" else "cpu"
         data = _run_config(
             "-m",

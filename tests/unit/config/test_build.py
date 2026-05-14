@@ -1938,11 +1938,11 @@ class TestDevicePrecisionIntegration:
             ("npu", "fp16", False, None, None, "qnn"),
             ("npu", "w8a8", True, "uint8", "uint8", "qnn"),
             ("gpu", "auto", False, None, None, None),
-            ("gpu", "int8", True, "uint8", "uint8", None),
+            ("gpu", "w8a8", True, "uint8", "uint8", None),
             ("gpu", "fp16", False, None, None, None),
             ("cpu", "auto", False, None, None, None),
-            ("cpu", "int8", True, "uint8", "uint8", None),
-            ("cpu", "int16", True, "int16", "uint16", None),
+            ("cpu", "w8a8", True, "uint8", "uint8", None),
+            ("cpu", "w8a16", True, "uint8", "uint16", None),
             ("cpu", "fp16", False, None, None, None),
             # auto device + explicit precision → resolves via resolve_device.
             # Mock returns "npu" first, so NPU-compatible precisions stay on NPU.
