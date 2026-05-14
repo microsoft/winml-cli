@@ -19,7 +19,6 @@ Usage:
 
 from __future__ import annotations
 
-import importlib.resources
 import json
 import logging
 from pathlib import Path
@@ -54,12 +53,16 @@ _TYPE_PALETTE = ["cyan", "green", "yellow", "magenta", "blue", "red"]
 def _load_catalog() -> dict[str, Any]:
     """Load hub_models.json from package data.
 
+    Resolves the path via ``__file__`` rather than ``importlib.resources.files``
+    so that reading the catalog does not execute ``winml.modelkit.data``'s
+    package init — that init pulls in heavy optional dependencies (onnx, numpy,
+    torchvision via the dataset modules) that the catalog command never needs.
+
     Returns:
         Parsed catalog dict with ``version`` and ``models`` keys.
     """
-    pkg = importlib.resources.files("winml.modelkit.data")
-    data = (pkg / "hub_models.json").read_text(encoding="utf-8")
-    return json.loads(data)  # type: ignore[no-any-return]
+    data_path = Path(__file__).resolve().parent.parent / "data" / "hub_models.json"
+    return json.loads(data_path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 def _filter_models(

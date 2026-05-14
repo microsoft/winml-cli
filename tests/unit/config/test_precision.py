@@ -239,12 +239,19 @@ class TestEpOverride:
             resolve_precision(ep="unknown_ep")
 
     def test_all_valid_eps(self) -> None:
-        """All VALID_EPS should be accepted without error."""
+        """All VALID_EPS should be accepted without error.
+
+        CPU is excluded from the compile_provider assertion: it resolves to
+        device='cpu', which never needs EPContext compilation (compile_provider=None).
+        """
         from winml.modelkit.config.precision import VALID_EPS
 
         for ep_name in VALID_EPS:
             policy = resolve_precision(ep=ep_name)
-            assert policy.compile_provider == ep_name
+            if ep_name == "cpu":
+                assert policy.compile_provider is None
+            else:
+                assert policy.compile_provider == ep_name
 
     def test_ep_none_uses_default_mapping(self) -> None:
         """ep=None should use the default device→provider mapping."""
