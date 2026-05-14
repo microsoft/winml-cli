@@ -123,14 +123,9 @@ def _is_onnx_file(model_input: str) -> bool:
     default="auto",
     help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )
-@click.option(
-    "--ep",
-    "ep",
-    type=str,
-    default=None,
-    help="Force specific execution provider "
-    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
-    "Overrides device-to-provider mapping. "
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping. "
     "When used without --device, device is inferred from EP.",
 )
 @click.option(

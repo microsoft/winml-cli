@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, cast, get_args
+from typing import Literal, TypeAlias, get_args
 
 import onnxruntime as ort
 
@@ -67,6 +67,21 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "migraphx": "MIGraphXExecutionProvider",
 }
 
+# Reverse mapping: canonical EP name -> primary shorthand alias.
+# Every canonical name has exactly one primary alias (the "preferred" one when
+# multiple aliases share a canonical, e.g. ``openvino``/``ov`` -> ``openvino``).
+# Use this to convert a canonical name back to the alias domain without `cast`.
+EP_NAME_TO_ALIAS: dict[EPName, EPAlias] = {
+    "QNNExecutionProvider": "qnn",
+    "OpenVINOExecutionProvider": "openvino",
+    "VitisAIExecutionProvider": "vitisai",
+    "CPUExecutionProvider": "cpu",
+    "CUDAExecutionProvider": "cuda",
+    "DmlExecutionProvider": "dml",
+    "NvTensorRTRTXExecutionProvider": "nv_tensorrt_rtx",
+    "MIGraphXExecutionProvider": "migraphx",
+}
+
 # Runtime-iterable forms of the Literal types above (for membership checks, choice lists).
 EP_NAMES: tuple[EPName, ...] = get_args(EPName)
 EP_ALIAS_NAMES: tuple[EPAlias, ...] = get_args(EPAlias)
@@ -98,17 +113,24 @@ def normalize_ep_name(ep: EPNameOrAlias | str | None) -> EPName | None:
     if ep is None:
         return None
 
-    # Check if it's already a full name
-    if ep in SUPPORTED_EPS:
-        return cast("EPName", ep)
+    # Check if it's already a full name.
+    # ``EP_NAMES`` is the runtime tuple of canonical names from the EPName Literal,
+    # so membership narrowing here gives the type checker an EPName directly.
+    if ep in EP_NAMES:
+        return ep
 
-    # Try to find in aliases (case-insensitive)
+    # Try to find in aliases (case-insensitive). ``.get()`` returns Optional, but
+    # the prior membership check narrowed ``ep_lower`` so the alias mapping is
+    # total in this branch.
     ep_lower = ep.lower()
-    if ep_lower in EP_ALIASES:
-        return EP_ALIASES[cast("EPAlias", ep_lower)]
+    canonical = EP_ALIASES.get(ep_lower)  # type: ignore[arg-type]
+    if canonical is not None:
+        return canonical
 
-    # Return as-is if not found (let validation catch invalid names)
-    return cast("EPName", ep)
+    # Return as-is if not found (let validation catch invalid names).
+    # The value isn't in ``EPName`` at runtime; the annotation is a best-effort
+    # promise for downstream consumers, who handle the unknown case explicitly.
+    return ep  # type: ignore[return-value]
 
 
 def extract_ep_options(kwargs: dict) -> dict[str, str]:

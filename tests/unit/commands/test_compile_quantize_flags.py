@@ -23,42 +23,53 @@ class TestResolveCompileProvider:
     """Test compile provider resolution from device + ep flags."""
 
     def test_npu_defaults_to_qnn(self):
-        assert _resolve_compile_provider("npu", None) == "qnn"
+        assert _resolve_compile_provider("npu", None) == "QNNExecutionProvider"
 
     def test_gpu_defaults_to_dml(self):
-        assert _resolve_compile_provider("gpu", None) == "dml"
+        assert _resolve_compile_provider("gpu", None) == "DmlExecutionProvider"
 
     def test_cpu_returns_cpu(self):
-        assert _resolve_compile_provider("cpu", None) == "cpu"
+        assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
 
     def test_auto_defaults_to_qnn(self):
-        # auto maps to qnn (NPU-first, like DEVICE_POLICY_MAP)
+        # auto maps to QNN (NPU-first, like DEVICE_POLICY_MAP)
         result = _resolve_compile_provider("auto", None)
-        # auto is not in _DEVICE_TO_PROVIDER, falls through to "qnn" default
-        assert result == "qnn"
+        # auto is not in _DEVICE_TO_PROVIDER, falls through to QNN default
+        assert result == "QNNExecutionProvider"
 
     def test_ep_overrides_device(self):
         """ep takes priority over device mapping."""
-        assert _resolve_compile_provider("npu", "migraphx") == "migraphx"
-        assert _resolve_compile_provider("gpu", "vitisai") == "vitisai"
-        assert _resolve_compile_provider("cpu", "nv_tensorrt_rtx") == "nv_tensorrt_rtx"
+        assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
+        assert _resolve_compile_provider("gpu", "vitisai") == "VitisAIExecutionProvider"
+        assert (
+            _resolve_compile_provider("cpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
+        )
 
-    def test_ep_is_lowercased(self):
-        assert _resolve_compile_provider("gpu", "MIGraphX") == "migraphx"
-        assert _resolve_compile_provider("gpu", "NV_TENSORRT_RTX") == "nv_tensorrt_rtx"
+    def test_ep_is_case_insensitive(self):
+        assert _resolve_compile_provider("gpu", "MIGraphX") == "MIGraphXExecutionProvider"
+        assert (
+            _resolve_compile_provider("gpu", "NV_TENSORRT_RTX") == "NvTensorRTRTXExecutionProvider"
+        )
 
     @pytest.mark.parametrize(
-        "ep",
-        ["qnn", "dml", "migraphx", "nv_tensorrt_rtx", "vitisai", "openvino", "cpu"],
+        ("ep", "expected"),
+        [
+            ("qnn", "QNNExecutionProvider"),
+            ("dml", "DmlExecutionProvider"),
+            ("migraphx", "MIGraphXExecutionProvider"),
+            ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
+            ("vitisai", "VitisAIExecutionProvider"),
+            ("openvino", "OpenVINOExecutionProvider"),
+            ("cpu", "CPUExecutionProvider"),
+        ],
     )
-    def test_all_valid_eps(self, ep):
-        """All valid EP names resolve correctly."""
-        result = _resolve_compile_provider("npu", ep)
-        assert result == ep
+    def test_all_valid_eps(self, ep, expected):
+        """All alias inputs resolve to their canonical EP name."""
+        assert _resolve_compile_provider("npu", ep) == expected
 
     def test_device_case_insensitive(self):
-        assert _resolve_compile_provider("NPU", None) == "qnn"
-        assert _resolve_compile_provider("GPU", None) == "dml"
+        assert _resolve_compile_provider("NPU", None) == "QNNExecutionProvider"
+        assert _resolve_compile_provider("GPU", None) == "DmlExecutionProvider"
 
 
 # =============================================================================

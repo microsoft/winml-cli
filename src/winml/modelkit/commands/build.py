@@ -280,11 +280,9 @@ def _build_modules(
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
-@click.option(
-    "--ep",
-    default=None,
-    help="Target execution provider for analyzer (e.g., 'qnn'). "
-    "Falls back to compile config EP if not set.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Falls back to compile config EP if not set.",
 )
 @click.option(
     "--device",

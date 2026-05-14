@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 
+from ..utils import cli as cli_utils
 from .configs import (
     CalibrationConfig,
     EPConfig,
@@ -46,15 +47,7 @@ def cli() -> None:
     type=click.Path(path_type=Path),
     help="Working directory for intermediate files",
 )
-@click.option(
-    "--ep",
-    "--execution-provider",
-    "execution_provider",
-    type=click.Choice(["qnn", "cpu", "cuda", "dml"]),
-    default="qnn",
-    help="Target execution provider",
-    show_default=True,
-)
+@cli_utils.ep_option(required=False)
 @click.option(
     "--quantize/--no-quantize",
     default=True,
@@ -122,7 +115,7 @@ def compile(
     model_path: Path,
     output_path: Path | None,
     work_dir: Path | None,
-    execution_provider: str,
+    ep: str | None,
     quantize: bool,
     calibration_method: str,
     calibration_samples: int,
@@ -164,9 +157,14 @@ def compile(
         else:
             click.echo(f"Warning: Invalid provider option '{opt}' (expected key=value)")
 
-    # Build config
+    # Build config: normalize alias-or-canonical input, then map back to alias
+    # domain via the reverse table.
+    from ..utils.constants import EP_NAME_TO_ALIAS, normalize_ep_name
+
+    canonical = normalize_ep_name(ep) if ep else None
+    provider_alias = EP_NAME_TO_ALIAS[canonical] if canonical else "qnn"
     ep_config = EPConfig(
-        provider=execution_provider,
+        provider=provider_alias,
         provider_options=provider_options,
         enable_ep_context=enable_ep_context,
     )

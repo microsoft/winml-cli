@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from ..utils.constants import EPAlias
+from ..utils.constants import EPAlias, EPName
 
 
 if TYPE_CHECKING:
@@ -96,7 +96,9 @@ class WinMLCompileConfig:
         """Factory that dispatches to a known for_* method or creates a generic config.
 
         Args:
-            provider: Provider name (e.g., "qnn", "dml", "openvino") or None.
+            provider: Canonical EP name (e.g., "QNNExecutionProvider") or alias
+                (e.g., "qnn"). Aliases are normalized to canonical form before
+                dispatch. ``None`` short-circuits to ``None``.
             device: Target device ("cpu", "gpu", "npu"). Used by EPs like OpenVINO
                 that compile device-specific EPContext blobs and need device_type
                 in provider_options so CPU and GPU builds get different cache keys.
@@ -104,27 +106,35 @@ class WinMLCompileConfig:
         Returns:
             WinMLCompileConfig for the provider, or None if provider is None.
         """
+        from ..utils.constants import EP_NAME_TO_ALIAS, normalize_ep_name
+
         if provider is None:
             return None
-        factories: dict[str, Any] = {
-            "qnn": lambda: cls.for_qnn(device=device),
-            "dml": cls.for_dml,
-            "cuda": cls.for_cuda,
-            "nv_tensorrt_rtx": cls.for_nv_tensorrt_rtx,
-            "openvino": lambda: cls.for_openvino(device=device),
-            "vitisai": lambda: cls.for_vitisai(device=device),
-            "migraphx": cls.for_migraphx,
-            "cpu": cls.for_cpu,
+        canonical = normalize_ep_name(provider)
+        if canonical is None:
+            return None
+        factories: dict[EPName, Any] = {
+            "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
+            "DmlExecutionProvider": cls.for_dml,
+            "CUDAExecutionProvider": cls.for_cuda,
+            "NvTensorRTRTXExecutionProvider": cls.for_nv_tensorrt_rtx,
+            "OpenVINOExecutionProvider": lambda: cls.for_openvino(device=device),
+            "VitisAIExecutionProvider": lambda: cls.for_vitisai(device=device),
+            "MIGraphXExecutionProvider": cls.for_migraphx,
+            "CPUExecutionProvider": cls.for_cpu,
         }
-        factory = factories.get(provider)
+        factory = factories.get(canonical)
         if factory:
             config = factory()
             # EPs that don't produce EPContext have no offline compile step
             if not config.ep_config.enable_ep_context:
                 return None
             return config
-        # Generic fallback for unknown/custom providers
-        return cls(ep_config=EPConfig(provider=cast("EPAlias", provider), enable_ep_context=False))
+        # Generic fallback: ``canonical`` is in the EPName Literal set, so the
+        # reverse lookup is total (no cast).
+        return cls(
+            ep_config=EPConfig(provider=EP_NAME_TO_ALIAS[canonical], enable_ep_context=False)
+        )
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
