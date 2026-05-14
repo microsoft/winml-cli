@@ -14,7 +14,7 @@
 # FLOAT8E8M0,
 # STRING,
 
-"""ONNX type conversion utilities shared across ModelKit modules.
+"""ONNX type conversion utilities shared across WinML CLI modules.
 
 Canonical home for ONNX ↔ numpy ↔ TensorProto type mappings.
 """

@@ -117,9 +117,9 @@ _NO_SPACE_PATTERNS = (
 )
 
 _HF_CACHE = Path.home() / ".cache" / "huggingface"
-_WML_CACHE = Path.home() / ".cache" / "winml"
+_WINML_CACHE = Path.home() / ".cache" / "winml"
 _TEMP_DIR = Path(os.environ.get("TEMP", os.environ.get("TMP", tempfile.gettempdir())))
-_TEMP_PREFIXES = ("wmk_", "modelkit_compat_")
+_TEMP_PREFIXES = ("winmlcli_", "winmlcli_compat_")
 
 
 def _is_no_space_error(proc: dict) -> bool:
@@ -129,8 +129,8 @@ def _is_no_space_error(proc: dict) -> bool:
 
 
 def _clear_disk_caches() -> None:
-    """Delete HuggingFace, WML cache directories and leaked temp files."""
-    for cache_dir in (_HF_CACHE, _WML_CACHE):
+    """Delete HuggingFace, WinML cache directories and leaked temp files."""
+    for cache_dir in (_HF_CACHE, _WINML_CACHE):
         if cache_dir.exists():
             safe_print(f"  [cleanup] Removing cache: {cache_dir}")
             try:
@@ -139,7 +139,7 @@ def _clear_disk_caches() -> None:
             except OSError as exc:
                 safe_print(f"  [cleanup] Warning: could not remove {cache_dir}: {exc}")
 
-    # Clean leaked temp directories/files (wmk_*, modelkit_compat_*, tmp*.onnx*)
+    # Clean leaked temp directories/files (winmlcli_*, winmlcli_compat_*, tmp*.onnx*)
     if _TEMP_DIR.is_dir():
         cleaned = 0
         for entry in _TEMP_DIR.iterdir():
@@ -363,8 +363,8 @@ def _run_build(
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Remove any stale suffixed sub-configs BEFORE `wmk config` runs.
-    # For composite models `wmk config` writes files matching {stem}_*.json
+    # Remove any stale suffixed sub-configs BEFORE `winml config` runs.
+    # For composite models `winml config` writes files matching {stem}_*.json
     # (e.g., build_config_encoder.json); cleaning those AFTER the command would
     # delete the freshly-written configs and silently degrade composite builds
     # to single-model. Running cleanup first removes prior-run artifacts without
@@ -847,6 +847,9 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
         args += ["--columns-mapping", json.dumps(ds_config["columns_mapping"])]
     if ds_config.get("label_mapping_file"):
         args += ["--label-mapping-file", ds_config["label_mapping_file"]]
+    winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
+    if winml_key:
+        args += ["--winml-metric-key", winml_key]
 
     proc = _run_subprocess(args, timeout)
     metric = _parse_metric_from_stdout(proc["stdout"]) if proc["exit_code"] == 0 else None
@@ -1265,6 +1268,7 @@ def main() -> None:
                 device=args.device,
                 eval_types_run=[args.eval_type],
                 accuracy_result=None,
+                ep=args.ep,
             )
             write_result_json(timeout_result, result_path)
             results.append(timeout_result)
@@ -1311,7 +1315,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                _DEFAULT_PRECISION,
+                entry.precision or _DEFAULT_PRECISION,
                 args.timeout,
                 model_dir,
                 ep=args.ep,
@@ -1360,7 +1364,9 @@ def main() -> None:
             interrupted = True
             break
 
-        result = build_eval_result(entry, perf_proc, args.device, eval_types_run, accuracy_result)
+        result = build_eval_result(
+            entry, perf_proc, args.device, eval_types_run, accuracy_result, ep=args.ep
+        )
         results.append(result)
 
         # Write eval_result.json immediately (crash-safe, facts only)

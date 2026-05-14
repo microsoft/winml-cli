@@ -3,9 +3,9 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Tests for ModelKit's custom OnnxConfig overrides.
+"""Tests for WinML CLI's custom OnnxConfig overrides.
 
-Verifies that ModelKit's custom OnnxConfig registrations (BertIOConfig,
+Verifies that WinML CLI's custom OnnxConfig registrations (BertIOConfig,
 CLIPTextModelIOConfig, CLIPVisionModelIOConfig, RobertaIOConfig, etc.)
 correctly override Optimum's defaults. These overrides are critical for:
 
@@ -41,7 +41,7 @@ from winml.modelkit.models.hf.roberta import _adjust_position_embeddings
 
 
 class TestOnnxConfigRegistration:
-    """Verify ModelKit's custom OnnxConfig classes are registered with TasksManager.
+    """Verify WinML CLI's custom OnnxConfig classes are registered with TasksManager.
 
     If registration fails, Optimum's defaults are used, causing wrong shapes
     and missing inputs (e.g., BERT sequence_length=16 instead of 512).

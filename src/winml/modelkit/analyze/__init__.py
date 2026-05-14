@@ -8,9 +8,6 @@ This package provides static analysis capabilities for ONNX models to determine
 runtime support across NPU execution providers (QNN, Intel OpenVINO, AMD Quark).
 """
 
-__version__ = "0.1.0"
-__author__ = "WML Team"
-
 from .analyzer import (
     AnalysisResult,
     AnalyzerConfig,
@@ -74,7 +71,6 @@ __all__ = [
     "RuntimeChecker",
     "RuntimeTestResult",
     "SupportLevel",
-    "__version__",
     "analyze_onnx",
     "infer_ihv_from_ep_name",
 ]

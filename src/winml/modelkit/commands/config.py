@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Config generation command (v2, Rich UI) for ModelKit CLI.
+"""Config generation command (v2, Rich UI) for WinML CLI.
 
 Generates WinMLBuildConfig for a HuggingFace model or a pre-exported ONNX file
 by auto-detecting task, model class, and I/O specifications.
@@ -29,6 +29,7 @@ from typing import Any
 
 import click
 
+from ..utils import cli as cli_utils
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -169,12 +170,7 @@ def _is_onnx_file(model_input: str) -> bool:
     default=True,
     help="Exclude compilation from generated config (sets compile=None). Default: exclude.",
 )
-@click.option(
-    "--trust-remote-code",
-    is_flag=True,
-    default=False,
-    help="Allow running custom code from model repository",
-)
+@cli_utils.trust_remote_code_option()
 def config(
     hf_model: str | None,
     task: str | None,

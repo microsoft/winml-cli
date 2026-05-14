@@ -19,6 +19,7 @@ from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
 from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
 from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
+from .image_to_text_evaluator import WinMLImageToTextEvaluator
 from .object_detection_evaluator import WinMLObjectDetectionEvaluator
 from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
 from .text_classification_evaluator import WinMLTextClassificationEvaluator
@@ -43,6 +44,7 @@ _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "feature-extraction": WinMLFeatureExtractionEvaluator,
     "sentence-similarity": WinMLFeatureExtractionEvaluator,
     "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
+    "image-to-text": WinMLImageToTextEvaluator,
     "fill-mask": WinMLFillMaskEvaluator,
     "zero-shot-classification": WinMLZeroShotClassificationEvaluator,
     "zero-shot-image-classification": WinMLZeroShotImageClassificationEvaluator,
@@ -177,6 +179,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         raise ValueError("model_id is required.")
 
     if config.model_path is not None:
+        # Pre-built ONNX: precision is already baked into the model and is
+        # ignored here (mirrors winml perf's ONNX path).
         from transformers import AutoConfig
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
@@ -184,6 +188,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
             onnx_path=config.model_path,
             task=config.task,
             device=config.device,
+            ep=config.ep,
             skip_build=True,
             hf_config=hf_config,
         )
@@ -194,6 +199,8 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
         config.model_id,
         task=config.task,
         device=config.device,
+        precision=config.precision,
+        ep=config.ep,
     )
 
 

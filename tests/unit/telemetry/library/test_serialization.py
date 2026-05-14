@@ -17,14 +17,14 @@ from winml.modelkit.telemetry.library.serialization import (
 def test_build_envelope_basic_shape():
     ts = datetime(2026, 4, 17, 10, 30, 0, 123456, tzinfo=timezone.utc)
     envelope = _build_envelope(
-        name="ModelKitAction",
+        name="WinMLCLIAction",
         ikey="o:abc-def",
         timestamp=ts,
         data={"action_name": "build", "success": True},
         ext={"app": {"ver": "0.0.1"}},
     )
     assert envelope["ver"] == "4.0"
-    assert envelope["name"] == "ModelKitAction"
+    assert envelope["name"] == "WinMLCLIAction"
     assert envelope["iKey"] == "o:abc-def"
     assert envelope["data"] == {"action_name": "build", "success": True}
     assert envelope["ext"] == {"app": {"ver": "0.0.1"}}
@@ -35,8 +35,8 @@ def test_build_envelope_basic_shape():
 def test_serialize_batch_emits_ndjson():
     ts = datetime(2026, 4, 17, 10, 30, 0, 0, tzinfo=timezone.utc)
     envelopes = [
-        _build_envelope("ModelKitHeartbeat", "o:key", ts, {}, {}),
-        _build_envelope("ModelKitAction", "o:key", ts, {"success": True}, {}),
+        _build_envelope("WinMLCLIHeartbeat", "o:key", ts, {}, {}),
+        _build_envelope("WinMLCLIAction", "o:key", ts, {"success": True}, {}),
     ]
     body = _serialize_batch(envelopes)
     # NDJSON: one envelope per line, no enclosing array.
@@ -50,15 +50,15 @@ def test_serialize_batch_emits_ndjson():
     json.loads(lines[0])
     json.loads(lines[1])
     # Both events present
-    assert b'"ModelKitHeartbeat"' in lines[0]
-    assert b'"ModelKitAction"' in lines[1]
+    assert b'"WinMLCLIHeartbeat"' in lines[0]
+    assert b'"WinMLCLIAction"' in lines[1]
     # UTF-8 encoded
     assert isinstance(body, bytes)
 
 
 def test_serialize_batch_preserves_unicode():
     ts = datetime(2026, 4, 17, 10, 30, 0, 0, tzinfo=timezone.utc)
-    envelope = _build_envelope("ModelKitAction", "o:key", ts, {"note": "café λ"}, {})
+    envelope = _build_envelope("WinMLCLIAction", "o:key", ts, {"note": "café λ"}, {})
     body = _serialize_batch([envelope])
     # ensure_ascii=False keeps unicode readable
     assert "café".encode() in body

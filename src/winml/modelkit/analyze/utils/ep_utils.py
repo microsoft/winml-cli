@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..models.ihv_type import IHVType
 
 
@@ -27,7 +29,7 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         ep_name: Execution Provider name (e.g., QNNExecutionProvider, OpenVINOExecutionProvider)
 
     Returns:
-        IHVType: Inferred IHV type (QC, INTEL, or AMD)
+        IHVType: Inferred IHV type (QC, INTEL, AMD, or NVIDIA)
 
     Raises:
         ValueError: If EP name is not recognized
@@ -39,6 +41,8 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         <IHVType.INTEL: 'INTEL'>
         >>> infer_ihv_from_ep_name("VitisAIExecutionProvider")
         <IHVType.AMD: 'AMD'>
+        >>> infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
+        <IHVType.NVIDIA: 'NVIDIA'>
         >>> infer_ihv_from_ep_name("unknown")
         ValueError: Unknown execution provider...
     """
@@ -59,17 +63,25 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     if any(kw in ep_lower for kw in amd_keywords):
         return IHVType.AMD
 
+    # NVIDIA / TensorRT RTX
+    # This is intentionally a permissive substring fallback to cover common
+    # TensorRT naming variants. Callers should prefer canonical EP names.
+    nvidia_keywords = ("nvidia", "nvtensorrt", "tensorrt", "rtx")
+    if any(kw in ep_lower for kw in nvidia_keywords):
+        return IHVType.NVIDIA
+
     raise ValueError(
         f"Unknown execution provider: {ep_name}. "
-        "Supported: QNNExecutionProvider, OpenVINOExecutionProvider, VitisAIExecutionProvider"
+        "Supported: QNNExecutionProvider, OpenVINOExecutionProvider, "
+        "VitisAIExecutionProvider, NvTensorRTRTXExecutionProvider"
     )
 
 
 def get_devices_with_rule_data(ep_name: str) -> list[str]:
     """Return all devices supported by an EP.
 
-    First probes rule zip search directories for files matching
-    ``{ep_name}_{device}_*.zip``.  If no rule data is found, falls
+    First probes runtime-rule directories for parquet artifacts for each
+    ``EP + device`` pair. If no rule data is found, falls
     back to the EP→device mapping from :func:`sysinfo.get_ep_device_map`.
 
     Args:
@@ -99,23 +111,38 @@ def get_devices_with_rule_data(ep_name: str) -> list[str]:
 def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 
-    Probes the rule zip search directories for any zip file matching the
-    naming convention ``{ep_name}_{device}_*.zip``.  This is a fast
-    filesystem check — no zip contents are read.
+        Probes runtime-rule search directories for parquet files in either layout:
+        - flat files under search dir:
+            ``*_{ep_name}_{device}_*.parquet``
+        - provider subdirectory layout:
+            ``<search_dir>/{ep_name}_{device}/*.parquet``
+
+        This is a fast filesystem check and does not parse parquet contents.
 
     Args:
         ep_name: Full execution provider name (e.g., ``"QNNExecutionProvider"``).
         device: Device type (e.g., ``"NPU"``, ``"GPU"``, ``"CPU"``).
 
     Returns:
-        ``True`` if at least one rule zip exists for this EP + device pair.
+        ``True`` if at least one matching parquet rule file exists for
+        this EP + device pair.
     """
     from .rule_loader import get_runtime_rules_search_dirs
 
-    prefix = f"{ep_name}_{device.upper()}_"
+    def _has_parquet_in_search_dir(search_dir: Path, ep: str, device_upper: str) -> bool:
+        provider_dir = search_dir / f"{ep}_{device_upper}"
+        if provider_dir.is_dir() and any(provider_dir.glob("*.parquet")):
+            return True
+
+        if any(search_dir.glob(f"*_{ep}_{device_upper}_*.parquet")):
+            return True
+
+        return any(search_dir.glob(f"{ep}_{device_upper}_*.parquet"))
+
+    device_upper = device.upper()
     for search_dir in get_runtime_rules_search_dirs():
         if not search_dir.is_dir():
             continue
-        if any(search_dir.glob(f"{prefix}*.zip")):
+        if _has_parquet_in_search_dir(search_dir, ep_name, device_upper):
             return True
     return False

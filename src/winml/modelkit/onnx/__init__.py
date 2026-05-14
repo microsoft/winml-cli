@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""ONNX model utilities for ModelKit.
+"""ONNX model utilities for WinML CLI.
 
 Read and write winml.* metadata, extract I/O config from ONNX models.
 Canonical home for InputTensorSpec / OutputTensorSpec tensor spec dataclasses.

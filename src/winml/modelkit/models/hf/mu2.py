@@ -52,9 +52,9 @@ construction and cache updates are delegated to the cache class via
 
 Usage::
 
-    wmk config -m path/to/mu2 --task translation --trust-remote-code -o mu2.json
-    wmk build -c mu2_encoder.json -m path/to/mu2 --trust-remote-code -o output/encoder
-    wmk build -c mu2_decoder.json -m path/to/mu2 --trust-remote-code -o output/decoder
+    winml config -m path/to/mu2 --task translation --trust-remote-code -o mu2.json
+    winml build -c mu2_encoder.json -m path/to/mu2 --trust-remote-code -o output/encoder
+    winml build -c mu2_decoder.json -m path/to/mu2 --trust-remote-code -o output/decoder
 """
 
 from __future__ import annotations

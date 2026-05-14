@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Data loading and preprocessing components for ModelKit."""
+"""Data loading and preprocessing components for WinML CLI."""
 
 from . import (
     dummy_dataset,

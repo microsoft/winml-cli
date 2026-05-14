@@ -5,7 +5,7 @@
 """Compile command for winml CLI.
 
 This module provides the compile command that compiles ONNX models to
-EP-specific formats (e.g., QNN EPContext) with optional quantization.
+EP-specific formats (e.g., QNN EPContext).
 
 Usage:
     winml compile --model MODEL [OPTIONS]
@@ -14,7 +14,6 @@ Examples:
     winml compile -m model.onnx
     winml compile -m model.onnx --device npu
     winml compile -m model.onnx --device gpu --ep migraphx
-    winml compile -m model_qdq.onnx --no-quantize
 """
 
 from __future__ import annotations
@@ -72,11 +71,6 @@ console = Console()
     help="Force specific EP. Overrides device-to-provider mapping.",
 )
 @click.option(
-    "--quantize/--no-quantize",
-    default=True,
-    help="Enable/disable quantization (default: enabled)",
-)
-@click.option(
     "--validate/--no-validate",
     default=True,
     help="Validate compiled model (default: enabled)",
@@ -122,7 +116,6 @@ def compile(
     output_dir: Path | None,
     device: str,
     ep: str | None,
-    quantize: bool,
     validate: bool,
     verbose: bool,
     compiler: str,
@@ -134,8 +127,7 @@ def compile(
     r"""Compile ONNX model to EP-specific format.
 
     This command compiles an ONNX model to an EP-specific format (e.g., QNN
-    EPContext) with optional quantization. For pre-quantized models (containing
-    QDQ nodes), use --no-quantize.
+    EPContext).
 
     \b
     Examples:
@@ -147,9 +139,6 @@ def compile(
 
         # Compile for GPU with MIGraphX
         winml compile -m model.onnx --device gpu --ep migraphx
-
-        # Compile pre-quantized model
-        winml compile -m model_qdq.onnx --no-quantize
 
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
@@ -208,14 +197,6 @@ def compile(
     config.ep_config.compiler = compiler
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
-
-    # Deprecation notice for --no-quantize
-    if not quantize:
-        console.print(
-            "[yellow]Note:[/yellow] --no-quantize has no effect. "
-            "Quantization is no longer performed during compile. "
-            "Use 'winml quantize' before 'winml compile' to control quantization."
-        )
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")

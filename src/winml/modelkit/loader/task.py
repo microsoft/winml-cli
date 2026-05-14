@@ -101,10 +101,23 @@ HF_TASK_DEFAULTS: dict[str, str] = {
     "next-sentence-prediction": "AutoModelForNextSentencePrediction",
 }
 
+# Model-specific task defaults for known model IDs that need explicit routing
+# when users do not pass --task or model_class.
+# Sentinel key (model_id, None) mirrors MODEL_CLASS_MAPPING's default pattern.
+MODEL_TASK_MAPPING: dict[tuple[str, str | None], str] = {
+    ("prajjwal1/bert-tiny", None): "feature-extraction",
+}
+
 
 # =============================================================================
 # Internal Helpers
 # =============================================================================
+
+
+def get_default_task_for_model_id(model_name_or_path: str) -> str | None:
+    """Get model-specific default task for a model ID/path if configured."""
+    model_id = model_name_or_path.strip().lower()
+    return MODEL_TASK_MAPPING.get((model_id, None))
 
 
 def _resolve_model_class_from_config(config: PretrainedConfig) -> type:
@@ -241,7 +254,22 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
     """
     from optimum.exporters.tasks import TasksManager
 
-    # [1] Resolve architecture class from config
+    # [0] Per-model-id default task override (e.g., prajjwal1/bert-tiny).
+    # Applies before architecture resolution so models with no
+    # config.architectures field can still be auto-detected.
+    model_name_or_path = getattr(config, "_name_or_path", "") or ""
+    override_task = (
+        get_default_task_for_model_id(model_name_or_path) if model_name_or_path else None
+    )
+    if override_task is not None:
+        logger.info(
+            "Using model-specific default task %s for %s", override_task, model_name_or_path
+        )
+        return resolve_task_and_model_class(config, task=override_task)
+
+    # [1] Resolve architecture class from config.
+    # If config.architectures is missing/empty, this raises ValueError and the
+    # caller should provide task explicitly.
     arch_model_class = _resolve_model_class_from_config(config)
     arch_name = arch_model_class.__name__
 
@@ -256,6 +284,43 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
             "Cannot resolve model class: config has no 'model_type' field. "
             "Please specify model_class explicitly."
         )
+
+    # [3a] Per-model-type default task override.
+    # Some model families (e.g., SAM/SAM2) have an architecture class whose
+    # default TasksManager mapping ("feature-extraction") differs from the
+    # canonical export target ("mask-generation"). The default is encoded as
+    # a sentinel entry MODEL_CLASS_MAPPING[(model_type, None)] = <class>;
+    # we reverse-lookup the task name from the matching
+    # (model_type, default_task) -> same_class entry. This keeps the data in
+    # one table and structurally enforces that the matching class entry exists.
+    from ..models.hf import MODEL_CLASS_MAPPING
+
+    model_type_normalized = model_type.lower().replace("_", "-")
+    default_class = MODEL_CLASS_MAPPING.get((model_type_normalized, None))
+    if default_class is not None:
+        default_task = next(
+            (
+                t
+                for (mt, t), cls in MODEL_CLASS_MAPPING.items()
+                if mt == model_type_normalized and t is not None and cls is default_class
+            ),
+            None,
+        )
+        if default_task is None:
+            raise ValueError(
+                f"MODEL_CLASS_MAPPING has ({model_type_normalized!r}, None) sentinel "
+                f"-> {default_class.__name__}, but no matching "
+                f"({model_type_normalized!r}, <task>) entry maps to that class. "
+                f"Add the corresponding (model_type, task) entry."
+            )
+        if default_task != task:
+            logger.info(
+                "Overriding auto-detected task %r with model-type default %r for %s",
+                task,
+                default_task,
+                model_type_normalized,
+            )
+        return default_task, default_class
 
     # [4] Check specializations first (CLIP, SAM2, etc.) - highest priority
     model_class = _get_custom_model_class(model_type, task)

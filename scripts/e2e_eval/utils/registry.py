@@ -22,6 +22,7 @@ class ModelEntry:
     model_type: str
     group: str
     priority: str
+    precision: str | None = None
     dataset_config: dict | None = None
     perf_args: list[str] = field(default_factory=list)
     eval_args: list[str] = field(default_factory=list)
@@ -67,6 +68,7 @@ def load_registry(path: Path) -> list[ModelEntry]:
                 model_type=item["model_type"],
                 group=item["group"],
                 priority=priority,
+                precision=item.get("precision"),
                 dataset_config=ds_config,
                 perf_args=perf_args,
                 eval_args=eval_args,

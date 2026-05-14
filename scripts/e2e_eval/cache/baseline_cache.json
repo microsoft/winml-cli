@@ -1,4 +1,874 @@
 {
+  "ProsusAI/finbert|text-classification|privet1mir/finbert_dataset||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.728,
+      "num_samples": 1000
+    },
+    "elapsed": 59.2,
+    "command": "python.exe run_pytorch_baseline.py --model finbert --task text-classification --device cpu --num-samples 1000 --dataset finbert_dataset --split val"
+  },
+  "cardiffnlp/twitter-roberta-base-sentiment-latest|text-classification|tweet_eval|sentiment||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.769,
+      "num_samples": 1000
+    },
+    "elapsed": 91.5,
+    "command": "python.exe run_pytorch_baseline.py --model twitter-roberta-base-sentiment-latest --task text-classification --device cpu --num-samples 1000 --dataset tweet_eval --dataset-config sentiment --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "distilbert/distilbert-base-uncased-finetuned-sst-2-english|text-classification|nyu-mll/glue|sst2||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.91055,
+      "num_samples": 1000
+    },
+    "elapsed": 39.1,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased-finetuned-sst-2-english --task text-classification --device cpu --num-samples 1000 --dataset glue --dataset-config sst2 --columns-mapping {\"input_column\": \"sentence\"}"
+  },
+  "dslim/bert-base-NER|token-classification|BramVanroy/conll2003|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "overall_f1",
+      "value": 0.956618,
+      "num_samples": 1000
+    },
+    "elapsed": 75.7,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-NER --task token-classification --device cpu --num-samples 1000 --dataset conll2003 --columns-mapping {\"label_column\": \"ner_tags\"}"
+  },
+  "dbmdz/bert-large-cased-finetuned-conll03-english|token-classification|BramVanroy/conll2003|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "overall_f1",
+      "value": 0.961688,
+      "num_samples": 1000
+    },
+    "elapsed": 244.6,
+    "command": "python.exe run_pytorch_baseline.py --model bert-large-cased-finetuned-conll03-english --task token-classification --device cpu --num-samples 1000 --dataset conll2003 --columns-mapping {\"label_column\": \"ner_tags\"}"
+  },
+  "Babelscape/wikineural-multilingual-ner|token-classification|BramVanroy/conll2003|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "overall_f1",
+      "value": 0.774846,
+      "num_samples": 1000
+    },
+    "elapsed": 75.0,
+    "command": "python.exe run_pytorch_baseline.py --model wikineural-multilingual-ner --task token-classification --device cpu --num-samples 1000 --dataset conll2003 --columns-mapping {\"label_column\": \"ner_tags\"}"
+  },
+  "w11wo/indonesian-roberta-base-posp-tagger|token-classification|~/.cache/winml/eval_datasets/build_indonlu_posp|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "overall_f1",
+      "value": 0.964084,
+      "num_samples": 1000
+    },
+    "elapsed": 64.2,
+    "command": "python.exe run_pytorch_baseline.py --model indonesian-roberta-base-posp-tagger --task token-classification --device cpu --num-samples 1000 --dataset build_indonlu_posp --columns-mapping {\"label_column\": \"pos_tags\"}"
+  },
+  "Isotonic/distilbert_finetuned_ai4privacy_v2|token-classification|~/.cache/winml/eval_datasets/build_ai4privacy|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "overall_f1",
+      "value": 0.789084,
+      "num_samples": 1000
+    },
+    "elapsed": 63.8,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert_finetuned_ai4privacy_v2 --task token-classification --device cpu --num-samples 1000 --dataset build_ai4privacy --columns-mapping {\"label_column\": \"ner_tags\"}"
+  },
+  "google/vit-base-patch16-224|image-classification|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.784,
+      "num_samples": 1000
+    },
+    "elapsed": 181.3,
+    "command": "python.exe run_pytorch_baseline.py --model vit-base-patch16-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "apple/mobilevit-small|image-classification|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.776,
+      "num_samples": 1000
+    },
+    "elapsed": 98.5,
+    "command": "python.exe run_pytorch_baseline.py --model mobilevit-small --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "rizvandwiki/gender-classification|image-classification|~/.cache/winml/eval_datasets/build_fairface|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.812,
+      "num_samples": 1000
+    },
+    "elapsed": 166.1,
+    "command": "python.exe run_pytorch_baseline.py --model gender-classification --task image-classification --device cpu --num-samples 1000 --dataset build_fairface --columns-mapping {\"label_column\": \"gender\"}"
+  },
+  "microsoft/resnet-50|image-classification|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.784,
+      "num_samples": 1000
+    },
+    "elapsed": 106.8,
+    "command": "python.exe run_pytorch_baseline.py --model resnet-50 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "Intel/bert-base-uncased-mrpc|text-classification|nyu-mll/glue|mrpc||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.860294,
+      "num_samples": 1000
+    },
+    "elapsed": 45.6,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased-mrpc --task text-classification --device cpu --num-samples 1000 --dataset glue --dataset-config mrpc --columns-mapping {\"input_column\": \"sentence1\", \"second_input_column\": \"sentence2\"}"
+  },
+  "facebook/convnext-tiny-224|image-classification|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.812,
+      "num_samples": 1000
+    },
+    "elapsed": 88.5,
+    "command": "python.exe run_pytorch_baseline.py --model convnext-tiny-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "dima806/fairface_age_image_detection|image-classification|~/.cache/winml/eval_datasets/build_fairface|||1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.594,
+      "num_samples": 1000
+    },
+    "elapsed": 181.3,
+    "command": "python.exe run_pytorch_baseline.py --model fairface_age_image_detection --task image-classification --device cpu --num-samples 1000 --dataset build_fairface --columns-mapping {\"label_column\": \"age\"}"
+  },
+  "facebook/detr-resnet-50|object-detection|detection-datasets/coco||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.4331,
+      "num_samples": 1000
+    },
+    "elapsed": 1539.2,
+    "command": "python.exe run_pytorch_baseline.py --model detr-resnet-50 --task object-detection --device cpu --num-samples 1000 --dataset coco --split val --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"}"
+  },
+  "hustvl/yolos-small|object-detection|detection-datasets/coco||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.387323,
+      "num_samples": 1000
+    },
+    "elapsed": 1870.9,
+    "command": "python.exe run_pytorch_baseline.py --model yolos-small --task object-detection --device cpu --num-samples 1000 --dataset coco --split val --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"}"
+  },
+  "PekingU/rtdetr_r50vd_coco_o365|object-detection|detection-datasets/coco||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.54762,
+      "num_samples": 1000
+    },
+    "elapsed": 985.7,
+    "command": "python.exe run_pytorch_baseline.py --model rtdetr_r50vd_coco_o365 --task object-detection --device cpu --num-samples 1000 --dataset coco --split val --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"} --label-mapping-file coco_to_rtdetr_labels.json"
+  },
+  "PekingU/rtdetr_r101vd_coco_o365|object-detection|detection-datasets/coco||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.564741,
+      "num_samples": 1000
+    },
+    "elapsed": 1541.1,
+    "command": "python.exe run_pytorch_baseline.py --model rtdetr_r101vd_coco_o365 --task object-detection --device cpu --num-samples 1000 --dataset coco --split val --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"} --label-mapping-file coco_to_rtdetr_labels.json"
+  },
+  "PekingU/rtdetr_v2_r18vd|object-detection|detection-datasets/coco||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.479367,
+      "num_samples": 1000
+    },
+    "elapsed": 545.7,
+    "command": "python.exe run_pytorch_baseline.py --model rtdetr_v2_r18vd --task object-detection --device cpu --num-samples 1000 --dataset coco --split val --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"} --label-mapping-file coco_to_rtdetr_labels.json"
+  },
+  "valentinafeve/yolos-fashionpedia|object-detection|detection-datasets/fashionpedia||val|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.110661,
+      "num_samples": 1000
+    },
+    "elapsed": 653.6,
+    "command": "python.exe run_pytorch_baseline.py --model yolos-fashionpedia --task object-detection --device cpu --num-samples 1000 --dataset fashionpedia --split val --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"}"
+  },
+  "microsoft/table-transformer-detection|object-detection|~/.cache/winml/eval_datasets/build_pubtables1m_detection||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.988714,
+      "num_samples": 1000
+    },
+    "elapsed": 457.7,
+    "command": "python.exe run_pytorch_baseline.py --model table-transformer-detection --task object-detection --device cpu --num-samples 1000 --dataset build_pubtables1m_detection --split validation --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"}"
+  },
+  "TahaDouaji/detr-doc-table-detection|object-detection|~/.cache/winml/eval_datasets/build_pubtables1m_detection||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.670707,
+      "num_samples": 1000
+    },
+    "elapsed": 1339.8,
+    "command": "python.exe run_pytorch_baseline.py --model detr-doc-table-detection --task object-detection --device cpu --num-samples 1000 --dataset build_pubtables1m_detection --split validation --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"} --label-mapping-file pubtables_to_table_labels.json"
+  },
+  "microsoft/table-transformer-structure-recognition|object-detection|~/.cache/winml/eval_datasets/build_pubtables1m_structure||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "map",
+      "value": 0.880184,
+      "num_samples": 1000
+    },
+    "elapsed": 584.4,
+    "command": "python.exe run_pytorch_baseline.py --model table-transformer-structure-recognition --task object-detection --device cpu --num-samples 1000 --dataset build_pubtables1m_structure --split validation --columns-mapping {\"annotation_column\": \"objects\", \"bbox_key\": \"bbox\", \"category_key\": \"category\", \"box_format\": \"xyxy\"}"
+  },
+  "nvidia/segformer-b0-finetuned-ade-512-512|image-segmentation|danjacobellis/scene_parse_150||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "mean_iou",
+      "value": 0.347483,
+      "num_samples": 1000
+    },
+    "elapsed": 768.3,
+    "command": "python.exe run_pytorch_baseline.py --model segformer-b0-finetuned-ade-512-512 --task image-segmentation --device cpu --num-samples 1000 --dataset scene_parse_150 --split validation --columns-mapping {\"annotation_column\": \"annotation\"} --label-mapping-file ade20k_gt_to_model_label.json"
+  },
+  "nvidia/segformer-b1-finetuned-ade-512-512|image-segmentation|danjacobellis/scene_parse_150||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "mean_iou",
+      "value": 0.397277,
+      "num_samples": 1000
+    },
+    "elapsed": 858.7,
+    "command": "python.exe run_pytorch_baseline.py --model segformer-b1-finetuned-ade-512-512 --task image-segmentation --device cpu --num-samples 1000 --dataset scene_parse_150 --split validation --columns-mapping {\"annotation_column\": \"annotation\"} --label-mapping-file ade20k_gt_to_model_label.json"
+  },
+  "nvidia/segformer-b2-finetuned-ade-512-512|image-segmentation|danjacobellis/scene_parse_150||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "mean_iou",
+      "value": 0.439225,
+      "num_samples": 1000
+    },
+    "elapsed": 1580.7,
+    "command": "python.exe run_pytorch_baseline.py --model segformer-b2-finetuned-ade-512-512 --task image-segmentation --device cpu --num-samples 1000 --dataset scene_parse_150 --split validation --columns-mapping {\"annotation_column\": \"annotation\"} --label-mapping-file ade20k_gt_to_model_label.json"
+  },
+  "nvidia/segformer-b5-finetuned-ade-640-640|image-segmentation|danjacobellis/scene_parse_150||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "mean_iou",
+      "value": 0.473467,
+      "num_samples": 1000
+    },
+    "elapsed": 3264.5,
+    "command": "python.exe run_pytorch_baseline.py --model segformer-b5-finetuned-ade-640-640 --task image-segmentation --device cpu --num-samples 1000 --dataset scene_parse_150 --split validation --columns-mapping {\"annotation_column\": \"annotation\"} --label-mapping-file ade20k_gt_to_model_label.json"
+  },
+  "mattmdjaga/segformer_b2_clothes|image-segmentation|mattmdjaga/human_parsing_dataset||train|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "mean_iou",
+      "value": 0.77979,
+      "num_samples": 1000
+    },
+    "elapsed": 1194.7,
+    "command": "python.exe run_pytorch_baseline.py --model segformer_b2_clothes --task image-segmentation --device cpu --num-samples 1000 --dataset human_parsing_dataset --split train --columns-mapping {\"annotation_column\": \"mask\"}"
+  },
+  "nvidia/segformer-b0-finetuned-cityscapes-1024-1024|image-segmentation|Chris1/cityscapes||validation|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "mean_iou",
+      "value": 0.582264,
+      "num_samples": 500
+    },
+    "elapsed": 711.6,
+    "command": "python.exe run_pytorch_baseline.py --model segformer-b0-finetuned-cityscapes-1024-1024 --task image-segmentation --device cpu --num-samples 500 --dataset cityscapes --split validation --columns-mapping {\"annotation_column\": \"semantic_segmentation\"} --label-mapping-file cityscapes_label_to_train_id.json"
+  },
+  "sentence-transformers/all-MiniLM-L6-v2|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 81.9722,
+      "num_samples": 1000
+    },
+    "elapsed": 35.0,
+    "command": "python.exe run_pytorch_baseline.py --model all-MiniLM-L6-v2 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 84.2763,
+      "num_samples": 1000
+    },
+    "elapsed": 57.2,
+    "command": "python.exe run_pytorch_baseline.py --model paraphrase-multilingual-MiniLM-L12-v2 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-small-en-v1.5|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.6245,
+      "num_samples": 1000
+    },
+    "elapsed": 53.9,
+    "command": "python.exe run_pytorch_baseline.py --model bge-small-en-v1.5 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "Intel/bert-base-uncased-mrpc|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 40.6543,
+      "num_samples": 1000
+    },
+    "elapsed": 133.2,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased-mrpc --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "google-bert/bert-base-multilingual-cased|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 50.7072,
+      "num_samples": 1000
+    },
+    "elapsed": 132.8,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-cased --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-base-en-v1.5|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.8972,
+      "num_samples": 1000
+    },
+    "elapsed": 138.4,
+    "command": "python.exe run_pytorch_baseline.py --model bge-base-en-v1.5 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/all-mpnet-base-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 83.068,
+      "num_samples": 1000
+    },
+    "elapsed": 127.7,
+    "command": "python.exe run_pytorch_baseline.py --model all-mpnet-base-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/multi-qa-mpnet-base-dot-v1|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 72.7122,
+      "num_samples": 1000
+    },
+    "elapsed": 128.3,
+    "command": "python.exe run_pytorch_baseline.py --model multi-qa-mpnet-base-dot-v1 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/paraphrase-multilingual-mpnet-base-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.9678,
+      "num_samples": 1000
+    },
+    "elapsed": 126.5,
+    "command": "python.exe run_pytorch_baseline.py --model paraphrase-multilingual-mpnet-base-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-base-en-v1.5|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.8972,
+      "num_samples": 1000
+    },
+    "elapsed": 122.2,
+    "command": "python.exe run_pytorch_baseline.py --model bge-base-en-v1.5 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-large-en-v1.5|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 88.1202,
+      "num_samples": 1000
+    },
+    "elapsed": 439.4,
+    "command": "python.exe run_pytorch_baseline.py --model bge-large-en-v1.5 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "BAAI/bge-small-en-v1.5|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 86.6245,
+      "num_samples": 1000
+    },
+    "elapsed": 52.1,
+    "command": "python.exe run_pytorch_baseline.py --model bge-small-en-v1.5 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/all-MiniLM-L6-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 81.9722,
+      "num_samples": 1000
+    },
+    "elapsed": 33.9,
+    "command": "python.exe run_pytorch_baseline.py --model all-MiniLM-L6-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2|sentence-similarity|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 84.2763,
+      "num_samples": 1000
+    },
+    "elapsed": 54.5,
+    "command": "python.exe run_pytorch_baseline.py --model paraphrase-multilingual-MiniLM-L12-v2 --task sentence-similarity --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "laion/CLIP-ViT-B-32-laion2B-s34B-b79K|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 70.2973,
+      "num_samples": 1000
+    },
+    "elapsed": 75.8,
+    "command": "python.exe run_pytorch_baseline.py --model CLIP-ViT-B-32-laion2B-s34B-b79K --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "openai/clip-vit-base-patch16|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 64.5723,
+      "num_samples": 1000
+    },
+    "elapsed": 75.7,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch16 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "openai/clip-vit-base-patch32|feature-extraction|mteb/stsbenchmark-sts||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cosine_spearman",
+      "value": 61.7897,
+      "num_samples": 1000
+    },
+    "elapsed": 85.0,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch32 --task feature-extraction --device cpu --num-samples 1000 --dataset stsbenchmark-sts --split test --columns-mapping {\"input_column_1\": \"sentence1\", \"input_column_2\": \"sentence2\", \"score_column\": \"score\"}"
+  },
+  "distilbert/distilbert-base-cased-distilled-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 86.526843,
+      "num_samples": 1000
+    },
+    "elapsed": 133.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-cased-distilled-squad --task question-answering --device cpu --num-samples 1000 --dataset squad --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "distilbert/distilbert-base-uncased-distilled-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 86.242759,
+      "num_samples": 1000
+    },
+    "elapsed": 129.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased-distilled-squad --task question-answering --device cpu --num-samples 1000 --dataset squad --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "google-bert/bert-large-uncased-whole-word-masking-finetuned-squad|question-answering|rajpurkar/squad||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 92.053349,
+      "num_samples": 1000
+    },
+    "elapsed": 692.0,
+    "command": "python.exe run_pytorch_baseline.py --model bert-large-uncased-whole-word-masking-finetuned-squad --task question-answering --device cpu --num-samples 1000 --dataset squad --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "deepset/roberta-base-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 83.346319,
+      "num_samples": 1000
+    },
+    "elapsed": 256.9,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-base-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "deepset/tinyroberta-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 81.874959,
+      "num_samples": 1000
+    },
+    "elapsed": 199.4,
+    "command": "python.exe run_pytorch_baseline.py --model tinyroberta-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "deepset/bert-large-uncased-whole-word-masking-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 84.404731,
+      "num_samples": 1000
+    },
+    "elapsed": 1580.5,
+    "command": "python.exe run_pytorch_baseline.py --model bert-large-uncased-whole-word-masking-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "monologg/koelectra-small-v2-distilled-korquad-384|question-answering|KorQuAD/squad_kor_v1||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 46.068571,
+      "num_samples": 1000
+    },
+    "elapsed": 280.0,
+    "command": "python.exe run_pytorch_baseline.py --model koelectra-small-v2-distilled-korquad-384 --task question-answering --device cpu --num-samples 1000 --dataset squad_kor_v1 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "timpal0l/mdeberta-v3-base-squad2|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 82.729949,
+      "num_samples": 1000
+    },
+    "elapsed": 603.3,
+    "command": "python.exe run_pytorch_baseline.py --model mdeberta-v3-base-squad2 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "ahotrod/electra_large_discriminator_squad2_512|question-answering|rajpurkar/squad_v2||validation|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "f1",
+      "value": 90.953759,
+      "num_samples": 1000
+    },
+    "elapsed": 840.9,
+    "command": "python.exe run_pytorch_baseline.py --model electra_large_discriminator_squad2_512 --task question-answering --device cpu --num-samples 1000 --dataset squad_v2 --split validation --columns-mapping {\"question_column\": \"question\", \"context_column\": \"context\", \"id_column\": \"id\", \"label_column\": \"answers\"}"
+  },
+  "microsoft/swin-large-patch4-window7-224|image-classification|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.837,
+      "num_samples": 1000
+    },
+    "elapsed": 449.7,
+    "command": "python.exe run_pytorch_baseline.py --model swin-large-patch4-window7-224 --task image-classification --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dinov2-small|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 86.2,
+      "num_samples": 1000
+    },
+    "elapsed": 141.5,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-small --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dinov2-base|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 89.5,
+      "num_samples": 1000
+    },
+    "elapsed": 316.5,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-base --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dino-vits16|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 79.7,
+      "num_samples": 1000
+    },
+    "elapsed": 94.2,
+    "command": "python.exe run_pytorch_baseline.py --model dino-vits16 --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "facebook/dino-vitb16|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 83.2,
+      "num_samples": 1000
+    },
+    "elapsed": 248.6,
+    "command": "python.exe run_pytorch_baseline.py --model dino-vitb16 --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "google/vit-base-patch16-224-in21k|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 91.9,
+      "num_samples": 1000
+    },
+    "elapsed": 231.2,
+    "command": "python.exe run_pytorch_baseline.py --model vit-base-patch16-224-in21k --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "StanfordAIMI/dinov2-base-xray-224|image-feature-extraction|Ewakaa/pneumonia_classification_chest_xray||test|582": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 93.6426,
+      "num_samples": 582
+    },
+    "elapsed": 166.0,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-base-xray-224 --task image-feature-extraction --device cpu --num-samples 582 --dataset pneumonia_classification_chest_xray --split test"
+  },
+  "facebook/dinov2-large|image-feature-extraction|timm/mini-imagenet||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 91.1,
+      "num_samples": 1000
+    },
+    "elapsed": 890.6,
+    "command": "python.exe run_pytorch_baseline.py --model dinov2-large --task image-feature-extraction --device cpu --num-samples 1000 --dataset mini-imagenet --split test"
+  },
+  "microsoft/rad-dino|image-feature-extraction|Ewakaa/pneumonia_classification_chest_xray||test|582": {
+    "status": "PASS",
+    "metric": {
+      "metric": "knn_top1_accuracy",
+      "value": 94.6735,
+      "num_samples": 582
+    },
+    "elapsed": 894.7,
+    "command": "python.exe run_pytorch_baseline.py --model rad-dino --task image-feature-extraction --device cpu --num-samples 582 --dataset pneumonia_classification_chest_xray --split test"
+  },
+  "google-bert/bert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 4.2981,
+      "num_samples": 100
+    },
+    "elapsed": 1319.8,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "distilbert/distilbert-base-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 6.6132,
+      "num_samples": 100
+    },
+    "elapsed": 1097.7,
+    "command": "python.exe run_pytorch_baseline.py --model distilbert-base-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 5.2706,
+      "num_samples": 100
+    },
+    "elapsed": 2029.2,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-base --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-uncased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 4.4645,
+      "num_samples": 100
+    },
+    "elapsed": 2645.6,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-uncased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "google-bert/bert-base-multilingual-cased|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 5.2262,
+      "num_samples": 100
+    },
+    "elapsed": 2758.9,
+    "command": "python.exe run_pytorch_baseline.py --model bert-base-multilingual-cased --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-base|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 3.6435,
+      "num_samples": 100
+    },
+    "elapsed": 4921.4,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-base --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 5.3352,
+      "num_samples": 100
+    },
+    "elapsed": 5541.0,
+    "command": "python.exe run_pytorch_baseline.py --model roberta-large --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "FacebookAI/xlm-roberta-large|fill-mask|Salesforce/wikitext|wikitext-2-raw-v1|test|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "pseudo_perplexity",
+      "value": 2.677,
+      "num_samples": 100
+    },
+    "elapsed": 10591.2,
+    "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large --task fill-mask --device cpu --num-samples 100 --dataset wikitext --split test --dataset-config wikitext-2-raw-v1 --columns-mapping {\"input_column\": \"text\"}"
+  },
+  "openai/clip-vit-base-patch32|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 58.4,
+      "num_samples": 1000
+    },
+    "elapsed": 134.9,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch32 --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "openai/clip-vit-large-patch14|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 73.6,
+      "num_samples": 1000
+    },
+    "elapsed": 997.8,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-large-patch14 --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "openai/clip-vit-large-patch14-336|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 73.4,
+      "num_samples": 1000
+    },
+    "elapsed": 2398.7,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-large-patch14-336 --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "openai/clip-vit-base-patch16|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 62.6,
+      "num_samples": 1000
+    },
+    "elapsed": 244.4,
+    "command": "python.exe run_pytorch_baseline.py --model clip-vit-base-patch16 --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "laion/CLIP-ViT-B-32-laion2B-s34B-b79K|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 73.0,
+      "num_samples": 1000
+    },
+    "elapsed": 128.4,
+    "command": "python.exe run_pytorch_baseline.py --model CLIP-ViT-B-32-laion2B-s34B-b79K --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "laion/CLIP-ViT-H-14-laion2B-s32B-b79K|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 78.7,
+      "num_samples": 1000
+    },
+    "elapsed": 1830.9,
+    "command": "python.exe run_pytorch_baseline.py --model CLIP-ViT-H-14-laion2B-s32B-b79K --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "google/siglip-so400m-patch14-384|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 80.9,
+      "num_samples": 1000
+    },
+    "elapsed": 3541.7,
+    "command": "python.exe run_pytorch_baseline.py --model siglip-so400m-patch14-384 --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "google/siglip-base-patch16-224|zero-shot-image-classification|uoft-cs/cifar100||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 68.8,
+      "num_samples": 1000
+    },
+    "elapsed": 252.3,
+    "command": "python.exe run_pytorch_baseline.py --model siglip-base-patch16-224 --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset cifar100 --split test --columns-mapping {\"input_column\": \"img\", \"label_column\": \"fine_label\"}"
+  },
+  "patrickjohncyh/fashion-clip|zero-shot-image-classification|zalando-datasets/fashion_mnist||test|1000": {
+    "status": "PASS",
+    "metric": {
+      "metric": "top1_accuracy",
+      "value": 74.3,
+      "num_samples": 1000
+    },
+    "elapsed": 222.8,
+    "command": "python.exe run_pytorch_baseline.py --model fashion-clip --task zero-shot-image-classification --device cpu --num-samples 1000 --dataset fashion_mnist --split test --columns-mapping {\"input_column\": \"image\"}"
+  },
+  "Salesforce/blip-image-captioning-base|image-to-text|lmms-lab/flickr30k||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cider",
+      "value": 0.3965,
+      "num_samples": 500
+    },
+    "elapsed": 600.7,
+    "command": "python.exe run_pytorch_baseline.py --model blip-image-captioning-base --task image-to-text --device cpu --num-samples 500 --dataset flickr30k --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"caption\"} --winml-metric-key cider"
+  },
+  "microsoft/trocr-base-handwritten|image-to-text|Teklia/IAM-line||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0476,
+      "num_samples": 500
+    },
+    "elapsed": 1532.5,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-base-handwritten --task image-to-text --device cpu --num-samples 500 --dataset IAM-line --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
+  "microsoft/trocr-large-handwritten|image-to-text|Teklia/IAM-line||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0361,
+      "num_samples": 500
+    },
+    "elapsed": 2329.6,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-large-handwritten --task image-to-text --device cpu --num-samples 500 --dataset IAM-line --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
+  "microsoft/trocr-base-printed|image-to-text|priyank-m/SROIE_2019_text_recognition||test|500": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0113,
+      "num_samples": 500
+    },
+    "elapsed": 1045.3,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-base-printed --task image-to-text --device cpu --num-samples 500 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
+  "microsoft/trocr-large-printed|image-to-text|priyank-m/SROIE_2019_text_recognition||test|200": {
+    "status": "PASS",
+    "metric": {
+      "metric": "cer",
+      "value": 0.0037,
+      "num_samples": 200
+    },
+    "elapsed": 725.5,
+    "command": "python.exe run_pytorch_baseline.py --model trocr-large-printed --task image-to-text --device cpu --num-samples 200 --dataset SROIE_2019_text_recognition --split test --columns-mapping {\"input_column\": \"image\", \"label_column\": \"text\"} --winml-metric-key cer"
+  },
   "cross-encoder/nli-deberta-v3-small|zero-shot-classification|fancyzhx/ag_news||test|200": {
     "status": "PASS",
     "metric": {
@@ -18,26 +888,6 @@
     },
     "elapsed": 320.9,
     "command": "python.exe run_pytorch_baseline.py --model xlm-roberta-large-xnli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
-  },
-  "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli|zero-shot-classification|fancyzhx/ag_news||test|200": {
-    "status": "PASS",
-    "metric": {
-      "metric": "accuracy",
-      "value": 0.71,
-      "num_samples": 200
-    },
-    "elapsed": 496.6,
-    "command": "python.exe run_pytorch_baseline.py --model DeBERTa-v3-large-mnli-fever-anli-ling-wanli --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
-  },
-  "MoritzLaurer/deberta-v3-large-zeroshot-v2.0|zero-shot-classification|fancyzhx/ag_news||test|200": {
-    "status": "PASS",
-    "metric": {
-      "metric": "accuracy",
-      "value": 0.865,
-      "num_samples": 200
-    },
-    "elapsed": 495.6,
-    "command": "python.exe run_pytorch_baseline.py --model deberta-v3-large-zeroshot-v2.0 --task zero-shot-classification --device cpu --num-samples 200 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
   },
   "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli|zero-shot-classification|fancyzhx/ag_news||test|200": {
     "status": "PASS",
@@ -78,5 +928,15 @@
     },
     "elapsed": 284.0,
     "command": "python.exe run_pytorch_baseline.py --model deberta-v3-large-zeroshot-v2.0 --task zero-shot-classification --device cpu --num-samples 100 --dataset ag_news --split test --columns-mapping {\"input_column\": \"text\", \"label_column\": \"label\", \"candidate_labels\": Tech\"}"
+  },
+  "microsoft/deberta-xlarge-mnli|text-classification|nyu-mll/glue|mnli|validation_matched|100": {
+    "status": "PASS",
+    "metric": {
+      "metric": "accuracy",
+      "value": 0.92,
+      "num_samples": 100
+    },
+    "elapsed": 124.3,
+    "command": "python.exe run_pytorch_baseline.py --model deberta-xlarge-mnli --task text-classification --device cpu --num-samples 100 --dataset glue --split validation_matched --dataset-config mnli --columns-mapping {\"input_column\": \"premise\", \"second_input_column\": \"hypothesis\"} --winml-metric-key accuracy"
   }
 }
