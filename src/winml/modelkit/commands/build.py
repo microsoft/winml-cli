@@ -361,28 +361,27 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
-    # If ep unspecified, attempt to auto-select a suitable EP from the registry
+    # If ep unspecified, defer to the unified resolver — auto-detects the best
+    # available (EP, device) pair via the catalog + host inventory.  No
+    # hardcoded device priorities here; the dispatcher does the dispatching.
     if ep is None:
-        from ..session import WinMLEPRegistry
+        from ..session import resolve_device, short_ep_name
 
-        registry = WinMLEPRegistry.get_instance()
-        from ..session import EP_DEVICE_SPECS, eps_for_device
-
-        # Walk NPU-capable EPs in catalog order (QNN first, then OpenVINO, VitisAI).
-        # eps_for_device returns a frozenset; sort by catalog position for determinism.
-        _npu_eps = sorted(
-            eps_for_device("npu"),
-            key=lambda e: next(i for i, s in enumerate(EP_DEVICE_SPECS) if s.ep == e),
-        )
-        for candidate_ep in _npu_eps:
-            if registry.is_ep_available(candidate_ep):
-                ep = candidate_ep
-                logger.info("EP unspecified for build, auto-selecting: %s", ep)
-                break
-    if ep is None:
-        logger.warning(
-            "EP unspecified for build, and auto-selection failed. Proceeding without EP hints."
-        )
+        try:
+            _auto_ep_device = resolve_device(ep=None, device=None)
+        except Exception as exc:
+            logger.warning(
+                "EP unspecified for build, and auto-selection failed: %s. "
+                "Proceeding without EP hints.",
+                exc,
+            )
+        else:
+            ep = short_ep_name(_auto_ep_device.ep)
+            logger.info(
+                "EP unspecified for build, auto-selecting: %s (device: %s)",
+                ep,
+                _auto_ep_device.device,
+            )
 
     try:
         # Load config first (needed for both output modes)
