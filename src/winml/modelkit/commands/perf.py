@@ -120,6 +120,7 @@ class BenchmarkResult:
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
+    actual_ep: str | None = None
 
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
@@ -131,6 +132,7 @@ class BenchmarkResult:
                 "model_id": self.config.model_id,
                 "task": self.actual_task,
                 "device": self.actual_device,
+                "ep": self.actual_ep,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
@@ -298,6 +300,7 @@ class PerfBenchmark:
             self._model.io_config,
             task=self._model.task or self.config.task,
             device=self._model.device,
+            ep_name=self._model._session.ep_name,
         )
 
         # [3] Run benchmark
@@ -488,6 +491,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._model.device,
             actual_task=self._model.task or self.config.task or "auto-detected",
+            actual_ep=self._model._session.ep_name,
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -760,6 +764,8 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     req_device = result.config.device
     act_device = result.actual_device
     device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    if result.actual_ep:
+        device_str = f"{device_str} / {result.actual_ep}"
     console.print(f"[dim]Device:[/dim]      {device_str}")
 
     # TODO: show resolved precision once WinMLPreTrainedModel.precision
@@ -879,11 +885,13 @@ def _print_model_info(
     *,
     task: str | None = None,
     device: str = "auto",
+    ep_name: str | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
     console.print()
-    console.print(f"[dim]Device:[/dim]      {device}")
+    device_line = f"{device} / {ep_name}" if ep_name else device
+    console.print(f"[dim]Device:[/dim]      {device_line}")
     # TODO: show resolved precision once WinMLPreTrainedModel.precision
     # is implemented (derive from _build_config.quant.weight_type)
     if task:
@@ -1000,7 +1008,7 @@ def _run_onnx_benchmark(
     session.compile()
 
     # Print model info before benchmark starts
-    _print_model_info(io_cfg, device=session.device)
+    _print_model_info(io_cfg, device=session.device, ep_name=session.ep_name)
 
     # Run benchmark
     total_iterations = warmup + iterations
@@ -1068,6 +1076,7 @@ def _run_onnx_benchmark(
         batches_per_sec=batches_per_sec,
         actual_device=session.device,
         actual_task="n/a (direct ONNX)",
+        actual_ep=session.ep_name,
         hw_monitor=hw_metrics,
     )
 

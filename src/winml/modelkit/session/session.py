@@ -489,7 +489,11 @@ class WinMLSession:
         # When device is also specified (non-"auto"), narrow by both EP name
         # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
         # instead of the first QNN ep_device (which may report as NPU).
-        if self._ep and self._ep != "cpu":
+        # `--ep cpu` is honoured here too so the CPUExecutionProvider gets
+        # bound explicitly; otherwise PREFER_CPU policy lets ORT prefer
+        # OV-on-CPU (or any other registered CPU-capable EP) over the basic
+        # CPU EP, silently ignoring the user's --ep choice.
+        if self._ep:
             from ..sysinfo import EP_SHORT_TO_FULL
 
             target_name = EP_SHORT_TO_FULL.get(self._ep)
@@ -683,6 +687,19 @@ class WinMLSession:
     def device(self) -> str:
         """Target device for this session."""
         return self._device
+
+    @property
+    def ep_name(self) -> str | None:
+        """Primary EP ORT actually bound, or None before compile.
+
+        Returns ``session.get_providers()[0]`` — the EP that owns node
+        partitioning. ``CPUExecutionProvider`` may still appear later
+        in the list as ORT's automatic fallback for unsupported ops.
+        """
+        if self._session is None:
+            return None
+        providers = self._session.get_providers()
+        return providers[0] if providers else None
 
     @property
     def is_compiled(self) -> bool:
