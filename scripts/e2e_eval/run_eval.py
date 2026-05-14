@@ -79,7 +79,22 @@ BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
 EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
-_DEFAULT_PRECISION = "w8a16"
+_DEFAULT_PRECISION_NPU = "w8a16"
+
+
+def _resolve_precision(device: str, explicit: str | None) -> str | None:
+    """Return the precision to pass to winml config/perf.
+
+    Quantization (w8a16) is only applied by default on NPU.  CPU and GPU
+    work best without forced quantization — leaving it to winml config's
+    own auto-detection avoids device-specific issues such as the QNN GPU
+    NHWC + QDQ incompatibility.
+
+    An explicit per-model precision always takes precedence.
+    """
+    if explicit:
+        return explicit
+    return _DEFAULT_PRECISION_NPU if device == "npu" else None
 
 
 def _load_timeout_skip_set() -> set[tuple[str, str]]:
@@ -347,7 +362,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 def _run_build(
     entry: ModelEntry,
     device: str,
-    precision: str,
+    precision: str | None,
     timeout: int,
     model_dir: Path,
     ep: str | None = None,
@@ -381,11 +396,11 @@ def _run_build(
         entry.hf_id,
         "--device",
         device,
-        "--precision",
-        precision,
         "-o",
         str(config_path),
     ]
+    if precision:
+        config_args += ["--precision", precision]
     if entry.task:
         config_args += ["--task", entry.task]
     if ep:
@@ -529,6 +544,7 @@ def run_model(
     """
     if not onnx_paths:
         # No pre-built paths: fall back to HF model ID (single model only)
+        precision = _resolve_precision(device, None)
         args = [
             *WINML_CLI,
             "perf",
@@ -536,9 +552,9 @@ def run_model(
             entry.hf_id,
             "--device",
             device,
-            "--precision",
-            _DEFAULT_PRECISION,
         ]
+        if precision:
+            args += ["--precision", precision]
         if entry.task:
             args += ["--task", entry.task]
         if ep:
@@ -1315,7 +1331,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                entry.precision or _DEFAULT_PRECISION,
+                _resolve_precision(args.device, entry.precision),
                 args.timeout,
                 model_dir,
                 ep=args.ep,
