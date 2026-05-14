@@ -323,7 +323,7 @@ class PerfBenchmark:
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
         # Resolve device once -- "auto" becomes concrete (e.g., "npu")
-        resolved_device, _ = resolve_device(device=self.config.device)
+        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -551,7 +551,7 @@ def _perf_modules(
     from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
 
-    resolved_device, _ = resolve_device(device=device)
+    resolved_device, _ = resolve_device(device=device, ep=ep)
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -1355,7 +1355,7 @@ def perf(
 
             from ..sysinfo import resolve_device
 
-            resolved_device, _ = resolve_device(device=config.device)
+            resolved_device, _ = resolve_device(device=config.device, ep=config.ep)
 
             result = _run_onnx_benchmark(
                 model_path,

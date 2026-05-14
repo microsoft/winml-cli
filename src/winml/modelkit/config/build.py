@@ -320,7 +320,7 @@ def resolve_quant_compile_config(
     from ..sysinfo import resolve_device
     from .precision import resolve_precision
 
-    resolved_device, available_devices = resolve_device(device=device)
+    resolved_device, available_devices = resolve_device(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -614,7 +614,7 @@ def generate_hf_build_config(
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
-    resolved_device, available_devices = resolve_device(device=device)
+    resolved_device, available_devices = resolve_device(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
