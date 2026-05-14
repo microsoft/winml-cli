@@ -29,6 +29,7 @@ from .build import (
     generate_build_config,
     generate_hf_build_config,
     generate_onnx_build_config,
+    resolve_quant_compile_config,
 )
 from .precision import (
     VALID_EPS,
@@ -50,5 +51,6 @@ __all__ = [
     "is_quantized_precision",
     "merge_config",
     "resolve_precision",
+    "resolve_quant_compile_config",
     "resolve_quant_types",
 ]
