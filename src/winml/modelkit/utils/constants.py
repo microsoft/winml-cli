@@ -25,8 +25,6 @@ EPName = Literal[
 ]
 
 # Shorthand aliases users can pass on the CLI (case-insensitive at the parser layer).
-# Includes every alias accepted across the codebase — superset of both
-# `EP_ALIASES` and `sysinfo.device.EP_SHORT_TO_FULL`.
 EPAlias = Literal[
     "qnn",
     "openvino",
@@ -62,8 +60,10 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "vitisai": "VitisAIExecutionProvider",
     "vitis": "VitisAIExecutionProvider",
     "cpu": "CPUExecutionProvider",
+    "cuda": "CUDAExecutionProvider",
     "dml": "DmlExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "trtrtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
 }
 

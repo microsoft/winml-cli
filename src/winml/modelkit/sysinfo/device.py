@@ -62,20 +62,6 @@ for _ep, _device in _EP_DEVICE_MAP.items():
     for _d in _device.split("/"):
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Short EP name -> full ORT provider name. Public so that callers in other
-# modules (e.g. WinMLSession) can resolve --ep flags consistently.
-EP_SHORT_TO_FULL: dict[str, str] = {
-    "qnn": "QNNExecutionProvider",
-    "dml": "DmlExecutionProvider",
-    "migraphx": "MIGraphXExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
-    "trtrtx": "NvTensorRTRTXExecutionProvider",
-    "vitisai": "VitisAIExecutionProvider",
-    "openvino": "OpenVINOExecutionProvider",
-    "cuda": "CUDAExecutionProvider",
-    "cpu": "CPUExecutionProvider",
-}
-
 # Valid explicit device values
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 

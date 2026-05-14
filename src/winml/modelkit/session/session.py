@@ -491,9 +491,9 @@ class WinMLSession:
         # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
         # instead of the first QNN ep_device (which may report as NPU).
         if self._ep and self._ep != "cpu":
-            from ..sysinfo import EP_SHORT_TO_FULL
+            from ..utils.constants import normalize_ep_name
 
-            target_name = EP_SHORT_TO_FULL.get(self._ep)
+            target_name = normalize_ep_name(self._ep)
             if target_name:
                 matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
