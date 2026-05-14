@@ -294,8 +294,8 @@ class TestConfigFlagVariations:
     def test_every_named_precision(self, precision: str) -> None:
         """Every named --precision choice should produce a valid config."""
         # Pair each precision with a compatible device to bypass NPU's
-        # narrow precision matrix (which would reject fp32/int8 by design).
-        device = "cpu" if precision in ("fp32", "fp16") else "npu"
+        # narrow precision matrix (which rejects fp32/int8/int16 by design).
+        device = "npu" if precision == "auto" else "cpu"
         data = _run_config(
             "-m",
             self.MODEL,

@@ -40,13 +40,9 @@ class TestResolvePrecision:
         [
             # device   precision  exp_device  exp_prec  weight    act      provider
             ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "qnn"),
-            ("npu", "int8", "npu", "int8", "uint8", "uint8", "qnn"),
-            ("npu", "int16", "npu", "int16", "int16", "uint16", "qnn"),
             ("npu", "fp16", "npu", "fp16", None, None, "qnn"),
-            ("npu", "fp32", "npu", "fp32", None, None, "qnn"),
             ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "qnn"),
             ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "qnn"),
-            ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "qnn"),
             ("gpu", "auto", "gpu", "fp16", None, None, "dml"),
             ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "dml"),
             ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "dml"),
@@ -82,12 +78,15 @@ class TestResolvePrecision:
     @pytest.mark.parametrize(
         "precision,available,exp_device",
         [
-            ("int8", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU for int8
+            # int8/int16 are not NPU-compatible — auto-pick skips NPU
+            ("int8", ["npu", "gpu", "cpu"], "gpu"),  # NPU filtered, first compatible = gpu
             ("int8", ["gpu", "cpu"], "gpu"),  # no NPU, falls to first
             ("fp16", ["npu", "gpu", "cpu"], "gpu"),  # prefers GPU for fp16
-            ("fp16", ["npu", "cpu"], "npu"),  # no GPU, falls to first
+            ("fp16", ["npu", "cpu"], "npu"),  # NPU is fp16-compatible
             ("fp32", ["cpu"], "cpu"),  # only CPU
-            ("int16", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU for int16
+            ("int16", ["npu", "gpu", "cpu"], "gpu"),  # NPU filtered for int16
+            ("w8a8", ["npu", "gpu", "cpu"], "npu"),  # NPU compatible — preferred
+            ("w8a16", ["npu", "gpu", "cpu"], "npu"),  # NPU compatible — preferred
         ],
     )
     def test_auto_device_picks_best(
@@ -124,6 +123,54 @@ class TestResolvePrecision:
         """Unknown precision name raises ValueError."""
         with pytest.raises(ValueError, match="Unknown precision"):
             resolve_precision(device="cpu", precision="bfloat16")
+
+
+# =============================================================================
+# TestDevicePrecisionCompatibility - reject unsupported device/precision combos
+# =============================================================================
+
+
+class TestDevicePrecisionCompatibility:
+    """Device-specific precision whitelist enforcement.
+
+    Per the design contract, NPU only supports auto/fp16/w8a8/w8a16. Any
+    other precision must be rejected with a clear, structured error so the
+    user can correct the flag instead of silently getting a different model.
+    """
+
+    @pytest.mark.parametrize("precision", ["int8", "int16", "fp32", "w16a16"])
+    def test_npu_rejects_unsupported_precision(self, precision: str) -> None:
+        """NPU must reject every valid precision outside its whitelist."""
+        with pytest.raises(ValueError, match="not supported on --device npu"):
+            resolve_precision(device="npu", precision=precision)
+
+    def test_npu_int8_error_message_format(self) -> None:
+        """Error must echo the user's --precision and list the supported set."""
+        with pytest.raises(ValueError) as exc_info:
+            resolve_precision(device="npu", precision="int8")
+        msg = str(exc_info.value)
+        assert "--precision int8" in msg
+        assert "--device npu" in msg
+        assert "auto, fp16, w8a8, w8a16" in msg
+
+    @pytest.mark.parametrize("precision", ["auto", "fp16", "w8a8", "w8a16"])
+    def test_npu_accepts_whitelisted_precision(self, precision: str) -> None:
+        """All whitelisted NPU precisions must resolve without error."""
+        policy = resolve_precision(device="npu", precision=precision)
+        assert policy.device == "npu"
+
+    def test_npu_rejection_via_ep_inferred_device(self) -> None:
+        """--ep qnn (which infers device=npu) + int8 should still be rejected."""
+        with pytest.raises(ValueError, match="not supported on --device npu"):
+            resolve_precision(precision="int8", ep="qnn")
+
+    def test_gpu_and_cpu_remain_permissive(self) -> None:
+        """Non-NPU devices still accept int8/int16 (no whitelist enforced)."""
+        # Smoke test — no exception, weight/activation types populated.
+        gpu = resolve_precision(device="gpu", precision="int8")
+        cpu = resolve_precision(device="cpu", precision="int16")
+        assert gpu.weight_type is not None
+        assert cpu.weight_type is not None
 
 
 # =============================================================================
@@ -436,7 +483,7 @@ class TestMixedPrecisionAutoDevice:
             ("w8a16", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU
             ("w8a16", ["gpu", "cpu"], "gpu"),  # no NPU, falls to first
             ("w8a8", ["npu", "gpu", "cpu"], "npu"),  # prefers NPU
-            ("w16a16", ["npu", "cpu"], "npu"),  # prefers NPU
+            ("w16a16", ["npu", "cpu"], "cpu"),  # NPU does not support w16a16 — falls back
             ("w8a16", ["cpu"], "cpu"),  # only CPU available
         ],
     )

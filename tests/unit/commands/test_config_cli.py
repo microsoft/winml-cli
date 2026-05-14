@@ -150,6 +150,43 @@ class TestConfigCliInterface:
         result = runner.invoke(config, ["-m", "test", "--precision", "bf16"])
         assert result.exit_code != 0
 
+    def test_precision_int8_on_npu_rejected(self, runner: CliRunner) -> None:
+        """--precision int8 --device npu must NOT silently produce uint8/uint8.
+
+        Regression for issue: the CLI must reject unsupported device/precision
+        combinations with a structured error message and a non-zero exit code,
+        rather than substituting a different precision into the saved config.
+        """
+        from winml.modelkit.commands.config import config
+
+        # Don't mock generate_hf_build_config — we want the real call so
+        # resolve_precision runs and raises. Patch it to a thin wrapper that
+        # just invokes resolve_precision so we don't hit the network.
+        def _raise_via_resolve(*_args, **kwargs):
+            from winml.modelkit.config.precision import resolve_precision
+
+            resolve_precision(
+                device=kwargs.get("device", "auto"),
+                precision=kwargs.get("precision", "auto"),
+                ep=kwargs.get("ep"),
+            )
+            raise AssertionError("resolve_precision should have raised")
+
+        with patch(
+            "winml.modelkit.config.generate_hf_build_config",
+            side_effect=_raise_via_resolve,
+        ):
+            result = runner.invoke(
+                config,
+                ["-m", "test", "--device", "npu", "--precision", "int8"],
+            )
+
+        assert result.exit_code != 0, "int8 on NPU must be rejected"
+        assert "int8" in result.output
+        assert "npu" in result.output
+        # Supported set should be surfaced to the user.
+        assert "w8a8" in result.output and "w8a16" in result.output
+
     @pytest.mark.parametrize("device", ["auto", "npu", "gpu", "cpu"])
     def test_valid_device_choices(
         self,
@@ -642,7 +679,7 @@ class TestConfigOnnxQdqDetection:
         assert data.get("quant") is None, "QDQ ONNX build should have quant=null"
 
     def test_qdq_overrides_device_precision(self, runner: CliRunner, tmp_path: Path) -> None:
-        """QDQ detection should keep quant=null even with -d npu -p int8."""
+        """QDQ detection should keep quant=null even with -d npu -p w8a8."""
         from winml.modelkit.commands.config import config
 
         onnx_file = tmp_path / "quantized.onnx"
@@ -652,11 +689,11 @@ class TestConfigOnnxQdqDetection:
             patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.onnx.is_quantized_onnx", return_value=True),
         ):
-            result = runner.invoke(config, ["-m", str(onnx_file), "-d", "npu", "-p", "int8"])
+            result = runner.invoke(config, ["-m", str(onnx_file), "-d", "npu", "-p", "w8a8"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         data = _extract_json(result.output)
-        assert data.get("quant") is None, "QDQ detection should take precedence over -d npu -p int8"
+        assert data.get("quant") is None, "QDQ detection should take precedence over -d npu -p w8a8"
 
     def test_non_qdq_onnx_has_default_quant(self, runner: CliRunner, tmp_path: Path) -> None:
         """Config for non-QDQ ONNX should have default quant settings (not null)."""

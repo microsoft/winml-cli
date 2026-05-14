@@ -101,6 +101,34 @@ _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 # Named precision presets (non-mixed)
 _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
 
+# Per-device precision whitelist. A device listed here will reject any
+# --precision value not in its allowed set rather than silently substituting
+# a different weight/activation type.
+#
+# Ordering of the displayed tuple is preserved in error messages so users
+# see the supported list in a stable, documented order.
+_NPU_SUPPORTED_PRECISIONS: tuple[str, ...] = ("auto", "fp16", "w8a8", "w8a16")
+
+_DEVICE_PRECISION_SUPPORT: dict[str, tuple[str, ...]] = {
+    "npu": _NPU_SUPPORTED_PRECISIONS,
+}
+
+
+def _device_supports_precision(device: str, precision: str) -> bool:
+    """Check whether a device accepts the requested precision.
+
+    Devices not listed in _DEVICE_PRECISION_SUPPORT have no restriction.
+    Normalizes w{x}a{y} bit-width values so e.g. "w08a16" matches "w8a16".
+    """
+    allowed = _DEVICE_PRECISION_SUPPORT.get(device)
+    if allowed is None:
+        return True
+    normalized = precision
+    m = _MIXED_RE.match(precision)
+    if m:
+        normalized = f"w{int(m.group(1))}a{int(m.group(2))}"
+    return normalized in allowed
+
 # Regex for mixed precision: w{weight_bits}a{activation_bits}
 _MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
 
@@ -280,6 +308,17 @@ def resolve_precision(
             available_devices or ["cpu"],
         )
 
+    # Enforce device-precision compatibility. We validate the *user-supplied*
+    # precision (pre-"auto"-resolution) so the error message uses the value
+    # the user actually typed. "auto" is always compatible because it expands
+    # to the device's recommended precision below.
+    if not _device_supports_precision(resolved_device, resolved_precision):
+        allowed = _DEVICE_PRECISION_SUPPORT[resolved_device]
+        raise ValueError(
+            f"--precision {precision} not supported on --device {resolved_device}. "
+            f"Supported: {', '.join(allowed)}."
+        )
+
     # Resolve "auto" precision for the resolved device
     if resolved_precision == "auto":
         resolved_precision = _AUTO_PRECISION[resolved_device]
@@ -321,19 +360,27 @@ def _pick_device_for_precision(
     a proper device-precision compatibility matrix later.
 
     Current logic:
-        quantized (int8/int16/w{x}a{y}) → prefer NPU, fall back to first available
-        float (fp16/fp32)               → prefer GPU, fall back to first available
+        1. Filter out devices that don't support the requested precision
+           (per _DEVICE_PRECISION_SUPPORT). If filtering leaves nothing,
+           fall back to the original list so the explicit-device error path
+           still surfaces a clear message.
+        2. quantized (int8/int16/w{x}a{y}) → prefer NPU, fall back to first.
+        3. float (fp16/fp32)               → prefer GPU, fall back to first.
     """
+    compatible = [d for d in available_devices if _device_supports_precision(d, precision)]
+    if not compatible:
+        compatible = list(available_devices)
+
     if is_quantized_precision(precision):
         # Prefer NPU for quantized models
-        for d in available_devices:
+        for d in compatible:
             if d == "npu":
                 return d
     elif precision in ("fp16", "fp32"):
         # Prefer GPU for float models
-        for d in available_devices:
+        for d in compatible:
             if d == "gpu":
                 return d
 
-    # Fallback: first available device
-    return available_devices[0] if available_devices else "cpu"
+    # Fallback: first compatible device
+    return compatible[0] if compatible else "cpu"

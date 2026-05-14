@@ -133,7 +133,10 @@ def _is_onnx_file(model_input: str) -> bool:
     "-p",
     "--precision",
     "precision",
-    type=str,
+    type=click.Choice(
+        ["auto", "fp32", "fp16", "int8", "int16", "w4a16", "w8a8", "w8a16"],
+        case_sensitive=False,
+    ),
     default="auto",
     help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
     "Default: auto (based on device when device is specified).",
