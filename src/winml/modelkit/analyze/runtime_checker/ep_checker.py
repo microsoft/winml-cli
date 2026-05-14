@@ -35,12 +35,14 @@ class EPChecker:
     # EPs that require a file path (not in-memory bytes) for compilation.
     # VitisAI EP fails with "ep.context_file_path and model_path are both empty"
     # when given in-memory model bytes.
-    EPS_REQUIRING_FILE_PATH: ClassVar[set[str]] = {"VitisAIExecutionProvider"}
+    EPS_REQUIRING_FILE_PATH: ClassVar[set[EPName]] = {"VitisAIExecutionProvider"}
 
     # EP/device combinations that are known to leak resources/state across many
     # sequential checks inside a single worker process. Running each case in an
     # isolated process avoids "first case passes, later cases fail" behavior.
-    EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[dict[str, set[ort.OrtHardwareDeviceType]]] = {
+    EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[
+        dict[EPName, set[ort.OrtHardwareDeviceType]]
+    ] = {
         "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
     }
 
