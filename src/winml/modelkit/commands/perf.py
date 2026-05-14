@@ -323,7 +323,7 @@ class PerfBenchmark:
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
         # Resolve device once -- "auto" becomes concrete (e.g., "npu")
-        resolved_device, _ = resolve_device(device=self.config.device)
+        resolved_device, _ = resolve_device(device=self.config.device, ep=self.config.ep)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -542,15 +542,16 @@ def _perf_modules(
             device-to-provider mapping when set.
         precision: Precision mode passed through to the build stage.
     """
+    import difflib
     import json as json_mod
     import tempfile
 
     from ..build import build_hf_model
-    from ..config import generate_hf_build_config
+    from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
 
-    resolved_device, _ = resolve_device(device=device)
+    resolved_device, _ = resolve_device(device=device, ep=ep)
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -563,23 +564,44 @@ def _perf_modules(
             precision=precision,
             ep=ep,
         )
+    except SubmoduleClassNotFoundError as e:
+        # User-error: --module pattern didn't match. List what's available so
+        # the user can correct the typo without re-discovering classes manually.
+        msg = [f"No modules matching '{e.class_name}' found."]
+        suggestions = difflib.get_close_matches(e.class_name, e.available_classes, n=5)
+        if suggestions:
+            msg.append(f"Did you mean: {', '.join(suggestions)}?")
+        if e.available_classes:
+            msg.append("Available module class names in this model:")
+            msg.append("  " + "\n  ".join(e.available_classes))
+        raise click.UsageError("\n".join(msg)) from e
     except Exception as e:
         if verbose:
             logger.exception("Module config generation failed")
         raise click.ClickException(f"Error generating module configs: {e}") from e
 
     if not module_configs:
-        # User-error: --module pattern didn't match. Exit non-zero so CI
-        # doesn't silently treat a typo'd module name as success.
+        # Defense-in-depth: _find_submodules_by_class now raises on no match,
+        # but keep this branch for builders that might bypass it.
         raise click.UsageError(f"No modules matching '{module_class}' found")
 
     console.print(f"[dim]Found {len(module_configs)} {module_class} instances[/dim]")
 
-    # Instantiate parent with init weights (no pretrained download)
+    # Instantiate parent with init weights (no pretrained download).
+    # Submodule configs intentionally drop `loader.task`, so re-resolve the
+    # parent task from the model_id — the same path `generate_hf_build_config`
+    # used to compute module_path. Without this, models whose `architectures`
+    # field maps to a different task than `get_supported_tasks(model_type)[0]`
+    # instantiate the wrong parent class and `get_submodule()` raises
+    # AttributeError.
     model_type = module_configs[0].loader.model_type
     if not model_type:
         raise click.ClickException("module configs missing model_type")
-    parent_model = _instantiate_parent_model(model_type, task=task)
+
+    from ..loader import resolve_loader_config
+
+    parent_loader_cfg, _, _ = resolve_loader_config(model_id=hf_model, task=task)
+    parent_model = _instantiate_parent_model(model_type, task=parent_loader_cfg.task)
 
     all_results: list[dict[str, Any]] = []
     for i, cfg in enumerate(module_configs):
@@ -713,8 +735,7 @@ def _perf_modules(
 
     # Write JSON report
     if output is None:
-        slug = hf_model.replace("/", "_").replace("\\", "_")
-        output = Path(f"{slug}_{module_class}_perf.json")
+        output = generate_output_path(hf_model, module_class=module_class)
 
     module_report = {
         "model_id": hf_model,
@@ -828,18 +849,28 @@ def write_json_report(result: BenchmarkResult, output_path: Path) -> None:
         json.dump(result.to_dict(), f, indent=2)
 
 
-def generate_output_path(model_id: str) -> Path:
-    """Generate default output path from model ID.
+def generate_output_path(model_id: str, *, module_class: str | None = None) -> Path:
+    r"""Generate default output path under the user's cache directory.
 
-    For ONNX files: uses the file stem (e.g., "model.onnx" -> "model_perf.json").
-    For HF model IDs: slugifies org/name
-    (e.g., "microsoft/resnet-50" -> "microsoft_resnet-50_perf.json").
+    Returns ``~/.cache/winml/perf/<slug>[/<module_class>]/<timestamp>.json``
+    so repeated runs accumulate under a stable per-model directory without
+    polluting CWD (see #551). The timestamp is generated at call time using
+    local time, format ``YYYYMMDD-HHMMSS``.
+
+    For ONNX inputs, the file stem is used as the slug
+    (e.g., ``model.onnx`` -> ``model``). For HF model IDs, ``/`` and ``\``
+    are replaced with ``_`` (e.g., ``microsoft/resnet-50`` ->
+    ``microsoft_resnet-50``).
     """
     p = Path(model_id)
-    if p.suffix.lower() == ".onnx":
-        return Path(f"{p.stem}_perf.json")
-    slug = model_id.replace("/", "_").replace("\\", "_")
-    return Path(f"{slug}_perf.json")
+    slug = p.stem if p.suffix.lower() == ".onnx" else model_id.replace("/", "_").replace("\\", "_")
+
+    out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
+    if module_class:
+        out_dir = out_dir / module_class
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return out_dir / f"{timestamp}.json"
 
 
 # =============================================================================
@@ -1089,7 +1120,10 @@ def _run_onnx_benchmark(
     "-o",
     type=click.Path(path_type=Path),
     default=None,
-    help="Output JSON file path. Defaults to '{model_slug}_perf.json'",
+    help=(
+        "Output JSON file path. Defaults to "
+        "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
+    ),
 )
 @click.option(
     "--batch-size",
@@ -1128,8 +1162,10 @@ def _run_onnx_benchmark(
     "module_class",
     default=None,
     type=str,
-    help="HF module class name for per-module benchmarking (e.g., 'BertAttention'). "
-    "Builds and benchmarks each instance separately.",
+    help="PyTorch module class name (NOT a dotted module path) for per-module "
+    "benchmarking. Every instance of the class in the model is built and "
+    "benchmarked separately. Example: '--module BertAttention' (correct), "
+    "not '--module encoder.layer.0.attention' (a path, will not match).",
 )
 @click.option(
     "--monitor",
@@ -1225,6 +1261,17 @@ def perf(
     # MODULE MODE: per-module build + benchmark
     # =========================================================================
     if module_class:
+        # Reject --module on a pre-exported ONNX path. Submodule discovery
+        # walks a live nn.Module graph (torchinfo), which an ONNX file does
+        # not carry. Without this guard, the user sees a misleading
+        # "not a valid JSON file" error from AutoConfig.from_pretrained
+        # trying to load the .onnx as an HF config dir (issue #553).
+        if Path(hf_model).suffix.lower() == ".onnx":
+            raise click.UsageError(
+                f"--module is not supported for ONNX files. "
+                f"Submodule benchmarking requires a HuggingFace model ID "
+                f"(e.g., 'microsoft/resnet-50'), not '{hf_model}'."
+            )
         if shape_config_path:
             console.print(
                 "[yellow]Warning:[/yellow] --shape-config is not supported "
@@ -1308,7 +1355,7 @@ def perf(
 
             from ..sysinfo import resolve_device
 
-            resolved_device, _ = resolve_device(device=config.device)
+            resolved_device, _ = resolve_device(device=config.device, ep=config.ep)
 
             result = _run_onnx_benchmark(
                 model_path,

@@ -381,6 +381,7 @@ markers = [
   "gpu: Tests requiring GPU hardware",
 
   # Environment Markers (Backend)
+  "ep(name): marks tests requiring a specific execution provider",
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
   "cuda: marks tests requiring CUDA runtime",
