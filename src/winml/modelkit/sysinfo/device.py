@@ -10,7 +10,7 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPName, normalize_ep_name
 
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 #   - EP list: https://onnxruntime.ai/docs/execution-providers/
 
 # EP name -> target device type (all lowercase values)
-_EP_DEVICE_MAP: dict[str, str] = {
+_EP_DEVICE_MAP: dict[EPName, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
     "CUDAExecutionProvider": "gpu",
@@ -59,7 +59,7 @@ _EP_DEVICE_MAP: dict[str, str] = {
 }
 
 # Derived inverse mapping (multi-device EPs are included in each device)
-_DEVICE_EP_MAP: dict[str, list[str]] = {}
+_DEVICE_EP_MAP: dict[str, list[EPName]] = {}
 for _ep, _device in _EP_DEVICE_MAP.items():
     for _d in _device.split("/"):
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
@@ -68,7 +68,7 @@ for _ep, _device in _EP_DEVICE_MAP.items():
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 
-def get_ep_device_map() -> dict[str, str]:
+def get_ep_device_map() -> dict[EPName, str]:
     """Return a copy of the EP-to-device mapping.
 
     Public accessor for the internal ``_EP_DEVICE_MAP``. Use this instead
@@ -129,7 +129,7 @@ def _get_available_devices() -> tuple[str, ...]:
 
 
 @functools.lru_cache(maxsize=1)
-def _get_available_eps() -> frozenset[str]:
+def _get_available_eps() -> frozenset[EPName]:
     """Collect available EP names from WinML and ORT (cached).
 
     Hardware and EPs do not change during a process lifetime,
@@ -138,7 +138,7 @@ def _get_available_eps() -> frozenset[str]:
     Returns:
         Frozenset of available EP name strings.
     """
-    available_eps: set[str] = set()
+    available_eps: set[EPName] = set()
 
     try:
         from ..session.ep_registry import WinMLEPRegistry
