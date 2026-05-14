@@ -13,6 +13,8 @@ from pathlib import Path
 
 import click
 
+from ..session import VALID_DEVICES
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default="auto",
     show_default=True,
     help="Device to run on. 'auto' detects the best available device.",

@@ -14,6 +14,8 @@ import pytest
 from winml.modelkit.session import EPNotDiscovered, EPRegistrationFailed
 from winml.modelkit.session.ep_registry import WinMLEPRegistry, ensure_initialized
 
+from .conftest import QNN_VENDOR_ID
+
 
 @pytest.fixture
 def fresh_registry() -> WinMLEPRegistry:
@@ -29,7 +31,7 @@ def _fake_ep_device(ep_name: str, dev_type: str) -> MagicMock:
     d = MagicMock()
     d.ep_name = ep_name
     d.device.type.name = dev_type
-    d.device.vendor_id = 0x4D4F
+    d.device.vendor_id = QNN_VENDOR_ID
     d.device.device_id = 0x0001
     return d
 

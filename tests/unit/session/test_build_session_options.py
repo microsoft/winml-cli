@@ -16,13 +16,15 @@ from winml.modelkit.session.session import (
     _ep_defaults,
 )
 
+from .conftest import QNN_VENDOR_ID
+
 
 @pytest.fixture
 def qnn_npu() -> EPDevice:
     return EPDevice(
         ep="QNNExecutionProvider",
         device="npu",
-        vendor_id=0x4D4F,
+        vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
         vendor="Qualcomm",
     )
@@ -101,8 +103,8 @@ def test_build_session_options_no_monitor_qnn_npu(qnn_npu: EPDevice) -> None:
 
     Burst-mode defaults from the EPDeviceSpec catalog are passed as provider_options.
     """
-    chosen = _ort_dev("NPU", 0x4D4F, 0x0001)
-    sibling = _ort_dev("GPU", 0x4D4F, 0x0002)
+    chosen = _ort_dev("NPU", QNN_VENDOR_ID, 0x0001)
+    sibling = _ort_dev("GPU", QNN_VENDOR_ID, 0x0002)
     fake_so = MagicMock()
     with (
         patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
@@ -123,7 +125,7 @@ def test_build_session_options_no_monitor_qnn_npu(qnn_npu: EPDevice) -> None:
 
 def test_build_session_options_monitor_plumbs_session_options(qnn_npu: EPDevice) -> None:
     """Monitor's get_session_options() entries land via add_session_config_entry."""
-    chosen = _ort_dev("NPU", 0x4D4F, 0x0001)
+    chosen = _ort_dev("NPU", QNN_VENDOR_ID, 0x0001)
     monitor = _stub_monitor(
         prov={"profiling_level": "detailed"},
         sess={"session.disable_cpu_ep_fallback": "1"},
@@ -143,7 +145,7 @@ def test_build_session_options_monitor_plumbs_session_options(qnn_npu: EPDevice)
 
 def test_build_session_options_device_not_found_raises(qnn_npu: EPDevice) -> None:
     """Registry returns only a GPU — npu request raises DeviceNotFound."""
-    only_gpu = _ort_dev("GPU", 0x4D4F, 0x0002)
+    only_gpu = _ort_dev("GPU", QNN_VENDOR_ID, 0x0002)
     with (
         patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
         patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
@@ -155,8 +157,8 @@ def test_build_session_options_device_not_found_raises(qnn_npu: EPDevice) -> Non
 
 def test_build_session_options_ambiguous_match_raises(qnn_npu: EPDevice) -> None:
     """Two registry entries with identical IDs trigger AmbiguousMatch (registry bug signal)."""
-    a = _ort_dev("NPU", 0x4D4F, 0x0001)
-    b = _ort_dev("NPU", 0x4D4F, 0x0001)
+    a = _ort_dev("NPU", QNN_VENDOR_ID, 0x0001)
+    b = _ort_dev("NPU", QNN_VENDOR_ID, 0x0001)
     with (
         patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
         patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
@@ -195,7 +197,7 @@ def test_build_session_options_repeated_calls_do_not_accumulate(qnn_npu: EPDevic
     against real OrtEpDevice.  The ORT overwrite semantics are pinned in the
     companion test test_ort_session_options_same_key_overwrites.
     """
-    chosen = _ort_dev("NPU", 0x4D4F, 0x0001)
+    chosen = _ort_dev("NPU", QNN_VENDOR_ID, 0x0001)
     monitor_a = _stub_monitor(prov={}, sess={"session.disable_cpu_ep_fallback": "1"})
     monitor_b = _stub_monitor(prov={}, sess={"session.disable_cpu_ep_fallback": "0"})
     fake_so = MagicMock()

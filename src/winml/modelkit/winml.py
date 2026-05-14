@@ -146,7 +146,7 @@ def add_ep_for_device(
         - "QNNExecutionProvider"
         - "OpenVINOExecutionProvider"
         - "VitisAIExecutionProvider"
-        - "NvTensorRTRTXExecutionProvider"
+        - "NvTensorRtRtxExecutionProvider"
 
     device_type is one of:
         - ort.OrtHardwareDeviceType.CPU

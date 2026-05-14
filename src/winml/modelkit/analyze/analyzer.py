@@ -663,13 +663,12 @@ class ONNXStaticAnalyzer:
         # Determine which EPs to analyze
         eps_to_analyze: list[str] = []
         if ep_normalized is None:
-            # Analyze all supported EPs
-            eps_to_analyze = [
-                "QNNExecutionProvider",
-                "OpenVINOExecutionProvider",
-                "VitisAIExecutionProvider",
-            ]
-            logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
+            # Derive the NPU EP list from the catalog so future EP additions
+            # are automatically included. sorted() gives deterministic order.
+            from ..session import eps_for_device
+
+            eps_to_analyze = sorted(eps_for_device("npu"))
+            logger.info("No EP specified, analyzing all NPU-capable EPs: %s", eps_to_analyze)
         else:
             eps_to_analyze = [ep_normalized]
 

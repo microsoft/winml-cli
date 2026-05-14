@@ -138,6 +138,10 @@ def test_no_direct_ep_device_imports_in_tests() -> None:
         "from winml.modelkit.session.ep_device import EPDevice",
         "from winml.modelkit.session.ep_device import EPDevice, resolve_device",
         "from winml.modelkit.session.ep_device import _EP_TO_DEVICE",
+        # Deleted names — sentinels so the detector catches re-additions
+        "from winml.modelkit.session.ep_device import _DEVICE_TO_PROVIDER",
+        "from winml.modelkit.session.ep_device import _VALID_DEVICES",
+        "from winml.modelkit.session.ep_device import _compile_provider",
         "from winml.modelkit.session.ep_device import get_provider_for_device",
         # Module import forms
         "import winml.modelkit.session.ep_device",
@@ -177,4 +181,82 @@ def test_detector_does_not_flag_allowed_forms(source: str) -> None:
     nodes = list(ast.walk(tree))
     assert not any(_is_direct_ep_device_import(node) for node in nodes), (
         f"Detector false-positive on allowed import: {source!r}"
+    )
+
+
+# --------------------------------------------------------------------------
+# N5: Inline EP/device mapping literal detector.
+# Catches frozenset/set/list literals whose elements are exclusively
+# known EP short names or device strings — a sign that someone is
+# re-building catalog data outside session/ep_device.py.
+# --------------------------------------------------------------------------
+
+_EP_SHORT_NAMES: frozenset[str] = frozenset(
+    {"qnn", "openvino", "vitisai", "migraphx", "dml", "cuda", "tensorrt", "nv_tensorrt_rtx"}
+)
+_DEVICE_STRINGS: frozenset[str] = frozenset({"npu", "gpu", "cpu"})
+# ep_device.py and utils/cli.py are the only authorised homes for EP/device literals.
+_INLINE_LITERAL_ALLOWLIST: frozenset[str] = frozenset(
+    {"ep_device.py", "cli.py", "conftest.py", "check_ops.py", "check_patterns.py"}
+)
+
+
+def _extract_string_constants(node: ast.AST) -> list[str]:
+    """Return string constants from a Set, List, or Tuple literal node."""
+    if not isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+        return []
+    return [
+        elt.value
+        for elt in node.elts
+        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+    ]
+
+
+def _is_ep_device_mapping_literal(node: ast.AST) -> bool:
+    """True if the node is a set/list/tuple whose members are ALL known EP short
+    names or ALL known device strings — i.e., it reconstructs catalog data inline.
+
+    Only flags when every element in the literal is a known name (avoids
+    false-positives on mixed-purpose collections).
+    """
+    strings = _extract_string_constants(node)
+    if len(strings) < 2:  # single-element sets are not catalog duplicates
+        return False
+    as_set = set(strings)
+    return as_set.issubset(_EP_SHORT_NAMES) or as_set.issubset(_DEVICE_STRINGS)
+
+
+def test_no_inline_ep_device_mapping_literals_in_src() -> None:
+    """Detect frozenset/set/list/tuple literals that reconstruct EP or device
+    catalog data outside session/ep_device.py.
+
+    Only pure-EP-short-name or pure-device-string collections of ≥2 elements
+    are flagged. Mixed collections (e.g., ``{"auto", "npu", "gpu", "cpu"}``)
+    are NOT flagged because they contain non-catalog strings like "auto".
+
+    Known carve-outs (check_ops.py, check_patterns.py, cli.py, ep_device.py)
+    are skipped by the allowlist.
+    """
+    src_root = pathlib.Path(__file__).parents[3] / "src" / "winml" / "modelkit"
+    assert src_root.is_dir(), f"src/ root not found at {src_root}"
+
+    violations: list[str] = []
+    for py_file in src_root.rglob("*.py"):
+        if py_file.name in _INLINE_LITERAL_ALLOWLIST:
+            continue
+        try:
+            source = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(py_file))
+        except SyntaxError:
+            continue
+        violations.extend(
+            f"{py_file}:{getattr(node, 'lineno', '?')}"
+            for node in ast.walk(tree)
+            if _is_ep_device_mapping_literal(node)
+        )
+
+    assert not violations, (
+        "Inline EP/device mapping literals detected in src/ outside authorised files. "
+        "Move them to session/ep_device.py or document as a carve-out. "
+        "Violations:\n  " + "\n  ".join(violations)
     )

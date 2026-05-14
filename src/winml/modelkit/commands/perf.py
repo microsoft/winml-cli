@@ -27,6 +27,7 @@ import numpy as np
 from rich.console import Console
 from rich.table import Table
 
+from ..session import VALID_DEVICES
 from ._live_chart import LiveMonitorDisplay
 from ._pre_bench import print_pre_bench_block
 
@@ -1240,7 +1241,7 @@ def _run_onnx_benchmark(
 )
 @click.option(
     "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default="auto",
     show_default=True,
     help="Device to run benchmark on",

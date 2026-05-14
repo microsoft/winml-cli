@@ -37,6 +37,11 @@ from winml.modelkit.session import EPDevice
 from winml.modelkit.session.session import WinMLSession
 
 
+# Qualcomm vendor ID used in test fixtures — 0x4D4F is the 16-bit prefix from Qualcomm's
+# device identification scheme. Centralised here so all session tests share one definition.
+QNN_VENDOR_ID: int = 0x4D4F
+
+
 # =============================================================================
 # EP MARKERS - Skip tests if required EP is not available
 # =============================================================================
@@ -48,7 +53,7 @@ EP_NAME_MAP = {
     "directml": "DmlExecutionProvider",
     "cuda": "CUDAExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
-    "tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "coreml": "CoreMLExecutionProvider",
     "rocm": "ROCMExecutionProvider",
@@ -249,7 +254,7 @@ def qnn_npu_ep_device() -> EPDevice:
     return EPDevice(
         ep="QNNExecutionProvider",
         device="npu",
-        vendor_id=0x4D4F,
+        vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
         vendor="Qualcomm",
     )
@@ -259,7 +264,7 @@ def qnn_npu_ep_device() -> EPDevice:
 def fake_ort_npu() -> MagicMock:
     d = MagicMock()
     d.device.type.name = "NPU"
-    d.device.vendor_id = 0x4D4F
+    d.device.vendor_id = QNN_VENDOR_ID
     d.device.device_id = 0x0001
     return d
 

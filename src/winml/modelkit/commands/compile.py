@@ -27,7 +27,7 @@ from rich.console import Console
 
 from ..config import VALID_EPS
 from ..onnx import is_compiled_onnx
-from ..session import resolve_device
+from ..session import VALID_DEVICES, resolve_device
 from ..utils.logging import configure_logging
 
 
@@ -52,7 +52,7 @@ console = Console()
 @click.option(
     "--device",
     "-d",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default=None,
     help="Target device (default: deduced from --ep, or 'npu' if neither given)",
 )

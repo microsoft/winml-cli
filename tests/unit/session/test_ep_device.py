@@ -19,13 +19,15 @@ from winml.modelkit.session import (
     short_ep_name,
 )
 
+from .conftest import QNN_VENDOR_ID
+
 
 def test_ep_device_round_trip() -> None:
     """EPDevice -> to_dict -> from_dict yields an equal instance."""
     original = EPDevice(
         ep="QNNExecutionProvider",
         device="npu",
-        vendor_id=0x4D4F,
+        vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
         vendor="Qualcomm",
     )
@@ -33,7 +35,7 @@ def test_ep_device_round_trip() -> None:
     assert rehydrated == original
     assert rehydrated.ep == "QNNExecutionProvider"
     assert rehydrated.device == "npu"
-    assert rehydrated.vendor_id == 0x4D4F
+    assert rehydrated.vendor_id == QNN_VENDOR_ID
     assert rehydrated.device_id == 0x0001
     assert rehydrated.vendor == "Qualcomm"
 
@@ -43,7 +45,7 @@ def test_ep_device_lowercase_invariant() -> None:
     ep_device = EPDevice(
         ep="QNNExecutionProvider",
         device="NPU",
-        vendor_id=0x4D4F,
+        vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
     )
     assert ep_device.device == "npu"
@@ -85,16 +87,16 @@ def _fake_ort_dev(dev_type: str, vendor_id: int, device_id: int) -> MagicMock:
 def test_resolve_device_qnn_npu() -> None:
     """resolve_device selects the NPU entry when device='npu'."""
     devices = [
-        _fake_ort_dev("NPU", 0x4D4F, 0x0001),
-        _fake_ort_dev("GPU", 0x4D4F, 0x0002),
-        _fake_ort_dev("CPU", 0x4D4F, 0x0003),
+        _fake_ort_dev("NPU", QNN_VENDOR_ID, 0x0001),
+        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
+        _fake_ort_dev("CPU", QNN_VENDOR_ID, 0x0003),
     ]
     with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
         mock_reg.get_instance.return_value.register_ep.return_value = devices
         result = resolve_device("qnn", "npu")
     assert result.ep == "QNNExecutionProvider"
     assert result.device == "npu"
-    assert result.vendor_id == 0x4D4F
+    assert result.vendor_id == QNN_VENDOR_ID
     assert result.device_id == 0x0001
     assert result.vendor == "Qualcomm"
 
@@ -102,8 +104,8 @@ def test_resolve_device_qnn_npu() -> None:
 def test_resolve_device_dedup_qnn_gpu() -> None:
     """Two OrtEpDevices with identical (vendor_id, device_id) collapse to one."""
     devices = [
-        _fake_ort_dev("GPU", 0x4D4F, 0x0002),
-        _fake_ort_dev("GPU", 0x4D4F, 0x0002),
+        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
+        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
     ]
     with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
         mock_reg.get_instance.return_value.register_ep.return_value = devices
@@ -114,7 +116,7 @@ def test_resolve_device_dedup_qnn_gpu() -> None:
 
 def test_resolve_device_device_not_found_raises() -> None:
     """DeviceNotFound is raised when no OrtEpDevice matches the requested type."""
-    devices = [_fake_ort_dev("NPU", 0x4D4F, 0x0001)]
+    devices = [_fake_ort_dev("NPU", QNN_VENDOR_ID, 0x0001)]
     with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
         mock_reg.get_instance.return_value.register_ep.return_value = devices
         with pytest.raises(DeviceNotFound):
@@ -124,8 +126,8 @@ def test_resolve_device_device_not_found_raises() -> None:
 def test_resolve_device_ambiguous_raises() -> None:
     """Two distinct GPU entries (different device_id) cannot be auto-resolved."""
     devices = [
-        _fake_ort_dev("GPU", 0x4D4F, 0x0002),
-        _fake_ort_dev("GPU", 0x4D4F, 0x0003),
+        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0002),
+        _fake_ort_dev("GPU", QNN_VENDOR_ID, 0x0003),
     ]
     with patch("winml.modelkit.session.ep_device.WinMLEPRegistry") as mock_reg:
         mock_reg.get_instance.return_value.register_ep.return_value = devices

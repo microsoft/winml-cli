@@ -29,6 +29,7 @@ from typing import Any
 
 import click
 
+from ..session import VALID_DEVICES
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -114,7 +115,7 @@ def _is_onnx_file(model_input: str) -> bool:
     "-d",
     "--device",
     "device",
-    type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default="auto",
     help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )

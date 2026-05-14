@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from .conftest import QNN_VENDOR_ID
+
 
 # Mock the EP registration to avoid access violations from native DLLs
 @pytest.fixture(autouse=True)
@@ -27,7 +29,7 @@ def mock_ep_registration():
     fake_qnn_npu = EPDevice(
         ep="QNNExecutionProvider",
         device="npu",
-        vendor_id=0x4D4F,
+        vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
         vendor="Qualcomm",
     )
@@ -47,7 +49,7 @@ def mock_ep_registration():
     ):
         fake_ort_npu = MagicMock()
         fake_ort_npu.device.type.name = "NPU"
-        fake_ort_npu.device.vendor_id = 0x4D4F
+        fake_ort_npu.device.vendor_id = QNN_VENDOR_ID
         fake_ort_npu.device.device_id = 0x0001
         mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
         yield
