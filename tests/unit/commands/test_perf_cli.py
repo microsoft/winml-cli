@@ -36,7 +36,7 @@ def mock_resolve_device():
     )
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device_category",
+            "winml.modelkit.session.resolve_device_category",
             return_value=("cpu", ["cpu"]),
         ),
         patch(

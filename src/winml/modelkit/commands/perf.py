@@ -457,8 +457,7 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..session import resolve_device
-        from ..sysinfo import resolve_device_category
+        from ..session import resolve_device, resolve_device_category
 
         model_id = self.config.model_id
         model_path = Path(model_id)
@@ -1540,8 +1539,7 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..session import resolve_device
-            from ..sysinfo import resolve_device_category
+            from ..session import resolve_device, resolve_device_category
 
             resolved_device, _ = resolve_device_category(device=config.device)
 

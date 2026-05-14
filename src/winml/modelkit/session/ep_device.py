@@ -296,6 +296,61 @@ def ep_to_device(ep: str) -> str:
     return device
 
 
+# --- resolve_device_category -----------------------------------------------
+
+
+def resolve_device_category(device: str = "auto") -> tuple[str, list[str]]:
+    """Resolve a device hint to (category, candidate EP names).
+
+    Args:
+        device: "auto", "npu", "gpu", or "cpu".
+
+    Returns:
+        (chosen_device, available_devices_list)
+
+    Raises:
+        ValueError: If device is not recognized.
+    """
+    device = device.lower()
+
+    if device != "auto" and device not in VALID_DEVICES:
+        raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
+
+    from ..sysinfo.hardware import get_available_devices
+    from .ep_registry import available_eps as _available_eps
+
+    available_devices = get_available_devices()
+    _eps = _available_eps()
+
+    if not _eps:
+        logger.warning(
+            "No execution providers detected. Falling back to CPU. "
+            "Install onnxruntime or Windows App SDK for EP discovery."
+        )
+
+    if device == "auto":
+        # Walk priority list, pick first device with a matching EP.
+        # eps_for_device returns canonical EP names from the catalog —
+        # includes OpenVINO for npu/gpu/cpu (the old _DEVICE_EP_MAP excluded it).
+        for dev in available_devices:
+            if any(ep in _eps for ep in eps_for_device(dev)):
+                return dev, available_devices
+        # Fallback: CPU is always valid
+        return "cpu", available_devices
+
+    # Explicit device requested -- warn if no compatible EP
+    compatible_eps = eps_for_device(device)
+    if not any(ep in _eps for ep in compatible_eps):
+        logger.warning(
+            "Device '%s' requested but no compatible EP found. "
+            "Compatible EPs: %s. Available EPs: %s",
+            device,
+            sorted(compatible_eps),
+            sorted(_eps),
+        )
+    return device, available_devices
+
+
 # --- resolution ------------------------------------------------------------
 
 # Module-level sentinel — populated lazily on first call to resolve_device so
@@ -344,9 +399,7 @@ def resolve_device(
     """
     # --- deduction phase ---------------------------------------------------
     if ep is None and device is None:
-        # Auto-detect: pick strongest available device via sysinfo
-        from ..sysinfo import resolve_device_category
-
+        # Auto-detect: pick strongest available device via local resolver
         resolved_device_str, _ = resolve_device_category(device="auto")
         device = resolved_device_str
 

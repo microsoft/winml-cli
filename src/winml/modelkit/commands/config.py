@@ -430,7 +430,7 @@ def config(
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
             # Fix #4: Device from resolve_device (existing API)
-            from ..sysinfo import resolve_device_category as _rd
+            from ..session import resolve_device_category as _rd
 
             _resolved_dev, _ = _rd()
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")

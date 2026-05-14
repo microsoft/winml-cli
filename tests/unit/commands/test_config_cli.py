@@ -29,7 +29,7 @@ def mock_resolve_device():
     We mock it at the source module since it's a lazy import.
     """
     with patch(
-        "winml.modelkit.sysinfo.resolve_device_category",
+        "winml.modelkit.session.resolve_device_category",
         return_value=("npu", ["npu", "gpu", "cpu"]),
     ):
         yield

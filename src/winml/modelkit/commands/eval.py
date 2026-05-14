@@ -212,7 +212,7 @@ def eval(
 
     from ..datasets import DatasetConfig
     from ..eval import WinMLEvaluationConfig, evaluate
-    from ..sysinfo import resolve_device_category
+    from ..session import resolve_device_category
 
     resolved_device, _ = resolve_device_category(device)
 

@@ -23,9 +23,10 @@ from .ep_device import (
     expand_ep_name,
     lookup_device_spec,
     resolve_device,
+    resolve_device_category,
     short_ep_name,
 )
-from .ep_registry import WinMLEPRegistry
+from .ep_registry import WinMLEPRegistry, available_eps
 from .monitor.ep_monitor import EPMonitor, NullEPMonitor
 from .monitor.hw_monitor import HWMonitor
 from .monitor.openvino_monitor import OpenVinoMonitor
@@ -59,6 +60,7 @@ __all__ = [
     "WinMLEPRegistry",
     "WinMLQairtSession",
     "WinMLSession",
+    "available_eps",
     "canonicalize_ep_name",
     "default_device_for_ep",
     "default_ep_for_device",
@@ -67,5 +69,6 @@ __all__ = [
     "expand_ep_name",
     "lookup_device_spec",
     "resolve_device",
+    "resolve_device_category",
     "short_ep_name",
 ]

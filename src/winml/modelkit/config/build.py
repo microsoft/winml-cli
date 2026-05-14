@@ -273,7 +273,7 @@ def resolve_quant_compile_config(
         Tuple of (quant_config, compile_config). Either may be None when the
         policy does not require that stage (e.g., CPU with fp32).
     """
-    from ..sysinfo import resolve_device_category
+    from ..session import resolve_device_category
     from .precision import resolve_precision
 
     resolved_device, available_devices = resolve_device_category(device=device)
@@ -565,7 +565,7 @@ def generate_hf_build_config(
     # =========================================================================
     # STEP 4.5: Apply device/precision policy (affects quant + compile only)
     # =========================================================================
-    from ..sysinfo import resolve_device_category
+    from ..session import resolve_device_category
     from .precision import resolve_precision
 
     # ALWAYS detect hardware — even when device="auto" — so we don't

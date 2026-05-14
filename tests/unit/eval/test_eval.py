@@ -518,7 +518,7 @@ class TestEvalCli:
         runner = CliRunner()
         with (
             patch(
-                "winml.modelkit.sysinfo.resolve_device_category",
+                "winml.modelkit.session.resolve_device_category",
                 return_value=("npu", ["npu", "cpu"]),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
@@ -567,7 +567,7 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device_category", return_value=("cpu", ["cpu"])),
+            patch("winml.modelkit.session.resolve_device_category", return_value=("cpu", ["cpu"])),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
             mock_evaluate.return_value = EvalResult(
@@ -669,7 +669,7 @@ class TestEvalCli:
 
         runner = CliRunner()
         with (
-            patch("winml.modelkit.sysinfo.resolve_device_category", return_value=("cpu", ["cpu"])),
+            patch("winml.modelkit.session.resolve_device_category", return_value=("cpu", ["cpu"])),
             patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")),
         ):
             result = runner.invoke(

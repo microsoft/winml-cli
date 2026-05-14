@@ -10,6 +10,7 @@ Windows Machine Learning API (WinML).
 
 from __future__ import annotations
 
+import functools
 import logging
 from pathlib import Path
 
@@ -252,6 +253,38 @@ class WinMLEPRegistry:
     def get_instance(cls) -> WinMLEPRegistry:
         """Get singleton instance."""
         return cls()
+
+
+@functools.lru_cache(maxsize=1)
+def available_eps() -> frozenset[str]:
+    """Collect available EP names from WinML and ORT (cached).
+
+    Hardware and EPs do not change during a process lifetime,
+    so this result is cached via lru_cache.
+
+    Returns:
+        Frozenset of available EP name strings.
+    """
+    eps: set[str] = set()
+
+    try:
+        registry = WinMLEPRegistry.get_instance()
+        eps.update(registry.get_available_eps().keys())
+    except (ImportError, RuntimeError):
+        pass  # WinML not available
+    except Exception:
+        logger.warning("Unexpected error during WinML EP discovery", exc_info=True)
+
+    try:
+        import onnxruntime as ort
+
+        eps.update(ort.get_available_providers())
+    except (ImportError, RuntimeError):
+        pass  # ORT not installed
+    except Exception:
+        logger.warning("Unexpected error during ORT EP discovery", exc_info=True)
+
+    return frozenset(eps)
 
 
 def get_ort_available_providers(use_winml: bool = True) -> list[str]:
