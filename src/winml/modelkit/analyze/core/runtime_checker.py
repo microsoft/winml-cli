@@ -150,7 +150,7 @@ class RuntimeChecker:
 
     def op_support(
         self,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
     ) -> list[PatternRuntime]:
@@ -239,7 +239,7 @@ class RuntimeChecker:
     def subgraph_support(
         self,
         patterns: list[PatternMatchResult] | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> list[PatternRuntime]:
         """Check subgraph-level runtime support.
 
@@ -296,7 +296,7 @@ class RuntimeChecker:
     def query_pattern_support(
         self,
         pattern: PatternMatchResult,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> PatternRuntime:
         """Evaluate a single pattern's runtime support + replacements.
 
@@ -364,7 +364,7 @@ class RuntimeChecker:
     def summary(
         self,
         patterns: list[PatternMatchResult] | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
     ) -> dict[str, list[PatternRuntime]]:

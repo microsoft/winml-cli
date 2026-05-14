@@ -462,8 +462,8 @@ def _render_analysis_summary(
 )
 @click.option(
     "--run-unknown-op/--no-run-unknown-op",
-    default=True,
-    help="Run unknown operators on local machine if possible (default: enabled)",
+    default=False,
+    help="Run unknown operators on local machine if possible (default: disabled)",
 )
 @click.option(
     "--save-node",
