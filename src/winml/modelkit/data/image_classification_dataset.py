@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from datasets import load_dataset
-from torchvision import transforms
-
 from .registry import DataRegistry
 
 
@@ -38,6 +35,9 @@ class ImageClassificationDataset:
         split = load_dataset_config.get("split", "train")
         stream = load_dataset_config.get("stream", True)
         size = load_dataset_config.get("size", 256)
+
+        from datasets import load_dataset
+        from torchvision import transforms
 
         self.dataset = load_dataset(dataset_name, split=split, streaming=stream)
 

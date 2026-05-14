@@ -10,14 +10,26 @@ also be fetched from release assets or `ModelKitArtifacts` for source builds.
 ### Option 1: Download from the latest GitHub release (for source builds)
 
 If you are building from source code (for example, cloning this repo), download
-the parquet assets from the latest WinML-ModelKit release.
+the `rules.zip` asset from the latest WinML-ModelKit release.
 
 ```bash
-gh release download --repo microsoft/WinML-ModelKit --pattern '*.parquet' --dir src/winml/modelkit/analyze/rules/runtime_check_rules
+gh release download --repo microsoft/WinML-ModelKit --pattern 'rules.zip' --dir .
 ```
 
 `gh release download` defaults to the latest release. Use `--tag <version>`
 to pin a specific release if you need a reproducible snapshot.
+
+Then extract `rules.zip` into this directory:
+
+```powershell
+Expand-Archive -Path .\rules.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
+```
+
+```bash
+unzip -o rules.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
+```
+
+The zip preserves file paths relative to `runtime_check_rules/`.
 
 ### Option 2: Download script (Microsoft internal fallback)
 
@@ -29,6 +41,9 @@ uv run python scripts/download_rules.py --account <your_gim-home_account>
 
 The script sparse-checkouts `gim-home/ModelKitArtifacts/rules` and copies all `*.parquet`
 files here (preserving subdirectories).
+
+This script downloads from the internal `ModelKitArtifacts` repo, not from
+WinML-ModelKit release assets.
 
 Use `--force` to re-download all files even if they already exist locally.
 

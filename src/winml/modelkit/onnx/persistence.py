@@ -130,7 +130,7 @@ def save_onnx(
             os.chdir(path.parent)
             onnx.save_model(
                 model,
-                str(path),
+                path.name,
                 save_as_external_data=True,
                 all_tensors_to_one_file=True,
                 location=ext_location,
