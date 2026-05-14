@@ -316,14 +316,10 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..sysinfo import resolve_device
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
-
-        # Resolve device once -- "auto" becomes concrete (e.g., "npu")
-        resolved_device, _ = resolve_device(device=self.config.device)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -337,7 +333,7 @@ class PerfBenchmark:
         common_kwargs = {
             "task": self.config.task,
             "config": override,
-            "device": resolved_device,
+            "device": self.config.device,
             "precision": self.config.precision,
             "ep": self.config.ep,
             "use_cache": use_cache,
@@ -551,7 +547,7 @@ def _perf_modules(
     from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
 
-    resolved_device, _ = resolve_device(device=device)
+    resolved_device, _ = resolve_device(device=device, ep=ep)
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
@@ -1353,13 +1349,9 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..sysinfo import resolve_device
-
-            resolved_device, _ = resolve_device(device=config.device)
-
             result = _run_onnx_benchmark(
                 model_path,
-                device=resolved_device,
+                device=config.device,
                 iterations=iterations,
                 warmup=warmup,
                 batch_size=batch_size,
