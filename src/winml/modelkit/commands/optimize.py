@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -394,10 +393,9 @@ def optimize(
     all_errors = errors + dep_errors
 
     if all_errors:
-        console.print("[bold red]Configuration validation errors:[/bold red]")
-        for error in all_errors:
-            console.print(f"  [red]* {error}[/red]")
-        sys.exit(1)
+        header = click.style("Configuration validation errors:", fg="red", bold=True)
+        bullets = "\n".join(click.style(f"  * {error}", fg="red") for error in all_errors)
+        raise click.UsageError(f"{header}\n{bullets}")
 
     # Convert capability names (kebab-case) to python names (snake_case) for optimizer
     optimizer_kwargs: dict[str, Any] = {}
