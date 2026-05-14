@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import click
 import numpy as np
@@ -1287,7 +1287,7 @@ def perf(
             console=console,
             monitor=monitor,
             device=device.lower(),
-            ep=cast("EPNameOrAlias", ep.lower()) if ep else None,
+            ep=ep,
             precision=precision.lower(),
         )
         return
@@ -1330,7 +1330,7 @@ def perf(
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         monitor=monitor,
-        ep=cast("EPNameOrAlias", ep.lower()) if ep else None,
+        ep=ep,
         shape_config=shape_config,
     )
 

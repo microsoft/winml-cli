@@ -30,7 +30,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,11 +95,6 @@ _log_handler.setFormatter(logging.Formatter("%(message)s"))
 # Attach to modelkit root logger so all sub-loggers feed into the ring
 logging.getLogger("winml.modelkit").addHandler(_log_handler)
 logging.getLogger("winml.modelkit").setLevel(logging.INFO)
-
-# ---------------------------------------------------------------------------
-# Valid EP shorthands accepted by POST /v1/ep
-# ---------------------------------------------------------------------------
-_VALID_EPS = {"cpu", "dml", "qnn", "openvino", "auto"}
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -440,12 +435,9 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
     async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
-        ep = cast("EPNameOrAlias", request.ep.lower())
-        if ep not in _VALID_EPS:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Unknown EP '{ep}'. Valid: {sorted(_VALID_EPS)}",
-            )
+        # Pydantic already validates ep against the EPAlias Literal (rejects
+        # unknown values with a 422 at parse time), so no extra check needed.
+        ep = request.ep
         mgr = _get_mgr()
         if not isinstance(mgr, SingleModelManager):
             raise HTTPException(
