@@ -27,19 +27,36 @@ import json
 import logging
 import platform
 import sys
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING, Any
 
 import click
-from rich.console import Console
-from rich.logging import RichHandler
-from rich.panel import Panel
-from rich.table import Table
 
 from ..sysinfo import OS, get_ep_device_map
 
 
+if TYPE_CHECKING:
+    from rich.console import Console
+
+
 logger = logging.getLogger(__name__)
-console = Console()
+
+# Rich is imported lazily — Console/Table/Panel only matter at render time,
+# and pulling them at module scope adds ~50 ms to every `winml sys`
+# invocation (including --format json/compact, which never render anything
+# Rich-styled).
+_console: Console | None = None
+
+
+def _get_console() -> Console:
+    """Return a process-level Console, importing rich on first use."""
+    global _console
+    if _console is None:
+        from rich.console import Console as _RichConsole
+
+        _console = _RichConsole()
+    return _console
 
 
 def _get_python_info() -> dict[str, Any]:
@@ -79,8 +96,6 @@ def _get_platform_info() -> dict[str, Any]:
 
 def _get_library_versions() -> dict[str, str | None]:
     """Gather versions of key ML libraries."""
-    from importlib.metadata import PackageNotFoundError, version
-
     libraries: dict[str, str | None] = {}
 
     # Core libraries
@@ -124,27 +139,39 @@ def _get_library_versions() -> dict[str, str | None]:
     return libraries
 
 
-def _get_torch_info() -> dict[str, Any]:
-    """Gather PyTorch-specific information including CUDA."""
+def _get_torch_info(verbose: bool = False) -> dict[str, Any]:
+    """Gather PyTorch-specific information.
+
+    Reads the installed version via ``importlib.metadata`` so the default
+    path does not ``import torch`` — importing torch costs ~1.5 s warm and
+    used to dominate ``winml sys`` latency (issue #558). CUDA details
+    require the torch module and are only gathered when ``verbose`` is set.
+    """
     info: dict[str, Any] = {"available": False}
 
     try:
-        import torch
-
+        info["version"] = version("torch")
         info["available"] = True
-        info["version"] = torch.__version__
-        info["cuda_available"] = torch.cuda.is_available()
-
-        if torch.cuda.is_available():
-            info["cuda_version"] = torch.version.cuda
-            info["cudnn_version"] = str(torch.backends.cudnn.version())
-            info["gpu_count"] = torch.cuda.device_count()
-            info["gpu_devices"] = [
-                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
-            ]
-    except ImportError:
+    except PackageNotFoundError:
         logger.debug("PyTorch not available")
+        return info
 
+    if not verbose:
+        return info
+
+    try:
+        import torch
+    except ImportError:
+        return info
+
+    info["cuda_available"] = torch.cuda.is_available()
+    if torch.cuda.is_available():
+        info["cuda_version"] = torch.version.cuda
+        info["cudnn_version"] = str(torch.backends.cudnn.version())
+        info["gpu_count"] = torch.cuda.device_count()
+        info["gpu_devices"] = [
+            torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+        ]
     return info
 
 
@@ -201,7 +228,7 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
         "python": _get_python_info(),
         "platform": _get_platform_info(),
         "libraries": _get_library_versions(),
-        "torch": _get_torch_info(),
+        "torch": _get_torch_info(verbose=verbose),
         "backends": {
             "qnn": _check_qnn_sdk(),
             "openvino": _check_openvino(),
@@ -227,6 +254,11 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
 
 def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     """Output system info in human-readable text format."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    console = _get_console()
+
     # Title
     console.print(
         Panel.fit(
@@ -254,16 +286,16 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     lib_table.add_column("Version")
     lib_table.add_column("Status")
 
-    for lib, version in info["libraries"].items():
-        status = "[green]OK[/green]" if version else "[red]Not installed[/red]"
-        lib_table.add_row(lib, version or "-", status)
+    for lib, lib_version in info["libraries"].items():
+        status = "[green]OK[/green]" if lib_version else "[red]Not installed[/red]"
+        lib_table.add_row(lib, lib_version or "-", status)
 
     console.print("\n[bold blue]ML Libraries[/bold blue]")
     console.print(lib_table)
 
-    # PyTorch details
+    # PyTorch details (CUDA fields only populated with --verbose)
     torch_info = info["torch"]
-    if torch_info["available"]:
+    if torch_info["available"] and "cuda_available" in torch_info:
         console.print("\n[bold blue]PyTorch Details[/bold blue]")
         torch_table = Table(show_header=False, box=None, padding=(0, 2))
         torch_table.add_column("Key", style="bold")
@@ -339,7 +371,7 @@ def _output_compact(info: dict[str, Any]) -> None:
         f"onnx: {libs.get('onnx', 'N/A')}",
     ]
 
-    if torch_info["available"] and torch_info["cuda_available"]:
+    if torch_info["available"] and torch_info.get("cuda_available"):
         lines.append(
             f"CUDA: {torch_info.get('cuda_version', 'N/A')} | "
             f"GPU: {torch_info.get('gpu_count', 0)} device(s)"
@@ -365,37 +397,45 @@ def _output_compact(info: dict[str, Any]) -> None:
 def _gather_device_info() -> list[dict[str, Any]]:
     """Gather available device information in priority order.
 
+    Each ``XPU.get_all()`` call spawns a PowerShell subprocess; the slowest
+    of the three (Win32_Processor WMI query, ~1.3 s warm) sets the floor.
+    We run them in parallel so the wall time is max() instead of sum()
+    (issue #558).
+
     Returns:
         List of device dicts with type, priority, and details.
     """
     from ..sysinfo import CPU, GPU, NPU
 
-    result: list[dict[str, Any]] = []
-    priority = 1
-
-    # Query hardware directly in NPU > GPU > CPU priority order.
-    # This avoids depending on _get_available_devices() and eliminates
-    # redundant PowerShell queries (we need the details anyway).
+    # NPU > GPU > CPU priority order.
     hw_queries: list[tuple[str, type]] = [
         ("NPU", NPU),
         ("GPU", GPU),
         ("CPU", CPU),
     ]
 
-    for device_label, hw_class in hw_queries:
-        try:
-            items = hw_class.get_all()
-        except Exception as e:
-            logger.warning("Failed to get %s details: %s", device_label, e)
-            # Only append an error entry if this was expected to have results
-            # CPU always exists, NPU/GPU may not
+    with ThreadPoolExecutor(max_workers=len(hw_queries)) as pool:
+        futures = [(label, pool.submit(cls.get_all)) for label, cls in hw_queries]
+        ordered_results: list[tuple[str, list[Any] | Exception]] = []
+        for label, fut in futures:
+            try:
+                ordered_results.append((label, fut.result()))
+            except Exception as e:  # noqa: PERF203 - per-future error capture
+                ordered_results.append((label, e))
+
+    result: list[dict[str, Any]] = []
+    priority = 1
+    for device_label, items in ordered_results:
+        if isinstance(items, Exception):
+            logger.warning("Failed to get %s details: %s", device_label, items)
+            # CPU always exists, NPU/GPU may not — only surface CPU errors.
             if device_label == "CPU":
                 result.append(
                     {
                         "priority": priority,
                         "type": device_label,
                         "name": "(detection error)",
-                        "details": {"error": str(e)},
+                        "details": {"error": str(items)},
                     }
                 )
                 priority += 1
@@ -427,6 +467,7 @@ def _gather_device_info() -> list[dict[str, Any]]:
 
 def _output_device_text(devices: list[dict[str, Any]]) -> None:
     """Display device list in rich text format."""
+    console = _get_console()
     console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
     for dev in devices:
         console.print(
@@ -500,6 +541,7 @@ def _gather_ep_info() -> list[dict[str, Any]]:
 
 def _output_ep_text(eps: list[dict[str, Any]]) -> None:
     """Display EP list in rich text format."""
+    console = _get_console()
     console.print("\n[bold blue]Available Execution Providers[/bold blue]")
     if not eps:
         console.print("  [yellow]No execution providers found.[/yellow]")
@@ -586,13 +628,15 @@ def sysinfo(
     # Route winml.modelkit logs through Rich so they never interleave with CLI output.
     # In normal mode suppress everything below WARNING; in debug mode show all levels.
     # Restore logger state on exit so tests using caplog are not affected.
+    from rich.logging import RichHandler
+
     log_level = logging.DEBUG if verbose else logging.WARNING
     pkg_logger = logging.getLogger("winml.modelkit")
     _saved_handlers = pkg_logger.handlers[:]
     _saved_level = pkg_logger.level
     _saved_propagate = pkg_logger.propagate
     pkg_logger.handlers = [h for h in pkg_logger.handlers if not isinstance(h, RichHandler)]
-    rich_handler = RichHandler(console=console, show_path=False)
+    rich_handler = RichHandler(console=_get_console(), show_path=False)
     rich_handler.setLevel(log_level)
     pkg_logger.setLevel(log_level)
     pkg_logger.addHandler(rich_handler)
@@ -644,7 +688,7 @@ def sysinfo(
                         devices = _gather_device_info()
                         _output_device_text(devices)
                     except Exception as e:
-                        console.print(f"[bold red]Error detecting devices:[/bold red] {e}")
+                        _get_console().print(f"[bold red]Error detecting devices:[/bold red] {e}")
                         logger.exception("Failed to detect devices")
                         raise click.ClickException(f"Error detecting devices: {e}") from e
                 if list_ep:
@@ -652,8 +696,9 @@ def sysinfo(
                         eps = _gather_ep_info()
                         _output_ep_text(eps)
                     except Exception as e:
-                        err_msg = f"[bold red]Error detecting execution providers:[/bold red] {e}"
-                        console.print(err_msg)
+                        _get_console().print(
+                            f"[bold red]Error detecting execution providers:[/bold red] {e}"
+                        )
                         logger.exception("Failed to detect execution providers")
                         msg = f"Error detecting execution providers: {e}"
                         raise click.ClickException(msg) from e
@@ -679,13 +724,13 @@ def sysinfo(
             else:
                 _output_text(info, verbose=verbose)
                 # Append devices and EPs to text output
-                console.print()
+                _get_console().print()
                 try:
                     devices = _gather_device_info()
                     _output_device_text(devices)
                 except Exception:
                     logger.debug("Device detection failed in default output")
-                console.print()
+                _get_console().print()
                 try:
                     eps = _gather_ep_info()
                     _output_ep_text(eps)
@@ -693,7 +738,7 @@ def sysinfo(
                     logger.debug("EP detection failed in default output")
 
         except Exception as e:
-            console.print(f"[bold red]Error gathering system information:[/bold red] {e}")
+            _get_console().print(f"[bold red]Error gathering system information:[/bold red] {e}")
             logger.exception("Failed to gather system information")
             raise click.ClickException(f"Error gathering system information: {e}") from e
 

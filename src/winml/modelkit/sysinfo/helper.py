@@ -35,18 +35,33 @@ class CimInstance:
     """Represents a WMI CIM instance retrieved via PowerShell."""
 
     @staticmethod
-    def get_by_class_name(class_name: str) -> list["CimInstance"]:
-        """Get all CIM instances of the specified class name."""
+    def get_by_class_name(
+        class_name: str, properties: list[str] | None = None
+    ) -> list["CimInstance"]:
+        """Get all CIM instances of the specified class name.
+
+        Args:
+            class_name: WMI class name (e.g. ``Win32_Processor``).
+            properties: Optional whitelist of property names to materialize.
+                Without it WMI hydrates every column on the class, which for
+                ``Win32_Processor`` is ~50 fields and takes ~1.3 s warm — a
+                short list cuts that to ~0.2 s. Pass exactly the fields the
+                caller will read.
+        """
+        if properties:
+            prop_arg = ",".join(properties)
+            cim_cmd = f"Get-CimInstance -ClassName {class_name} -Property {prop_arg}"
+        else:
+            cim_cmd = f"Get-CimInstance -ClassName {class_name}"
         output = None
         try:
-            output = subprocess.check_output(  # noqa: S603 - Input is trusted (class_name from code)
+            output = subprocess.check_output(  # noqa: S603 - Input is trusted (class/properties from code)
                 [  # noqa: S607 - PowerShell path is standard on Windows
                     "powershell",
                     "-NoProfile",
                     "-Command",
                     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                    + f"Get-CimInstance -ClassName {class_name} | "
-                    + "ConvertTo-Json -Depth 99",
+                    + f"{cim_cmd} | ConvertTo-Json -Depth 99",
                 ],
                 stderr=subprocess.DEVNULL,
             )
@@ -110,28 +125,115 @@ class PnpDevice:
             raise TypeError(f"Expected a list from Get-PnpDevice, got {type(json_array)}")
         return [PnpDevice(json_obj) for json_obj in json_array]
 
-    def __init__(self, json_obj: dict) -> None:
-        """Initialize a PnP device from a JSON object."""
-        self._pnp_id = _get_property_from_json(json_obj, "PNPDeviceID", str)
-        self._pnp_device_obj = json_obj
-        output = b"[]"
+    @staticmethod
+    def get_by_class_name_with_properties(class_name: str) -> list["PnpDevice"]:
+        """Get PnP devices of a class plus their extra properties in ONE PS call.
+
+        Equivalent to :meth:`get_by_class_name` followed by per-device
+        Get-PnpDeviceProperty queries, but issued as a single PowerShell
+        subprocess. Saves N PowerShell startups (~500 ms each) when the
+        caller needs both pieces — e.g. NPU detection in ``winml sys``.
+        """
+        script = (
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
+            "$ErrorActionPreference = 'SilentlyContinue';"
+            f"$devs = @(Get-PnpDevice -Class {class_name});"
+            "$out = @();"
+            "foreach ($d in $devs) {"
+            "  $p = @(Get-PnpDeviceProperty -InstanceId $d.PNPDeviceID);"
+            "  $out += @{ device = $d; properties = $p }"
+            "};"
+            "@{ items = $out } | ConvertTo-Json -Depth 99"
+        )
         try:
-            output = subprocess.check_output(  # noqa: S603 - Input is trusted (pnp_id from WMI)
+            output = subprocess.check_output(  # noqa: S603 - Input is trusted (class_name from code)
                 [  # noqa: S607 - PowerShell path is standard on Windows
                     "powershell",
                     "-NoProfile",
                     "-Command",
-                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                    + f"Get-PnpDeviceProperty -InstanceId '{self._pnp_id}' | "
-                    + "ConvertTo-Json -Depth 99",
+                    script,
                 ],
                 stderr=subprocess.DEVNULL,
             )
-        except subprocess.CalledProcessError:
-            # This may happen if the device has no extra properties
-            pass
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return []
 
-        property_list = json.loads(output.decode("utf-8"))
+        text = output.decode("utf-8").strip()
+        if not text:
+            return []
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(data, dict):
+            return []
+
+        items = data.get("items")
+        if items is None:
+            return []
+        if isinstance(items, dict):
+            # PowerShell collapses single-element arrays to dicts.
+            items = [items]
+        if not isinstance(items, list):
+            return []
+
+        result: list[PnpDevice] = []
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            device = entry.get("device")
+            if not isinstance(device, dict):
+                continue
+            props = entry.get("properties")
+            if props is None:
+                props = []
+            elif isinstance(props, dict):
+                props = [props]
+            elif not isinstance(props, list):
+                props = []
+            result.append(PnpDevice(device, prefetched_properties=props))
+        return result
+
+    def __init__(
+        self,
+        json_obj: dict,
+        *,
+        prefetched_properties: list[dict] | None = None,
+    ) -> None:
+        """Initialize a PnP device from a JSON object.
+
+        Args:
+            json_obj: The Get-PnpDevice JSON object.
+            prefetched_properties: Optional list of Get-PnpDeviceProperty
+                JSON entries. When provided, the per-device PowerShell
+                subprocess used to fetch extra properties is skipped.
+                Callers that already batched the property query (see
+                :meth:`get_by_class_name_with_properties`) supply it here.
+        """
+        self._pnp_id = _get_property_from_json(json_obj, "PNPDeviceID", str)
+        self._pnp_device_obj = json_obj
+
+        if prefetched_properties is not None:
+            property_list = prefetched_properties
+        else:
+            output = b"[]"
+            try:
+                output = subprocess.check_output(  # noqa: S603 - Input is trusted (pnp_id from WMI)
+                    [  # noqa: S607 - PowerShell path is standard on Windows
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                        + f"Get-PnpDeviceProperty -InstanceId '{self._pnp_id}' | "
+                        + "ConvertTo-Json -Depth 99",
+                    ],
+                    stderr=subprocess.DEVNULL,
+                )
+            except subprocess.CalledProcessError:
+                # This may happen if the device has no extra properties
+                pass
+            property_list = json.loads(output.decode("utf-8"))
+
         if not isinstance(property_list, list):
             raise TypeError(
                 f"Expected a list from Get-PnpDeviceProperty, got {type(property_list)}"
