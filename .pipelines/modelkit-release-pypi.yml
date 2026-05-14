@@ -143,7 +143,7 @@ extends:
             KeyVaultName: 'ModelKit-KeyVault'
             SignCertName: 'modelkit-tss-sign'
             intent: 'PackageDistribution'
-            ContentType: 'Pypi'
+            ContentType: 'NPM'
             FolderLocation: '$(Build.SourcesDirectory)/pyPackage'
             WaitForReleaseCompletion: true
             Owners: '$(ESRP_OWNERS)'
