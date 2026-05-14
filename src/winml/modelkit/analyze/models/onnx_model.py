@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 
 import onnx
@@ -17,6 +18,9 @@ from ..utils.node_key_utils import (
     make_stable_node_key,
     resolve_stable_node_key,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class ModelTag(str, Enum):
@@ -147,13 +151,30 @@ class ONNXModel(BaseModel):
         for index, node in enumerate(graph_nodes):
             stable_key = make_stable_node_key(node, index)
             node_by_key[stable_key] = node
-            if node.name and node.name not in node_by_name:
-                node_by_name[node.name] = node
+            if node.name:
+                if node.name not in node_by_name:
+                    node_by_name[node.name] = node
+                else:
+                    logger.debug(
+                        "Duplicate ONNX node.name '%s' encountered; keeping first occurrence "
+                        "for get_node_by_name().",
+                        node.name,
+                    )
 
         object.__setattr__(self, "_graph_nodes", graph_nodes)
         object.__setattr__(self, "_node_key_by_node_id", node_key_by_node_id)
         object.__setattr__(self, "_node_by_key", node_by_key)
         object.__setattr__(self, "_node_by_name", node_by_name)
+
+    def _ensure_node_key_index(self) -> None:
+        """Ensure node sidecar indexes are initialized."""
+        if (
+            self._graph_nodes is None
+            or self._node_key_by_node_id is None
+            or self._node_by_key is None
+            or self._node_by_name is None
+        ):
+            self._initialize_node_key_index()
 
     def get_graph(self) -> onnx.GraphProto:
         """Deserialize and return ONNX graph.
@@ -183,21 +204,12 @@ class ONNXModel(BaseModel):
 
     def get_node_key(self, node: onnx.NodeProto) -> str:
         """Get the stable sidecar key for a node."""
+        self._ensure_node_key_index()
+
         node_key_by_node_id = self._node_key_by_node_id
-        if node_key_by_node_id is None:
-            self._initialize_node_key_index()
-            node_key_by_node_id = self._node_key_by_node_id
-
-        if node_key_by_node_id is None:
-            raise RuntimeError("Node key index is unavailable.")
-
         graph_nodes = self._graph_nodes
-        if graph_nodes is None:
-            self._initialize_node_key_index()
-            graph_nodes = self._graph_nodes
-
-        if graph_nodes is None:
-            raise RuntimeError("Node graph snapshot is unavailable.")
+        assert node_key_by_node_id is not None
+        assert graph_nodes is not None
 
         return resolve_stable_node_key(
             node,
@@ -211,24 +223,21 @@ class ONNXModel(BaseModel):
 
     def get_node_by_key(self, node_key: str) -> onnx.NodeProto | None:
         """Resolve a stable sidecar key to a node."""
+        self._ensure_node_key_index()
         node_by_key = self._node_by_key
-        if node_by_key is None:
-            self._initialize_node_key_index()
-            node_by_key = self._node_by_key
-        return node_by_key.get(node_key) if node_by_key is not None else None
+        assert node_by_key is not None
+        return node_by_key.get(node_key)
 
     def get_node_by_name(self, node_name: str) -> onnx.NodeProto | None:
         """Resolve original ONNX node name to a node when available."""
+        self._ensure_node_key_index()
         node_by_name = self._node_by_name
-        if node_by_name is None:
-            self._initialize_node_key_index()
-            node_by_name = self._node_by_name
-        return node_by_name.get(node_name) if node_by_name is not None else None
+        assert node_by_name is not None
+        return node_by_name.get(node_name)
 
     def get_node_key_map(self) -> dict[int, str]:
         """Get a copy of node-id to stable-key sidecar mapping."""
+        self._ensure_node_key_index()
         node_key_by_node_id = self._node_key_by_node_id
-        if node_key_by_node_id is None:
-            self._initialize_node_key_index()
-            node_key_by_node_id = self._node_key_by_node_id
-        return dict(node_key_by_node_id) if node_key_by_node_id is not None else {}
+        assert node_key_by_node_id is not None
+        return dict(node_key_by_node_id)

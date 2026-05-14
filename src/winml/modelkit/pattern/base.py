@@ -1699,8 +1699,21 @@ class PatternMatcher:
                     if dst_slot not in input_slots:
                         continue
 
-                    edge_info = self.edge_info_by_name.get(input_edge, {}).get(node_name)
+                    edge_info_by_consumer = self.edge_info_by_name.get(input_edge)
+                    edge_info = (
+                        edge_info_by_consumer.get(node_name)
+                        if edge_info_by_consumer is not None
+                        else None
+                    )
                     if edge_info is None:
+                        logger.debug(
+                            "Missing edge_info for input edge '%s' and node key '%s' "
+                            "(subgraph_node=%s, dst_slot=%s); treating candidate as unmatched.",
+                            input_edge,
+                            node_name,
+                            subgraph_node,
+                            dst_slot,
+                        )
                         src_slot_matched = False
                         break
 
@@ -1721,8 +1734,22 @@ class PatternMatcher:
                     if dst_slot not in input_slots:
                         continue  # edge not specified in subgraph, skipping adding mapping
 
-                    edge_info = self.edge_info_by_name.get(input_edge, {}).get(node_name)
+                    edge_info_by_consumer = self.edge_info_by_name.get(input_edge)
+                    edge_info = (
+                        edge_info_by_consumer.get(node_name)
+                        if edge_info_by_consumer is not None
+                        else None
+                    )
                     if edge_info is None:
+                        logger.debug(
+                            "Missing edge_info for input edge '%s' and node key '%s' "
+                            "(subgraph_node=%s, dst_slot=%s) during mapping expansion; "
+                            "adding empty mapping candidate.",
+                            input_edge,
+                            node_name,
+                            subgraph_node,
+                            dst_slot,
+                        )
                         dst_slot_partial_mappings.append([])
                         continue
 
