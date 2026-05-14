@@ -803,6 +803,8 @@ def _run_optimize_stage(
             _header_shown[0] = False
 
         def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
+            from ..analyze.utils.ep_utils import has_rule_data_for_ep
+
             _current_ep[0] = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
@@ -814,7 +816,9 @@ def _run_optimize_stage(
                     f"[bold]Analyzing[/bold] [cyan]{total}[/cyan] nodes  "
                     f"[dim](iter {_current_iter[0]}/{_current_iter[1]})[/dim]"
                 )
-            _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
+            # Skip bar for EPs with no rule data — all results would be 0/0/0
+            if has_rule_data_for_ep(ep_name, device or ""):
+                _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
             ep_name = _current_ep[0]

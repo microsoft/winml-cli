@@ -336,6 +336,7 @@ def _render_analysis_summary(
     *,
     ep: str | None = None,
     device: str | None = None,
+    no_data_eps: set[str] | None = None,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -372,6 +373,22 @@ def _render_analysis_summary(
 
     for ep_support in results:
         ep_name = ep_support.ep_type
+
+        # For EPs with no rule data, skip op-level rows — only show patterns
+        if no_data_eps and ep_name in no_data_eps:
+            patterns = (ep_patterns or {}).get(ep_name, {})
+            if patterns:
+                console.print(f"   🔵 [bold bright_black]{ep_name}[/bold bright_black]:")
+                console.print("      [dim]Op check skipped — no rule data[/dim]")
+                for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
+                    status = p["status"]
+                    icon_p = _STATUS_ICONS.get(status, "❓")
+                    label = _PATTERN_STATUS_LABELS.get(status, "unknown")
+                    console.print(
+                        f"      {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
+                    )
+                console.print()
+            continue
 
         # Aggregate instance counts for this EP
         ep_data = ep_instance_counts.get(ep_name, {})
@@ -555,19 +572,24 @@ def analyze(
             and not has_rule_data_for_ep(ep_normalized, device)
         ):
             available = get_devices_with_rule_data(ep_normalized)
-            if available:
+            if available and device.upper() not in [a.upper() for a in available]:
+                # Device is not supported by this EP at all.
                 logger.error(
                     "%s only supports %s.",
                     ep_normalized,
                     ", ".join(available),
                 )
-            else:
+                sys.exit(2)
+            elif not available:
+                # EP is completely unknown — no rule data and not in the EP map.
                 logger.error(
                     "%s has no rule data for %s.",
                     ep_normalized,
                     device,
                 )
-            sys.exit(2)
+                sys.exit(2)
+            # else: device is valid for this EP but no rule data exists —
+            # proceed; RuntimeChecker will return no_data results gracefully.
 
         ep_label = ep_normalized or "all EPs"
         device_label = device or "NPU"
@@ -620,6 +642,7 @@ def analyze(
         ep_instance_counts: dict[str, dict[str, dict[str, int]]] = {}
         live: Live | None = None
         ep_counter = 0
+        _no_data_eps: set[str] = set()  # EPs with no op rule data
 
         run_unknown_op_for_ep = run_unknown_op
         if ep == "VitisAIExecutionProvider":
@@ -656,7 +679,6 @@ def analyze(
         def on_ep_start(ep_name, operator_counts):
             """Called when analysis starts for a new EP."""
             nonlocal current_ep_name, instance_counts, all_op_counts, ep_counter, live
-            ep_counter += 1
 
             # Finalize previous EP's Live display
             if current_ep_name:
@@ -667,6 +689,15 @@ def analyze(
             current_ep_name = ep_name
             all_op_counts = {_display_name(k): v for k, v in operator_counts.items()}
             instance_counts = {}
+
+            # Skip OP CHECK display for EPs with no rule data —
+            # op results would all be 0/0/0 (unknown). Pattern detection
+            # still runs; results appear in the ANALYSIS SUMMARY.
+            if not has_rule_data_for_ep(ep_name, device or ""):
+                _no_data_eps.add(ep_name)
+                return
+
+            ep_counter += 1
 
             # EP section header
             console.print("─" * 80)
@@ -752,6 +783,7 @@ def analyze(
                 ep_patterns=ep_patterns,
                 ep=ep_normalized,
                 device=device,
+                no_data_eps=_no_data_eps,
             )
 
             # Legend (at the very bottom, only when there are EP results)
