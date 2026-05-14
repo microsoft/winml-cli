@@ -2245,7 +2245,7 @@ class RuntimeCheckerQuery:
         self,
         node: onnx.NodeProto,
         for_debug: bool = False,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
     ) -> PatternRuntime:
         """Run runtime check for a single node.
@@ -2475,7 +2475,7 @@ class RuntimeCheckerQuery:
     def run_for_subgraph(
         self,
         pattern_match: PatternMatchResult,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> PatternRuntime:
         """Run runtime check for subgraph pattern via per-node checks."""
         pattern_name = pattern_match.pattern.__class__.__name__

@@ -1,6 +1,6 @@
 # WinML CLI
 
-[![ModelKit CI](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/WinML-ModelKit/actions/workflows/modelkit-ci.yml)
+[![ModelKit CI](https://github.com/microsoft/winml-cli/actions/workflows/modelkit-ci.yml/badge.svg)](https://github.com/microsoft/winml-cli/actions/workflows/modelkit-ci.yml)
 ![Status](https://img.shields.io/badge/status-early%20access-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -99,7 +99,7 @@ source .venv/Scripts/activate
 **2. Install from wheel**
 
 ```bash
-uv pip install winml_modelkit-<version>-py3-none-any.whl
+uv pip install winml_cli-<version>-py3-none-any.whl
 ```
 
 **3. Verify your environment**
@@ -459,7 +459,7 @@ locations.
 
 We welcome contributions! Please see the [contribution guidelines](CONTRIBUTING.md).
 
-For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/WinML-ModelKit/issues).
+For feature requests or bug reports, please file a [GitHub Issue](https://github.com/microsoft/winml-cli/issues).
 
 ---
 

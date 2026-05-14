@@ -209,7 +209,7 @@ class TestForProvider:
             ("nv_tensorrt_rtx", None),
             ("vitisai", None),
             ("migraphx", None),
-            # Unknown EP names are rejected by the typed dispatcher.
+            # Unknown/custom EPs: no EPContext support → None (same as known non-EPContext EPs)
             ("custom_ep", None),
         ],
     )
@@ -238,5 +238,6 @@ class TestForProvider:
         assert config.ep_config.enable_ep_context is False
 
     def test_for_provider_custom_ep_returns_none(self):
-        """Unknown EP names are rejected — only canonical/alias EPs are accepted."""
-        assert WinMLCompileConfig.for_provider("custom_ep") is None
+        """Unknown/custom EPs return None — no EPContext support assumed."""
+        result = WinMLCompileConfig.for_provider("custom_ep")
+        assert result is None

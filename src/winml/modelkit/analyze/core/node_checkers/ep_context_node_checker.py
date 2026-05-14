@@ -46,9 +46,14 @@ class EPContextNodeChecker(NodeChecker):
         """Check EPContext node partition_name against the execution provider name."""
         ep_name = kwargs.get("ep_name")
         partition_name = self.get_attribute_value(node, "partition_name")
+        # Suffix every pattern_id with the EP label derived from
+        # partition_name so multi-EP analysis reports stay disambiguated
+        # (e.g. "OP/.../EPContext (QNN)").
+        ep_label = self._ep_label(partition_name)
+        scoped_pattern_id = f"{pattern_match.pattern.pattern_id} ({ep_label})"
         if partition_name is None:
             return PatternRuntime(
-                pattern_id=pattern_match.pattern.pattern_id,
+                pattern_id=scoped_pattern_id,
                 result=RuntimeTestResult(
                     run=False,
                     compile=False,
@@ -62,7 +67,7 @@ class EPContextNodeChecker(NodeChecker):
         # https://github.com/microsoft/onnxruntime/blob/7e1d818ba7923c1e44187284a6ca77bbe13aa1eb/onnxruntime/core/framework/graph_partitioner.cc#L378
         if partition_name.startswith(ep_name + "_"):
             return PatternRuntime(
-                pattern_id=pattern_match.pattern.pattern_id,
+                pattern_id=scoped_pattern_id,
                 result=RuntimeTestResult(
                     run=True,
                     compile=True,
@@ -74,7 +79,7 @@ class EPContextNodeChecker(NodeChecker):
                 pattern_match=pattern_match,
             )
         return PatternRuntime(
-            pattern_id=pattern_match.pattern.pattern_id,
+            pattern_id=scoped_pattern_id,
             result=RuntimeTestResult(
                 run=False,
                 compile=False,
@@ -84,6 +89,25 @@ class EPContextNodeChecker(NodeChecker):
             alternatives=alternatives,
             pattern_match=pattern_match,
         )
+
+    @staticmethod
+    def _ep_label(partition_name: str | None) -> str:
+        """Derive the EP label (suffix used in pattern_id) from partition_name.
+
+        Cases:
+
+        - ``None`` → ``"UNKNOWN_EP"`` (partition_name attribute missing).
+        - Canonical ORT format ``"<X>ExecutionProvider_..."`` → ``X``
+          (e.g. ``"QNNExecutionProvider_0"`` → ``"QNN"``).
+        - Anything else → ``partition_name`` itself, used directly.
+        """
+        if partition_name is None:
+            return "UNKNOWN_EP"
+        marker = "ExecutionProvider_"
+        idx = partition_name.find(marker)
+        if idx > 0:
+            return partition_name[:idx]
+        return partition_name
 
     def get_attribute_value(self, node: "onnx.NodeProto", attr_name: str) -> str | None:
         """Return the string value of a node attribute, or None if not found."""
