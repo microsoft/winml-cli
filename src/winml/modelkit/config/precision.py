@@ -19,10 +19,11 @@ from dataclasses import dataclass
 # module's logic; they are NOT re-exported from config/__init__.py
 # (callers must use `from ..session import ...`).
 from ..session import (
-    _VALID_DEVICES,
+    VALID_DEVICES,
     VALID_EPS,
+    default_ep_for_device,
     ep_to_device,
-    get_provider_for_device,
+    short_ep_name,
 )
 
 
@@ -163,7 +164,7 @@ class PrecisionPolicy:
         precision: Resolved precision string (e.g., "int8", "w8a16", "fp16").
         weight_type: Quantization weight type, or None for fp32/fp16.
         activation_type: Quantization activation type, or None for fp32/fp16.
-        compile_provider: "qnn", "dml", or None.
+        compile_provider: Short EP name (e.g. "qnn", "dml") or None for CPU.
     """
 
     device: str
@@ -241,10 +242,8 @@ def resolve_precision(
 
     # --- Device is explicit ---
     if device != "auto":
-        if device not in _VALID_DEVICES:
-            raise ValueError(
-                f"Unknown device '{device}'. Expected one of: {sorted(_VALID_DEVICES)}"
-            )
+        if device not in VALID_DEVICES:
+            raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
         resolved_device = device
     else:
         # Device is "auto" but precision is explicit — pick best device
@@ -266,8 +265,16 @@ def resolve_precision(
                 task,
             )
 
-    # EP override takes precedence over device→provider mapping
-    compile_provider = ep if ep else get_provider_for_device(resolved_device)
+    # EP override takes precedence over device→provider mapping.
+    # For CPU, default_ep_for_device returns "CPUExecutionProvider" → short name "cpu".
+    # compile_provider=None means "no compile stage"; CPUExecutionProvider has no
+    # compile step, so map "cpu" (the short name) to None explicitly.
+    if ep:
+        compile_provider: str | None = ep
+    else:
+        _canonical = default_ep_for_device(resolved_device)
+        _short = short_ep_name(_canonical) if _canonical is not None else None
+        compile_provider = _short if _short != "cpu" else None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

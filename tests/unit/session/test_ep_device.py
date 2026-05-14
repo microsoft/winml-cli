@@ -251,18 +251,18 @@ def test_default_ep_for_device_npu() -> None:
 
 
 def test_default_ep_for_device_gpu() -> None:
-    """default_ep_for_device returns OpenVINOExecutionProvider for gpu (first in catalog)."""
+    """default_ep_for_device returns DmlExecutionProvider for gpu (first in catalog)."""
     from winml.modelkit.session import default_ep_for_device
 
-    assert default_ep_for_device("gpu") == "OpenVINOExecutionProvider"
+    assert default_ep_for_device("gpu") == "DmlExecutionProvider"
 
 
 def test_default_ep_for_device_cpu() -> None:
-    """default_ep_for_device returns OpenVINOExecutionProvider for cpu (first in catalog)."""
+    """default_ep_for_device returns CPUExecutionProvider for cpu (first in catalog)."""
     from winml.modelkit.session import default_ep_for_device
 
-    # OpenVINO-CPU comes before QNN-CPU and CPUExecutionProvider in the catalog
-    assert default_ep_for_device("cpu") == "OpenVINOExecutionProvider"
+    # CPUExecutionProvider is now the primary CPU EP (position 2 in catalog)
+    assert default_ep_for_device("cpu") == "CPUExecutionProvider"
 
 
 def test_default_ep_for_device_unknown_returns_none() -> None:

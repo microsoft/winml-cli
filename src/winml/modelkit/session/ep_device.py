@@ -164,12 +164,12 @@ class EPDeviceSpec:
 
 
 EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
-    # Order encodes deduction preference per device category:
-    #   npu-first: QNNExecutionProvider (highest-throughput NPU EP on Snapdragon)
-    #   gpu-first: OpenVINOExecutionProvider (cross-platform, multi-vendor GPU)
-    #   cpu-first: QNNExecutionProvider (QNN CPU backend, when available)
-    #
-    # QNN NPU — first in catalog so default_ep_for_device("npu") == QNN
+    # Order encodes first-match deduction preference per device:
+    #   npu-first:  QNNExecutionProvider   (Snapdragon HTP — highest-throughput)
+    #   gpu-first:  DmlExecutionProvider   (Windows-native; compile-path default)
+    #   cpu-first:  CPUExecutionProvider   (bundled with ORT — always available)
+    # Secondary entries follow their primary within each device group.
+    # ---- Primary per-device (positions 0-2) ----
     EPDeviceSpec(
         ep="QNNExecutionProvider",
         device="npu",
@@ -178,28 +178,24 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "htp_performance_mode": "burst",
             "htp_graph_finalization_optimization_mode": "3",
         },
-    ),
+    ),  # primary NPU
+    EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # primary GPU
+    EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # primary CPU
+    # ---- QNN secondary ----
+    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
+    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
     # ---- OpenVINO family ----
-    # OpenVINO GPU comes before QNN GPU so default_ep_for_device("gpu") == OpenVINO.
-    # OpenVINO CPU comes before QNN CPU so default_ep_for_device("cpu") == OpenVINO
-    # (CPUExecutionProvider is the ultimate fallback at the end).
     # TODO: verify whether `device_type` is needed under add_provider_for_devices,
     # or auto-derived from OrtEpDevice handle (like QNN's backend_type).
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
+    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
-    # ---- Single-device EPs ----
+    # ---- Other single-device EPs ----
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
-    EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="CUDAExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="NvTensorRtRtxExecutionProvider", device="gpu"),
-    # ---- QNN secondary devices ----
-    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
-    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
-    # ---- Bundled CPU ----
-    EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),
 )
 
 # O(1) lookup cache built from the ordered catalog.
@@ -209,7 +205,7 @@ _BY_KEY: Final[dict[tuple[str, str], EPDeviceSpec]] = {(s.ep, s.device): s for s
 # VALID_EPS uses short names for backward compatibility with callers that pass
 # short forms (e.g. "qnn", "dml").  The catalog uses full names internally.
 VALID_EPS: Final[frozenset[str]] = frozenset({short_ep_name(s.ep) for s in EP_DEVICE_SPECS})
-_VALID_DEVICES: Final[frozenset[str]] = frozenset({s.device for s in EP_DEVICE_SPECS})
+VALID_DEVICES: Final[frozenset[str]] = frozenset({s.device for s in EP_DEVICE_SPECS})
 
 
 def lookup_device_spec(ep: str, device: str) -> EPDeviceSpec | None:
@@ -262,33 +258,23 @@ def default_ep_for_device(device: str) -> str | None:
     return next((s.ep for s in EP_DEVICE_SPECS if s.device == device), None)
 
 
-def get_provider_for_device(device: str) -> str | None:
-    """Get the default *compile* provider short name for a resolved device.
+def eps_for_device(device: str) -> frozenset[str]:
+    """All canonical EP names in the catalog that target the given device.
 
-    Preserved for backward compatibility.  The compile-provider mapping is a
-    subset of the full EP catalog and intentionally differs from the
-    :func:`default_ep_for_device` ordering:
-
-    * ``"npu"``  → ``"qnn"``   (first NPU EP in catalog)
-    * ``"gpu"``  → ``"dml"``   (Windows-native GPU compile target; preserved
-                                from the old ``_DEVICE_TO_PROVIDER`` mapping)
-    * ``"cpu"``  → ``None``    (built-in CPU EP; no provider needed)
-
-    Callers that want the first-in-catalog EP for a device should use
-    :func:`default_ep_for_device` directly.
+    Replaces inline hardcoded EP lists (e.g. ``candidate_eps`` in
+    ``commands/build.py``).  Returns canonical (full) names — callers
+    needing short names use :func:`short_ep_name` per element.
 
     Args:
-        device: Resolved device name (``"npu"``, ``"gpu"``, ``"cpu"``).
+        device: Device category (``"npu"``, ``"gpu"``, ``"cpu"``).
+            Case-insensitive.
 
     Returns:
-        Provider short name (e.g. ``"qnn"``, ``"dml"``) or ``None`` for CPU.
+        Frozenset of canonical EP names for that device.  Returns an empty
+        frozenset for unknown devices (no raise — callers can check membership).
     """
-    _compile_provider: dict[str, str | None] = {
-        "npu": "qnn",
-        "gpu": "dml",
-        "cpu": None,
-    }
-    return _compile_provider.get(device)
+    d = device.lower()
+    return frozenset(s.ep for s in EP_DEVICE_SPECS if s.device == d)
 
 
 def ep_to_device(ep: str) -> str:
@@ -376,10 +362,8 @@ def resolve_device(
     if device is not None and ep is None:
         # device given, ep missing — infer default EP from catalog
         device_lower = device.lower()
-        if device_lower not in _VALID_DEVICES:
-            raise ValueError(
-                f"Unknown device '{device}'. Expected one of: {sorted(_VALID_DEVICES)}"
-            )
+        if device_lower not in VALID_DEVICES:
+            raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
         default_ep_full = default_ep_for_device(device_lower)
         # cpu maps to CPUExecutionProvider; use its short name for consistency
         ep = short_ep_name(default_ep_full) if default_ep_full is not None else "cpu"

@@ -8,12 +8,12 @@ from pathlib import Path
 
 import click
 
-from ..session import _VALID_DEVICES, VALID_EPS
+from ..session import VALID_DEVICES, VALID_EPS
 
 
 # Sorted lowercase device choices consistent with the rest of the codebase.
 # Previously SUPPORTED_DEVICES = ["CPU", "GPU", "NPU"] (uppercase — bug).
-_DEVICE_CHOICES = sorted(_VALID_DEVICES)
+_DEVICE_CHOICES = sorted(VALID_DEVICES)
 
 # Sorted short EP names sourced from the session facade (single source of truth).
 _EP_CHOICES = sorted(VALID_EPS)

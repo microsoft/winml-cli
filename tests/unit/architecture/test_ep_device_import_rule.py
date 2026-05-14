@@ -138,6 +138,7 @@ def test_no_direct_ep_device_imports_in_tests() -> None:
         "from winml.modelkit.session.ep_device import EPDevice",
         "from winml.modelkit.session.ep_device import EPDevice, resolve_device",
         "from winml.modelkit.session.ep_device import _EP_TO_DEVICE",
+        "from winml.modelkit.session.ep_device import get_provider_for_device",
         # Module import forms
         "import winml.modelkit.session.ep_device",
         "import winml.modelkit.session.ep_device as epd",

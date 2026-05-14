@@ -366,12 +366,15 @@ def build(
         from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
-        candidate_eps = [
-            "QNNExecutionProvider",
-            "OpenVINOExecutionProvider",
-            "VitisAIExecutionProvider",
-        ]
-        for candidate_ep in candidate_eps:
+        from ..session import EP_DEVICE_SPECS, eps_for_device
+
+        # Walk NPU-capable EPs in catalog order (QNN first, then OpenVINO, VitisAI).
+        # eps_for_device returns a frozenset; sort by catalog position for determinism.
+        _npu_eps = sorted(
+            eps_for_device("npu"),
+            key=lambda e: next(i for i, s in enumerate(EP_DEVICE_SPECS) if s.ep == e),
+        )
+        for candidate_ep in _npu_eps:
             if registry.is_ep_available(candidate_ep):
                 ep = candidate_ep
                 logger.info("EP unspecified for build, auto-selecting: %s", ep)

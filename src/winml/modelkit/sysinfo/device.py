@@ -9,6 +9,8 @@ from __future__ import annotations
 import functools
 import logging
 
+from ..session import VALID_DEVICES as _VALID_DEVICES
+
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +58,6 @@ _DEVICE_EP_MAP: dict[str, list[str]] = {}
 for _ep, _device in _EP_DEVICE_MAP.items():
     if "/" not in _device:
         _DEVICE_EP_MAP.setdefault(_device, []).append(_ep)
-
-# Valid explicit device values
-_VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 
 def get_ep_device_map() -> dict[str, str]:
