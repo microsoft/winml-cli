@@ -547,7 +547,7 @@ def _perf_modules(
     from ..sysinfo import resolve_device
     from .build import _instantiate_parent_model
 
-    resolved_device, _ = resolve_device(device=device)
+    resolved_device, _ = resolve_device(device=device, ep=ep)
 
     console.print(f"[dim]Generating module configs for {module_class}...[/dim]")
 
