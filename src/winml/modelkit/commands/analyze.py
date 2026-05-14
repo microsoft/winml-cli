@@ -445,6 +445,7 @@ def _render_analysis_summary(
 @cli_utils.build_config_option
 @click.option(
     "--output",
+    "-o",
     type=click.Path(path_type=Path),
     default=None,
     help="Save JSON output to file",
