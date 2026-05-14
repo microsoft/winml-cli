@@ -118,7 +118,7 @@ extends:
             target: '$(Build.SourceVersion)'
             tagSource: userSpecifiedTag
             tag: '$(ReleaseTag)'
-            title: 'ModelKit $(ReleaseTag)'
+            title: 'WinML CLI $(ReleaseTag)'
             assets: |
               $(Build.SourcesDirectory)/release_assets/*.whl
               $(Build.SourcesDirectory)/release_assets/rules.zip
