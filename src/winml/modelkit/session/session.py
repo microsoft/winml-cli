@@ -340,44 +340,17 @@ class WinMLSession:
                 session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
         except Exception as ep_err:
-            # When an explicit EP fails on CPU (e.g. OpenVINO-CPU cannot
-            # deserialize the model), fall back to PREFER_CPU policy so
-            # CPUExecutionProvider handles the model instead.
-            if self._ep and target_device == "cpu":
-                logger.warning(
-                    "EP '%s' on CPU failed (%s), retrying with PREFER_CPU policy",
-                    self._ep,
-                    ep_err,
-                )
-                try:
-                    fallback_opts = ort.SessionOptions()
-                    fallback_opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
-                    with _suppress_native_output(compile_log):
-                        session = ort.InferenceSession(str(model_path), sess_options=fallback_opts)
-                except Exception as fallback_err:
-                    self._state = SessionState.ERROR
-                    self._last_error = fallback_err
-                    raise CompilationError(
-                        message=f"Failed to compile for {target_device}",
-                        context={
-                            "device": target_device,
-                            "onnx_path": str(self._onnx_path),
-                            "error": str(fallback_err),
-                        },
-                        suggestion=self._get_compile_suggestion(target_device, fallback_err),
-                    ) from fallback_err
-            else:
-                self._state = SessionState.ERROR
-                self._last_error = ep_err
-                raise CompilationError(
-                    message=f"Failed to compile for {target_device}",
-                    context={
-                        "device": target_device,
-                        "onnx_path": str(self._onnx_path),
-                        "error": str(ep_err),
-                    },
-                    suggestion=self._get_compile_suggestion(target_device, ep_err),
-                ) from ep_err
+            self._state = SessionState.ERROR
+            self._last_error = ep_err
+            raise CompilationError(
+                message=f"Failed to compile for {target_device}",
+                context={
+                    "device": target_device,
+                    "onnx_path": str(self._onnx_path),
+                    "error": str(ep_err),
+                },
+                suggestion=self._get_compile_suggestion(target_device, ep_err),
+            ) from ep_err
 
         # Log which providers were selected by ORT (based on policy)
         actual_providers = session.get_providers()
