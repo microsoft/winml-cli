@@ -190,7 +190,7 @@ def resolve_device(
     Raises:
         ValueError: If device or ep is not recognized.
     """
-    device = (device or "auto").lower()
+    device = device.lower()
 
     if device != "auto" and device not in _VALID_DEVICES:
         raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")

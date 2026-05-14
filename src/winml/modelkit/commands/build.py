@@ -287,8 +287,8 @@ def _build_modules(
 )
 @click.option(
     "--device",
-    default=None,
-    help="Target device for analyzer (e.g., 'NPU', 'GPU'). Default: NPU.",
+    default="auto",
+    help="Target device ('auto', 'npu', 'gpu', 'cpu'). Default: auto-detect.",
 )
 @click.option(
     "--no-analyze",
@@ -331,7 +331,7 @@ def build(
     no_compile: bool | None,
     no_optimize: bool,
     ep: str | None,
-    device: str | None,
+    device: str,
     no_analyze: bool,
     max_optim_iterations: int | None,
     trust_remote_code: bool,
