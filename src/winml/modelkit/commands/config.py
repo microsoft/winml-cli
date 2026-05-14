@@ -453,7 +453,7 @@ def config(
             # Fix #4: Device from resolve_device (existing API)
             from ..sysinfo import resolve_device as _rd
 
-            _resolved_dev, _ = _rd(device)
+            _resolved_dev, _ = _rd(device, ep=ep)
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
 
             # EP — only shown when user explicitly passed --ep
