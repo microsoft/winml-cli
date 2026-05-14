@@ -19,6 +19,7 @@ Examples:
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -99,6 +100,13 @@ console = Console()
     help="Task for calibration dataset selection (e.g., 'image-classification').",
 )
 @click.option(
+    "--model-name",
+    type=str,
+    default=None,
+    help="HuggingFace model name (e.g., 'microsoft/resnet-50'). When provided "
+    "with --task, enables task-aware calibration datasets using the model's preprocessor.",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -119,6 +127,7 @@ def quantize(
     per_channel: bool,
     symmetric: bool,
     task: str | None,
+    model_name: str | None,
     verbose: bool,
     config_file: Path | None,
 ) -> None:
@@ -151,23 +160,27 @@ def quantize(
 
     configure_logging(verbose=verbose)
 
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Only read the JSON for what explicitly specified in config file.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.quant:
-            qc = build_cfg.quant
-            if not cli_utils.is_cli_provided(ctx, "samples"):
-                samples = qc.samples
-            if not cli_utils.is_cli_provided(ctx, "method"):
-                method = qc.calibration_method
-            if not cli_utils.is_cli_provided(ctx, "weight_type"):
-                weight_type = qc.weight_type
-            if not cli_utils.is_cli_provided(ctx, "activation_type"):
-                activation_type = qc.activation_type
-            if not cli_utils.is_cli_provided(ctx, "per_channel"):
-                per_channel = qc.per_channel
-            if not cli_utils.is_cli_provided(ctx, "symmetric"):
-                symmetric = qc.symmetric
+        cli_utils.load_build_config(config_file)  # validate; raises click.UsageError
+        qc = (json.loads(config_file.read_text()) or {}).get("quant") or {}
+        if not cli_utils.is_cli_provided(ctx, "samples") and "samples" in qc:
+            samples = qc["samples"]
+        if not cli_utils.is_cli_provided(ctx, "method") and "calibration_method" in qc:
+            method = qc["calibration_method"]
+        if not cli_utils.is_cli_provided(ctx, "weight_type") and "weight_type" in qc:
+            weight_type = qc["weight_type"]
+        if not cli_utils.is_cli_provided(ctx, "activation_type") and "activation_type" in qc:
+            activation_type = qc["activation_type"]
+        if not cli_utils.is_cli_provided(ctx, "per_channel") and "per_channel" in qc:
+            per_channel = qc["per_channel"]
+        if not cli_utils.is_cli_provided(ctx, "symmetric") and "symmetric" in qc:
+            symmetric = qc["symmetric"]
+        if not cli_utils.is_cli_provided(ctx, "task") and "task" in qc:
+            task = qc["task"]
+        if not cli_utils.is_cli_provided(ctx, "model_name") and "model_name" in qc:
+            model_name = qc["model_name"]
 
     # Import quantizer (late import to speed up CLI)
     from ..quant import WinMLQuantizationConfig, quantize_onnx
@@ -180,6 +193,7 @@ def quantize(
     # Determine output path
     if output is None:
         output = model.parent / f"{model.stem}_qdq.onnx"
+    output.parent.mkdir(parents=True, exist_ok=True)
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
@@ -200,6 +214,7 @@ def quantize(
         per_channel=per_channel,
         symmetric=symmetric,
         task=task,
+        model_name=model_name,
     )
 
     # Display dataset info from config

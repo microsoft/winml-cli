@@ -903,19 +903,20 @@ class TestQDQNodeDisplayMapping:
     """
 
     def test_qdq_pattern_id_maps_to_base_op_for_table_key(self) -> None:
-        """_display_name + removesuffix(QDQ_SUFFIX) maps QDQ pattern IDs to base
+        """_display_name maps QDQ-suffixed and EP-suffixed pattern IDs to base
         op types so instance_counts keys match all_op_counts keys."""
-        from winml.modelkit.analyze import QDQ_SUFFIX
         from winml.modelkit.commands.analyze import _display_name
 
-        assert _display_name("OP/ai.onnx/Conv (QDQ)").removesuffix(QDQ_SUFFIX) == "Conv"
-        assert _display_name("OP/ai.onnx/Add (QDQ)").removesuffix(QDQ_SUFFIX) == "Add"
-        assert _display_name("OP/ai.onnx/Pad (QDQ)").removesuffix(QDQ_SUFFIX) == "Pad"
-        assert (
-            _display_name("OP/ai.onnx/DequantizeLinear").removesuffix(QDQ_SUFFIX)
-            == "DequantizeLinear"
-        )
-        assert _display_name("OP/ai.onnx/Reshape").removesuffix(QDQ_SUFFIX) == "Reshape"
+        # QDQ suffix
+        assert _display_name("OP/ai.onnx/Conv (QDQ)") == "Conv"
+        assert _display_name("OP/ai.onnx/Add (QDQ)") == "Add"
+        assert _display_name("OP/ai.onnx/Pad (QDQ)") == "Pad"
+        # No suffix
+        assert _display_name("OP/ai.onnx/DequantizeLinear") == "DequantizeLinear"
+        assert _display_name("OP/ai.onnx/Reshape") == "Reshape"
+        # EP-prefix suffix from EPContextNodeChecker
+        assert _display_name("OP/com.microsoft/EPContext (QNN)") == "EPContext"
+        assert _display_name("OP/com.microsoft/EPContext (Dml)") == "EPContext"
 
     @patch("winml.modelkit.commands.analyze.Live")
     @patch("winml.modelkit.commands.analyze.Console")
