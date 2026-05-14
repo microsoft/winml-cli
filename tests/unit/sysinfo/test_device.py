@@ -17,6 +17,7 @@ from winml.modelkit.sysinfo.device import (
     _get_available_devices,
     resolve_device,
 )
+from winml.modelkit.utils.constants import EP_NAMES
 
 
 class TestGetAvailableDevices:
@@ -130,6 +131,21 @@ class TestMappingConstants:
         assert "OpenVINOExecutionProvider" in _EP_DEVICE_MAP
         # CPU
         assert "CPUExecutionProvider" in _EP_DEVICE_MAP
+
+    def test_ep_device_map_covers_every_ep_name_literal(self) -> None:
+        """Every value in the ``EPName`` Literal must have an _EP_DEVICE_MAP entry.
+
+        Adding a new canonical EP to the Literal without wiring its device
+        mapping here would silently break device resolution; this test guards
+        against that drift.
+        """
+        missing = set(EP_NAMES) - set(_EP_DEVICE_MAP)
+        assert not missing, f"_EP_DEVICE_MAP is missing entries for: {sorted(missing)}"
+
+    def test_ep_device_map_no_extra_keys_outside_literal(self) -> None:
+        """_EP_DEVICE_MAP must not contain keys absent from the ``EPName`` Literal."""
+        extra = set(_EP_DEVICE_MAP) - set(EP_NAMES)
+        assert not extra, f"_EP_DEVICE_MAP has unexpected canonical names: {sorted(extra)}"
 
     def test_ep_device_map_values_are_lowercase(self) -> None:
         """All _EP_DEVICE_MAP values should be lowercase."""
