@@ -34,7 +34,7 @@ _OK_RESULT = PredictionResult(
     task="test",
     model_id="mock/model",
     device="cpu",
-    ep="",
+    ep=None,
     predictions=[Prediction(label="ok", score=0.99)],
     latency_ms=10.0,
 )

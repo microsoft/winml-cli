@@ -13,7 +13,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
 
+from ..utils.constants import EPNameOrAlias
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPAlias
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +68,14 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
 }
 
 # Device -> compile provider mapping (default when no --ep override)
-_DEVICE_TO_PROVIDER: dict[str, str | None] = {
+_DEVICE_TO_PROVIDER: dict[str, EPAlias | None] = {
     "npu": "qnn",
     "gpu": "dml",
     "cpu": None,
 }
 
 
-def get_provider_for_device(device: str) -> str | None:
+def get_provider_for_device(device: str) -> EPAlias | None:
     """Get the default compile provider for a resolved device.
 
     Args:
@@ -196,14 +202,14 @@ class PrecisionPolicy:
     precision: str
     weight_type: str | None
     activation_type: str | None
-    compile_provider: str | None
+    compile_provider: EPNameOrAlias | None
 
 
 def resolve_precision(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     available_devices: list[str] | None = None,
     task: str | None = None,
 ) -> PrecisionPolicy:
@@ -247,7 +253,7 @@ def resolve_precision(
 
     # Validate EP override
     if ep is not None:
-        ep = ep.lower()
+        ep = cast("EPNameOrAlias", ep.lower())
         if ep not in VALID_EPS:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}")
         # Infer device from EP when device is "auto"

@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import functools
 import logging
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +177,7 @@ def _get_available_eps() -> frozenset[str]:
 def resolve_device(
     device: str = "auto",
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
 ) -> tuple[str, list[str]]:
     """Resolve target device with EP availability cross-check.
 

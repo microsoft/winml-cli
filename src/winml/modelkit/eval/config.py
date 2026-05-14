@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..datasets.config import DatasetConfig
+from ..utils.constants import EPNameOrAlias
 
 
 @dataclass
@@ -62,7 +63,7 @@ class WinMLEvaluationConfig:
     task: str | None = None
     device: str = "cpu"
     precision: str = "auto"
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     output_path: Path | None = field(default=None, metadata={"cli_name": "output"})
 

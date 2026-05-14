@@ -26,7 +26,7 @@ from rich.text import Text
 
 from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPNameOrAlias, normalize_ep_name
 from ..utils.logging import configure_logging
 
 
@@ -320,7 +320,7 @@ def _render_analysis_summary(
     ep_instance_counts: dict[str, dict[str, dict[str, int]]],
     ep_patterns: dict[str, dict[str, dict]] | None = None,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
@@ -468,7 +468,7 @@ def _render_analysis_summary(
 def analyze(
     ctx: click.Context,
     model: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
     information: bool,

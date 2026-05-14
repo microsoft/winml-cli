@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import click
 from rich.console import Console
@@ -28,6 +29,10 @@ from ..config import VALID_EPS
 from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE
 from ..onnx import is_compiled_onnx
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 from ..utils.logging import configure_logging
 
 
@@ -115,7 +120,7 @@ def compile(
     output: Path | None,
     output_dir: Path | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     validate: bool,
     verbose: bool,
     compiler: str,
@@ -249,14 +254,14 @@ def compile(
         raise click.ClickException(f"Compilation failed: {e}") from e
 
 
-def _resolve_compile_provider(device: str, ep: str | None) -> str:
+def _resolve_compile_provider(device: str, ep: EPNameOrAlias | None) -> EPNameOrAlias:
     """Resolve the compile provider from device + ep flags.
 
     Uses the canonical ``_DEVICE_TO_PROVIDER`` from ``config/precision.py``
     as single source of truth. ``ep`` overrides the device mapping.
     """
     if ep:
-        return ep.lower()
+        return cast("EPNameOrAlias", ep.lower())
 
     provider = _DEVICE_TO_PROVIDER.get(device.lower())
     if provider is None:

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPNameOrAlias, normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
@@ -85,7 +85,7 @@ class AnalysisResult:
         pattern_count = sum(self.output.metadata.detected_pattern_count.values())
         return f"AnalysisResult(patterns={pattern_count})"
 
-    def is_fully_supported(self, ep: str | None = None) -> bool:
+    def is_fully_supported(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if model is fully supported on the target EP and device.
 
         Args:
@@ -126,7 +126,7 @@ class AnalysisResult:
                 return False
         return found_target
 
-    def has_errors(self, ep: str | None = None) -> bool:
+    def has_errors(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if there are any unsupported patterns (blocking errors).
 
         Args:
@@ -159,7 +159,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def has_warnings(self, ep: str | None = None) -> bool:
+    def has_warnings(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if there are any partial patterns (warnings/optimization opportunities).
 
         Args:
@@ -192,7 +192,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def get_lint_result(self, ep: str | None = None) -> LintResult:
+    def get_lint_result(self, ep: EPNameOrAlias | None = None) -> LintResult:
         """Get lint-style result with error/warning/info counts.
 
         Args:
@@ -273,7 +273,7 @@ class AnalysisResult:
             optimization_config=optimization_config,
         )
 
-    def get_unsupported_operators(self, ep: str | None = None) -> list[str]:
+    def get_unsupported_operators(self, ep: EPNameOrAlias | None = None) -> list[str]:
         """Get list of unsupported operators for the target EP and device.
 
         Args:
@@ -308,7 +308,7 @@ class AnalysisResult:
 
         return unsupported
 
-    def get_optimization_opportunities(self, ep: str | None = None) -> list[Action]:
+    def get_optimization_opportunities(self, ep: EPNameOrAlias | None = None) -> list[Action]:
         """Get actions for patterns that could be optimized (UNSUPPORTED or PARTIAL status).
 
         Args:
@@ -351,7 +351,7 @@ class AnalysisResult:
                             seen_patterns.add(pattern_key)
         return actions
 
-    def get_optimization_config(self, ep: str | None = None) -> WinMLOptimizationConfig:
+    def get_optimization_config(self, ep: EPNameOrAlias | None = None) -> WinMLOptimizationConfig:
         """Generate WinML optimization configuration based on action items.
 
         This method extracts optimization settings from action_items in Actions,
@@ -493,7 +493,7 @@ class ONNXStaticAnalyzer:
     def analyze(
         self,
         model_path: str,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         device: str | None = None,
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
@@ -623,7 +623,7 @@ class ONNXStaticAnalyzer:
     def analyze_from_proto(
         self,
         model_proto: onnx.ModelProto,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         device: str | None = None,
         enable_information: bool = True,
         model_path: str | None = None,
@@ -868,7 +868,7 @@ class AnalyzeResult:
 def analyze_onnx(
     model: str | Path,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     autoconf: bool = True,
     run_unknown_op: bool = True,

@@ -4,7 +4,45 @@
 # --------------------------------------------------------------------------
 """Shared constants for WinML CLI."""
 
+from __future__ import annotations
+
+from typing import Literal, TypeAlias, cast, get_args
+
 import onnxruntime as ort
+
+
+# Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).
+# Source of truth: docs/naming-convention.md.
+EPName = Literal[
+    "CPUExecutionProvider",
+    "CUDAExecutionProvider",
+    "DmlExecutionProvider",
+    "MIGraphXExecutionProvider",
+    "NvTensorRTRTXExecutionProvider",
+    "OpenVINOExecutionProvider",
+    "QNNExecutionProvider",
+    "VitisAIExecutionProvider",
+]
+
+# Shorthand aliases users can pass on the CLI (case-insensitive at the parser layer).
+# Includes every alias accepted across the codebase — superset of both
+# `EP_ALIASES` and `sysinfo.device.EP_SHORT_TO_FULL`.
+EPAlias = Literal[
+    "qnn",
+    "openvino",
+    "ov",
+    "vitisai",
+    "vitis",
+    "cpu",
+    "cuda",
+    "dml",
+    "nv_tensorrt_rtx",
+    "trtrtx",
+    "migraphx",
+]
+
+# Either an alias or a full name — what user-facing entry points accept before normalization.
+EPNameOrAlias: TypeAlias = EPName | EPAlias
 
 
 # Supported execution providers — derived from sysinfo's authoritative EP→device map.
@@ -17,7 +55,7 @@ def _get_supported_eps() -> list[str]:
 SUPPORTED_EPS = _get_supported_eps()
 
 # EP shorthand aliases (case-insensitive)
-EP_ALIASES = {
+EP_ALIASES: dict[EPAlias, EPName] = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
     "ov": "OpenVINOExecutionProvider",
@@ -29,11 +67,15 @@ EP_ALIASES = {
     "migraphx": "MIGraphXExecutionProvider",
 }
 
+# Runtime-iterable forms of the Literal types above (for membership checks, choice lists).
+EP_NAMES: tuple[EPName, ...] = get_args(EPName)
+EP_ALIAS_NAMES: tuple[EPAlias, ...] = get_args(EPAlias)
+
 # All accepted EP names (full names + aliases)
 ALL_EP_NAMES = list(SUPPORTED_EPS) + list(EP_ALIASES.keys())
 
 
-def normalize_ep_name(ep: str | None) -> str | None:
+def normalize_ep_name(ep: EPNameOrAlias | str | None) -> EPName | None:
     """Normalize EP name from shorthand to full name.
 
     Converts EP aliases to their full names (case-insensitive).
@@ -58,15 +100,15 @@ def normalize_ep_name(ep: str | None) -> str | None:
 
     # Check if it's already a full name
     if ep in SUPPORTED_EPS:
-        return ep
+        return cast("EPName", ep)
 
     # Try to find in aliases (case-insensitive)
     ep_lower = ep.lower()
     if ep_lower in EP_ALIASES:
-        return EP_ALIASES[ep_lower]
+        return EP_ALIASES[cast("EPAlias", ep_lower)]
 
     # Return as-is if not found (let validation catch invalid names)
-    return ep
+    return cast("EPName", ep)
 
 
 def extract_ep_options(kwargs: dict) -> dict[str, str]:

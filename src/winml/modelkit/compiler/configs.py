@@ -15,7 +15,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+from ..utils.constants import EPAlias
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 @dataclass
@@ -33,7 +39,7 @@ class EPConfig:
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
     """
 
-    provider: str = "qnn"
+    provider: EPAlias = "qnn"
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
@@ -85,7 +91,7 @@ class WinMLCompileConfig:
 
     @classmethod
     def for_provider(
-        cls, provider: str | None, device: str | None = None
+        cls, provider: EPNameOrAlias | None, device: str | None = None
     ) -> WinMLCompileConfig | None:
         """Factory that dispatches to a known for_* method or creates a generic config.
 
@@ -118,7 +124,7 @@ class WinMLCompileConfig:
                 return None
             return config
         # Generic fallback for unknown/custom providers
-        return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
+        return cls(ep_config=EPConfig(provider=cast("EPAlias", provider), enable_ep_context=False))
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:

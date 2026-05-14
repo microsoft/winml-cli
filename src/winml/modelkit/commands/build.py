@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -159,7 +160,7 @@ def _build_modules(
     output_dir: Path,
     *,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
@@ -330,7 +331,7 @@ def build(
     no_quant: bool,
     no_compile: bool | None,
     no_optimize: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str,
     no_analyze: bool,
     max_optim_iterations: int | None,
@@ -383,7 +384,7 @@ def build(
         from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
-        candidate_eps = [
+        candidate_eps: list[EPNameOrAlias] = [
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
@@ -609,7 +610,7 @@ def _run_single_build(
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> None:
@@ -752,7 +753,7 @@ def _run_optimize_stage(
     config: WinMLBuildConfig,
     model_path: Path,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
@@ -1057,7 +1058,7 @@ def _build_hf_pipeline(
     output_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:
@@ -1180,7 +1181,7 @@ def _build_onnx_pipeline(
     onnx_path: Path,
     output_dir: Path,
     rebuild: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:

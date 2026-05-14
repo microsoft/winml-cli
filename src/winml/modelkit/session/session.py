@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     import onnx
 
     from ..compiler.configs import EPConfig
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class WinMLSession:
         device: str = "auto",
         ep_config: EPConfig | None = None,
         *,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         session_options: ort.SessionOptions | None = None,
     ) -> None:
         """Initialize WinMLSession.
