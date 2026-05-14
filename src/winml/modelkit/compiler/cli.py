@@ -157,12 +157,15 @@ def compile(
         else:
             click.echo(f"Warning: Invalid provider option '{opt}' (expected key=value)")
 
-    # Build config: normalize alias-or-canonical input, then map back to alias
-    # domain via the reverse table.
-    from ..utils.constants import EP_NAME_TO_ALIAS, normalize_ep_name
+    # Build config. Default to QNN when --ep is not given; otherwise normalize
+    # alias-or-canonical input back to the alias domain via the reverse table.
+    from ..utils.constants import EP_NAME_TO_ALIAS, EPAlias, normalize_ep_name
 
-    canonical = normalize_ep_name(ep) if ep else None
-    provider_alias = EP_NAME_TO_ALIAS[canonical] if canonical else "qnn"
+    provider_alias: EPAlias = "qnn"
+    if ep:
+        canonical = normalize_ep_name(ep)
+        if canonical is not None:
+            provider_alias = EP_NAME_TO_ALIAS[canonical]
     ep_config = EPConfig(
         provider=provider_alias,
         provider_options=provider_options,

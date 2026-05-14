@@ -43,14 +43,11 @@ EPAlias = Literal[
 EPNameOrAlias: TypeAlias = EPName | EPAlias
 
 
-# Supported execution providers — derived from sysinfo's authoritative EP→device map.
-def _get_supported_eps() -> list[str]:
-    from ..sysinfo.device import get_ep_device_map
-
-    return list(get_ep_device_map().keys())
-
-
-SUPPORTED_EPS = _get_supported_eps()
+# Supported execution providers — derived from the ``EPName`` Literal above so
+# that ``utils.constants`` stays leaf-level (no import dependency on sysinfo).
+# Membership parity with ``sysinfo.device._EP_DEVICE_MAP`` is enforced by
+# ``tests/unit/utils/test_ep_constants.py::test_matches_ep_device_map_keys``.
+SUPPORTED_EPS: list[EPName] = list(get_args(EPName))
 
 # EP shorthand aliases (case-insensitive)
 EP_ALIASES: dict[EPAlias, EPName] = {

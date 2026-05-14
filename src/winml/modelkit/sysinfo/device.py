@@ -10,6 +10,8 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
+from ..utils.constants import normalize_ep_name
+
 
 if TYPE_CHECKING:
     from ..utils.constants import EPNameOrAlias
@@ -191,8 +193,6 @@ def resolve_device(
     available_eps = _get_available_eps()
 
     if ep is not None:
-        from ..utils.constants import normalize_ep_name
-
         ep_full = normalize_ep_name(ep)
         if ep_full not in _EP_DEVICE_MAP:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_DEVICE_MAP)}")
