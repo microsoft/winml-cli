@@ -429,7 +429,7 @@ class WinMLAutoModel:
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
             device=device,  # pass user's original device string; WinMLSession handles "auto"
-            ep=kwargs.get("ep"),
+            ep=resolved_ep,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model
