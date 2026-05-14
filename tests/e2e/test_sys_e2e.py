@@ -9,8 +9,10 @@ Two things motivate a separate e2e file (vs. the existing CLI tests in
 
 1. The CLI tests mock ``_gather_device_info`` / ``_gather_ep_info`` to
    keep them fast. This file deliberately does **not** mock those, so the
-   real PowerShell/WMI/PnP probe path is exercised — that is where
-   #187 / #559-class bugs surface.
+   real PowerShell / WMI / PnP probe path is exercised — that catches
+   integration bugs (wrong EP→device mappings, broken WMI queries on
+   specific hardware, missing PnP properties) that mocked CLI tests
+   cannot.
 2. PR #595 (issue #558) cut warm latency 2-3x by avoiding ``import torch``
    on the default path and gating CUDA fields behind ``--verbose``. Those
    are observable JSON/text contracts that need a regression guard.
