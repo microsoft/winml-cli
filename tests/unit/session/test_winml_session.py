@@ -940,6 +940,7 @@ class TestOpenVINOCpuFallback:
 
 
 @pytest.mark.ep("openvino")
+@pytest.mark.e2e
 class TestOpenVINODeviceRouting:
     """Integration guard: ep=openvino with device=cpu must compile without error.
 
