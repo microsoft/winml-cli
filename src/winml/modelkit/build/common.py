@@ -103,9 +103,6 @@ def run_optimize_analyze_loop(
 
     elapsed = time.monotonic() - t0
 
-    # Mark as resolved so the saved config skips the analyzer on next build
-    config.auto = False
-
     return current_path, elapsed, analyze_iterations, analyze_black_nodes, analyze_details
 
 

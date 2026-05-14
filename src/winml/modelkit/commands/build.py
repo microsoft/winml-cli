@@ -276,7 +276,8 @@ def _build_modules(
     "no_compile",
     default=None,
     help="Override compilation. --compile forces enable (config must have a compile section). "
-    "Default: compilation is disabled unless --compile is passed.",
+    "--no-compile forces skip. Default: inherit from config; when auto-generating "
+    "config (no -c), compilation is off unless --compile is passed.",
 )
 @click.option(
     "--ep",
@@ -859,6 +860,8 @@ def _run_optimize_stage(
             on_reoptimize=_on_reoptimize,
             use_external_data=True,
         )
+        # Mark config as resolved so CI/CD reruns skip the analyzer.
+        config.auto = False
         opt_elapsed = time.monotonic() - t0
 
         if analyze_iters > 0:

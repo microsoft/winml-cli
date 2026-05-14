@@ -13,7 +13,6 @@ Design follows the automodel pattern:
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -122,25 +121,16 @@ class WinMLCompileConfig:
         return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
 
     @classmethod
-    def for_qnn(cls, quantize: bool | None = None, device: str | None = None) -> WinMLCompileConfig:
+    def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for QNN compilation.
 
         Args:
-            quantize: Deprecated. Quantization is now handled by
-                WinMLQuantizationConfig. This parameter is ignored.
             device: Target device ("npu", "gpu"). Sets device_type in
                 provider_options so NPU and GPU builds get different cache keys.
 
         Returns:
             WinMLCompileConfig configured for QNN EP.
         """
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         provider_options: dict[str, str] = {}
         if device:
             provider_options["device_type"] = device.upper()
@@ -175,17 +165,8 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_openvino(
-        cls, quantize: bool | None = None, device: str | None = None
-    ) -> WinMLCompileConfig:
+    def for_openvino(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for OpenVINO compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         provider_options: dict[str, str] = {}
         if device:
             # OV EPContext blobs are device-specific (CPU vs GPU).
@@ -199,17 +180,8 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_vitisai(
-        cls, quantize: bool | None = None, device: str | None = None
-    ) -> WinMLCompileConfig:
+    def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for Vitis AI (AMD NPU/GPU) compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         provider_options: dict[str, str] = {}
         if device:
             provider_options["device_type"] = device.upper()

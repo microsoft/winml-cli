@@ -211,8 +211,8 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                # with _suppress_ep_registration_stderr():
-                registered = registry.register_to_ort()
+                with _suppress_ep_registration_stderr():
+                    registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
             logger.debug("WinML EP init skipped: %s", e)

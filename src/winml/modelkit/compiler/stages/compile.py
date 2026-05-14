@@ -226,12 +226,6 @@ class CompileStage(BaseStage):
                 src_ctx_path = pattern
                 break
 
-        # Glob fallback: catch any device variant (e.g. stem_gpu_ctx.onnx)
-        if src_ctx_path is None:
-            candidates = sorted(model_path.parent.glob(f"{model_path.stem}_*_ctx.onnx"))
-            if candidates:
-                src_ctx_path = candidates[0]
-
         if src_ctx_path is None:
             context.add_warning("EPContext model not found in work directory")
             return
