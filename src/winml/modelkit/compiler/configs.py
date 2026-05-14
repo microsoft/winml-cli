@@ -106,7 +106,7 @@ class WinMLCompileConfig:
         Returns:
             WinMLCompileConfig for the provider, or None if provider is None.
         """
-        from ..utils.constants import EP_NAME_TO_ALIAS, normalize_ep_name
+        from ..utils.constants import normalize_ep_name
 
         if provider is None:
             return None
@@ -124,17 +124,14 @@ class WinMLCompileConfig:
             "CPUExecutionProvider": cls.for_cpu,
         }
         factory = factories.get(canonical)
-        if factory:
-            config = factory()
-            # EPs that don't produce EPContext have no offline compile step
-            if not config.ep_config.enable_ep_context:
-                return None
-            return config
-        # Generic fallback: ``canonical`` is in the EPName Literal set, so the
-        # reverse lookup is total (no cast).
-        return cls(
-            ep_config=EPConfig(provider=EP_NAME_TO_ALIAS[canonical], enable_ep_context=False)
-        )
+        if factory is None:
+            # Not a known EP. We can't construct a typed EPConfig for it.
+            return None
+        config = factory()
+        # EPs that don't produce EPContext have no offline compile step
+        if not config.ep_config.enable_ep_context:
+            return None
+        return config
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
