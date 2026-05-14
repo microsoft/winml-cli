@@ -534,9 +534,7 @@ def analyze(
         if not parquet_files:
             searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
             logger.error("No runtime rule parquet files were found.")
-            logger.error(
-                "Please reinstall winml-modelkit, or manually download rule parquet files."
-            )
+            logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
             logger.error("Searched directories: %s", searched)
             sys.exit(2)
 

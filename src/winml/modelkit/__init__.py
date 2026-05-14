@@ -46,7 +46,7 @@ from . import _warnings  # Configure warning filters before importing subpackage
 
 
 try:
-    __version__ = version("winml-modelkit")
+    __version__ = version("winml-cli")
 except PackageNotFoundError:
     __version__ = "0.0.1.dev0"
 
