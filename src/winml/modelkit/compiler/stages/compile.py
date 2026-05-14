@@ -62,11 +62,14 @@ class CompileStage(BaseStage):
             context.log(f"Model path: {model_path}")
 
             ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
-            # Create WinMLSession
-            context.log(f"Creating {session_cls.__name__} for device: {context.execution_provider}")
+            # Derive the target device from provider_options["device_type"] so
+            # that e.g. QNN GPU compile doesn't silently fall back to NPU.
+            # WinMLSession.device expects "npu"/"gpu"/"cpu", not an EP name.
+            device = ep_config.provider_options.get("device_type", "auto").lower()
+            context.log(f"Creating {session_cls.__name__} for device: {device}")
             winml_session = session_cls(
                 onnx_path=model_path,
-                device=context.execution_provider,
+                device=device,
                 ep_config=ep_config,
             )
             winml_session.compile()
@@ -205,9 +208,13 @@ class CompileStage(BaseStage):
         WinMLSession saves to work_dir. This method copies the output
         to the final output directory (default: same as input model).
         """
-        device = context.execution_provider.lower()
+        # Derive device the same way compile() does: from provider_options["device_type"]
+        # so the filename we search for matches what WinMLSession actually wrote.
+        po = context.config.get("provider_options", {})
+        device = po.get("device_type", context.execution_provider).lower()
 
-        # Find EPContext in work_dir (where WinMLSession saved it)
+        # Find EPContext in work_dir (where WinMLSession saved it).
+        # Search explicit patterns first, then fall back to any *_ctx.onnx in the dir.
         ctx_patterns = [
             model_path.parent / f"{model_path.stem}_{device}_ctx.onnx",
             model_path.parent / f"{model_path.stem}_ctx.onnx",

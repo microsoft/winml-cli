@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 _EP_DEVICE_MAP: dict[str, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
+    "CUDAExecutionProvider": "gpu",
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",
@@ -56,6 +57,20 @@ _DEVICE_EP_MAP: dict[str, list[str]] = {}
 for _ep, _device in _EP_DEVICE_MAP.items():
     for _d in _device.split("/"):
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
+
+# Short EP name -> full ORT provider name. Public so that callers in other
+# modules (e.g. WinMLSession) can resolve --ep flags consistently.
+EP_SHORT_TO_FULL: dict[str, str] = {
+    "qnn": "QNNExecutionProvider",
+    "dml": "DmlExecutionProvider",
+    "migraphx": "MIGraphXExecutionProvider",
+    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "trtrtx": "NvTensorRTRTXExecutionProvider",
+    "vitisai": "VitisAIExecutionProvider",
+    "openvino": "OpenVINOExecutionProvider",
+    "cuda": "CUDAExecutionProvider",
+    "cpu": "CPUExecutionProvider",
+}
 
 # Valid explicit device values
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
@@ -155,17 +170,25 @@ def _get_available_eps() -> frozenset[str]:
     return frozenset(available_eps)
 
 
-def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
+def resolve_device(
+    device: str = "auto",
+    *,
+    ep: str | None = None,
+) -> tuple[str, list[str]]:
     """Resolve target device with EP availability cross-check.
 
     Args:
         device: "auto", "npu", "gpu", or "cpu".
+        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
+            ``available_devices`` is filtered to only those device types the
+            EP can target, and ``available_eps`` is filtered to just this EP
+            (intersected with what is actually available on the system).
 
     Returns:
         (chosen_device, available_devices_list)
 
     Raises:
-        ValueError: If device is not recognized.
+        ValueError: If device or ep is not recognized.
     """
     device = device.lower()
 
@@ -177,6 +200,14 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
     available_devices = list(_get_available_devices())
     available_eps = _get_available_eps()
 
+    if ep is not None:
+        ep_full = EP_SHORT_TO_FULL.get(ep.lower())
+        if ep_full is None:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SHORT_TO_FULL)}")
+        available_eps = available_eps & {ep_full}
+        ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
+        available_devices = [d for d in available_devices if d in ep_compatible_devices]
+
     if not available_eps:
         logger.warning(
             "No execution providers detected. Falling back to CPU. "
@@ -187,11 +218,11 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
         # Walk priority list, pick first device with a matching EP
         for dev in available_devices:
             compatible_eps = _DEVICE_EP_MAP.get(dev, [])
-            if any(ep in available_eps for ep in compatible_eps):
+            if any(ep_name in available_eps for ep_name in compatible_eps):
                 logger.info(
                     "Auto-selected device '%s' with compatible EPs: %s for auto device",
                     dev,
-                    sorted(ep for ep in compatible_eps if ep in available_eps),
+                    sorted(ep_name for ep_name in compatible_eps if ep_name in available_eps),
                 )
                 return dev, available_devices
         # Fallback: CPU is always valid
@@ -199,7 +230,7 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
 
     # Explicit device requested -- warn if no compatible EP
     compatible_eps = _DEVICE_EP_MAP.get(device, [])
-    if not any(ep in available_eps for ep in compatible_eps):
+    if not any(ep_name in available_eps for ep_name in compatible_eps):
         logger.warning(
             "Device '%s' requested but no compatible EP found. "
             "Compatible EPs: %s. Available EPs: %s",

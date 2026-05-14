@@ -134,6 +134,7 @@ class WinMLBuildConfig:
     quant: WinMLQuantizationConfig | None = field(default_factory=WinMLQuantizationConfig)
     compile: WinMLCompileConfig | None = field(default_factory=WinMLCompileConfig)
     eval: WinMLEvaluationConfig | None = None
+    auto: bool = True
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -166,16 +167,22 @@ class WinMLBuildConfig:
                 WinMLCompileConfig.from_dict(compile_data) if compile_data is not None else None
             ),
             eval=eval_cfg,
+            auto=config_dict.get("auto", True),
         )
 
     def to_dict(self) -> dict:
         """Convert config to nested dictionary."""
-        result: dict = {
-            "export": self.export.to_dict() if self.export is not None else None,
-            "optim": self.optim.to_dict(),
-            "quant": self.quant.to_dict() if self.quant is not None else None,
-            "compile": self.compile.to_dict() if self.compile is not None else None,
-        }
+        result: dict = {}
+        if not self.auto:
+            result["auto"] = False
+        result.update(
+            {
+                "export": self.export.to_dict() if self.export is not None else None,
+                "optim": self.optim.to_dict(),
+                "quant": self.quant.to_dict() if self.quant is not None else None,
+                "compile": self.compile.to_dict() if self.compile is not None else None,
+            }
+        )
         # Only include loader if it has non-default values
         loader_dict = self.loader.to_dict()
         if loader_dict:
@@ -237,6 +244,7 @@ class WinMLBuildConfig:
     def generate_cache_key(self) -> str:
         """Generate deterministic cache key for caching pipeline outputs."""
         components = self.to_dict()
+        components.pop("auto", None)
         json_str = json.dumps(components, sort_keys=True)
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
@@ -320,7 +328,7 @@ def resolve_quant_compile_config(
     from ..sysinfo import resolve_device
     from .precision import resolve_precision
 
-    resolved_device, available_devices = resolve_device(device=device)
+    resolved_device, available_devices = resolve_device(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -346,7 +354,7 @@ def resolve_quant_compile_config(
         quant_config.activation_type = policy.activation_type
 
     # Compile config
-    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider)
+    compile_config = WinMLCompileConfig.for_provider(policy.compile_provider, device=policy.device)
 
     return quant_config, compile_config
 
@@ -457,6 +465,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
 
@@ -475,6 +484,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
 
@@ -492,6 +502,7 @@ def generate_hf_build_config(
     precision: str = "auto",
     trust_remote_code: bool = False,
     ep: str | None = None,
+    no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
 
@@ -614,7 +625,7 @@ def generate_hf_build_config(
 
     # ALWAYS detect hardware — even when device="auto" — so we don't
     # blindly default to QNN on machines without an NPU (#412).
-    resolved_device, available_devices = resolve_device(device=device)
+    resolved_device, available_devices = resolve_device(device=device, ep=ep)
     logger.info(
         "Device resolved: %s (available: %s)",
         resolved_device,
@@ -629,33 +640,27 @@ def generate_hf_build_config(
         task=parent_config.loader.task,
     )
 
-    # Apply policy: set compile provider from detected hardware
-    if policy.device != "auto":
-        # Quant config (weight_type and activation_type are always both-None or both-set)
-        if policy.weight_type is not None:
-            if parent_config.quant is None:
-                parent_config.quant = WinMLQuantizationConfig()
-            parent_config.quant.weight_type = policy.weight_type
-            parent_config.quant.activation_type = policy.activation_type
-        else:
-            parent_config.quant = None
-
-        # Compile config
-        parent_config.compile = WinMLCompileConfig.for_provider(
-            policy.compile_provider,
-        )
+    # Apply policy: resolve_device() always returns a concrete device so
+    # policy.device is never "auto" here.
+    # Quant config (weight_type and activation_type are always both-None or both-set)
+    if policy.weight_type is not None:
+        if parent_config.quant is None:
+            parent_config.quant = WinMLQuantizationConfig()
+        parent_config.quant.weight_type = policy.weight_type
+        parent_config.quant.activation_type = policy.activation_type
     else:
-        # Even in auto/auto mode, set compile provider from detected hardware
-        # instead of preserving the hardcoded EPConfig default (#412).
-        from .precision import get_provider_for_device
+        # CPU/GPU: precision is float (fp16/fp32) — no quantization
+        parent_config.quant = None
 
-        hw_provider = get_provider_for_device(resolved_device)
-        if hw_provider is not None:
-            parent_config.compile = WinMLCompileConfig.for_provider(
-                hw_provider,
-            )
-        # When hw_provider is None (CPU-only), keep the default compile config
-        # so the pipeline still has a valid compile section.
+    # Compile config
+    parent_config.compile = WinMLCompileConfig.for_provider(
+        policy.compile_provider,
+        device=policy.device,
+    )
+
+    # no_compile overrides policy — applied last so it always wins
+    if no_compile:
+        parent_config.compile = None
 
     # =========================================================================
     # STEP 5: Specialize for submodules if requested
