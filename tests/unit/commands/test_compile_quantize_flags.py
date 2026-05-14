@@ -124,9 +124,15 @@ class TestResolveQuantTypes:
 
 
 class TestCompileDeviceDisplayLabel:
-    """Device label in compile summary must reflect the resolved EP, not the CLI default."""
+    """Device label in compile summary must reflect the user-supplied --device flag."""
 
-    def test_dml_ep_shows_gpu_device(self, tmp_path):
+    def test_device_flag_shown_in_output(self, tmp_path):
+        """--device gpu must appear in the Device line regardless of the EP.
+
+        The old code used _EP_TO_DEVICE.get(provider, device) to infer the
+        device from the EP name. The new code always prints the user-supplied
+        --device flag directly, so the label is unambiguous.
+        """
         from click.testing import CliRunner
 
         from winml.modelkit.commands.compile import compile
@@ -145,7 +151,9 @@ class TestCompileDeviceDisplayLabel:
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             patch("winml.modelkit.compiler.WinMLCompileConfig"),
         ):
-            result = CliRunner().invoke(compile, ["-m", str(model_file), "--ep", "dml"])
+            result = CliRunner().invoke(
+                compile, ["-m", str(model_file), "--device", "gpu", "--ep", "qnn"]
+            )
 
         assert "Device: gpu" in result.output
         assert "Device: npu" not in result.output
@@ -210,12 +218,8 @@ class TestQuantizeCliConfigPrecedence:
             result.errors = []
             return result
 
-        with patch(
-            "winml.modelkit.quant.quantize_onnx", side_effect=fake_quantize
-        ):
-            r = CliRunner().invoke(
-                quantize_cmd, runner_args, obj={}, catch_exceptions=False
-            )
+        with patch("winml.modelkit.quant.quantize_onnx", side_effect=fake_quantize):
+            r = CliRunner().invoke(quantize_cmd, runner_args, obj={}, catch_exceptions=False)
         assert r.exit_code == 0, r.output
         return captured["config"], r.output
 
@@ -225,10 +229,14 @@ class TestQuantizeCliConfigPrecedence:
         model, bc = self._setup(tmp_path)
         cfg, _ = self._captured_config(
             [
-                "-m", str(model),
-                "--config", str(bc),
-                "--precision", "int16",
-                "--samples", "2",
+                "-m",
+                str(model),
+                "--config",
+                str(bc),
+                "--precision",
+                "int16",
+                "--samples",
+                "2",
             ],
             tmp_path,
         )
@@ -239,10 +247,14 @@ class TestQuantizeCliConfigPrecedence:
         model, bc = self._setup(tmp_path)
         cfg, _ = self._captured_config(
             [
-                "-m", str(model),
-                "--config", str(bc),
-                "--precision", "w8a16",
-                "--samples", "2",
+                "-m",
+                str(model),
+                "--config",
+                str(bc),
+                "--precision",
+                "w8a16",
+                "--samples",
+                "2",
             ],
             tmp_path,
         )
@@ -253,10 +265,14 @@ class TestQuantizeCliConfigPrecedence:
         model, bc = self._setup(tmp_path)
         cfg, _ = self._captured_config(
             [
-                "-m", str(model),
-                "--config", str(bc),
-                "--precision", "w16a16",
-                "--samples", "2",
+                "-m",
+                str(model),
+                "--config",
+                str(bc),
+                "--precision",
+                "w16a16",
+                "--samples",
+                "2",
             ],
             tmp_path,
         )
@@ -305,10 +321,14 @@ class TestQuantizeCliConfigPrecedence:
         bc.write_text('{"quant": {"weight_type": "uint8"}}', encoding="utf-8")
         cfg, _ = self._captured_config(
             [
-                "-m", str(model),
-                "--config", str(bc),
-                "--weight-type", "int16",
-                "--samples", "2",
+                "-m",
+                str(model),
+                "--config",
+                str(bc),
+                "--weight-type",
+                "int16",
+                "--samples",
+                "2",
             ],
             tmp_path,
         )
@@ -368,4 +388,3 @@ class TestQuantizeConfigValidation:
         r = self._invoke(["-m", str(model), "--config", str(bc)])
         assert r.exit_code != 0
         assert "Build config must be a JSON object" in r.output
-

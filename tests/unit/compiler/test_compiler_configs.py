@@ -209,9 +209,8 @@ class TestForProvider:
             ("nv_tensorrt_rtx", None),
             ("vitisai", None),
             ("migraphx", None),
-            # Unknown/custom EPs use the generic fallback (enable_ep_context=False
-            # in the fallback does NOT apply the None rule — only known factories do)
-            ("custom_ep", "custom_ep"),
+            # Unknown/custom EPs: no EPContext support → None (same as known non-EPContext EPs)
+            ("custom_ep", None),
         ],
     )
     def test_for_provider(
@@ -238,8 +237,7 @@ class TestForProvider:
         assert config is not None
         assert config.ep_config.enable_ep_context is False
 
-    def test_for_provider_custom_ep_no_context(self):
-        """Custom EP fallback disables EP context."""
+    def test_for_provider_custom_ep_returns_none(self):
+        """Unknown/custom EPs return None — no EPContext support assumed."""
         result = WinMLCompileConfig.for_provider("custom_ep")
-        assert result is not None
-        assert result.ep_config.enable_ep_context is False
+        assert result is None
