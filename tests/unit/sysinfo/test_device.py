@@ -12,8 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.sysinfo.device import (
-    _DEVICE_EP_MAP,
-    _EP_DEVICE_MAP,
     _get_available_devices,
     resolve_device_category,
 )
@@ -110,50 +108,6 @@ class TestGetAvailableDevices:
 
         assert devices == ["gpu", "cpu"]
         assert "npu" not in devices
-
-
-class TestMappingConstants:
-    """Tests for _EP_DEVICE_MAP and _DEVICE_EP_MAP constants."""
-
-    def test_ep_device_map_has_required_entries(self) -> None:
-        """_EP_DEVICE_MAP has all standard EPs."""
-        # NVIDIA
-        assert "NvTensorRTRTXExecutionProvider" in _EP_DEVICE_MAP
-        # AMD
-        assert "MIGraphXExecutionProvider" in _EP_DEVICE_MAP
-        assert "VitisAIExecutionProvider" in _EP_DEVICE_MAP
-        # Qualcomm
-        assert "QNNExecutionProvider" in _EP_DEVICE_MAP
-        # Microsoft
-        assert "DmlExecutionProvider" in _EP_DEVICE_MAP
-        # Intel
-        assert "OpenVINOExecutionProvider" in _EP_DEVICE_MAP
-        # CPU
-        assert "CPUExecutionProvider" in _EP_DEVICE_MAP
-
-    def test_ep_device_map_values_are_lowercase(self) -> None:
-        """All _EP_DEVICE_MAP values should be lowercase."""
-        for ep, device in _EP_DEVICE_MAP.items():
-            assert device == device.lower(), f"{ep} maps to non-lowercase '{device}'"
-
-    def test_device_ep_map_excludes_openvino(self) -> None:
-        """_DEVICE_EP_MAP should not contain OpenVINO entries."""
-        all_eps = [ep for eps in _DEVICE_EP_MAP.values() for ep in eps]
-        assert "OpenVINOExecutionProvider" not in all_eps
-
-    def test_device_ep_map_derived_from_ep_device_map(self) -> None:
-        """_DEVICE_EP_MAP should be consistent with _EP_DEVICE_MAP."""
-        for device, eps in _DEVICE_EP_MAP.items():
-            for ep in eps:
-                assert ep in _EP_DEVICE_MAP, (
-                    f"EP '{ep}' in _DEVICE_EP_MAP but not in _EP_DEVICE_MAP"
-                )
-                assert _EP_DEVICE_MAP[ep] == device
-
-    def test_nv_tensorrt_rtx_is_gpu_ep(self) -> None:
-        """NvTensorRTRTXExecutionProvider should map to gpu."""
-        assert _EP_DEVICE_MAP["NvTensorRTRTXExecutionProvider"] == "gpu"
-        assert "NvTensorRTRTXExecutionProvider" in _DEVICE_EP_MAP["gpu"]
 
 
 class TestResolveDevice:

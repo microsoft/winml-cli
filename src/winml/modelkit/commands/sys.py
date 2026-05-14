@@ -35,7 +35,8 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
-from ..sysinfo import OS, get_ep_device_map
+from ..session import EP_DEVICE_SPECS
+from ..sysinfo import OS
 
 
 logger = logging.getLogger(__name__)
@@ -481,20 +482,34 @@ def _gather_ep_info() -> list[dict[str, Any]]:
     except Exception as e:
         logger.debug("ORT not available: %s", e)
 
-    # Merge: WinML EPs first (they have paths), then ORT-only EPs
-    ep_device_map = get_ep_device_map()
-    seen: set[str] = set()
+    # Build catalog-driven view: one (EP, device) row per EP_DEVICE_SPECS entry
+    # that is also installed (via WinML or ORT).  An EP with multiple catalog
+    # entries (e.g. OpenVINO targets npu/gpu/cpu) emits one row per device.
+    installed_eps: set[str] = set(winml_eps.keys()) | set(ort_providers)
+    seen_pairs: set[tuple[str, str]] = set()
 
-    for ep_name, ep_path in winml_eps.items():
-        device = ep_device_map.get(ep_name, "unknown").upper()
-        eps.append({"name": ep_name, "device": device, "path": ep_path})
-        seen.add(ep_name)
+    # Pass 1: catalog-known EPs in catalog order
+    for spec in EP_DEVICE_SPECS:
+        if spec.ep not in installed_eps:
+            continue
+        key = (spec.ep, spec.device)
+        if key in seen_pairs:
+            continue
+        eps.append(
+            {
+                "name": spec.ep,
+                "device": spec.device.upper(),
+                "path": winml_eps.get(spec.ep),  # None if visible only via ORT
+            },
+        )
+        seen_pairs.add(key)
 
-    for ep_name in ort_providers:
-        if ep_name not in seen:
-            device = ep_device_map.get(ep_name, "unknown").upper()
-            eps.append({"name": ep_name, "device": device, "path": None})
-            seen.add(ep_name)
+    # Pass 2: any installed EP that isn't in the catalog at all (custom/unknown)
+    catalog_eps: set[str] = {spec.ep for spec in EP_DEVICE_SPECS}
+    eps.extend(
+        {"name": ep_name, "device": "UNKNOWN", "path": winml_eps.get(ep_name)}
+        for ep_name in installed_eps - catalog_eps
+    )
 
     return eps
 

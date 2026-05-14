@@ -10,67 +10,10 @@ import functools
 import logging
 
 from ..session import VALID_DEVICES as _VALID_DEVICES
+from ..session import eps_for_device
 
 
 logger = logging.getLogger(__name__)
-
-# --- EP-to-Device mapping constants ---
-
-# FIXME: This mapping must be hardcoded because the standard ``onnxruntime`` PyPI
-# package does not expose an API to query the target device type of an EP.
-#
-# ORT *does* define ``OrtHardwareDeviceType`` (CPU/GPU/NPU) in the C API and a
-# ``get_ep_devices()`` Python helper, but these are currently available **only**
-# in the Windows ML build of ORT (Windows 11 25H2+), not the cross-platform
-# ``pip install onnxruntime`` package.  The standard Python API offers
-# ``get_available_providers()`` / ``get_device()`` which return EP *names* and a
-# coarse device string ("CPU"/"GPU") — neither provides a structured
-# EP-to-device-category mapping.
-#
-# Until ``get_ep_devices()`` (or equivalent) lands in the mainline PyPI package,
-# we maintain the mapping manually.
-#
-# Refs:
-#   - C API enums: https://onnxruntime.ai/docs/api/c/group___global.html
-#   - Windows ML EP selection: https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/select-execution-providers
-#   - Feature request (closed, not planned): https://github.com/microsoft/onnxruntime/issues/20725
-#   - EP list: https://onnxruntime.ai/docs/execution-providers/
-
-# EP name -> target device type (all lowercase values)
-_EP_DEVICE_MAP: dict[str, str] = {
-    # NVIDIA
-    "NvTensorRTRTXExecutionProvider": "gpu",
-    # AMD
-    "MIGraphXExecutionProvider": "gpu",
-    "VitisAIExecutionProvider": "npu",
-    # Qualcomm
-    "QNNExecutionProvider": "npu",
-    # Microsoft
-    "DmlExecutionProvider": "gpu",
-    # Intel
-    "OpenVINOExecutionProvider": "npu/gpu/cpu",
-    # Always available
-    "CPUExecutionProvider": "cpu",
-}
-
-# Derived inverse mapping (excludes multi-device EPs like OpenVINO)
-_DEVICE_EP_MAP: dict[str, list[str]] = {}
-for _ep, _device in _EP_DEVICE_MAP.items():
-    if "/" not in _device:
-        _DEVICE_EP_MAP.setdefault(_device, []).append(_ep)
-
-
-def get_ep_device_map() -> dict[str, str]:
-    """Return a copy of the EP-to-device mapping.
-
-    Public accessor for the internal ``_EP_DEVICE_MAP``. Use this instead
-    of importing the private dict directly.
-
-    Returns:
-        Dict mapping EP names to device types (e.g.
-        ``{"QNNExecutionProvider": "npu", ...}``).
-    """
-    return dict(_EP_DEVICE_MAP)
 
 
 def _get_available_devices() -> list[str]:
@@ -169,22 +112,23 @@ def resolve_device_category(device: str = "auto") -> tuple[str, list[str]]:
         )
 
     if device == "auto":
-        # Walk priority list, pick first device with a matching EP
+        # Walk priority list, pick first device with a matching EP.
+        # eps_for_device returns canonical EP names from the catalog —
+        # includes OpenVINO for npu/gpu/cpu (the old _DEVICE_EP_MAP excluded it).
         for dev in available_devices:
-            compatible_eps = _DEVICE_EP_MAP.get(dev, [])
-            if any(ep in available_eps for ep in compatible_eps):
+            if any(ep in available_eps for ep in eps_for_device(dev)):
                 return dev, available_devices
         # Fallback: CPU is always valid
         return "cpu", available_devices
 
     # Explicit device requested -- warn if no compatible EP
-    compatible_eps = _DEVICE_EP_MAP.get(device, [])
+    compatible_eps = eps_for_device(device)
     if not any(ep in available_eps for ep in compatible_eps):
         logger.warning(
             "Device '%s' requested but no compatible EP found. "
             "Compatible EPs: %s. Available EPs: %s",
             device,
-            compatible_eps,
+            sorted(compatible_eps),
             sorted(available_eps),
         )
     return device, available_devices
