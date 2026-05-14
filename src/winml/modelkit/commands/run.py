@@ -229,7 +229,7 @@ def _print_schema(
     engine: Any,
     *,
     output_format: str = "text",
-    output_path: str | None = None,
+    output_path: Path | None = None,
 ) -> None:
     """Print model schema (inputs + parameters) and exit.
 
@@ -241,7 +241,7 @@ def _print_schema(
         text = _schema_to_text(engine)
 
     if output_path:
-        Path(output_path).write_text(text, encoding="utf-8")
+        output_path.write_text(text, encoding="utf-8")
     else:
         try:
             click.echo(text)
@@ -472,12 +472,7 @@ def _print_input_hint(engine: Any) -> None:
     show_default=True,
     help="Output format",
 )
-@click.option(
-    "--output",
-    "-o",
-    default=None,
-    help="Write output to file instead of stdout",
-)
+@cli_utils.output_option("Write output to file instead of stdout")
 @click.option(
     "--port",
     default=_DEFAULT_PORT,
@@ -511,7 +506,7 @@ def run(
     params: tuple[str, ...],
     show_schema: bool,
     output_format: str,
-    output: str | None,
+    output: Path | None,
     port: int,
     connect_host: str,
     connect: bool,
@@ -814,7 +809,7 @@ def _print_result(
     result: dict,
     *,
     output_format: str,
-    output_path: str | None,
+    output_path: Path | None,
 ) -> None:
     if output_format == "json":
         text = json.dumps(result, indent=2)
@@ -833,7 +828,7 @@ def _print_result(
         text = _format_text(display_result)
 
     if output_path:
-        Path(output_path).write_text(text, encoding="utf-8")
+        output_path.write_text(text, encoding="utf-8")
     else:
         try:
             click.echo(text)

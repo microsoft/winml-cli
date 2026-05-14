@@ -42,13 +42,7 @@ console = Console()
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output path (default: {input}_qdq.onnx)",
-)
+@cli_utils.output_option("Output path (default: {input}_qdq.onnx)")
 @click.option(
     "--precision",
     "-p",

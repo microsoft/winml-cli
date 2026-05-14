@@ -60,6 +60,26 @@ def model_option(required=True):
     )
 
 
+def output_option(help_text: str, required: bool = False):
+    """Add ``-o/--output`` option that accepts a file path.
+
+    The path is delivered to the callback as a :class:`pathlib.Path`.
+
+    Args:
+        help_text: Command-specific help string for the option.
+        required: Whether the option is required (default: False).
+
+    Returns:
+        Decorator function.
+    """
+    kwargs: dict = {"type": click.Path(path_type=Path), "help": help_text}
+    if required:
+        kwargs["required"] = True
+    else:
+        kwargs["default"] = None
+    return click.option("--output", "-o", **kwargs)
+
+
 def ep_option(required=True, optional_message=None):
     """Add --ep (execution provider) option to a Click command.
 

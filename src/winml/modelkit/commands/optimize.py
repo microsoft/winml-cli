@@ -29,6 +29,7 @@ import click
 from rich.console import Console
 
 from ..onnx import load_onnx, save_onnx
+from ..utils import cli as cli_utils
 
 
 if TYPE_CHECKING:
@@ -168,13 +169,7 @@ def capability_options(func: Callable) -> Callable:
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output path (default: {input}_opt.onnx)",
-)
+@cli_utils.output_option("Output path (default: {input}_opt.onnx)")
 @click.option(
     "--config",
     "-c",

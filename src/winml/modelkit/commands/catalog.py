@@ -383,13 +383,7 @@ def _save_json(data: Any, path: Path) -> None:
     default=None,
     optional_message="If not specified, shows all devices",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Save results to a JSON file.",
-)
+@cli_utils.output_option("Save results to a JSON file.")
 def catalog(
     model_type: str | None,
     task: str | None,

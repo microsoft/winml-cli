@@ -138,13 +138,7 @@ def _is_onnx_file(model_input: str) -> bool:
     help="Precision: auto, fp32, fp16, int8, int16, or w{x}a{y} (e.g., w8a16). "
     "Default: auto (based on device when device is specified).",
 )
-@click.option(
-    "-o",
-    "--output",
-    type=click.Path(),
-    default=None,
-    help="Output JSON file path (default: stdout)",
-)
+@cli_utils.output_option("Output JSON file path (default: stdout)")
 @click.option(
     "--library",
     "library_name",
@@ -182,7 +176,7 @@ def config(
     device: str,
     ep: str | None,
     precision: str,
-    output: str | None,
+    output: Path | None,
     library_name: str,
     verbose: bool,
     no_quant: bool,
@@ -487,9 +481,8 @@ def config(
         config_json = json.dumps(output_data, indent=2)
 
         if output:
-            output_path = Path(output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(config_json)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(config_json)
             suffix = f"  [dim]({_n_modules} submodules)[/dim]" if _n_modules else ""
             print_success(console, f"Config saved to: [bold]{output}[/bold]{suffix}")
         else:
@@ -557,7 +550,7 @@ def _generate_pipeline_configs(
     ep: str | None,
     no_quant: bool,
     no_compile: bool,
-    output: str | None,
+    output: Path | None,
     console: Any,
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
@@ -587,8 +580,7 @@ def _generate_pipeline_configs(
         config_json = json.dumps(cfg.to_dict(), indent=2)
 
         if output:
-            out_path = Path(output)
-            suffixed = out_path.with_stem(f"{out_path.stem}_{component_name}")
+            suffixed = output.with_stem(f"{output.stem}_{component_name}")
             suffixed.parent.mkdir(parents=True, exist_ok=True)
             tmp = suffixed.with_suffix(".json.tmp")
             tmp.write_text(config_json)
