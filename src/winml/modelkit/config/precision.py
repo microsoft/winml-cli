@@ -292,8 +292,9 @@ def resolve_precision(
                 task,
             )
 
-    # Explicit --ep overrides the device→provider default (including CPU).
-    compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
+    # ep="cpu" means CPUExecutionProvider — no EPContext compilation needed.
+    # For all other explicit EPs (openvino, qnn, dml, …), use ep as the provider.
+    compile_provider = ep if (ep and ep != "cpu") else _DEVICE_TO_PROVIDER.get(resolved_device)
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

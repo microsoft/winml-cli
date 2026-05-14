@@ -56,8 +56,10 @@ def _suppress_ep_registration_stderr():
     """Suppress native stderr during EP DLL registration (Win32 + CRT)."""
     null_fd = os.open(os.devnull, os.O_WRONLY)
     old_fd = os.dup(2)
-    os.dup2(null_fd, 2)
-    os.close(null_fd)
+    # Capture the Win32 handle BEFORE os.dup2 changes STD_ERROR_HANDLE.
+    # os.dup2(null_fd, 2) on Windows calls SetStdHandle internally, so reading
+    # GetStdHandle after the redirect would return the devnull handle, not the
+    # original — making the later restore a no-op.
     old_w32 = None
     if sys.platform == "win32":
         import ctypes
@@ -66,6 +68,9 @@ def _suppress_ep_registration_stderr():
         k32 = ctypes.WinDLL("kernel32")
         _std_err = ctypes.c_uint32(0xFFFFFFF4)
         old_w32 = k32.GetStdHandle(_std_err)
+    os.dup2(null_fd, 2)
+    os.close(null_fd)
+    if sys.platform == "win32" and old_w32 is not None:
         k32.SetStdHandle(_std_err, msvcrt.get_osfhandle(2))
     try:
         yield
@@ -77,12 +82,13 @@ def _suppress_ep_registration_stderr():
 
 
 @contextmanager
-def _suppress_native_output(log_path: str | Path | None = None):
-    """Redirect native stdout to a log file (or devnull).
+def _suppress_native_output(log_path: str | Path | None = None, suppress_stderr: bool = False):
+    """Redirect native stdout (and optionally stderr) to a log file (or devnull).
 
     QNN SDK compiler writes progress to stdout via native C++ code that
-    Python logging/warnings cannot intercept. Only redirects stdout —
-    stderr is left untouched so Rich displays and Python logging work.
+    Python logging/warnings cannot intercept. By default only redirects
+    stdout — stderr is left untouched so Rich displays and Python logging work.
+    Pass suppress_stderr=True to also redirect stderr to the same destination.
     """
     if log_path is not None:
         fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
@@ -90,12 +96,19 @@ def _suppress_native_output(log_path: str | Path | None = None):
         fd = os.open(os.devnull, os.O_WRONLY)
     old_stdout = os.dup(1)
     os.dup2(fd, 1)
+    old_stderr = None
+    if suppress_stderr:
+        old_stderr = os.dup(2)
+        os.dup2(fd, 2)
     os.close(fd)
     try:
         yield
     finally:
         os.dup2(old_stdout, 1)
         os.close(old_stdout)
+        if old_stderr is not None:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
 
 
 class SessionState(Enum):
@@ -338,26 +351,53 @@ class WinMLSession:
             with _suppress_native_output(compile_log):
                 session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
-            # Log which providers were selected by ORT (based on policy)
-            actual_providers = session.get_providers()
-            logger.info(
-                "Session created with device %s, providers: %s",
-                target_device,
-                actual_providers,
-            )
-
         except Exception as ep_err:
-            self._state = SessionState.ERROR
-            self._last_error = ep_err
-            raise CompilationError(
-                message=f"Failed to compile for {target_device}",
-                context={
-                    "device": target_device,
-                    "onnx_path": str(self._onnx_path),
-                    "error": str(ep_err),
-                },
-                suggestion=self._get_compile_suggestion(target_device, ep_err),
-            ) from ep_err
+            # When an explicit EP fails on CPU (e.g. OpenVINO-CPU cannot
+            # deserialize the model), fall back to PREFER_CPU policy so
+            # CPUExecutionProvider handles the model instead.
+            if self._ep and target_device == "cpu":
+                logger.warning(
+                    "EP '%s' on CPU failed (%s), retrying with PREFER_CPU policy",
+                    self._ep,
+                    ep_err,
+                )
+                try:
+                    fallback_opts = ort.SessionOptions()
+                    fallback_opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
+                    with _suppress_native_output(compile_log):
+                        session = ort.InferenceSession(str(model_path), sess_options=fallback_opts)
+                except Exception as fallback_err:
+                    self._state = SessionState.ERROR
+                    self._last_error = fallback_err
+                    raise CompilationError(
+                        message=f"Failed to compile for {target_device}",
+                        context={
+                            "device": target_device,
+                            "onnx_path": str(self._onnx_path),
+                            "error": str(fallback_err),
+                        },
+                        suggestion=self._get_compile_suggestion(target_device, fallback_err),
+                    ) from fallback_err
+            else:
+                self._state = SessionState.ERROR
+                self._last_error = ep_err
+                raise CompilationError(
+                    message=f"Failed to compile for {target_device}",
+                    context={
+                        "device": target_device,
+                        "onnx_path": str(self._onnx_path),
+                        "error": str(ep_err),
+                    },
+                    suggestion=self._get_compile_suggestion(target_device, ep_err),
+                ) from ep_err
+
+        # Log which providers were selected by ORT (based on policy)
+        actual_providers = session.get_providers()
+        logger.info(
+            "Session created with device %s, providers: %s",
+            target_device,
+            actual_providers,
+        )
 
         # Store session
         self._session = session
