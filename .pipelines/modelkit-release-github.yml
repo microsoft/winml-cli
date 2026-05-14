@@ -98,9 +98,9 @@ extends:
               $wheel = Get-ChildItem "$(Build.SourcesDirectory)/release_assets/*.whl" | Select-Object -First 1
               if (-not $wheel) { throw "no wheel found in staged assets" }
               # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
-              # PEP 503 normalizes "winml-modelkit" -> "winml_modelkit" in filenames.
-              if ($wheel.Name -notmatch '^winml_modelkit-([^-]+)-') {
-                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_modelkit-<version>-...'"
+              # PEP 503 normalizes "winml-cli" -> "winml_cli" in filenames.
+              if ($wheel.Name -notmatch '^winml_cli-([^-]+)-') {
+                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_cli-<version>-...'"
               }
               $version = $matches[1]
               $tag = "v$version"
@@ -113,7 +113,7 @@ extends:
           displayName: 'Create GitHub Release'
           inputs:
             gitHubConnection: 'ModelKit'
-            repositoryName: 'microsoft/WinML-ModelKit'
+            repositoryName: 'microsoft/winml-cli'
             action: create
             target: '$(Build.SourceVersion)'
             tagSource: userSpecifiedTag

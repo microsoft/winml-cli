@@ -3,7 +3,7 @@ build-backend = "setuptools.build_meta"
 requires = [ "setuptools>=61", "wheel" ]
 
 [project]
-name = "winml-modelkit"
+name = "winml-cli"
 version = "0.0.2"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
@@ -90,10 +90,10 @@ optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
 ]
-urls."Bug Tracker" = "https://github.com/microsoft/WinML-ModelKit/issues"
-urls.Documentation = "https://github.com/microsoft/WinML-ModelKit/blob/main/README.md"
-urls.Homepage = "https://github.com/microsoft/WinML-ModelKit"
-urls.Repository = "https://github.com/microsoft/WinML-ModelKit.git"
+urls."Bug Tracker" = "https://github.com/microsoft/winml-cli/issues"
+urls.Documentation = "https://github.com/microsoft/winml-cli/blob/main/README.md"
+urls.Homepage = "https://github.com/microsoft/winml-cli"
+urls.Repository = "https://github.com/microsoft/winml-cli.git"
 # =============================================================================
 # SETUPTOOLS - Package Configuration (Flat Layout with Namespace Prefix)
 # =============================================================================
