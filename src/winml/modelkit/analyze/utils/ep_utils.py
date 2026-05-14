@@ -108,6 +108,20 @@ def get_devices_with_rule_data(ep_name: str) -> list[str]:
     return [d.upper() for d in device_str.split("/") if d]
 
 
+def has_any_rule_data() -> bool:
+    """Return True if any parquet rule file exists in any search directory.
+
+    Used to distinguish "no data at all" (needs setup) from "data exists
+    but not for this specific EP/device combination".
+    """
+    from .rule_loader import get_runtime_rules_search_dirs
+
+    for search_dir in get_runtime_rules_search_dirs():
+        if search_dir.is_dir() and any(search_dir.rglob("*.parquet")):
+            return True
+    return False
+
+
 def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 

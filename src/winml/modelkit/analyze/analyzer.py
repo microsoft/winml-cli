@@ -674,7 +674,7 @@ class ONNXStaticAnalyzer:
         from .core.onnx_loader import ONNXLoader
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
-        from .utils.ep_utils import has_rule_data_for_ep
+        from .utils.ep_utils import has_any_rule_data, has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
         total_start = time.perf_counter()
@@ -733,18 +733,27 @@ class ONNXStaticAnalyzer:
         ep_info_timing: dict[str, int] = {}
         skipped_ep_count = 0
 
+        _any_rule_data = has_any_rule_data()
+
         for current_ep in eps_to_analyze:
             # Skip EPs that have no rule data for the target device.
             if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
                 skipped_ep_count += 1
-                if device_to_use:
+                if not _any_rule_data:
+                    # No parquet files at all — user needs to set up rule data.
                     logger.warning(
+                        "No runtime check data found. Follow "
+                        "https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md "
+                        "to set up runtime check files."
+                    )
+                elif device_to_use:
+                    logger.info(
                         "No runtime check data for %s on %s — skipping op analysis.",
                         current_ep,
                         device_to_use,
                     )
                 else:
-                    logger.warning(
+                    logger.info(
                         "No runtime check data for %s — skipping op analysis.",
                         current_ep,
                     )
