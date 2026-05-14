@@ -1514,6 +1514,28 @@ class PatternMatcher:
         """
         return ONNXDomain.from_str(node.domain)
 
+    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo:
+        """Return edge info for a registered tensor-consumer pair.
+
+        Skeleton matching only queries edge metadata for non-virtual inputs with an
+        upstream producer in the model graph. Those entries must exist once
+        _build_lookups() has completed, so a miss indicates a broken registration
+        invariant rather than an ordinary pattern mismatch.
+
+        Args:
+            tensor_name: Name of the consumed tensor.
+            consumer_name: Canonical name of the consumer node.
+
+        Returns:
+            Registered EdgeInfo for the tensor-consumer pair.
+        """
+        edge_info = self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
+        assert edge_info is not None, (
+            f"Missing edge registration for tensor '{tensor_name}' consumed by "
+            f"'{consumer_name}'. Non-virtual inputs should be registered in _build_lookups()."
+        )
+        return edge_info
+
     def _check_constant_constraints(
         self,
         matched_nodes: list[str],
@@ -1705,8 +1727,8 @@ class PatternMatcher:
                     if src < 0:
                         # Free input (graph input / initializer); no edge_info needed.
                         continue
-                    edge_info = self.edge_info_by_name.get(input_edge, {}).get(node_name)
-                    if edge_info is None or edge_info.src_slot != src_slot:
+                    edge_info = self._get_registered_edge_info(input_edge, node_name)
+                    if edge_info.src_slot != src_slot:
                         src_slot_matched = False
                         break
                 if not src_slot_matched:
@@ -1734,10 +1756,7 @@ class PatternMatcher:
                             dst_slot_partial_mappings.append([])
                             # src_node_matched = False
                             continue
-                        edge_info = self.edge_info_by_name.get(input_edge, {}).get(node_name)
-                        if edge_info is None:
-                            dst_slot_partial_mappings.append([])
-                            continue
+                        edge_info = self._get_registered_edge_info(input_edge, node_name)
                         src_matched_mappings = [
                             partial_mapping.node_mapping.copy()
                             for partial_mapping in edge_partial_matching_results[input_edge]
