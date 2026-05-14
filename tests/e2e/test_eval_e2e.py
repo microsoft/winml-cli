@@ -42,7 +42,10 @@ if TYPE_CHECKING:
     from click.testing import CliRunner
 
 
-pytestmark = [pytest.mark.e2e]
+# 900 s per-test timeout (overrides the global 300 s in pyproject.toml).
+# Cold runs build the model end-to-end (export -> optimize -> quantize ->
+# compile), which can exceed 300 s for larger composite models (e.g. BLIP).
+pytestmark = [pytest.mark.e2e, pytest.mark.timeout(900)]
 
 # 10 samples keeps each e2e run short while giving enough signal for
 # range-based assertions. Shuffle uses a fixed seed=42 (see
@@ -421,28 +424,32 @@ class TestEvalModelInputForms:
         hf_id = "openai/clip-vit-base-patch32"
         task = "zero-shot-image-classification"
 
+        # Warm cache. zero-shot-image-classification is a composite task: the
+        # builder decomposes CLIP into two sub-models (image encoder +
+        # text encoder), each cached under its own sub-task in the same
+        # directory. No top-level manifest carries the composite task name,
+        # so cache discovery below must use the sub-task names.
         _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
 
-        cache_dir = find_cache_dir(hf_id, task=task)
-        assert cache_dir is not None, "expected cache after warm run"
+        # Locate each sub-encoder's ONNX via its sub-task. find_cache_dir /
+        # _find_build_artifacts filter by manifest["task"], so use the
+        # sub-task names rather than the composite task here.
+        from winml.modelkit.inference.engine import _find_build_artifacts
 
-        image_candidates = list(cache_dir.glob("*image*encoder*.onnx")) + list(
-            cache_dir.glob("*vision*.onnx"),
+        image_sub_task = "image-feature-extraction"
+        text_sub_task = "feature-extraction"
+
+        cache_dir = find_cache_dir(hf_id, task=image_sub_task)
+        assert cache_dir is not None, (
+            f"expected image-encoder cache after warm run (task={image_sub_task})"
         )
-        text_candidates = [
-            p for p in cache_dir.glob("*text*.onnx")
-            if "encoder" in p.name.lower() or "text" in p.name.lower()
-        ]
-        if not image_candidates or not text_candidates:
-            pytest.skip(
-                f"split-encoder ONNX files not found in {cache_dir}; "
-                "build may produce a monolithic ONNX for this model.",
-            )
+        image_onnx, _ = _find_build_artifacts(cache_dir, task=image_sub_task)
+        text_onnx, _ = _find_build_artifacts(cache_dir, task=text_sub_task)
 
         out = tmp_path / "result.json"
         _invoke(runner, [
-            "-m", f"image-encoder={image_candidates[0]}",
-            "-m", f"text-encoder={text_candidates[0]}",
+            "-m", f"image-encoder={image_onnx}",
+            "-m", f"text-encoder={text_onnx}",
             "--model-id", hf_id,
             "--task", task,
             "--samples", SAMPLES,
