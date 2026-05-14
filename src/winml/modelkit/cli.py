@@ -227,7 +227,11 @@ class LazyGroup(ActionGroup):
                 formatter.write_dl(rows)
 
 
-@click.group(cls=LazyGroup, invoke_without_command=True)
+@click.group(
+    cls=LazyGroup,
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 @click.version_option(version=__version__, prog_name="winml")
 @click.option(
     "--verbose",
