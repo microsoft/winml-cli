@@ -101,6 +101,9 @@ _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 # Named precision presets (non-mixed)
 _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
 
+# Regex for mixed precision: w{weight_bits}a{activation_bits}
+_MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
+
 # Per-device precision whitelist. A device listed here will reject any
 # --precision value not in its allowed set rather than silently substituting
 # a different weight/activation type.
@@ -128,9 +131,6 @@ def _device_supports_precision(device: str, precision: str) -> bool:
     if m:
         normalized = f"w{int(m.group(1))}a{int(m.group(2))}"
     return normalized in allowed
-
-# Regex for mixed precision: w{weight_bits}a{activation_bits}
-_MIXED_RE = re.compile(r"^w(\d+)a(\d+)$")
 
 
 def resolve_quant_types(precision: str) -> tuple[str, str]:

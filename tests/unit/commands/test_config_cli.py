@@ -170,6 +170,8 @@ class TestConfigCliInterface:
                 precision=kwargs.get("precision", "auto"),
                 ep=kwargs.get("ep"),
             )
+            # Unreachable safety net: if resolve_precision ever stops raising
+            # for an incompatible combo, fail loudly instead of falling through.
             raise AssertionError("resolve_precision should have raised")
 
         with patch(
