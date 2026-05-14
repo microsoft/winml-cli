@@ -35,6 +35,26 @@ class TestPerfModuleFlag:
         result = runner.invoke(main, ["perf", "--module", "BertAttention"])
         assert result.exit_code != 0
 
+    def test_module_with_onnx_path_rejected(self, tmp_path: Path) -> None:
+        """--module on a .onnx path must fail with a clear UsageError.
+
+        Regression guard for #553: previously the CLI tried to load the
+        ONNX file as an HF config and surfaced a confusing "not a valid
+        JSON file" error.
+        """
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            ["perf", "-m", str(onnx_file), "--module", "NoSuchClass"],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--module is not supported for ONNX files" in result.output
+        # Specifically must NOT blame the model file with a JSON-config error.
+        assert "valid JSON" not in result.output
+
     def test_module_no_match_exits_nonzero(self) -> None:
         """--module CLASSNAME matching no submodules must exit non-zero.
 
@@ -61,22 +81,51 @@ class TestPerfModuleFlag:
         assert result.exit_code != 0, result.output
         assert "No modules matching" in result.output
 
+    def test_module_no_match_lists_available_classes(self) -> None:
+        """SubmoduleClassNotFoundError surfaces the available class names
+        plus a `Did you mean…?` suggestion."""
+        from winml.modelkit.config import SubmoduleClassNotFoundError
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("cpu", ["cpu"]),
+            ),
+            patch(
+                "winml.modelkit.config.generate_hf_build_config",
+                side_effect=SubmoduleClassNotFoundError(
+                    "ResNetStag",  # typo of ResNetStage
+                    ["Conv2d", "Linear", "ResNetStage", "ResNetBottleNeckLayer"],
+                ),
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                ["perf", "-m", "fake/model", "--module", "ResNetStag"],
+            )
+        assert result.exit_code != 0, result.output
+        assert "No modules matching 'ResNetStag'" in result.output
+        # Close-match suggestion (difflib should pick ResNetStage).
+        assert "Did you mean" in result.output
+        assert "ResNetStage" in result.output
+        # Full list also shown.
+        assert "Available module class names" in result.output
+        assert "Conv2d" in result.output
+        assert "Linear" in result.output
+
     def test_module_default_output_includes_class_name(self) -> None:
-        """Default output path includes module class name."""
-        # The single-model generate_output_path produces {slug}_perf.json
-        path = generate_output_path("bert-base-uncased")
-        assert "bert-base-uncased" in str(path)
+        """Default output path includes the model slug and module class name."""
+        # Single-model layout: ~/.cache/winml/perf/<slug>/<timestamp>.json
+        plain = generate_output_path("bert-base-uncased")
+        assert "bert-base-uncased" in str(plain)
 
-        # The module-mode output path (from _perf_modules) is
-        # {slug}_{module_class}_perf.json -- tested via the inline logic
-        # in _perf_modules. Here we verify the format difference:
-        from pathlib import Path
-
-        slug = "bert-base-uncased"
-        module_class = "BertAttention"
-        module_path = Path(f"{slug}_{module_class}_perf.json")
-        assert module_class in str(module_path)
-        assert str(module_path) != str(path)
+        # Module-mode layout: ~/.cache/winml/perf/<slug>/<module_class>/<timestamp>.json
+        module_path = generate_output_path("bert-base-uncased", module_class="BertAttention")
+        assert "bert-base-uncased" in str(module_path)
+        assert "BertAttention" in str(module_path)
+        # Module-mode is nested one level deeper than plain.
+        assert module_path.parent.parent == plain.parent
 
 
 class TestPerfModuleParameterForwarding:
@@ -101,6 +150,12 @@ class TestPerfModuleParameterForwarding:
         fake_session = MagicMock()
         fake_session.perf.side_effect = RuntimeError("test-skip-benchmark")
 
+        # _perf_modules calls resolve_loader_config(model_id=...) to recover the
+        # parent task (submodule configs strip it). Stub it so "fake/model" never
+        # hits the HF Hub.
+        fake_loader_cfg = MagicMock()
+        fake_loader_cfg.task = "fill-mask"
+
         with (
             patch(
                 "winml.modelkit.sysinfo.resolve_device",
@@ -110,6 +165,10 @@ class TestPerfModuleParameterForwarding:
                 "winml.modelkit.config.generate_hf_build_config",
                 return_value=[fake_cfg],
             ) as mock_gen,
+            patch(
+                "winml.modelkit.loader.resolve_loader_config",
+                return_value=(fake_loader_cfg, MagicMock(), MagicMock()),
+            ),
             patch(
                 "winml.modelkit.commands.build._instantiate_parent_model",
                 return_value=MagicMock(),

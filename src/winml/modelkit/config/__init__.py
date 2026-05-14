@@ -24,6 +24,7 @@ Example:
 
 from ..utils.config_utils import merge_config
 from .build import (
+    SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
     generate_hf_build_config,
@@ -42,6 +43,7 @@ from .precision import (
 __all__ = [
     "VALID_EPS",
     "PrecisionPolicy",
+    "SubmoduleClassNotFoundError",
     "WinMLBuildConfig",
     "generate_build_config",
     "generate_hf_build_config",

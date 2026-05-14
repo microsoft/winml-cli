@@ -86,12 +86,29 @@ extends:
           - powershell: |
               $artifactDir = "$(Pipeline.Workspace)"
               $outDir = "$(ob_outputDirectory)"
+              $rulesZipPath = Join-Path $outDir "rules.zip"
+
               New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
               $wheels = Get-ChildItem "$artifactDir" -Filter "*.whl" -Recurse
-              $parquets = Get-ChildItem "$artifactDir" -Filter "*.parquet" -Recurse
-              Write-Host "Found $($wheels.Count) wheel(s) and $($parquets.Count) parquet file(s)"
-              $wheels | Copy-Item -Destination $outDir
-              $parquets | Copy-Item -Destination $outDir
+              if (-not $wheels) {
+                throw "No wheel files found under $artifactDir"
+              }
+              $wheels | Copy-Item -Destination $outDir -Force
+
+              $rulesZipCandidates = Get-ChildItem "$artifactDir" -Filter "rules.zip" -Recurse
+              if (-not $rulesZipCandidates) {
+                throw "No rules.zip found under $artifactDir. Release requires the official build to publish rules.zip."
+              }
+
+              if ($rulesZipCandidates.Count -gt 1) {
+                Write-Warning "Found $($rulesZipCandidates.Count) rules.zip files; using the first one"
+              }
+              $selectedRulesZip = $rulesZipCandidates | Select-Object -First 1
+              Copy-Item $selectedRulesZip.FullName -Destination $rulesZipPath -Force
+
+              Write-Host "Found $($wheels.Count) wheel(s)"
+              Write-Host "Using build-produced rules.zip from $($selectedRulesZip.FullName)"
             displayName: 'Stage release assets'
 
           - task: GitHubRelease@1
@@ -106,7 +123,7 @@ extends:
               title: 'ModelKit $(ReleaseTag)'
               assets: |
                 $(ob_outputDirectory)\*.whl
-                $(ob_outputDirectory)\*.parquet
+                $(ob_outputDirectory)\rules.zip
               isDraft: false
               isPreRelease: true
               addChangeLog: false
