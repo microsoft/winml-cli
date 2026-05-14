@@ -28,6 +28,7 @@ from rich.console import Console
 from ..config import VALID_EPS
 from ..onnx import is_compiled_onnx
 from ..session import VALID_DEVICES, resolve_device
+from ..session.ep_device import DeviceNotFound, EPNotDiscovered, EPRegistrationFailed
 from ..utils.logging import configure_logging
 
 
@@ -151,7 +152,18 @@ def compile(
     # Resolve EP+device at the CLI boundary (plan §C / Decision B).
     # device="auto" is treated as None (let resolve_device pick via sysinfo).
     _device_arg = None if (device is None or device.lower() == "auto") else device.lower()
-    ep_device_resolved = resolve_device(ep=ep, device=_device_arg)
+    try:
+        ep_device_resolved = resolve_device(ep=ep, device=_device_arg)
+    except DeviceNotFound as e:
+        raise click.ClickException(str(e)) from e
+    except EPNotDiscovered as e:
+        raise click.ClickException(
+            f"EP plugin not found: {e}. Install the required EP package (e.g. onnxruntime-qnn)."
+        ) from e
+    except EPRegistrationFailed as e:
+        raise click.ClickException(f"EP registration failed: {e}") from e
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
     logger.info("Resolved to: %s", ep_device_resolved)
 
     # Handle --list
