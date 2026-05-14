@@ -217,7 +217,6 @@ def main() -> None:
     _out(f"Dataset: {ds_name} / {ds_cfg} [{ds_split}]")
 
     try:
-        from winml.modelkit.eval.base_evaluator import WinMLEvaluator
         from winml.modelkit.eval.config import WinMLEvaluationConfig
 
         pytorch_model = _load_pytorch_model(model_id, task, args.device)
@@ -230,9 +229,9 @@ def main() -> None:
             dataset=dataset_config,
         )
 
-        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.eval.evaluate import get_evaluator_class
 
-        evaluator_cls = _EVALUATOR_REGISTRY.get(task, WinMLEvaluator)
+        evaluator_cls = get_evaluator_class(task)
         task_evaluator = evaluator_cls(eval_config, pytorch_model)
 
         metrics = task_evaluator.compute()

@@ -60,7 +60,7 @@ class WinMLEvaluationConfig:
     model_id: str | None = None
     model_path: str | dict[str, str] | None = None
     task: str | None = None
-    device: str = "cpu"
+    device: str = "auto"
     precision: str = "auto"
     ep: str | None = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
@@ -105,7 +105,7 @@ class WinMLEvaluationConfig:
             model_id=data.get("model_id"),
             model_path=data.get("model_path"),
             task=data.get("task"),
-            device=data.get("device", "cpu"),
+            device=data.get("device", "auto"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),
             dataset=dataset,

@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -24,7 +25,6 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.text import Text
 
-from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
 from ..utils.constants import normalize_ep_name
 from ..utils.logging import configure_logging
@@ -63,9 +63,23 @@ def _discover_runtime_rule_parquet_files() -> tuple[list[Path], list[Path]]:
     return search_dirs, parquet_files
 
 
+_TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
+
+
 def _display_name(pattern_id: str) -> str:
-    """Extract operator display name from pattern_id ('OP/ai.onnx/Conv' -> 'Conv')."""
-    return pattern_id.split("/")[-1]
+    """Extract operator display name from pattern_id.
+
+    Examples::
+
+        'OP/ai.onnx/Conv'              -> 'Conv'
+        'OP/ai.onnx/Conv (QDQ)'        -> 'Conv'
+        'OP/com.microsoft/EPContext (QNN)' -> 'EPContext'
+
+    Strips any trailing ``" (xxx)"`` annotation (QDQ marker, EP-prefix
+    suffix produced by EPContextNodeChecker, etc.).
+    """
+    name = pattern_id.split("/")[-1]
+    return _TRAILING_PAREN_RE.sub("", name)
 
 
 _LEVEL_ICONS = [
@@ -448,8 +462,8 @@ def _render_analysis_summary(
 )
 @click.option(
     "--run-unknown-op/--no-run-unknown-op",
-    default=True,
-    help="Run unknown operators on local machine if possible (default: enabled)",
+    default=False,
+    help="Run unknown operators on local machine if possible (default: disabled)",
 )
 @click.option(
     "--save-node",
@@ -673,7 +687,7 @@ def analyze(
 
         def on_node_result(pattern_runtime):
             """Callback invoked per-node during analysis."""
-            op = _display_name(pattern_runtime.pattern_id).removesuffix(QDQ_SUFFIX)
+            op = _display_name(pattern_runtime.pattern_id)
             level = pattern_runtime.result.classification.value
             op_counts = instance_counts.setdefault(op, {})
             op_counts[level] = op_counts.get(level, 0) + 1

@@ -197,14 +197,16 @@ def eval(
     cfg = _build_eval_config(ctx, config_file, column, label_mapping)
 
     if show_schema:
-        from ..eval import WinMLEvaluator
-        from ..eval.evaluate import _EVALUATOR_REGISTRY
+        from ..eval.evaluate import get_evaluator_class
 
         if cfg.task is None:
             raise click.UsageError(
                 "--schema requires --task. Example: winml eval --schema --task object-detection"
             )
-        cls = _EVALUATOR_REGISTRY.get(cfg.task, WinMLEvaluator)
+        try:
+            cls = get_evaluator_class(cfg.task)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
         _print_schema(cfg.task, cls.schema_info())
         return
 
@@ -248,7 +250,24 @@ def _build_eval_config(
     from ..eval import WinMLEvaluationConfig
     from ..utils.config_utils import merge_config
 
-    cfg = WinMLEvaluationConfig()
+    # Initialize config object from CLI ctx params.
+    p = ctx.params
+    cfg = WinMLEvaluationConfig(
+        task=p.get("task"),
+        device=p.get("device"),
+        precision=p.get("precision"),
+        ep=p.get("ep"),
+        output_path=p.get("output"),
+        dataset=DatasetConfig(
+            path=p.get("dataset_path"),
+            name=p.get("dataset_name"),
+            split=p.get("split"),
+            samples=p.get("samples"),
+            shuffle=p.get("shuffle"),
+            streaming=p.get("streaming"),
+            build_script=p.get("dataset_script"),
+        ),
+    )
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
