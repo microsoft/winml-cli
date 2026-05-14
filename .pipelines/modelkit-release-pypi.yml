@@ -107,7 +107,7 @@ extends:
           displayName: 'Verify staged artifacts before publishing to PyPI'
           timeoutInMinutes: 1440 # 24 hours
           inputs:
-            notifyUsers: '$(ESRP_OWNERS)'
+            notifyUsers: 'zhiwang@microsoft.com'
             instructions: |
               Review the Prepare job logs (staged wheel + sdist filenames, version check).
               Approve to invoke ESRP Release - ESRP will then trigger its own approval flow.
@@ -146,6 +146,6 @@ extends:
             ContentType: 'NPM'
             FolderLocation: '$(Build.SourcesDirectory)/pyPackage'
             WaitForReleaseCompletion: true
-            Owners: '$(ESRP_OWNERS)'
-            Approvers: '$(ESRP_APPROVERS)'
+            Owners: 'zhiwang@microsoft.com'
+            Approvers: 'zhiwang@microsoft.com'
             Mainpublisher: ' ESRPRELPACMAN'
