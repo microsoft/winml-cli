@@ -607,30 +607,30 @@ class InformationEngine:
                 logger.debug("No matched_node_names found in pattern_match for %s", pattern_id)
                 return None
 
-            # Get the first matched node name (for single-op patterns)
+            # Get the first matched stable node key (for single-op patterns)
             onnx_op = pattern_match.matched_node_names[0]
-            node_name = onnx_op.node_name
+            node_key = onnx_op.node_name
             logger.debug(
-                "Extracted node name for %s: %s (op_type=%s)",
+                "Extracted node key for %s: %s (op_type=%s)",
                 pattern_id,
-                node_name,
+                node_key,
                 onnx_op.op_type,
             )
 
             # Resolve ONNX NodeProto from stable sidecar key
             node_lookup_start = time.perf_counter()
-            node = self._model.get_node_by_key(node_name)
+            node = self._model.get_node_by_key(node_key)
             if node is None:
-                node = self._model.get_node_by_name(node_name)
+                node = self._model.get_node_by_name(node_key)
             node_lookup_ms = int((time.perf_counter() - node_lookup_start) * 1000)
 
             if node is None:
-                logger.debug("Could not find node %s in model graph", node_name)
+                logger.debug("Could not find node %s in model graph", node_key)
                 _log_timing(
                     "information_engine.doc_constraints",
                     ep=self._ep,
                     pattern_id=pattern_id,
-                    node=node_name,
+                    node=node_key,
                     found_node=False,
                     node_lookup_ms=node_lookup_ms,
                     total_ms=int((time.perf_counter() - total_start) * 1000),
@@ -666,7 +666,7 @@ class InformationEngine:
                             "information_engine.doc_constraints.slow_query",
                             ep=self._ep,
                             pattern_id=pattern_id,
-                            node=node_name,
+                            node=node_key,
                             node_lookup_ms=node_lookup_ms,
                             checker_ms=checker_ms,
                             total_ms=total_ms,
@@ -683,7 +683,7 @@ class InformationEngine:
                     "information_engine.doc_constraints.slow_query",
                     ep=self._ep,
                     pattern_id=pattern_id,
-                    node=node_name,
+                    node=node_key,
                     node_lookup_ms=node_lookup_ms,
                     checker_ms=checker_ms,
                     total_ms=total_ms,

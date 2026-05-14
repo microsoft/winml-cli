@@ -41,6 +41,10 @@ def resolve_stable_node_key(
     2) named node fallback (node.name)
     3) identity scan in graph snapshot for unnamed graph nodes
     4) raise KeyError for unnamed external nodes
+
+    Note:
+        When step (3) succeeds, the resolved key is cached back into
+        ``node_key_by_node_id`` for faster subsequent lookups.
     """
     stable_key = node_key_by_node_id.get(id(node))
     if stable_key is not None:
