@@ -1936,7 +1936,7 @@ class TestDevicePrecisionIntegration:
         [
             ("npu", "auto", True, "uint8", "uint16", "qnn"),
             ("npu", "fp16", False, None, None, "qnn"),
-            ("npu", "int8", True, "uint8", "uint8", "qnn"),
+            ("npu", "w8a8", True, "uint8", "uint8", "qnn"),
             ("gpu", "auto", False, None, None, None),
             ("gpu", "int8", True, "uint8", "uint8", None),
             ("gpu", "fp16", False, None, None, None),
@@ -1944,10 +1944,11 @@ class TestDevicePrecisionIntegration:
             ("cpu", "int8", True, "uint8", "uint8", None),
             ("cpu", "int16", True, "int16", "uint16", None),
             ("cpu", "fp16", False, None, None, None),
-            # auto device + explicit precision → picks NPU (mock returns npu first)
+            # auto device + explicit precision → resolves via resolve_device.
+            # Mock returns "npu" first, so NPU-compatible precisions stay on NPU.
             ("auto", "fp16", False, None, None, "qnn"),
-            ("auto", "int8", True, "uint8", "uint8", "qnn"),
-            ("auto", "int16", True, "int16", "uint16", "qnn"),
+            ("auto", "w8a8", True, "uint8", "uint8", "qnn"),
+            ("auto", "w8a16", True, "uint8", "uint16", "qnn"),
         ],
     )
     def test_config_gen_device_precision(
@@ -2077,7 +2078,7 @@ class TestDevicePrecisionIntegration:
         mock_rd.assert_called_once_with(device="auto", ep=None)
 
     def test_explicit_precision_triggers_resolve_device(self) -> None:
-        """device='auto' + precision='int8' DOES call resolve_device."""
+        """device='auto' + precision='w8a16' DOES call resolve_device."""
         with (
             patch(
                 "winml.modelkit.config.build.resolve_loader_config",
@@ -2100,7 +2101,7 @@ class TestDevicePrecisionIntegration:
             generate_build_config(
                 "bert-base-uncased",
                 device="auto",
-                precision="int8",
+                precision="w8a16",
             )
 
         mock_rd.assert_called_once()
@@ -2216,15 +2217,15 @@ class TestDevicePrecisionCli:
         assert data["compile"] is None
 
     def test_auto_precision_int8_triggers_detection(self, tmp_path) -> None:
-        """--device auto --precision int8 --compile → triggers device detection."""
+        """--device auto --precision w8a16 --compile → triggers device detection."""
         result, output_file = self._invoke(
             tmp_path,
-            ["--device", "auto", "--precision", "int8", "--compile"],
+            ["--device", "auto", "--precision", "w8a16", "--compile"],
         )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         data = json.loads(output_file.read_text())
-        # Mock resolve_device returns "npu" → qnn
+        # Mock resolve_device returns "npu" → qnn (w8a16 is NPU-compatible)
         assert data["compile"]["execution_provider"] == "qnn"
         assert data["quant"] is not None
 
@@ -2884,19 +2885,15 @@ class TestResolveQuantCompileConfig:
         assert mock_prec.call_args.kwargs.get("task") == "text-generation"
 
     def test_explicit_int8_precision_on_npu(self) -> None:
-        """Explicit precision=int8 on npu produces uint8 quant."""
+        """Explicit precision=int8 on npu is rejected (NPU whitelist)."""
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "cpu"]),
-        ):
-            quant, _compile_cfg = resolve_quant_compile_config(
+        ), pytest.raises(ValueError, match="not supported on --device npu"):
+            resolve_quant_compile_config(
                 device="npu",
                 precision="int8",
             )
-
-        assert quant is not None
-        assert quant.weight_type == "uint8"
-        assert quant.activation_type == "uint8"
 
     def test_explicit_fp32_precision_no_quant(self) -> None:
         """Explicit precision=fp32 produces no quantization."""

@@ -209,8 +209,8 @@ def config(
         # Override task
         winml config -m bert-base-uncased --task text-classification
 
-        # Target NPU with int8 quantization
-        winml config -m microsoft/resnet-50 --device npu --precision int8
+        # Target NPU with w8a8 quantization (NPU supports auto/fp16/w8a8/w8a16)
+        winml config -m microsoft/resnet-50 --device npu --precision w8a8
 
         # Target GPU with fp16 (no quantization)
         winml config -m bert-base-uncased --device gpu --precision fp16
