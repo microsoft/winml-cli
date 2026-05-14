@@ -89,6 +89,35 @@ def get_ep_device_map() -> dict[str, str]:
     return dict(_EP_DEVICE_MAP)
 
 
+def _normalize_ep_name(ep: str) -> str:
+    """Normalize an EP name to a canonical full provider name.
+
+    Accepts both aliases (e.g. ``qnn``, ``ov``) and full provider names,
+    case-insensitively.
+
+    Args:
+        ep: EP alias or full provider name.
+
+    Returns:
+        Canonical full provider name.
+
+    Raises:
+        ValueError: If EP is unknown.
+    """
+    ep_lower = ep.lower()
+
+    # Alias path (qnn -> QNNExecutionProvider, etc.)
+    if ep_lower in EP_SHORT_TO_FULL:
+        return EP_SHORT_TO_FULL[ep_lower]
+
+    # Full-name path, case-insensitive
+    for full_name in _EP_DEVICE_MAP:
+        if full_name.lower() == ep_lower:
+            return full_name
+
+    raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SHORT_TO_FULL)}")
+
+
 @functools.lru_cache(maxsize=1)
 def _get_available_devices() -> tuple[str, ...]:
     """Return prioritized tuple of available devices (cached).
@@ -179,7 +208,8 @@ def resolve_device(
 
     Args:
         device: "auto", "npu", "gpu", or "cpu".
-        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
+        ep: Optional EP name (alias or full name, e.g., "qnn", "dml",
+            or "QNNExecutionProvider"). When set,
             ``available_devices`` is filtered to only those device types the
             EP can target, and ``available_eps`` is filtered to just this EP
             (intersected with what is actually available on the system).
@@ -201,9 +231,7 @@ def resolve_device(
     available_eps = _get_available_eps()
 
     if ep is not None:
-        ep_full = EP_SHORT_TO_FULL.get(ep.lower())
-        if ep_full is None:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SHORT_TO_FULL)}")
+        ep_full = _normalize_ep_name(ep)
         available_eps = available_eps & {ep_full}
         ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
         available_devices = [d for d in available_devices if d in ep_compatible_devices]
@@ -239,3 +267,47 @@ def resolve_device(
             sorted(available_eps),
         )
     return device, available_devices
+
+
+def resolve_auto_ep_device(ep: str = "auto", device: str = "auto") -> tuple[str, str]:
+    """Resolve "auto" EP and/or device to concrete values.
+
+    Resolution order:
+    1. Resolve device (NPU > GPU > CPU priority when ``device='auto'``).
+    2. Resolve EP for that device when ``ep='auto'`` by selecting the first
+       available provider whose device mapping includes the chosen device.
+
+    If no available EP matches the chosen device, falls back to
+    ``CPUExecutionProvider`` + ``CPU``.
+
+    Args:
+        ep: EP alias/full name or ``"auto"``.
+        device: Device name or ``"auto"``.
+
+    Returns:
+        Tuple of ``(resolved_ep_full_name, resolved_device_uppercase)``.
+
+    Raises:
+        ValueError: If explicit ``ep`` or ``device`` is unknown.
+    """
+    resolved_device, _ = resolve_device(device)
+
+    # Preserve explicit EP and normalize to full provider name.
+    if ep.lower() != "auto":
+        return _normalize_ep_name(ep), resolved_device.upper()
+
+    available_eps = _get_available_eps()
+    compatible_eps = [
+        ep_name
+        for ep_name in _DEVICE_EP_MAP.get(resolved_device, [])
+        if ep_name in available_eps
+    ]
+    if compatible_eps:
+        return compatible_eps[0], resolved_device.upper()
+
+    logger.warning(
+        "No available EP matches auto-selected device '%s'. "
+        "Falling back to CPUExecutionProvider on CPU.",
+        resolved_device,
+    )
+    return "CPUExecutionProvider", "CPU"

@@ -422,7 +422,7 @@ def _render_analysis_summary(
 @click.command(name="analyze")
 @cli_utils.model_path_option(required=True)
 @cli_utils.ep_option(
-    required=False, optional_message="If not specified, analyzes all supported EPs"
+    required=False, optional_message="If not specified, auto-detects available EP"
 )
 @cli_utils.device_option(
     required=False,
@@ -534,26 +534,27 @@ def analyze(
             has_rule_data_for_ep,
         )
 
-        ep_normalized = normalize_ep_name(ep)
-
-        # Resolve "auto" device using sysinfo (NPU > GPU > CPU priority).
-        # When the user omits --device, click sets it to the default "auto";
-        # we resolve it here so all downstream consumers (validation, label,
-        # analyzer.analyze) see the concrete device.
-        # An explicit ``--device auto`` is treated the same as omission.
-        # Normalize to uppercase ("NPU"/"GPU"/"CPU"): the auto-choice list is
-        # lowercase ("auto"/"cpu"/"gpu"/"npu") and click case-folds choices.
+        # Resolve EP/device defaults using sysinfo.
+        # - If --ep is omitted, auto-detect both EP and device.
+        # - If --ep is explicit, preserve EP and auto-resolve device when needed.
         device_explicit = cli_utils.is_cli_provided(ctx, "device") and (
             device is not None and device.lower() != "auto"
         )
-        if device is None or device.lower() == "auto":
-            from ..sysinfo import resolve_device
+        if ep is None:
+            from ..sysinfo import resolve_auto_ep_device
 
-            resolved, _ = resolve_device("auto")
-            device = resolved.upper()
-            logger.info("Auto-detected device: %s", device)
+            ep_normalized, device = resolve_auto_ep_device(ep="auto", device=device or "auto")
+            logger.info("Auto-detected target: %s on %s", ep_normalized, device)
         else:
-            device = device.upper()
+            ep_normalized = normalize_ep_name(ep)
+            if device is None or device.lower() == "auto":
+                from ..sysinfo import resolve_device
+
+                resolved, _ = resolve_device("auto")
+                device = resolved.upper()
+                logger.info("Auto-detected device: %s", device)
+            else:
+                device = device.upper()
 
         # Validate only when the user explicitly specified --device
         if (
@@ -577,7 +578,7 @@ def analyze(
                 )
             sys.exit(2)
 
-        ep_label = ep_normalized or "all EPs"
+        ep_label = ep_normalized or "auto"
         device_label = device
         logger.info("Analyzing model: %s", model)
         logger.info("Target: %s on %s", ep_label, device_label)

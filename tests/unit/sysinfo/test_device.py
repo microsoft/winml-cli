@@ -15,6 +15,7 @@ from winml.modelkit.sysinfo.device import (
     _DEVICE_EP_MAP,
     _EP_DEVICE_MAP,
     _get_available_devices,
+    resolve_auto_ep_device,
     resolve_device,
 )
 
@@ -482,3 +483,103 @@ class TestResolveDeviceWithEp:
         assert device == "cpu"
         assert available == ["npu", "gpu"]
         assert any("no compatible EP found" in record.message for record in caplog.records)
+
+    def test_ep_full_name_is_accepted(self) -> None:
+        """Full EP names should be accepted (not aliases only)."""
+        with (
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_devices",
+                return_value=("npu", "gpu", "cpu"),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset({"QNNExecutionProvider", "CPUExecutionProvider"}),
+            ),
+        ):
+            device, available = resolve_device("auto", ep="QNNExecutionProvider")
+
+        assert device == "npu"
+        assert available == ["npu", "gpu"]
+
+
+class TestResolveAutoEpDevice:
+    """Tests for resolve_auto_ep_device()."""
+
+    def test_auto_resolves_qnn_on_npu(self) -> None:
+        """Auto EP/device picks QNN+NPU on an NPU-capable machine."""
+        with (
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_devices",
+                return_value=("npu", "gpu", "cpu"),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset(
+                    {
+                        "QNNExecutionProvider",
+                        "DmlExecutionProvider",
+                        "CPUExecutionProvider",
+                    }
+                ),
+            ),
+        ):
+            ep, device = resolve_auto_ep_device("auto", "auto")
+
+        assert ep == "QNNExecutionProvider"
+        assert device == "NPU"
+
+    def test_auto_ep_with_explicit_gpu_device(self) -> None:
+        """Auto EP respects explicit device and chooses a compatible EP."""
+        with (
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_devices",
+                return_value=("npu", "gpu", "cpu"),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset({"DmlExecutionProvider", "CPUExecutionProvider"}),
+            ),
+        ):
+            ep, device = resolve_auto_ep_device("auto", "gpu")
+
+        assert ep == "DmlExecutionProvider"
+        assert device == "GPU"
+
+    def test_auto_ep_falls_back_to_cpu_when_no_match(self, caplog) -> None:
+        """No compatible available EP for chosen device falls back to CPU target."""
+        with (
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_devices",
+                return_value=("npu", "cpu"),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset(),
+            ),
+            caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.device"),
+        ):
+            ep, device = resolve_auto_ep_device("auto", "npu")
+
+        assert ep == "CPUExecutionProvider"
+        assert device == "CPU"
+        assert any(
+            "Falling back to CPUExecutionProvider" in record.message
+            for record in caplog.records
+        )
+
+    def test_explicit_ep_is_preserved_and_normalized(self) -> None:
+        """Explicit EP values are preserved and normalized to full names."""
+        with (
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_devices",
+                return_value=("gpu", "cpu"),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset({"DmlExecutionProvider", "CPUExecutionProvider"}),
+            ),
+        ):
+            ep, device = resolve_auto_ep_device("dml", "auto")
+
+        assert ep == "DmlExecutionProvider"
+        assert device == "GPU"

@@ -114,10 +114,17 @@ class TestAnalyzeCommandArguments:
         assert result.exit_code != 0
         assert "model" in result.output.lower() or "missing" in result.output.lower()
 
-    def test_ep_argument_optional(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test that --ep argument is optional (will analyze all EPs if not provided)."""
+    @patch("winml.modelkit.sysinfo.resolve_auto_ep_device")
+    def test_ep_argument_optional(
+        self,
+        mock_resolve_auto_ep_device: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test that --ep argument is optional (will auto-detect EP if omitted)."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
+        mock_resolve_auto_ep_device.return_value = ("QNNExecutionProvider", "NPU")
 
         # Command without --ep should not fail due to missing argument
         # It may fail for other reasons (invalid model), but not missing --ep
@@ -126,7 +133,7 @@ class TestAnalyzeCommandArguments:
         assert "ep" not in result.output.lower() or "missing" not in result.output.lower()
 
     def test_device_argument_optional(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test that --device argument is optional (will use default NPU if not provided)."""
+        """Test that --device argument is optional (will auto-detect if omitted)."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -553,6 +560,34 @@ class TestAnalyzeCommandOutput:
 
 class TestAnalyzeCommandIntegration:
     """Integration tests for analyze command."""
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    @patch("winml.modelkit.sysinfo.resolve_auto_ep_device")
+    def test_ep_auto_detected_when_omitted(
+        self,
+        mock_resolve_auto_ep_device: MagicMock,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """When --ep is omitted, CLI should auto-detect EP and device."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        mock_resolve_auto_ep_device.return_value = ("QNNExecutionProvider", "CPU")
+
+        result = runner.invoke(analyze, ["--model", str(model_file)])
+
+        assert result.exit_code == 0
+        mock_resolve_auto_ep_device.assert_called_with(ep="auto", device="auto")
+        call_kwargs = mock_instance.analyze.call_args[1]
+        assert call_kwargs["ep"] == "QNNExecutionProvider"
+        assert call_kwargs["device"] == "CPU"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_all_supported_eps(

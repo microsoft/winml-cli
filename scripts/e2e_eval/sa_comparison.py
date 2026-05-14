@@ -28,60 +28,10 @@ if TYPE_CHECKING:
 
 
 def resolve_auto_ep_device(ep: str = "auto", device: str = "auto") -> tuple[str, str]:
-    """Resolve "auto" EP and/or device to concrete values via sysinfo.
+    """Resolve "auto" EP/device using shared WinML sysinfo logic."""
+    from winml.modelkit.sysinfo import resolve_auto_ep_device as _resolve_auto_ep_device
 
-    Auto-detection priority: NPU > GPU > CPU. The chosen EP is the first
-    available execution provider whose device-mapping includes the chosen
-    device (e.g., on an NPU machine with QNN installed → ``QNNExecutionProvider``
-    + ``NPU``).
-
-    If the user explicitly passes a non-"auto" EP or device, that value is
-    preserved.
-
-    Falls back to ``CPUExecutionProvider`` + ``CPU`` if no available EP
-    matches the chosen device, ensuring the SA eval pipeline always has a
-    valid target.
-    """
-    from winml.modelkit.sysinfo.device import (
-        _get_available_devices,
-        _get_available_eps,
-        get_ep_device_map,
-    )
-
-    if device.lower() == "auto":
-        device = _get_available_devices()[0].upper()
-
-    if ep.lower() == "auto":
-        ep_device_map = get_ep_device_map()
-        available_eps = _get_available_eps()
-        device_lower = device.lower()
-        # Pick the first available EP whose device mapping includes the
-        # chosen device. Order of insertion in get_ep_device_map() is the
-        # priority (NPU vendors first).
-        match = next(
-            (
-                cand
-                for cand in ep_device_map
-                if cand in available_eps
-                and device_lower in ep_device_map[cand].split("/")
-            ),
-            None,
-        )
-        if match is None:
-            # Fall back to any EP (regardless of availability) that targets
-            # the chosen device — keeps SA eval functional in environments
-            # where ORT EP discovery is unavailable but rule data exists.
-            match = next(
-                (
-                    cand
-                    for cand, devs in ep_device_map.items()
-                    if device_lower in devs.split("/")
-                ),
-                "CPUExecutionProvider",
-            )
-        ep = match
-
-    return ep, device
+    return _resolve_auto_ep_device(ep=ep, device=device)
 
 
 def run_sa_with_info(
