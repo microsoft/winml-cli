@@ -117,8 +117,8 @@ class WinMLCompileConfig:
             if not config.ep_config.enable_ep_context:
                 return None
             return config
-        # Generic fallback for unknown/custom providers
-        return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
+        # Generic fallback for unknown/custom providers — no EPContext support
+        return None
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:

@@ -757,9 +757,8 @@ class TestONNXStaticAnalyzer:
         assert infer_ihv_from_ep_name("TensorRTProvider") == IHVType.NVIDIA
 
     def test_map_ep_to_ihv_invalid(self) -> None:
-        """Test EP to IHV mapping with invalid EP."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("InvalidEP")
+        """Test EP to IHV mapping with unrecognized EP resolves to MICROSOFT."""
+        assert infer_ihv_from_ep_name("InvalidEP") == IHVType.MICROSOFT
 
     def test_analyze_file_not_found(self) -> None:
         """Test analyze with non-existent file."""
@@ -1043,22 +1042,20 @@ class TestONNXStaticAnalyzer:
         # Verify InformationEngine was instantiated
         assert mock_info_engine_cls.called
 
-    @patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep", return_value=False)
     @patch("winml.modelkit.analyze.core.runtime_checker.RuntimeChecker")
     @patch("winml.modelkit.analyze.core.onnx_loader.ONNXLoader")
     @patch("winml.modelkit.analyze.core.pattern_extractor.PatternExtractor")
-    def test_analyze_from_proto_skips_ep_without_rule_data(
+    def test_analyze_from_proto_always_runs_ep(
         self,
         mock_pattern_extractor_cls: Mock,
         mock_onnx_loader_cls: Mock,
         mock_runtime_checker_cls: Mock,
-        mock_has_rule_data: Mock,
     ) -> None:
-        """analyze_from_proto must skip runtime check for EPs lacking rule data.
+        """analyze_from_proto must always invoke RuntimeChecker regardless of rule data.
 
-        When has_rule_data_for_ep returns False (e.g. DML), the analyzer should
-        still succeed — pattern extraction runs, but RuntimeChecker / InformationEngine
-        are never invoked, and the output contains no EP results.
+        Pattern extraction does not depend on rule data. RuntimeChecker is always
+        instantiated; the rule-data check is deferred to op_support() where it is
+        actually needed (not at the top-level EP loop).
         """
         mock_model = MagicMock()
         mock_loader = MagicMock()
@@ -1079,22 +1076,25 @@ class TestONNXStaticAnalyzer:
         }
         mock_pattern_extractor_cls.return_value = mock_extractor
 
+        mock_runtime_checker = MagicMock()
+        mock_runtime_checker.summary.return_value = {
+            "op_runtime_check_result": [],
+            "subgraph_runtime_check_result": [],
+        }
+        mock_runtime_checker_cls.return_value = mock_runtime_checker
+
         analyzer = ONNXStaticAnalyzer()
         model_proto = MagicMock(spec=onnx.ModelProto)
 
         result = analyzer.analyze_from_proto(
             model_proto=model_proto,
-            ep="DmlExecutionProvider",
-            device="GPU",
+            ep="QNNExecutionProvider",
+            device="NPU",
             enable_information=False,
         )
 
         assert isinstance(result, AnalysisResult)
-        # No EP results because DML has no rule data
-        assert result.output.results == []
-        # Pattern extraction metadata is still present
+        # Pattern extraction metadata is always present
         assert result.output.metadata.total_operators == 10
-        # has_rule_data_for_ep was consulted with the correct arguments
-        mock_has_rule_data.assert_called_once_with("DmlExecutionProvider", "GPU")
-        # RuntimeChecker must never be instantiated when rule data is absent
-        mock_runtime_checker_cls.assert_not_called()
+        # RuntimeChecker must always be instantiated — rule-data check is deferred
+        mock_runtime_checker_cls.assert_called_once()

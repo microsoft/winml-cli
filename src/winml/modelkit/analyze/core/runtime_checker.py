@@ -115,6 +115,14 @@ class RuntimeChecker:
         # Lazy-initialized RuntimeCheckerQuery (cached for reuse)
         self._query: RuntimeCheckerQuery | None = None
 
+        # Pre-compute rule-data availability once at construction time so that
+        # op_support() and subgraph_support() can read the cached result without
+        # repeated filesystem probes.
+        from ..utils.ep_utils import has_any_rule_data, has_rule_data_for_ep
+
+        self._has_rule_data: bool = has_rule_data_for_ep(ep, device)
+        self._has_any_rule_data: bool = has_any_rule_data() if not self._has_rule_data else True
+
         logger.info(
             "Initialized RuntimeChecker for EP=%s, driver=%s",
             ep,
@@ -190,6 +198,22 @@ class RuntimeChecker:
             )
 
         logger.info("Checking operator-level runtime support")
+
+        # Emit a diagnostic once if rule data is absent for this EP+device.
+        # Uses the pre-computed flags from __init__ (no repeated filesystem probes).
+        if not self._has_rule_data:
+            if not self._has_any_rule_data:
+                logger.warning(
+                    "No runtime check data found. Follow "
+                    "https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md "
+                    "to set up runtime check files."
+                )
+            else:
+                logger.info(
+                    "No runtime check data for %s on %s — op analysis will return no_data.",
+                    self._ep,
+                    self._device,
+                )
 
         total_start = time.perf_counter()
         results: list[PatternRuntime] = []

@@ -25,7 +25,7 @@ import click
 from rich.console import Console
 
 from ..config import VALID_EPS
-from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE
+from ..config.precision import _DEVICE_TO_PROVIDER
 from ..onnx import is_compiled_onnx
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
@@ -188,7 +188,14 @@ def compile(
 
     # Resolve EP from device + ep flags
     provider = _resolve_compile_provider(device, ep)
-    config = WinMLCompileConfig.for_provider(provider)
+    config = WinMLCompileConfig.for_provider(provider, device=device)
+
+    if config is None:
+        raise click.ClickException(
+            f"Provider '{provider}' does not support EPContext compilation. "
+            "Compile is only supported for providers that produce EPContext models "
+            "(e.g. qnn, openvino)."
+        )
 
     config.validate = validate
     config.verbose = verbose
@@ -200,7 +207,7 @@ def compile(
 
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
-    console.print(f"[bold blue]Device:[/bold blue] {_EP_TO_DEVICE.get(provider, device)}")
+    console.print(f"[bold blue]Device:[/bold blue] {device}")
     if ep:
         console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")

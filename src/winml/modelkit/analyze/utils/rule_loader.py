@@ -173,7 +173,7 @@ class RuleLoader:
             }
 
             # Find files matching the prefix pattern (e.g., qc_*.json)
-            prefix = prefix_map[ihv]
+            prefix = prefix_map.get(ihv, ihv.lower())
             matching_files = list(runtime_rules_dir.glob(f"{prefix}_*.json"))
 
             if not matching_files:
