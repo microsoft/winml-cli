@@ -84,11 +84,16 @@ class WinMLCompileConfig:
         return self.ep_config.provider
 
     @classmethod
-    def for_provider(cls, provider: str | None) -> WinMLCompileConfig | None:
+    def for_provider(
+        cls, provider: str | None, device: str | None = None
+    ) -> WinMLCompileConfig | None:
         """Factory that dispatches to a known for_* method or creates a generic config.
 
         Args:
             provider: Provider name (e.g., "qnn", "dml", "openvino") or None.
+            device: Target device ("cpu", "gpu", "npu"). Used by EPs like OpenVINO
+                that compile device-specific EPContext blobs and need device_type
+                in provider_options so CPU and GPU builds get different cache keys.
 
         Returns:
             WinMLCompileConfig for the provider, or None if provider is None.
@@ -96,12 +101,12 @@ class WinMLCompileConfig:
         if provider is None:
             return None
         factories: dict[str, Any] = {
-            "qnn": cls.for_qnn,
+            "qnn": lambda: cls.for_qnn(device=device),
             "dml": cls.for_dml,
             "cuda": cls.for_cuda,
             "nv_tensorrt_rtx": cls.for_nv_tensorrt_rtx,
-            "openvino": cls.for_openvino,
-            "vitisai": cls.for_vitisai,
+            "openvino": lambda: cls.for_openvino(device=device),
+            "vitisai": lambda: cls.for_vitisai(device=device),
             "migraphx": cls.for_migraphx,
             "cpu": cls.for_cpu,
         }
@@ -116,9 +121,20 @@ class WinMLCompileConfig:
         return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
 
     @classmethod
-    def for_qnn(cls) -> WinMLCompileConfig:
-        """Factory for QNN compilation."""
-        return cls(ep_config=EPConfig(provider="qnn"))
+    def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
+        """Factory for QNN compilation.
+
+        Args:
+            device: Target device ("npu", "gpu"). Sets device_type in
+                provider_options so NPU and GPU builds get different cache keys.
+
+        Returns:
+            WinMLCompileConfig configured for QNN EP.
+        """
+        provider_options: dict[str, str] = {}
+        if device:
+            provider_options["device_type"] = device.upper()
+        return cls(ep_config=EPConfig(provider="qnn", provider_options=provider_options))
 
     @classmethod
     def for_cpu(cls) -> WinMLCompileConfig:
@@ -149,17 +165,30 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_openvino(cls) -> WinMLCompileConfig:
+    def for_openvino(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for OpenVINO compilation."""
+        provider_options: dict[str, str] = {}
+        if device:
+            # OV EPContext blobs are device-specific (CPU vs GPU).
+            # Embedding device_type ensures CPU and GPU builds get different
+            # cache keys and don't accidentally share the wrong EPContext.
+            provider_options["device_type"] = device.upper()
         return cls(
-            ep_config=EPConfig(provider="openvino", enable_ep_context=True),
+            ep_config=EPConfig(
+                provider="openvino", enable_ep_context=True, provider_options=provider_options
+            ),
         )
 
     @classmethod
-    def for_vitisai(cls) -> WinMLCompileConfig:
-        """Factory for Vitis AI (AMD/Xilinx NPU) compilation."""
+    def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
+        """Factory for Vitis AI (AMD NPU/GPU) compilation."""
+        provider_options: dict[str, str] = {}
+        if device:
+            provider_options["device_type"] = device.upper()
         return cls(
-            ep_config=EPConfig(provider="vitisai", enable_ep_context=False),
+            ep_config=EPConfig(
+                provider="vitisai", enable_ep_context=False, provider_options=provider_options
+            ),
         )
 
     @classmethod
