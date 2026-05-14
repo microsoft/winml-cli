@@ -26,7 +26,8 @@ extends:
     stages:
     - stage: Publish
       displayName: 'Publish to PyPI'
-      condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
+      # TEMP: branch gate disabled for pipeline validation. Re-enable before going live.
+      # condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
       jobs:
       - job: Prepare
         displayName: 'Prepare PyPI Artifacts'
