@@ -359,8 +359,8 @@ class PatternExtractor:
                 len(skeleton_results),
             )
             if skeleton_results:
-                matched_node_names = skeleton_results[0].matched_node_names
-                sample_nodes = matched_node_names[:3] if matched_node_names else []
+                matched_node_keys = skeleton_results[0].matched_node_keys
+                sample_nodes = matched_node_keys[:3] if matched_node_keys else []
                 logger.info(
                     "Sample skeleton match - Pattern: %s, Nodes: %s",
                     skeleton_results[0].pattern.__class__.__name__,

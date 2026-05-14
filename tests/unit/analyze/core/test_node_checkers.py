@@ -14,6 +14,7 @@ Tests verify:
 import pytest
 from onnx import helper
 
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import AlternativeType, RuntimeTestResult
 from winml.modelkit.analyze.core.node_checkers.ep_context_node_checker import (
     EPContextNodeChecker,  # Testing internal implementation
@@ -55,7 +56,7 @@ class TestEPContextNodeChecker:
         skeleton_result = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[node_proto],
-            matched_node_keys=[node_proto.name if node_proto.name else "node_0"],
+            matched_node_keys=_stable_test_node_keys([node_proto]),
             matcher=None,
         )
 

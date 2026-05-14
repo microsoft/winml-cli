@@ -1967,13 +1967,13 @@ class PatternRewriter:
         rewrite_counter = 0
 
         # Assert non-overlap across all matches
-        all_matched_node_names = [
-            node_name
+        all_matched_node_keys = [
+            node_key
             for match_results, _ in pattern_match_results
             for match_result in match_results
-            for node_name in match_result.skeleton_match_result.matched_node_names
+            for node_key in match_result.skeleton_match_result.matched_node_keys
         ]
-        assert len(all_matched_node_names) == len(set(all_matched_node_names)), (
+        assert len(all_matched_node_keys) == len(set(all_matched_node_keys)), (
             "Overlapping nodes found in pattern matches to rewrite. "
             "Each node can only be matched by one pattern."
         )
@@ -1988,7 +1988,7 @@ class PatternRewriter:
                     warnings.warn(
                         f"Skipping non-removable pattern match for "
                         f"{skeleton_match.pattern.__class__.__name__} with nodes "
-                        f"{skeleton_match.matched_node_names}. Intermediate tensors may be used "
+                        f"{skeleton_match.matched_node_keys}. Intermediate tensors may be used "
                         f"by nodes outside the pattern.",
                         stacklevel=2,
                     )
@@ -1996,7 +1996,7 @@ class PatternRewriter:
 
                 # Check for already deleted nodes
                 already_deleted = [
-                    n for n in skeleton_match.matched_node_names if n in deleted_node_names
+                    n for n in skeleton_match.matched_node_keys if n in deleted_node_names
                 ]
                 if already_deleted:
                     warnings.warn(
@@ -2071,7 +2071,7 @@ class PatternRewriter:
                 # Since original graph is topologically sorted,
                 # last matched node is after all input producers
                 missing_nodes = [
-                    n for n in skeleton_match.matched_node_names if n not in node_name_to_idx
+                    n for n in skeleton_match.matched_node_keys if n not in node_name_to_idx
                 ]
                 if missing_nodes:
                     warnings.warn(
@@ -2080,7 +2080,7 @@ class PatternRewriter:
                     )
                     continue
 
-                matched_indices = [node_name_to_idx[n] for n in skeleton_match.matched_node_names]
+                matched_indices = [node_name_to_idx[n] for n in skeleton_match.matched_node_keys]
                 max_matched_idx = max(matched_indices)
                 insert_idx = max_matched_idx - (len(matched_indices) - 1)
 
@@ -2090,7 +2090,7 @@ class PatternRewriter:
                     del graph_node_keys[idx]
 
                 # Mark nodes as deleted
-                deleted_node_names.update(skeleton_match.matched_node_names)
+                deleted_node_names.update(skeleton_match.matched_node_keys)
 
                 # Insert new nodes at the computed position
                 new_nodes = list(new_subgraph_model.graph.node)

@@ -417,8 +417,8 @@ class RuntimeChecker:
                 and hasattr(pr.pattern_match, "skeleton_match_result")
             ):
                 smr = pr.pattern_match.skeleton_match_result
-                if smr and smr.matched_node_names:
-                    for node_key in smr.matched_node_names:
+                if smr and smr.matched_node_keys:
+                    for node_key in smr.matched_node_keys:
                         node_to_pattern_runtime[node_key] = pr
 
         # Override matching op_results
@@ -462,7 +462,7 @@ class RuntimeChecker:
         """Extract stable node key from an op-level PatternRuntime."""
         pm = op_runtime.pattern_match
         if pm and hasattr(pm, "skeleton_match_result"):
-            node_keys = pm.skeleton_match_result.matched_node_names
+            node_keys = pm.skeleton_match_result.matched_node_keys
             if node_keys:
                 return node_keys[0]
         return ""

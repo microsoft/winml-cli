@@ -17,7 +17,7 @@ Tests verify:
 import pytest
 from pydantic import ValidationError
 
-from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.pattern import (
     OperatorPattern,
     PatternMatchResult,

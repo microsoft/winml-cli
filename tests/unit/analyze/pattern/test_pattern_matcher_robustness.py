@@ -109,7 +109,6 @@ class TestPatternMatcherUnnamedNodeKeys:
         results = matcher.match_skeleton()
         assert len(results) == 1
         assert results[0].matched_node_keys == ["node_0"]
-        assert results[0].matched_node_names == ["node_0"]
 
     def test_skeleton_result_requires_aligned_matched_node_keys(self):
         """SkeletonMatchResult must be created with aligned stable node keys."""

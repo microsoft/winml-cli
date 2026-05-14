@@ -56,6 +56,7 @@ class SkeletonMatchResult:
                   dangling tensor references. A skeleton is removable iff none of the
                   intermediate tensors (outputs of skeleton nodes, excluding the final
                   skeleton output) are consumed by nodes outside the skeleton.
+        matched_node_keys: List of stable node keys aligned with matched_nodes.
     """
 
     pattern: "Pattern"  # Pattern instance
@@ -73,15 +74,6 @@ class SkeletonMatchResult:
                 "matched_node_keys must be provided and aligned with matched_nodes "
                 f"(got {len(self.matched_node_keys)} keys for {len(self.matched_nodes)} nodes)"
             )
-
-    @property
-    def matched_node_names(self) -> list[str]:
-        """Get matched node names as strings.
-
-        Returns:
-            List of stable internal node keys used by matcher internals.
-        """
-        return self.matched_node_keys
 
 
 @dataclass
@@ -135,12 +127,17 @@ class PatternMatchResult:
 
     @property
     def matched_nodes(self) -> list[str]:
-        """Get matched node names as strings.
+        """Get matched stable node keys as strings.
 
         Returns:
-            List of node name strings (e.g., ["node1", "node2"]).
+            List of stable node keys (e.g., ["node1", "node_0"]).
         """
-        return self.skeleton_match_result.matched_node_names
+        return self.skeleton_match_result.matched_node_keys
+
+    @property
+    def matched_node_keys(self) -> list[str]:
+        """Get matched stable node keys as strings."""
+        return self.skeleton_match_result.matched_node_keys
 
     @property
     def matched_node_names(self):
@@ -156,11 +153,11 @@ class PatternMatchResult:
         try:
             from ..analyze import ONNXOp
 
-            node_names = self.skeleton_match_result.matched_node_names
+            node_keys = self.skeleton_match_result.matched_node_keys
 
             return [
                 ONNXOp(
-                    node_name=node_names[idx],
+                    node_name=node_keys[idx],
                     op_type=node.op_type,
                     namespace=node.domain if node.domain else "ai.onnx",
                 )
@@ -168,10 +165,10 @@ class PatternMatchResult:
             ]
         except ImportError:
             # When used outside analyze context, return node info as dicts
-            node_names = self.skeleton_match_result.matched_node_names
+            node_keys = self.skeleton_match_result.matched_node_keys
             return [
                 {
-                    "node_name": node_names[idx],
+                    "node_name": node_keys[idx],
                     "op_type": node.op_type,
                     "namespace": node.domain if node.domain else "ai.onnx",
                 }

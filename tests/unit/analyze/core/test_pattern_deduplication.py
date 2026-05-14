@@ -11,7 +11,7 @@ Priority: HTP metadata > hierarchy_tag > PatternMatcher
 import pytest
 from onnx import TensorProto, helper
 
-from tests.unit.test_helpers.stable_node_keys import stable_test_node_keys as _stable_test_node_keys
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import ONNXModel, PatternExtractor
 from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, SubgraphPattern
 
