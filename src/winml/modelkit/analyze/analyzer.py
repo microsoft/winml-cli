@@ -730,8 +730,6 @@ class ONNXStaticAnalyzer:
         information_list = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}
-        skipped_ep_count = 0
-
         for current_ep in eps_to_analyze:
             logger.info("Checking runtime support for %s...", current_ep)
             if on_ep_start:
@@ -799,7 +797,6 @@ class ONNXStaticAnalyzer:
             ep=ep_normalized,
             device=device_to_use,
             eps=len(eps_to_analyze),
-            skipped_eps=skipped_ep_count,
             patterns=len(pattern_matches),
             extraction_ms=extraction_ms,
             aggregate_ms=aggregate_ms,

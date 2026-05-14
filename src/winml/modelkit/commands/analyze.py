@@ -374,11 +374,12 @@ def _render_analysis_summary(
     for ep_support in results:
         ep_name = ep_support.ep_type
 
-        # For EPs with no rule data, skip op-level rows — only show patterns
+        # For EPs with no rule data, skip op-level rows — only show patterns.
+        # Always render at least a header so the EP is visible in the summary.
         if no_data_eps and ep_name in no_data_eps:
             patterns = (ep_patterns or {}).get(ep_name, {})
+            console.print(f"   🔵 [bold bright_black]{ep_name}[/bold bright_black]:")
             if patterns:
-                console.print(f"   🔵 [bold bright_black]{ep_name}[/bold bright_black]:")
                 console.print("      [dim]Op check skipped — no rule data[/dim]")
                 for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
                     status = p["status"]
@@ -387,7 +388,9 @@ def _render_analysis_summary(
                     console.print(
                         f"      {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
                     )
-                console.print()
+            else:
+                console.print("      [dim]Op check skipped — no rule data, no patterns[/dim]")
+            console.print()
             continue
 
         # Aggregate instance counts for this EP

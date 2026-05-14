@@ -802,9 +802,14 @@ def _run_optimize_stage(
             _current_iter[1] = max_iter
             _header_shown[0] = False
 
-        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
-            from ..analyze.utils.ep_utils import has_rule_data_for_ep
+        # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
+        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        from ..analyze.utils.ep_utils import has_rule_data_for_ep
+        from ..sysinfo import resolve_device as _resolve_device
 
+        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+
+        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
             _current_ep[0] = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
@@ -817,7 +822,7 @@ def _run_optimize_stage(
                     f"[dim](iter {_current_iter[0]}/{_current_iter[1]})[/dim]"
                 )
             # Skip bar for EPs with no rule data — all results would be 0/0/0
-            if has_rule_data_for_ep(ep_name, device or ""):
+            if has_rule_data_for_ep(ep_name, _resolved_device or ""):
                 _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
