@@ -205,9 +205,11 @@ def resolve_device(
     available_eps = _get_available_eps()
 
     if ep is not None:
-        ep_full = EP_SHORT_TO_FULL.get(ep.lower())
-        if ep_full is None:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SHORT_TO_FULL)}")
+        from ..utils.constants import normalize_ep_name
+
+        ep_full = normalize_ep_name(ep)
+        if ep_full not in _EP_DEVICE_MAP:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_DEVICE_MAP)}")
         available_eps = available_eps & {ep_full}
         ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
         available_devices = [d for d in available_devices if d in ep_compatible_devices]
