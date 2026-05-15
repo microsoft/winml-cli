@@ -83,12 +83,13 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 
 
 def _resolve_precision(device: str, explicit: str | None) -> str | None:
-    """Return the precision to pass to winml config/perf.
+    """Return the precision to pass to winml config/perf, or None to omit the flag.
 
-    Quantization (w8a16) is only applied by default on NPU.  CPU and GPU
-    work best without forced quantization — leaving it to winml config's
-    own auto-detection avoids device-specific issues such as the QNN GPU
-    NHWC + QDQ incompatibility.
+    w8a16 is only applied by default on NPU.  For CPU/GPU the flag is omitted
+    so winml config uses its own auto-detection.  Forcing w8a16 on GPU produces
+    a QDQ-quantized model that fails at ORT session creation with QNN GPU EP
+    (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
+    does not claim).
 
     An explicit per-model precision always takes precedence.
     """
