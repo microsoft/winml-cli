@@ -14,8 +14,8 @@ import logging
 import re
 from dataclasses import dataclass
 
-from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from ..sysinfo.device import resolve_eps
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
