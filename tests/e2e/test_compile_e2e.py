@@ -125,7 +125,7 @@ def assert_epcontext_artifact(
         assert isinstance(ep_cache_context, bytes) and ep_cache_context, (
             "default mode should reference a sidecar filename"
         )
-        sidecar_name = ep_cache_context.decode("utf-8") if isinstance(ep_cache_context, bytes) else ""
+        sidecar_name = ep_cache_context.decode("utf-8")
         assert (out_path.parent / sidecar_name).is_file(), (
             f"Sidecar {sidecar_name!r} declared in EPContext but missing on disk"
         )
