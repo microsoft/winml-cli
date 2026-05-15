@@ -88,6 +88,48 @@ class TestResolveCompileProvider:
         assert _resolve_compile_provider("npu", ep) == expected
 
 
+class TestCompileAutoDeviceEndToEnd:
+    """End-to-end test for ``--device auto`` through the compile CLI.
+
+    ``_resolve_compile_provider`` itself no longer accepts ``"auto"`` — the
+    CLI calls ``resolve_device("auto")`` upstream to produce a concrete
+    device. This test pins the full pipeline so the auto path keeps
+    resolving to QNN on an NPU-first host (replacing the removed
+    ``test_auto_defaults_to_qnn`` unit-level test).
+    """
+
+    def test_auto_resolves_to_qnn_when_npu_available(self, tmp_path):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.compile import compile
+
+        model_file = tmp_path / "model.onnx"
+        model_file.write_bytes(b"fake")
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = tmp_path / "model_compiled.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+
+        # ``resolve_device`` is patched at compile.py's binding site so
+        # ``auto`` deterministically becomes ``npu``; ``resolve_eps`` is
+        # already pinned by the module-level autouse fixture.
+        with (
+            patch(
+                "winml.modelkit.commands.compile.resolve_device",
+                return_value=("npu", ["npu", "gpu", "cpu"]),
+            ),
+            patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
+        ):
+            result = CliRunner().invoke(compile, ["-m", str(model_file), "--device", "auto"])
+
+        assert result.exit_code == 0, result.output
+        assert "Device: npu" in result.output
+        assert "Provider: QNNExecutionProvider" in result.output
+
+
 # =============================================================================
 # _resolve_quant_types tests
 # =============================================================================

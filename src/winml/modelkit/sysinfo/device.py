@@ -235,6 +235,20 @@ def resolve_device(
 
 
 def resolve_eps(resolved_device: str) -> list[EPName]:
-    """Return list of available EPs compatible with the given device."""
+    """Return list of available EPs compatible with the given device.
+
+    Args:
+        resolved_device: Concrete device name (``"npu"``, ``"gpu"``, or
+            ``"cpu"``). Case-insensitive; ``"NPU"`` is accepted. An unknown
+            value returns an empty list rather than raising.
+
+    Returns:
+        EPs from ``_DEVICE_EP_MAP[device]`` that are also currently
+        advertised by ORT/WinML, in ``_DEVICE_EP_MAP`` priority order.
+    """
     available_eps = _get_available_eps()
-    return [ep for ep in _DEVICE_EP_MAP.get(resolved_device, []) if ep in available_eps]
+    return [
+        ep
+        for ep in _DEVICE_EP_MAP.get(resolved_device.lower(), [])
+        if ep in available_eps
+    ]
