@@ -253,11 +253,10 @@ def compile(
         raise click.ClickException(f"Compilation failed: {e}") from e
 
 
-def _resolve_compile_provider(device: str, ep: EPNameOrAlias | None) -> EPName:
+def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) -> EPName:
     """Resolve the compile provider from device + ep flags.
 
-    Uses the canonical ``_DEVICE_TO_PROVIDER`` from ``config/precision.py``
-    as single source of truth. ``ep`` overrides the device mapping. Returns
+    ``ep`` overrides the device mapping. Returns
     the canonical EP name (e.g., ``"QNNExecutionProvider"``).
     """
     if ep:
@@ -266,7 +265,7 @@ def _resolve_compile_provider(device: str, ep: EPNameOrAlias | None) -> EPName:
             raise click.UsageError(f"Unknown EP: {ep}")
         return canonical
 
-    eps = resolve_eps(device)
+    eps = resolve_eps(resolved_device)
     if not eps:
         return "CPUExecutionProvider"
     return eps[0]

@@ -31,12 +31,6 @@ class TestResolveCompileProvider:
     def test_cpu_returns_cpu(self):
         assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
 
-    def test_auto_defaults_to_qnn(self):
-        # auto maps to QNN (NPU-first, like DEVICE_POLICY_MAP)
-        result = _resolve_compile_provider("auto", None)
-        # auto is not in _DEVICE_TO_PROVIDER, falls through to QNN default
-        assert result == "QNNExecutionProvider"
-
     def test_ep_overrides_device(self):
         """ep takes priority over device mapping."""
         assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
