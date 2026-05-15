@@ -314,12 +314,9 @@ class TestEvalPerTask:
             "--precision", "fp16",
             "-o", str(out),
         ])
-        # CER and CIDEr depend on optional libs (jiwer, pycocoevalcap), and
-        # the BLIP captioning model currently falls back to a generic
-        # Seq2Seq path in WinML (text2text-generation), which may produce
-        # zero valid samples on tiny N. The CLI contract here is "exit 0
-        # and produce the metric keys"; magnitude is exercised in the
-        # accuracy regression suite, not in this functional test.
+        # CLI contract: exit 0 and produce the metric keys. Tiny N may
+        # yield None values; magnitude is checked in the accuracy regression
+        # suite, not here.
         data = _assert_metrics_present(out, ["cer", "cider", "n_samples"])
         m = data["metrics"]
         for k, hi in (("cer", 10.0), ("cider", 20.0)):
