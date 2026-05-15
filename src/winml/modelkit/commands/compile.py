@@ -26,7 +26,7 @@ import click
 from rich.console import Console
 
 from ..onnx import is_compiled_onnx
-from ..sysinfo.device import resolve_device, resolve_eps
+from ..sysinfo import resolve_device, resolve_eps
 from ..utils import cli as cli_utils
 from ..utils.constants import normalize_ep_name
 

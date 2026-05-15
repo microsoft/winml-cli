@@ -219,7 +219,7 @@ class TestCompileCommand:
         result = runner.invoke(main, ["compile", "-m", str(model_path), "--ep", "dml"])
 
         assert result.exit_code != 0
-        assert "dml" in result.output  # provider name in the "Provider 'dml' does not support" line
+        assert "DmlExecutionProvider" in result.output  # provider name in the "Provider 'DmlExecutionProvider' does not support" line
         assert "(e.g. qnn, dml, openvino)" not in result.output
         assert "(e.g. qnn, openvino)" in result.output
 

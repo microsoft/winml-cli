@@ -14,7 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from ..sysinfo.device import resolve_eps
+from ..sysinfo import resolve_eps
 from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 
 
