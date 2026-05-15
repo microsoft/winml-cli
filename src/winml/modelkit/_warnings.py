@@ -90,6 +90,27 @@ def _configure() -> None:
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )
 
+    # =========================================================================
+    # py.warnings logger filters (for warnings routed via logging.captureWarnings)
+    # =========================================================================
+
+    class _HFSymlinksInfoFilter(logging.Filter):
+        """Downgrade the huggingface_hub symlinks UserWarning from WARNING to INFO.
+
+        On Windows without Developer Mode, huggingface_hub warns that symlinks
+        are unsupported and the cache will use copies instead. This is cosmetic —
+        the cache still works, just without deduplication. WARNING is misleading
+        here; INFO is the appropriate level.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if "symlinks" in record.getMessage() and "huggingface_hub" in record.pathname:
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+            return True
+
+    logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
+
 
 # Auto-configure on import
 _configure()
