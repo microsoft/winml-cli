@@ -25,11 +25,15 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 from ..utils.console import (
     get_console,
     print_command_header,
@@ -119,14 +123,9 @@ def _is_onnx_file(model_input: str) -> bool:
     default="auto",
     help="Target device (affects quant/compile config). Default: auto (no changes to config).",
 )
-@click.option(
-    "--ep",
-    "ep",
-    type=str,
-    default=None,
-    help="Force specific execution provider "
-    "(qnn, dml, migraphx, nv_tensorrt_rtx, vitisai, openvino, cpu). "
-    "Overrides device-to-provider mapping. "
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping. "
     "When used without --device, device is inferred from EP.",
 )
 @click.option(
@@ -180,7 +179,7 @@ def config(
     config_file: str | None,
     shape_config_file: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     precision: str,
     output: str | None,
     library_name: str,
@@ -554,7 +553,7 @@ def _generate_pipeline_configs(
     device: str,
     precision: str,
     trust_remote_code: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     no_quant: bool,
     no_compile: bool,
     output: str | None,

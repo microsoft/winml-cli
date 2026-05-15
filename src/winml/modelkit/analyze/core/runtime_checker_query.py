@@ -73,6 +73,7 @@ _LOG_COLOR_RESET = "\033[0m"
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ...utils.constants import EPName
     from .node_checkers.base import NodeChecker
 
 
@@ -970,7 +971,7 @@ class RuntimeCheckerQuery:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: str,
+        ep_name: EPName,
         device_type: str,
         model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,

@@ -36,7 +36,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def _filter_models(
 
 def _filter_by_ep(
     models: list[dict[str, Any]],
-    ep: str | None,
+    ep: EPNameOrAlias | None,
 ) -> list[dict[str, Any]]:
     """Filter models by --ep (execution provider).
 
@@ -393,7 +393,7 @@ def _save_json(data: Any, path: Path) -> None:
 def catalog(
     model_type: str | None,
     task: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
 ) -> None:

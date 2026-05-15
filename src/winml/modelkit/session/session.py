@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     import onnx
 
     from ..compiler.configs import EPConfig
+    from ..utils.constants import EPName, EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class WinMLSession:
         device: str = "auto",
         ep_config: EPConfig | None = None,
         *,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         session_options: ort.SessionOptions | None = None,
     ) -> None:
         """Initialize WinMLSession.
@@ -497,9 +498,9 @@ class WinMLSession:
         # OV-on-CPU (or any other registered CPU-capable EP) over the basic
         # CPU EP, silently ignoring the user's --ep choice.
         if self._ep:
-            from ..sysinfo import EP_SHORT_TO_FULL
+            from ..utils.constants import normalize_ep_name
 
-            target_name = EP_SHORT_TO_FULL.get(self._ep)
+            target_name = normalize_ep_name(self._ep)
             if target_name:
                 matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
@@ -545,7 +546,7 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(device: str, ep_name: str | None = None) -> Any:
+    def _find_ep_device(device: str, ep_name: EPName | None = None) -> Any:
         """Find the first OrtEpDevice matching the given filters.
 
         Behavior:

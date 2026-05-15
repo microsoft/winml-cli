@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import functools
 import logging
+from typing import TYPE_CHECKING
 
+from ..utils.constants import EPName, normalize_ep_name
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +41,7 @@ logger = logging.getLogger(__name__)
 #   - EP list: https://onnxruntime.ai/docs/execution-providers/
 
 # EP name -> target device type (all lowercase values)
-_EP_DEVICE_MAP: dict[str, str] = {
+_EP_DEVICE_MAP: dict[EPName, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
     "CUDAExecutionProvider": "gpu",
@@ -53,30 +59,16 @@ _EP_DEVICE_MAP: dict[str, str] = {
 }
 
 # Derived inverse mapping (multi-device EPs are included in each device)
-_DEVICE_EP_MAP: dict[str, list[str]] = {}
+_DEVICE_EP_MAP: dict[str, list[EPName]] = {}
 for _ep, _device in _EP_DEVICE_MAP.items():
     for _d in _device.split("/"):
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
-
-# Short EP name -> full ORT provider name. Public so that callers in other
-# modules (e.g. WinMLSession) can resolve --ep flags consistently.
-EP_SHORT_TO_FULL: dict[str, str] = {
-    "qnn": "QNNExecutionProvider",
-    "dml": "DmlExecutionProvider",
-    "migraphx": "MIGraphXExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
-    "trtrtx": "NvTensorRTRTXExecutionProvider",
-    "vitisai": "VitisAIExecutionProvider",
-    "openvino": "OpenVINOExecutionProvider",
-    "cuda": "CUDAExecutionProvider",
-    "cpu": "CPUExecutionProvider",
-}
 
 # Valid explicit device values
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 
-def get_ep_device_map() -> dict[str, str]:
+def get_ep_device_map() -> dict[EPName, str]:
     """Return a copy of the EP-to-device mapping.
 
     Public accessor for the internal ``_EP_DEVICE_MAP``. Use this instead
@@ -137,7 +129,7 @@ def _get_available_devices() -> tuple[str, ...]:
 
 
 @functools.lru_cache(maxsize=1)
-def _get_available_eps() -> frozenset[str]:
+def _get_available_eps() -> frozenset[EPName]:
     """Collect available EP names from WinML and ORT (cached).
 
     Hardware and EPs do not change during a process lifetime,
@@ -146,7 +138,7 @@ def _get_available_eps() -> frozenset[str]:
     Returns:
         Frozenset of available EP name strings.
     """
-    available_eps: set[str] = set()
+    available_eps: set[EPName] = set()
 
     try:
         from ..session.ep_registry import WinMLEPRegistry
@@ -173,7 +165,7 @@ def _get_available_eps() -> frozenset[str]:
 def resolve_device(
     device: str = "auto",
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
 ) -> tuple[str, list[str]]:
     """Resolve target device with EP availability cross-check.
 
@@ -201,9 +193,9 @@ def resolve_device(
     available_eps = _get_available_eps()
 
     if ep is not None:
-        ep_full = EP_SHORT_TO_FULL.get(ep.lower())
-        if ep_full is None:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SHORT_TO_FULL)}")
+        ep_full = normalize_ep_name(ep)
+        if ep_full not in _EP_DEVICE_MAP:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_DEVICE_MAP)}")
         available_eps = available_eps & {ep_full}
         ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
         available_devices = [d for d in available_devices if d in ep_compatible_devices]

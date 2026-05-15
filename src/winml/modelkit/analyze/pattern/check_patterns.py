@@ -15,10 +15,10 @@ Usage:
         python -m winml.modelkit.analyze.pattern.check_patterns --all_patterns
 """
 
-from pathlib import Path
-from typing import Any
+from __future__ import annotations
 
-import onnxruntime as ort
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from ... import winml
 from ...onnx import ONNXDomain
@@ -28,6 +28,12 @@ from ...pattern.base import (
     get_registered_pattern_input_generators,
 )
 from ...sysinfo import SysInfo
+
+
+if TYPE_CHECKING:
+    import onnxruntime as ort
+
+    from ...utils.constants import EPName
 from ...utils import constants
 from ..runtime_checker.ep_checker import EPChecker
 from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
@@ -225,7 +231,7 @@ class QNNNPUChecker(EPChecker):
         super().__init__(ep_name="QNNExecutionProvider", device_type=device_type)
 
 
-def get_ep_checker(ep_name: str, device: str) -> EPChecker:
+def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     """Get EPChecker for given execution provider name.
 
     Args:
@@ -302,10 +308,7 @@ def build_parser():
         "--opset_mapping",
         type=str,
         nargs="+",
-        help=(
-            "Domain:version pairs for ONNX opset versions, "
-            "e.g., ai.onnx:17 com.microsoft:1"
-        ),
+        help=("Domain:version pairs for ONNX opset versions, e.g., ai.onnx:17 com.microsoft:1"),
     )
     opset_group.add_argument(
         "--opset_version",
@@ -320,8 +323,7 @@ def build_parser():
         type=str,
         default=ONNXDomain.AI_ONNX.value,
         help=(
-            "ONNX opset domain to use with --opset_version "
-            f"(default: {ONNXDomain.AI_ONNX.value})"
+            f"ONNX opset domain to use with --opset_version (default: {ONNXDomain.AI_ONNX.value})"
         ),
     )
     parser.add_argument(
@@ -411,8 +413,7 @@ def _parse_opset_mapping(args: Any) -> dict[str, int]:
         for pair in args.opset_mapping:
             if ":" not in pair:
                 raise ValueError(
-                    "Invalid --opset_mapping value "
-                    f"'{pair}'. Expected format: domain:version"
+                    f"Invalid --opset_mapping value '{pair}'. Expected format: domain:version"
                 )
             domain, version_text = pair.split(":", 1)
             if not domain:
@@ -421,8 +422,7 @@ def _parse_opset_mapping(args: Any) -> dict[str, int]:
                 opset_mapping[domain] = int(version_text)
             except ValueError as exc:
                 raise ValueError(
-                    "Invalid --opset_mapping value "
-                    f"'{pair}'. Version must be an integer"
+                    f"Invalid --opset_mapping value '{pair}'. Version must be an integer"
                 ) from exc
         return opset_mapping
 
