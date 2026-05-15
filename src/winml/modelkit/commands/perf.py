@@ -300,7 +300,7 @@ class PerfBenchmark:
             self._model.io_config,
             task=self._model.task or self.config.task,
             device=self._model.device,
-            ep_name=self._model._session.ep_name,
+            ep_name=self._model.ep_name,
         )
 
         # [3] Run benchmark
@@ -491,7 +491,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._model.device,
             actual_task=self._model.task or self.config.task or "auto-detected",
-            actual_ep=self._model._session.ep_name,
+            actual_ep=self._model.ep_name,
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )

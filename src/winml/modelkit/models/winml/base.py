@@ -213,6 +213,11 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         return self._session.device
 
     @property
+    def ep_name(self) -> str | None:
+        """Primary EP bound by ORT (delegates to session, None before compile)."""
+        return self._session.ep_name
+
+    @property
     def task(self) -> str | None:
         """Resolved task from build config, or None if unavailable."""
         build_config = getattr(self, "_build_config", None)

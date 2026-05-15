@@ -462,13 +462,15 @@ class WinMLSession:
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
 
-        When ``self._ep`` is set (and not ``"cpu"``), uses
-        ``add_provider_for_devices`` to explicitly bind that EP.
-        ``"cpu"`` falls through to policy-based selection so ORT handles
-        CPU-only inference without any EP registration.
-        When ``self._ep`` is not set, queries ``get_ep_devices()`` to
-        discover an available EP for the target device type. Falls back to
-        policy-based selection only as a last resort.
+        When ``self._ep`` is set, uses ``add_provider_for_devices`` to
+        explicitly bind that EP — including ``"cpu"``, so the
+        CPUExecutionProvider isn't silently displaced by another CPU-capable
+        EP (e.g. OpenVINO) under PREFER_CPU policy.
+        When ``self._ep`` is not set, the path forks on device: ``"cpu"``
+        falls through to PREFER_CPU policy (skipping EP discovery so non-CPU
+        EPs aren't probed), while other devices query ``get_ep_devices()``
+        to discover an available EP. Policy-based selection is the
+        last-resort fallback.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
@@ -477,8 +479,9 @@ class WinMLSession:
         # non-CPU EPs (e.g. OpenVINO) are not probed via get_ep_devices(),
         # which would trigger their native shared-library load and emit
         # version-mismatch warnings even when the model runs on CPU.
-        # Exception: when an explicit EP is set (e.g. --ep openvino --device cpu),
-        # fall through so the EP binding logic below can honour it.
+        # Exception: when an explicit EP is set (e.g. --ep openvino --device cpu,
+        # or --ep cpu --device cpu), fall through so the EP binding logic
+        # below can honour it.
         if device.lower() == "cpu" and not self._ep:
             opts = self._session_options
             opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
