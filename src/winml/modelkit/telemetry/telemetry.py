@@ -19,12 +19,16 @@ import platform
 import sys
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import consent as consent_mod
 from . import constants
 from .deviceid import get_or_create_device_id
 from .utils import _extract_exception_stack, _format_exception_message
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -180,7 +184,7 @@ class Telemetry:
         self,
         action_name: str,
         device: str | None,
-        ep: str | None,
+        ep: EPNameOrAlias | None,
         duration_ms: int,
         success: bool,
         **_unused: Any,

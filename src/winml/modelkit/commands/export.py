@@ -68,13 +68,7 @@ def _delete_onnx_with_external_data(onnx_path: Path) -> None:
     type=str,
     help="HuggingFace model name or local path (e.g., prajjwal1/bert-tiny)",
 )
-@click.option(
-    "--output",
-    "-o",
-    required=True,
-    type=click.Path(path_type=Path),
-    help="Output ONNX file path (e.g., model.onnx)",
-)
+@cli_utils.output_option("Output ONNX file path (e.g., model.onnx)", required=True)
 @click.option(
     "--verbose",
     "-v",

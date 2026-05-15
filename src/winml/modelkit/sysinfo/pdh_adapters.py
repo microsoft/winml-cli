@@ -29,7 +29,11 @@ import ctypes.wintypes as wintypes
 import logging
 import sys
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +241,7 @@ def _format_pdh_luid(decimal_luid: str) -> str:
 
 def resolve_adapter_luid(
     device_kind: str,
-    ep_name: str | None = None,
+    ep_name: EPName | None = None,
 ) -> str | None:
     """Resolve the adapter LUID that ORT will bind an EP to.
 
@@ -272,7 +276,7 @@ def resolve_adapter_luid(
     return discover_gpu_luid()
 
 
-def _resolve_via_ort(kind: str, ep_name: str | None) -> str | None:
+def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
     r"""Look up the adapter LUID through ORT's autoEP registry.
 
     Returns None silently on any failure so callers can fall back. ORT-resolved

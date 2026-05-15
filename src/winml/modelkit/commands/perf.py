@@ -27,6 +27,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..utils import cli as cli_utils
+from ..utils.constants import EPName, EPNameOrAlias
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -78,7 +79,7 @@ class BenchmarkConfig:
     rebuild: bool = False
     ignore_cache: bool = False
     monitor: bool = False
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     shape_config: dict | None = None
 
 
@@ -120,6 +121,7 @@ class BenchmarkResult:
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
+    actual_ep: EPName | None = None
 
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
@@ -131,6 +133,7 @@ class BenchmarkResult:
                 "model_id": self.config.model_id,
                 "task": self.actual_task,
                 "device": self.actual_device,
+                "ep": self.actual_ep,
                 "precision": self.config.precision,
                 "iterations": self.config.iterations,
                 "warmup": self.config.warmup,
@@ -298,6 +301,7 @@ class PerfBenchmark:
             self._model.io_config,
             task=self._model.task or self.config.task,
             device=self._model.device,
+            ep_name=self._model.ep_name,
         )
 
         # [3] Run benchmark
@@ -488,6 +492,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._model.device,
             actual_task=self._model.task or self.config.task or "auto-detected",
+            actual_ep=self._model.ep_name,
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
         )
@@ -512,7 +517,7 @@ def _perf_modules(
     console: Console,
     monitor: bool = False,
     device: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     precision: str = "auto",
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
@@ -760,6 +765,8 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
     req_device = result.config.device
     act_device = result.actual_device
     device_str = f"{req_device} ({act_device})" if req_device != act_device else act_device
+    if result.actual_ep:
+        device_str = f"{device_str} / {result.actual_ep}"
     console.print(f"[dim]Device:[/dim]      {device_str}")
 
     # TODO: show resolved precision once WinMLPreTrainedModel.precision
@@ -879,11 +886,13 @@ def _print_model_info(
     *,
     task: str | None = None,
     device: str = "auto",
+    ep_name: EPName | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)
     console.print()
-    console.print(f"[dim]Device:[/dim]      {device}")
+    device_line = f"{device} / {ep_name}" if ep_name else device
+    console.print(f"[dim]Device:[/dim]      {device_line}")
     # TODO: show resolved precision once WinMLPreTrainedModel.precision
     # is implemented (derive from _build_config.quant.weight_type)
     if task:
@@ -1000,7 +1009,7 @@ def _run_onnx_benchmark(
     session.compile()
 
     # Print model info before benchmark starts
-    _print_model_info(io_cfg, device=session.device)
+    _print_model_info(io_cfg, device=session.device, ep_name=session.ep_name)
 
     # Run benchmark
     total_iterations = warmup + iterations
@@ -1068,6 +1077,7 @@ def _run_onnx_benchmark(
         batches_per_sec=batches_per_sec,
         actual_device=session.device,
         actual_task="n/a (direct ONNX)",
+        actual_ep=session.ep_name,
         hw_monitor=hw_metrics,
     )
 
@@ -1111,15 +1121,9 @@ def _run_onnx_benchmark(
     required=False,
     optional_message="Overrides device-to-provider mapping.",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help=(
-        "Output JSON file path. Defaults to "
-        "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
-    ),
+@cli_utils.output_option(
+    "Output JSON file path. Defaults to "
+    "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
 @click.option(
     "--batch-size",
@@ -1193,7 +1197,7 @@ def perf(
     warmup: int,
     device: str,
     precision: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
@@ -1286,7 +1290,7 @@ def perf(
             console=console,
             monitor=monitor,
             device=device.lower(),
-            ep=ep.lower() if ep else None,
+            ep=ep,
             precision=precision.lower(),
         )
         return
@@ -1329,7 +1333,7 @@ def perf(
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         monitor=monitor,
-        ep=ep.lower() if ep else None,
+        ep=ep,
         shape_config=shape_config,
     )
 

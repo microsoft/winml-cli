@@ -76,6 +76,35 @@ class TestWinMLSessionInstantiation:
                 device="auto",
             )
 
+    def test_ep_name_is_none_before_compile(self, simple_matmul_onnx: Path):
+        """ep_name returns None before compile() since no providers are bound yet."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        assert session.ep_name is None
+
+    def test_ep_name_after_compile(self, simple_matmul_onnx: Path):
+        """ep_name returns the primary provider name once the session is built."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        session.compile()
+        assert isinstance(session.ep_name, str)
+        assert session.ep_name.endswith("ExecutionProvider")
+
+    def test_explicit_ep_cpu_binds_cpu_execution_provider(self, simple_matmul_onnx: Path):
+        """`--ep cpu` must bind CPUExecutionProvider explicitly.
+
+        Regression: previously the explicit-EP branch carried a
+        `self._ep != "cpu"` exception, so `ep="cpu"` fell through to
+        PREFER_CPU policy. On systems with OpenVINO (or any other
+        CPU-capable EP) registered, ORT then chose OV-on-CPU as the primary
+        and silently ignored the user's `--ep cpu` choice. The fix routes
+        `ep="cpu"` through `add_provider_for_devices` like any other EP, so
+        the resulting session has CPUExecutionProvider as the primary
+        provider regardless of what else is registered.
+        """
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
+        session.compile()
+        assert session.ep_name == "CPUExecutionProvider"
+        assert session._session.get_providers()[0] == "CPUExecutionProvider"
+
 
 class TestWinMLSessionCompilation:
     """Test WinMLSession compilation (EPContext creation)."""

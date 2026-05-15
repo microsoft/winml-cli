@@ -2,9 +2,11 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -23,6 +25,10 @@ from ..utils.model_utils import (
     make_hashable,
 )
 from ..utils.rule_loader import get_runtime_rules_search_dirs
+
+
+if TYPE_CHECKING:
+    from ...utils.constants import EPName
 
 
 # Snapshot metadata keys used in generated rule artifacts.
@@ -291,7 +297,7 @@ def check_df_consistent(
     ignored_cols: list[str],
     op_version: int,
     device: str,
-    ep_name: str,
+    ep_name: EPName,
     op_domain: str,
     is_qdq: bool = False,
 ) -> bool:
@@ -442,7 +448,7 @@ def build_op_query_negative_rules_and_table(
     use_qdq: bool,
     op_version: int,
     device: str,
-    ep_name: str,
+    ep_name: EPName,
     op_domain: str,
     # schema: OpSchema,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
@@ -763,10 +769,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-dir",
         type=str,
-        help=(
-            "Output directory for per-op JSON rule files "
-            "(defaults to input_dir)."
-        ),
+        help=("Output directory for per-op JSON rule files (defaults to input_dir)."),
     )
     parser.add_argument(
         "--rules-dir",

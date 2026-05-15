@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 from onnx import TensorProto, helper
 
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import ONNXModel, RuntimeTestResult
 from winml.modelkit.analyze.core.model_validators import (
     ConstantFoldingValidator,
@@ -59,6 +60,7 @@ def create_runtime_result_with_tags(
     skeleton_result = SkeletonMatchResult(
         pattern=pattern,
         matched_nodes=[node_proto],
+        matched_node_keys=_stable_test_node_keys([node_proto]),
         matcher=None,
     )
 

@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     import torch.nn as nn
 
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def build_hf_model(
     trust_remote_code: bool = False,
     random_init: bool = False,
     cache_key: str | None = None,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:

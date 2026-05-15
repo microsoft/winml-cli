@@ -34,7 +34,7 @@ jobs:
           - group: remaining
             paths: >-
               tests/unit/core tests/unit/onnx tests/unit/cache
-              tests/unit/utils tests/unit/sysinfo tests/unit/inspect
+              tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect
               tests/unit/optracing tests/regression tests/cli
 
     name: test (${{ matrix.group }})
