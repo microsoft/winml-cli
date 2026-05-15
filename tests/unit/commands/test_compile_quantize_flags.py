@@ -32,17 +32,15 @@ class TestResolveCompileProvider:
         assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
 
     def test_auto_defaults_to_qnn(self):
-        # auto maps to QNN (NPU-first, like DEVICE_POLICY_MAP)
-        result = _resolve_compile_provider("auto", None)
-        # auto is not in _DEVICE_TO_PROVIDER, falls through to QNN default
-        assert result == "QNNExecutionProvider"
+        # auto maps to QNN (NPU-first), like the device priority order.
+        assert _resolve_compile_provider("auto", None) == "QNNExecutionProvider"
 
-    def test_ep_overrides_device(self):
-        """ep takes priority over device mapping."""
-        assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
-        assert _resolve_compile_provider("gpu", "vitisai") == "VitisAIExecutionProvider"
+    def test_ep_alias_resolves_to_canonical_when_compatible(self):
+        """When (device, ep) is a compatible pair, the canonical EP is returned."""
+        assert _resolve_compile_provider("gpu", "migraphx") == "MIGraphXExecutionProvider"
+        assert _resolve_compile_provider("npu", "vitisai") == "VitisAIExecutionProvider"
         assert (
-            _resolve_compile_provider("cpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
+            _resolve_compile_provider("gpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
         )
 
     def test_ep_is_case_insensitive(self):
@@ -52,24 +50,60 @@ class TestResolveCompileProvider:
         )
 
     @pytest.mark.parametrize(
-        ("ep", "expected"),
+        # Each row pairs an EP alias with a device the EP actually supports
+        # (per ``EP_SUPPORTED_DEVICES``); using an incompatible device would
+        # now correctly raise ``UsageError`` and is covered in
+        # ``test_ep_device_pair.py``.
+        ("device", "ep", "expected"),
         [
-            ("qnn", "QNNExecutionProvider"),
-            ("dml", "DmlExecutionProvider"),
-            ("migraphx", "MIGraphXExecutionProvider"),
-            ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
-            ("vitisai", "VitisAIExecutionProvider"),
-            ("openvino", "OpenVINOExecutionProvider"),
-            ("cpu", "CPUExecutionProvider"),
+            ("npu", "qnn", "QNNExecutionProvider"),
+            ("gpu", "dml", "DmlExecutionProvider"),
+            ("gpu", "migraphx", "MIGraphXExecutionProvider"),
+            ("gpu", "nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
+            ("npu", "vitisai", "VitisAIExecutionProvider"),
+            ("gpu", "openvino", "OpenVINOExecutionProvider"),
+            ("cpu", "cpu", "CPUExecutionProvider"),
         ],
     )
-    def test_all_valid_eps(self, ep, expected):
+    def test_all_valid_eps(self, device, ep, expected):
         """All alias inputs resolve to their canonical EP name."""
-        assert _resolve_compile_provider("npu", ep) == expected
+        assert _resolve_compile_provider(device, ep) == expected
 
     def test_device_case_insensitive(self):
         assert _resolve_compile_provider("NPU", None) == "QNNExecutionProvider"
         assert _resolve_compile_provider("GPU", None) == "DmlExecutionProvider"
+
+    @pytest.mark.parametrize(
+        ("device", "ep"),
+        [
+            ("cpu", "qnn"),
+            ("cpu", "dml"),
+            ("cpu", "vitisai"),
+            ("cpu", "migraphx"),
+            ("cpu", "nv_tensorrt_rtx"),
+            ("npu", "cpu"),
+            ("npu", "dml"),
+            ("npu", "migraphx"),
+            ("npu", "nv_tensorrt_rtx"),
+            ("gpu", "cpu"),
+            ("gpu", "vitisai"),
+        ],
+    )
+    def test_incompatible_pair_rejected(self, device, ep):
+        """Incompatible (device, ep) pairs raise ``click.UsageError`` instead
+        of silently overriding the user's intent (regression for #521)."""
+        import click
+
+        with pytest.raises(click.UsageError):
+            _resolve_compile_provider(device, ep)
+
+    def test_unknown_device_rejected(self):
+        """A device outside {auto, cpu, gpu, npu} must be rejected with a
+        ``UsageError`` rather than silently falling through to QNN."""
+        import click
+
+        with pytest.raises(click.UsageError):
+            _resolve_compile_provider("tpu", None)
 
 
 # =============================================================================
@@ -140,9 +174,9 @@ class TestCompileDeviceDisplayLabel:
     def test_device_flag_shown_in_output(self, tmp_path):
         """--device gpu must appear in the Device line regardless of the EP.
 
-        The old code used _EP_TO_DEVICE.get(provider, device) to infer the
-        device from the EP name. The new code always prints the user-supplied
-        --device flag directly, so the label is unambiguous.
+        The old code used an EP-to-device lookup to infer the device from
+        the EP name. The new code always prints the user-supplied --device
+        flag directly, so the label is unambiguous.
         """
         from click.testing import CliRunner
 

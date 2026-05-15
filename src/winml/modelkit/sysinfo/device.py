@@ -10,7 +10,7 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
-from ..utils.constants import EPName, normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, normalize_ep_name
 
 
 if TYPE_CHECKING:
@@ -40,28 +40,18 @@ logger = logging.getLogger(__name__)
 #   - Feature request (closed, not planned): https://github.com/microsoft/onnxruntime/issues/20725
 #   - EP list: https://onnxruntime.ai/docs/execution-providers/
 
-# EP name -> target device type (all lowercase values)
+# Back-compat shim: EP name -> ``/``-joined device string. This format is
+# the legacy public contract returned by :func:`get_ep_device_map`; new code
+# should consume :data:`~winml.modelkit.utils.constants.EP_SUPPORTED_DEVICES`
+# (tuple form) directly.
 _EP_DEVICE_MAP: dict[EPName, str] = {
-    # NVIDIA
-    "NvTensorRTRTXExecutionProvider": "gpu",
-    "CUDAExecutionProvider": "gpu",
-    # AMD
-    "MIGraphXExecutionProvider": "gpu",
-    "VitisAIExecutionProvider": "npu",
-    # Qualcomm (QNN supports both NPU and GPU via Adreno backend)
-    "QNNExecutionProvider": "npu/gpu",
-    # Microsoft
-    "DmlExecutionProvider": "gpu",
-    # Intel
-    "OpenVINOExecutionProvider": "npu/gpu/cpu",
-    # Always available
-    "CPUExecutionProvider": "cpu",
+    ep: "/".join(devices) for ep, devices in EP_SUPPORTED_DEVICES.items()
 }
 
-# Derived inverse mapping (multi-device EPs are included in each device)
+# Derived inverse mapping (multi-device EPs are listed under each device)
 _DEVICE_EP_MAP: dict[str, list[EPName]] = {}
-for _ep, _device in _EP_DEVICE_MAP.items():
-    for _d in _device.split("/"):
+for _ep, _devices in EP_SUPPORTED_DEVICES.items():
+    for _d in _devices:
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
 # Valid explicit device values
@@ -69,14 +59,15 @@ _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 
 def get_ep_device_map() -> dict[EPName, str]:
-    """Return a copy of the EP-to-device mapping.
+    """Return a copy of the EP-to-device mapping in legacy string form.
 
-    Public accessor for the internal ``_EP_DEVICE_MAP``. Use this instead
-    of importing the private dict directly.
+    Each value is a ``/``-joined string of supported device names (e.g.
+    ``"npu/gpu"``). New code should prefer
+    :data:`~winml.modelkit.utils.constants.EP_SUPPORTED_DEVICES` directly.
 
     Returns:
         Dict mapping EP names to device types (e.g.
-        ``{"QNNExecutionProvider": "npu", ...}``).
+        ``{"QNNExecutionProvider": "npu/gpu", ...}``).
     """
     return dict(_EP_DEVICE_MAP)
 
@@ -194,10 +185,10 @@ def resolve_device(
 
     if ep is not None:
         ep_full = normalize_ep_name(ep)
-        if ep_full not in _EP_DEVICE_MAP:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_DEVICE_MAP)}")
+        if ep_full not in EP_SUPPORTED_DEVICES:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
         available_eps = available_eps & {ep_full}
-        ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
+        ep_compatible_devices = set(EP_SUPPORTED_DEVICES[ep_full])
         available_devices = [d for d in available_devices if d in ep_compatible_devices]
 
     if not available_eps:

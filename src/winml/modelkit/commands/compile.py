@@ -28,7 +28,7 @@ from rich.console import Console
 from ..config.precision import _DEVICE_TO_PROVIDER
 from ..onnx import is_compiled_onnx
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
 if TYPE_CHECKING:
@@ -162,6 +162,16 @@ def compile(
 
     configure_logging(verbose=verbose)
 
+    # When --device is omitted, derive it from --ep using EP_SUPPORTED_DEVICES.
+    # Without this, compile's hard-coded "npu" default silently overrode the
+    # user's intent for non-NPU EPs (e.g. `--ep dml` → npu, which fails).
+    if ep and not cli_utils.is_cli_provided(ctx, "device"):
+        canonical = normalize_ep_name(ep)
+        if canonical:
+            inferred = EP_SUPPORTED_DEVICES.get(canonical)
+            if inferred:
+                device = inferred[0]
+
     # Handle --list
     if list_compilers_flag:
         from ..compiler import list_compilers
@@ -256,18 +266,28 @@ def compile(
 def _resolve_compile_provider(device: str, ep: EPNameOrAlias | None) -> EPName:
     """Resolve the compile provider from device + ep flags.
 
-    Uses the canonical ``_DEVICE_TO_PROVIDER`` from ``config/precision.py``
-    as single source of truth. ``ep`` overrides the device mapping. Returns
-    the canonical EP name (e.g., ``"QNNExecutionProvider"``).
+    When ``--ep`` is provided, validate that the EP supports the requested
+    device against ``EP_SUPPORTED_DEVICES`` and reject incompatible pairs
+    (e.g. ``--device cpu --ep qnn``) with a ``UsageError``. When ``--ep``
+    is omitted, derive the provider from ``_DEVICE_TO_PROVIDER`` and reject
+    devices outside ``{cpu, gpu, npu}`` with a ``UsageError``.
     """
     if ep:
         canonical = normalize_ep_name(ep)
         if canonical is None:
             raise click.UsageError(f"Unknown EP: {ep}")
+        supported = EP_SUPPORTED_DEVICES.get(canonical)
+        if supported is not None and device.lower() not in supported:
+            raise click.UsageError(
+                f"--ep {ep} cannot run on --device {device}. "
+                f"{canonical} supports: {', '.join(supported)}."
+            )
         return canonical
 
     provider = _DEVICE_TO_PROVIDER.get(device.lower())
     if provider is None:
-        # cpu maps to None in _DEVICE_TO_PROVIDER; use CPUExecutionProvider for compile
-        return "CPUExecutionProvider" if device.lower() == "cpu" else "QNNExecutionProvider"
+        raise click.UsageError(
+            f"--device {device} is not supported. "
+            f"Expected one of: {', '.join(sorted(_DEVICE_TO_PROVIDER))}."
+        )
     return provider

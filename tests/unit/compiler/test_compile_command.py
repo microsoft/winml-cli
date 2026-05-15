@@ -219,7 +219,8 @@ class TestCompileCommand:
         result = runner.invoke(main, ["compile", "-m", str(model_path), "--ep", "dml"])
 
         assert result.exit_code != 0
-        assert "dml" in result.output  # provider name in the "Provider 'dml' does not support" line
+        # Canonical provider name appears in the "Provider '<name>' does not support" line.
+        assert "DmlExecutionProvider" in result.output
         assert "(e.g. qnn, dml, openvino)" not in result.output
         assert "(e.g. qnn, openvino)" in result.output
 
@@ -250,10 +251,10 @@ class TestCompileCommand:
     ) -> None:
         """Test the Device line in output shows the --device flag, not the EP-inferred device.
 
-        Before the fix the output used _EP_TO_DEVICE.get(provider, device).
-        For --device gpu --ep qnn that lookup returns 'npu' (qnn's canonical
-        device), so the displayed device contradicted what the user passed.
-        The fix drops the lookup and always prints the user-supplied device.
+        Before the fix the output used an EP-to-device lookup that returned
+        'npu' for --device gpu --ep qnn (qnn's canonical device), so the
+        displayed device contradicted what the user passed. The fix drops
+        the lookup and always prints the user-supplied device.
         """
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
@@ -272,7 +273,7 @@ class TestCompileCommand:
 
         assert result.exit_code == 0, result.output
         assert "Device:" in result.output
-        # Must show "gpu" (the flag value), not "npu" (what _EP_TO_DEVICE["qnn"] returns)
+        # Must show "gpu" (the flag value), not "npu" (qnn's canonical device).
         device_line = next(line for line in result.output.splitlines() if "Device:" in line)
         assert "gpu" in device_line
         assert "npu" not in device_line
