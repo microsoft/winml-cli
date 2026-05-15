@@ -30,7 +30,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,6 +55,9 @@ from .schema import (
 )
 from .schema_generator import APISchemaGenerator
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +97,6 @@ logging.getLogger("winml.modelkit").addHandler(_log_handler)
 logging.getLogger("winml.modelkit").setLevel(logging.INFO)
 
 # ---------------------------------------------------------------------------
-# Valid EP shorthands accepted by POST /v1/ep
-# ---------------------------------------------------------------------------
-_VALID_EPS = {"cpu", "dml", "qnn", "openvino", "auto"}
-
-# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
@@ -108,7 +106,7 @@ def create_app(
     model_path: str | None,
     task: str | None = None,
     device: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     idle_timeout_sec: float = 0.0,
     mode: str = "single",
     memory_budget_mb: float = 4096.0,
@@ -437,12 +435,9 @@ def _register_routes(app: FastAPI, *, mode: str) -> None:
     # ------------------------------------------------------------------
     @app.post("/v1/ep", tags=["management"], summary="Switch execution provider")
     async def switch_ep(request: EpSwitchRequest) -> dict[str, Any]:
-        ep = request.ep.lower()
-        if ep not in _VALID_EPS:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Unknown EP '{ep}'. Valid: {sorted(_VALID_EPS)}",
-            )
+        # Pydantic already validates ep against the EPAlias Literal (rejects
+        # unknown values with a 422 at parse time), so no extra check needed.
+        ep = request.ep
         mgr = _get_mgr()
         if not isinstance(mgr, SingleModelManager):
             raise HTTPException(
@@ -833,7 +828,7 @@ def print_startup_banner(
     model_path: str,
     task: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
 ) -> None:
     """Print Phase 1+ startup banner to stdout."""
     from rich.console import Console

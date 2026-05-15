@@ -29,6 +29,8 @@ from ..inference import InferenceEngine
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from ..utils.constants import EPNameOrAlias
+
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +145,7 @@ class SingleModelManager:
             }
         ]
 
-    async def switch_ep(self, ep: str) -> None:
+    async def switch_ep(self, ep: EPNameOrAlias) -> None:
         """Switch the engine's execution provider (Phase 1)."""
         async with self._lock:
             self._engine.switch_ep(ep)
@@ -346,7 +348,7 @@ class ModelSlotManager:
         *,
         task: str | None = None,
         device: str | None = None,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         alias: str | None = None,
         description: str | None = None,
     ) -> None:

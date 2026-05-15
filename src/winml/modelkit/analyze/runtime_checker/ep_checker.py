@@ -2,16 +2,23 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+from __future__ import annotations
+
 import tempfile
-from collections.abc import Sequence
-from os import PathLike
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import onnx
 import onnxruntime as ort
 
 from ... import winml
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from os import PathLike
+
+    from ...utils.constants import EPName
 
 
 # TODO: allow test case iter to take dtypes as inputs
@@ -28,20 +35,20 @@ class EPChecker:
     # EPs that require a file path (not in-memory bytes) for compilation.
     # VitisAI EP fails with "ep.context_file_path and model_path are both empty"
     # when given in-memory model bytes.
-    EPS_REQUIRING_FILE_PATH: ClassVar[set[str]] = {"VitisAIExecutionProvider"}
+    EPS_REQUIRING_FILE_PATH: ClassVar[set[EPName]] = {"VitisAIExecutionProvider"}
 
     # EP/device combinations that are known to leak resources/state across many
     # sequential checks inside a single worker process. Running each case in an
     # isolated process avoids "first case passes, later cases fail" behavior.
     EPS_REQUIRING_CASE_ISOLATION_BY_DEVICE: ClassVar[
-        dict[str, set[ort.OrtHardwareDeviceType]]
+        dict[EPName, set[ort.OrtHardwareDeviceType]]
     ] = {
         "OpenVINOExecutionProvider": {ort.OrtHardwareDeviceType.NPU},
     }
 
     def __init__(
         self,
-        ep_name: str,
+        ep_name: EPName,
         device_type: ort.OrtHardwareDeviceType,
         provider_options: Sequence[dict[Any, Any]] | None = None,
     ) -> None:

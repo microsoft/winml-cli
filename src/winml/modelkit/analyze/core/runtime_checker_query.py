@@ -56,6 +56,7 @@ from ..utils.model_utils import (
     node_to_pattern_match,
     shape_and_dtype_from_valueinfo,
 )
+from ..utils.node_key_utils import build_node_key_by_node_id, resolve_stable_node_key
 from ..utils.rule_loader import resolve_rule_parquet_path
 from ..utils.timing_utils import make_timing_logger
 from .node_checkers.base import NodeChecker
@@ -73,6 +74,7 @@ _LOG_COLOR_RESET = "\033[0m"
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ...utils.constants import EPName
     from .node_checkers.base import NodeChecker
 
 
@@ -970,10 +972,11 @@ class RuntimeCheckerQuery:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: str,
+        ep_name: EPName,
         device_type: str,
         model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
+        node_key_by_node_id: dict[int, str] | None = None,
     ) -> None:
         """Initialize runtime checker query.
 
@@ -986,6 +989,7 @@ class RuntimeCheckerQuery:
             dynamic_axis_strict_mode: If False (default), maps any dynamic axes to (0,)
                 for matching against first_axis test data. If True, preserves exact
                 dynamic axis indices.
+            node_key_by_node_id: Optional sidecar map from id(node) to stable node key.
         """
         self.model_path = str(Path(model_path).resolve(strict=False)) if model_path else None
         self.model_base_dir = str(Path(self.model_path).parent) if self.model_path else None
@@ -1020,6 +1024,13 @@ class RuntimeCheckerQuery:
             logger.debug(f"Shape inference failed: {e}. Using original model.")
 
         self.model_proto: onnx.ModelProto = inferred_model
+        # Keep stable Python wrapper references for graph nodes so id(node)
+        # mappings do not accidentally collide with new transient wrappers.
+        self._graph_nodes: list[onnx.NodeProto] = list(self.model_proto.graph.node)
+        if node_key_by_node_id is not None:
+            self._node_key_by_node_id = dict(node_key_by_node_id)
+        else:
+            self._node_key_by_node_id = build_node_key_by_node_id(self._graph_nodes)
 
         self.ep_name = ep_name
         self.device_type = device_type
@@ -2266,16 +2277,25 @@ class RuntimeCheckerQuery:
         custom_checker_name: str | None = None
         conditions_ms: int | None = None
         parquet_rules_ms: int | None = None
+        node_key = resolve_stable_node_key(
+            node,
+            node_key_by_node_id=self._node_key_by_node_id,
+            graph_nodes=self._graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside "
+                "RuntimeCheckerQuery model graph."
+            ),
+        )
 
         pattern_match_start = time.perf_counter()
-        pattern_match = node_to_pattern_match(node)
+        pattern_match = node_to_pattern_match(node, node_key)
         pattern_match_ms = _elapsed_ms(pattern_match_start)
 
         def _finish(result: PatternRuntime, outcome: str) -> PatternRuntime:
             _log_timing(
                 "run_for_node",
                 op=node.op_type,
-                node=node.name or "<unnamed>",
+                node=node_key,
                 ep=self.ep_name,
                 device=self.device_type,
                 pattern_id=result.pattern_id,

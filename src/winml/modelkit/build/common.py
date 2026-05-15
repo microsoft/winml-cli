@@ -23,6 +23,7 @@ from ..optim import optimize_onnx
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def run_optimize_analyze_loop(
     optimized_path: Path,
     config: WinMLBuildConfig,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     max_optim_iterations: int = 0,
     on_ep_start: Any = None,
@@ -109,7 +110,7 @@ def run_optimize_analyze_loop(
 def _run_analyze_loop(
     *,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_optim_iterations: int,
     config: WinMLBuildConfig,

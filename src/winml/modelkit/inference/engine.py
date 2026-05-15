@@ -42,6 +42,7 @@ from .types import Prediction, PredictionResult
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,7 @@ class InferenceEngine:
         self._model_id: str | None = None
         self._task: str | None = None
         self._device: str = "auto"
-        self._ep: str | None = None
+        self._ep: EPNameOrAlias | None = None
         self._model_path: str | None = None  # original arg for reload()
         self._request_count: int = 0
         self._last_request_at: datetime | None = None
@@ -296,7 +297,7 @@ class InferenceEngine:
         *,
         task: str | None = None,
         device: str = "auto",
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
     ) -> None:
         """Load model from model_path.
 
@@ -353,7 +354,7 @@ class InferenceEngine:
         *,
         task: str | None = None,
         device: str = "auto",
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
     ) -> None:
         """Lightweight load for schema display — no model build or ORT session.
 
@@ -424,7 +425,7 @@ class InferenceEngine:
             ep=self._ep,
         )
 
-    def switch_ep(self, ep: str) -> None:
+    def switch_ep(self, ep: EPNameOrAlias) -> None:
         """Switch to a different execution provider."""
         logger.info("Switching EP: %s → %s", self._ep, ep)
         self._ep = ep
@@ -908,7 +909,7 @@ class InferenceEngine:
         *,
         task: str | None,
         device: str,
-        ep: str | None,
+        ep: EPNameOrAlias | None,
     ) -> None:
         onnx_path, manifest = _find_build_artifacts(build_dir, task=task)
 
@@ -946,7 +947,7 @@ class InferenceEngine:
         *,
         task: str | None,
         device: str,
-        ep: str | None,
+        ep: EPNameOrAlias | None,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 
@@ -963,7 +964,7 @@ class InferenceEngine:
         *,
         task: str | None,
         device: str,
-        ep: str | None,
+        ep: EPNameOrAlias | None,
     ) -> None:
         from ..models.auto import WinMLAutoModel
 

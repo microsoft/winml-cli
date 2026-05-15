@@ -26,7 +26,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from ..utils.logging import configure_logging
 
 
@@ -144,7 +144,7 @@ def _build_analyzed_text(counts: dict[str, int]) -> Text:
 
 def _build_analysis_table(
     data: dict[str, dict[str, int]],
-    ep_name: str = "",
+    ep_name: EPName | None = None,
     complete: bool = False,
     all_ops: dict[str, int] | None = None,
 ) -> Table:
@@ -334,7 +334,7 @@ def _render_analysis_summary(
     ep_instance_counts: dict[str, dict[str, dict[str, int]]],
     ep_patterns: dict[str, dict[str, dict]] | None = None,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     no_data_eps: set[str] | None = None,
 ) -> None:
@@ -463,12 +463,7 @@ def _render_analysis_summary(
 )
 @cli_utils.verbosity_options
 @cli_utils.build_config_option
-@click.option(
-    "--output",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Save JSON output to file",
-)
+@cli_utils.output_option("Save JSON output to file")
 @click.option(
     "--information/--no-information",
     default=True,
@@ -502,7 +497,7 @@ def _render_analysis_summary(
 def analyze(
     ctx: click.Context,
     model: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
     information: bool,

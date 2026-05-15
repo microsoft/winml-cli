@@ -39,15 +39,20 @@ class TestResolvePrecision:
         "device,precision,exp_device,exp_precision,exp_weight,exp_act,exp_provider",
         [
             # device   precision  exp_device  exp_prec  weight    act      provider
-            ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "qnn"),
-            ("npu", "fp16", "npu", "fp16", None, None, "qnn"),
-            ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "qnn"),
-            ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "qnn"),
-            ("gpu", "auto", "gpu", "fp16", None, None, "dml"),
-            ("gpu", "w8a8", "gpu", "w8a8", "uint8", "uint8", "dml"),
-            ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "dml"),
-            ("gpu", "fp16", "gpu", "fp16", None, None, "dml"),
-            ("gpu", "fp32", "gpu", "fp32", None, None, "dml"),
+            ("npu", "auto", "npu", "w8a16", "uint8", "uint16", "QNNExecutionProvider"),
+            ("npu", "int8", "npu", "int8", "uint8", "uint8", "QNNExecutionProvider"),
+            ("npu", "int16", "npu", "int16", "int16", "uint16", "QNNExecutionProvider"),
+            ("npu", "fp16", "npu", "fp16", None, None, "QNNExecutionProvider"),
+            ("npu", "fp32", "npu", "fp32", None, None, "QNNExecutionProvider"),
+            ("npu", "w8a16", "npu", "w8a16", "uint8", "uint16", "QNNExecutionProvider"),
+            ("npu", "w8a8", "npu", "w8a8", "uint8", "uint8", "QNNExecutionProvider"),
+            ("npu", "w16a16", "npu", "w16a16", "int16", "uint16", "QNNExecutionProvider"),
+            ("gpu", "auto", "gpu", "fp16", None, None, "DmlExecutionProvider"),
+            ("gpu", "w8a16", "gpu", "w8a16", "uint8", "uint16", "DmlExecutionProvider"),
+            ("gpu", "int8", "gpu", "int8", "uint8", "uint8", "DmlExecutionProvider"),
+            ("gpu", "int16", "gpu", "int16", "int16", "uint16", "DmlExecutionProvider"),
+            ("gpu", "fp16", "gpu", "fp16", None, None, "DmlExecutionProvider"),
+            ("gpu", "fp32", "gpu", "fp32", None, None, "DmlExecutionProvider"),
             ("cpu", "auto", "cpu", "fp16", None, None, None),
             ("cpu", "w8a8", "cpu", "w8a8", "uint8", "uint8", None),
             ("cpu", "w8a16", "cpu", "w8a16", "uint8", "uint16", None),
@@ -250,49 +255,49 @@ class TestEpOverride:
     """Test ep parameter in resolve_precision()."""
 
     def test_ep_overrides_compile_provider(self) -> None:
-        """ep='migraphx' should set compile_provider to 'migraphx', not 'dml'."""
+        """ep='migraphx' should set compile_provider to canonical, not DML."""
         policy = resolve_precision(device="gpu", ep="migraphx")
-        assert policy.compile_provider == "migraphx"
+        assert policy.compile_provider == "MIGraphXExecutionProvider"
         assert policy.device == "gpu"
 
     def test_ep_overrides_default_dml(self) -> None:
-        """Without ep, gpu maps to dml. With ep='nv_tensorrt_rtx', should be nv_tensorrt_rtx."""
+        """Without ep, gpu maps to DML. With ep='nv_tensorrt_rtx', should be NvTensorRTRTX."""
         default = resolve_precision(device="gpu")
-        assert default.compile_provider == "dml"
+        assert default.compile_provider == "DmlExecutionProvider"
 
         override = resolve_precision(device="gpu", ep="nv_tensorrt_rtx")
-        assert override.compile_provider == "nv_tensorrt_rtx"
+        assert override.compile_provider == "NvTensorRTRTXExecutionProvider"
 
     def test_ep_infers_device_from_gpu_ep(self) -> None:
         """ep='migraphx' with device='auto' should infer device='gpu'."""
         policy = resolve_precision(ep="migraphx")
         assert policy.device == "gpu"
-        assert policy.compile_provider == "migraphx"
+        assert policy.compile_provider == "MIGraphXExecutionProvider"
 
     def test_ep_infers_device_from_npu_ep(self) -> None:
         """ep='vitisai' with device='auto' should infer device='npu'."""
         policy = resolve_precision(ep="vitisai")
         assert policy.device == "npu"
-        assert policy.compile_provider == "vitisai"
+        assert policy.compile_provider == "VitisAIExecutionProvider"
 
     def test_ep_infers_device_from_qnn(self) -> None:
         """ep='qnn' should infer device='npu'."""
         policy = resolve_precision(ep="qnn")
         assert policy.device == "npu"
-        assert policy.compile_provider == "qnn"
+        assert policy.compile_provider == "QNNExecutionProvider"
 
     def test_ep_with_explicit_device(self) -> None:
         """ep + explicit device should use the explicit device."""
         policy = resolve_precision(device="gpu", ep="vitisai")
         assert policy.device == "gpu"
-        assert policy.compile_provider == "vitisai"
+        assert policy.compile_provider == "VitisAIExecutionProvider"
 
     def test_ep_preserves_precision_logic(self) -> None:
         """ep should not break precision resolution."""
         policy = resolve_precision(device="gpu", precision="w8a8", ep="migraphx")
         assert policy.precision == "w8a8"
         assert policy.weight_type == "uint8"
-        assert policy.compile_provider == "migraphx"
+        assert policy.compile_provider == "MIGraphXExecutionProvider"
 
     def test_unknown_ep_raises(self) -> None:
         """Invalid EP name should raise ValueError."""
@@ -300,29 +305,34 @@ class TestEpOverride:
             resolve_precision(ep="unknown_ep")
 
     def test_all_valid_eps(self) -> None:
-        """All VALID_EPS should be accepted without error.
+        """Every canonical EPName should be accepted without error.
 
         CPU is excluded from the compile_provider assertion: it resolves to
         device='cpu', which never needs EPContext compilation (compile_provider=None).
         """
-        from winml.modelkit.config.precision import VALID_EPS
+        from winml.modelkit.config.precision import _EP_TO_DEVICE
 
-        for ep_name in VALID_EPS:
+        for ep_name in _EP_TO_DEVICE:
             policy = resolve_precision(ep=ep_name)
-            if ep_name == "cpu":
+            if ep_name == "CPUExecutionProvider":
                 assert policy.compile_provider is None
             else:
                 assert policy.compile_provider == ep_name
 
+    def test_ep_accepts_aliases(self) -> None:
+        """resolve_precision should accept shorthand aliases."""
+        policy = resolve_precision(ep="qnn")
+        assert policy.compile_provider == "QNNExecutionProvider"
+
     def test_ep_none_uses_default_mapping(self) -> None:
         """ep=None should use the default device→provider mapping."""
         policy = resolve_precision(device="npu")
-        assert policy.compile_provider == "qnn"
+        assert policy.compile_provider == "QNNExecutionProvider"
 
     def test_ep_case_insensitive(self) -> None:
         """EP names should be case-insensitive."""
         policy = resolve_precision(ep="MiGraphX")
-        assert policy.compile_provider == "migraphx"
+        assert policy.compile_provider == "MIGraphXExecutionProvider"
 
 
 # =============================================================================
@@ -538,7 +548,7 @@ class TestMixedPrecisionAutoDevice:
         assert policy.precision == "w8a16"
         assert policy.weight_type == "uint8"
         assert policy.activation_type == "uint16"
-        assert policy.compile_provider == "qnn"
+        assert policy.compile_provider == "QNNExecutionProvider"
 
 
 # =============================================================================

@@ -6,12 +6,21 @@
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 
 import onnx
 from pydantic import BaseModel, Field, field_validator
 
 from ...onnx import ONNXDomain
+from ..utils.node_key_utils import (
+    build_node_key_by_node_id,
+    make_stable_node_key,
+    resolve_stable_node_key,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class ModelTag(str, Enum):
@@ -60,6 +69,10 @@ class ONNXModel(BaseModel):
 
     # Cache for deserialized model to avoid repeated parsing
     _cached_model: onnx.ModelProto | None = None
+    _graph_nodes: list[onnx.NodeProto] | None = None
+    _node_key_by_node_id: dict[int, str] | None = None
+    _node_by_key: dict[str, onnx.NodeProto] | None = None
+    _node_by_name: dict[str, onnx.NodeProto] | None = None
 
     model_config = {
         "arbitrary_types_allowed": True,
@@ -124,7 +137,44 @@ class ONNXModel(BaseModel):
         )
         # Store ModelProto by reference instead of serializing to bytes
         object.__setattr__(instance, "_cached_model", model)
+        instance._initialize_node_key_index()
         return instance
+
+    def _initialize_node_key_index(self) -> None:
+        """Build node sidecar maps for stable key lookup."""
+        model = self.get_model()
+        graph_nodes = list(model.graph.node)
+        node_key_by_node_id = build_node_key_by_node_id(graph_nodes)
+        node_by_key: dict[str, onnx.NodeProto] = {}
+        node_by_name: dict[str, onnx.NodeProto] = {}
+
+        for index, node in enumerate(graph_nodes):
+            stable_key = make_stable_node_key(node, index)
+            node_by_key[stable_key] = node
+            if node.name:
+                if node.name not in node_by_name:
+                    node_by_name[node.name] = node
+                else:
+                    logger.debug(
+                        "Duplicate ONNX node.name '%s' encountered; keeping first occurrence "
+                        "for get_node_by_name().",
+                        node.name,
+                    )
+
+        object.__setattr__(self, "_graph_nodes", graph_nodes)
+        object.__setattr__(self, "_node_key_by_node_id", node_key_by_node_id)
+        object.__setattr__(self, "_node_by_key", node_by_key)
+        object.__setattr__(self, "_node_by_name", node_by_name)
+
+    def _ensure_node_key_index(self) -> None:
+        """Ensure node sidecar indexes are initialized."""
+        if (
+            self._graph_nodes is None
+            or self._node_key_by_node_id is None
+            or self._node_by_key is None
+            or self._node_by_name is None
+        ):
+            self._initialize_node_key_index()
 
     def get_graph(self) -> onnx.GraphProto:
         """Deserialize and return ONNX graph.
@@ -151,3 +201,43 @@ class ONNXModel(BaseModel):
                 "No cached ModelProto available. ONNXModel must be created via from_onnx_model()."
             )
         return self._cached_model
+
+    def get_node_key(self, node: onnx.NodeProto) -> str:
+        """Get the stable sidecar key for a node."""
+        self._ensure_node_key_index()
+
+        node_key_by_node_id = self._node_key_by_node_id
+        graph_nodes = self._graph_nodes
+        assert node_key_by_node_id is not None
+        assert graph_nodes is not None
+
+        return resolve_stable_node_key(
+            node,
+            node_key_by_node_id=node_key_by_node_id,
+            graph_nodes=graph_nodes,
+            unknown_unnamed_error=(
+                "Cannot resolve stable key for unnamed node outside ONNXModel graph. "
+                "Pass a graph node loaded via ONNXModel.from_onnx_model()."
+            ),
+        )
+
+    def get_node_by_key(self, node_key: str) -> onnx.NodeProto | None:
+        """Resolve a stable sidecar key to a node."""
+        self._ensure_node_key_index()
+        node_by_key = self._node_by_key
+        assert node_by_key is not None
+        return node_by_key.get(node_key)
+
+    def get_node_by_name(self, node_name: str) -> onnx.NodeProto | None:
+        """Resolve original ONNX node name to a node when available."""
+        self._ensure_node_key_index()
+        node_by_name = self._node_by_name
+        assert node_by_name is not None
+        return node_by_name.get(node_name)
+
+    def get_node_key_map(self) -> dict[int, str]:
+        """Get a copy of node-id to stable-key sidecar mapping."""
+        self._ensure_node_key_index()
+        node_key_by_node_id = self._node_key_by_node_id
+        assert node_key_by_node_id is not None
+        return dict(node_key_by_node_id)

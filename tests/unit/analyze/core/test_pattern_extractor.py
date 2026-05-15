@@ -12,6 +12,7 @@ import onnx
 import pytest
 from onnx import TensorProto, helper
 
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import ModelStats, ONNXModel, PatternExtractor
 from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, SubgraphPattern
 
@@ -209,6 +210,7 @@ class TestPatternExtractorExtractSubgraphPatterns:
         skeleton_result = SkeletonMatchResult(
             pattern=mock_subgraph_pattern,
             matched_nodes=[conv_node, relu_node],
+            matched_node_keys=_stable_test_node_keys([conv_node, relu_node]),
             matcher=None,
         )
 

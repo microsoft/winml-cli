@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ...utils.constants import EPName
     from ..models.ihv_type import IHVType
 
 
 logger = logging.getLogger(__name__)
 
 
-def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
+def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
     """Infer IHVType from Execution Provider name.
 
     Maps an execution provider name to its corresponding IHV type.
@@ -73,7 +74,7 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     return IHVType.MICROSOFT
 
 
-def get_devices_with_rule_data(ep_name: str) -> list[str]:
+def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
     """Return all devices supported by an EP.
 
     First probes runtime-rule directories for parquet artifacts for each
@@ -118,7 +119,7 @@ def has_any_rule_data() -> bool:
     return False
 
 
-def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
+def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 
         Probes runtime-rule search directories for parquet files in either layout:
