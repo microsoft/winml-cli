@@ -12,7 +12,7 @@ import sys
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import onnxruntime as ort
@@ -463,13 +463,15 @@ class WinMLSession:
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
 
-        When ``self._ep`` is set (and not ``"cpu"``), uses
-        ``add_provider_for_devices`` to explicitly bind that EP.
-        ``"cpu"`` falls through to policy-based selection so ORT handles
-        CPU-only inference without any EP registration.
-        When ``self._ep`` is not set, queries ``get_ep_devices()`` to
-        discover an available EP for the target device type. Falls back to
-        policy-based selection only as a last resort.
+        When ``self._ep`` is set, uses ``add_provider_for_devices`` to
+        explicitly bind that EP — including ``"cpu"``, so the
+        CPUExecutionProvider isn't silently displaced by another CPU-capable
+        EP (e.g. OpenVINO) under PREFER_CPU policy.
+        When ``self._ep`` is not set, the path forks on device: ``"cpu"``
+        falls through to PREFER_CPU policy (skipping EP discovery so non-CPU
+        EPs aren't probed), while other devices query ``get_ep_devices()``
+        to discover an available EP. Policy-based selection is the
+        last-resort fallback.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
@@ -478,8 +480,9 @@ class WinMLSession:
         # non-CPU EPs (e.g. OpenVINO) are not probed via get_ep_devices(),
         # which would trigger their native shared-library load and emit
         # version-mismatch warnings even when the model runs on CPU.
-        # Exception: when an explicit EP is set (e.g. --ep openvino --device cpu),
-        # fall through so the EP binding logic below can honour it.
+        # Exception: when an explicit EP is set (e.g. --ep openvino --device cpu,
+        # or --ep cpu --device cpu), fall through so the EP binding logic
+        # below can honour it.
         if device.lower() == "cpu" and not self._ep:
             opts = self._session_options
             opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
@@ -490,7 +493,11 @@ class WinMLSession:
         # When device is also specified (non-"auto"), narrow by both EP name
         # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
         # instead of the first QNN ep_device (which may report as NPU).
-        if self._ep and self._ep != "cpu":
+        # `--ep cpu` is honoured here too so the CPUExecutionProvider gets
+        # bound explicitly; otherwise PREFER_CPU policy lets ORT prefer
+        # OV-on-CPU (or any other registered CPU-capable EP) over the basic
+        # CPU EP, silently ignoring the user's --ep choice.
+        if self._ep:
             from ..utils.constants import normalize_ep_name
 
             target_name = normalize_ep_name(self._ep)
@@ -684,6 +691,19 @@ class WinMLSession:
     def device(self) -> str:
         """Target device for this session."""
         return self._device
+
+    @property
+    def ep_name(self) -> EPName | None:
+        """Primary EP ORT actually bound, or None before compile.
+
+        Returns ``session.get_providers()[0]`` — the EP that owns node
+        partitioning. ``CPUExecutionProvider`` may still appear later
+        in the list as ORT's automatic fallback for unsupported ops.
+        """
+        if self._session is None:
+            return None
+        providers = self._session.get_providers()
+        return cast("EPName", providers[0]) if providers else None
 
     @property
     def is_compiled(self) -> bool:
