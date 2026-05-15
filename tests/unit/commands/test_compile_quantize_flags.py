@@ -20,41 +20,25 @@ from winml.modelkit.commands.quantize import _resolve_quant_types
 
 
 class TestResolveCompileProvider:
-    """Test compile provider resolution from resolved-device + ep flags.
+    """Test compile provider resolution from device + ep flags."""
 
-    ``_resolve_compile_provider`` now consults ``resolve_eps`` (which
-    intersects ``_DEVICE_EP_MAP`` with the EPs ORT actually advertises on
-    the current host). Tests mock ``resolve_eps`` so they don't depend on
-    the runner's hardware.
-    """
+    def test_npu_defaults_to_qnn(self):
+        assert _resolve_compile_provider("npu", None) == "QNNExecutionProvider"
 
-    def test_npu_picks_first_available_ep(self):
-        with patch(
-            "winml.modelkit.commands.compile.resolve_eps",
-            return_value=["QNNExecutionProvider"],
-        ):
-            assert _resolve_compile_provider("npu", None) == "QNNExecutionProvider"
-
-    def test_gpu_picks_first_available_ep(self):
-        with patch(
-            "winml.modelkit.commands.compile.resolve_eps",
-            return_value=["DmlExecutionProvider"],
-        ):
-            assert _resolve_compile_provider("gpu", None) == "DmlExecutionProvider"
-
-    def test_no_available_ep_falls_back_to_cpu(self):
-        with patch("winml.modelkit.commands.compile.resolve_eps", return_value=[]):
-            assert _resolve_compile_provider("npu", None) == "CPUExecutionProvider"
+    def test_gpu_defaults_to_dml(self):
+        assert _resolve_compile_provider("gpu", None) == "DmlExecutionProvider"
 
     def test_cpu_returns_cpu(self):
-        with patch(
-            "winml.modelkit.commands.compile.resolve_eps",
-            return_value=["CPUExecutionProvider"],
-        ):
-            assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
+        assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
+
+    def test_auto_defaults_to_qnn(self):
+        # auto maps to QNN (NPU-first, like DEVICE_POLICY_MAP)
+        result = _resolve_compile_provider("auto", None)
+        # auto is not in _DEVICE_TO_PROVIDER, falls through to QNN default
+        assert result == "QNNExecutionProvider"
 
     def test_ep_overrides_device(self):
-        """ep takes priority over device mapping (no resolve_eps lookup needed)."""
+        """ep takes priority over device mapping."""
         assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
         assert _resolve_compile_provider("gpu", "vitisai") == "VitisAIExecutionProvider"
         assert (
@@ -82,6 +66,10 @@ class TestResolveCompileProvider:
     def test_all_valid_eps(self, ep, expected):
         """All alias inputs resolve to their canonical EP name."""
         assert _resolve_compile_provider("npu", ep) == expected
+
+    def test_device_case_insensitive(self):
+        assert _resolve_compile_provider("NPU", None) == "QNNExecutionProvider"
+        assert _resolve_compile_provider("GPU", None) == "DmlExecutionProvider"
 
 
 # =============================================================================
