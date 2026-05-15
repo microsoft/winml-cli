@@ -27,7 +27,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..utils import cli as cli_utils
-from ..utils.constants import EPNameOrAlias
+from ..utils.constants import EPName, EPNameOrAlias
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -121,7 +121,7 @@ class BenchmarkResult:
     # Actual values used (after auto-detection)
     actual_device: str = ""
     actual_task: str = ""
-    actual_ep: str | None = None
+    actual_ep: EPName | None = None
 
     # Hardware monitor metrics (from HWMonitor.to_dict())
     hw_monitor: dict[str, Any] | None = None
@@ -886,7 +886,7 @@ def _print_model_info(
     *,
     task: str | None = None,
     device: str = "auto",
-    ep_name: str | None = None,
+    ep_name: EPName | None = None,
 ) -> None:
     """Print model I/O metadata before the benchmark starts."""
     console = Console(stderr=True)

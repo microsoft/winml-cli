@@ -36,7 +36,7 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
-    from ...utils.constants import EPNameOrAlias
+    from ...utils.constants import EPName, EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         return self._session.device
 
     @property
-    def ep_name(self) -> str | None:
+    def ep_name(self) -> EPName | None:
         """Primary EP bound by ORT (delegates to session, None before compile)."""
         return self._session.ep_name
 

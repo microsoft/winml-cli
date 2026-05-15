@@ -12,7 +12,7 @@ import sys
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import onnxruntime as ort
@@ -693,7 +693,7 @@ class WinMLSession:
         return self._device
 
     @property
-    def ep_name(self) -> str | None:
+    def ep_name(self) -> EPName | None:
         """Primary EP ORT actually bound, or None before compile.
 
         Returns ``session.get_providers()[0]`` — the EP that owns node
@@ -703,7 +703,7 @@ class WinMLSession:
         if self._session is None:
             return None
         providers = self._session.get_providers()
-        return providers[0] if providers else None
+        return cast("EPName", providers[0]) if providers else None
 
     @property
     def is_compiled(self) -> bool:
