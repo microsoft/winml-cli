@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""In-house implementation of the CIDEr image-captioning metric.
+"""In-house implementation of the CIDEr-D image-captioning metric.
 
 Reference:
     Vedantam, Zitnick, Parikh. "CIDEr: Consensus-based Image Description
@@ -173,7 +173,7 @@ def _pair_similarity(
 
 
 class Cider:
-    """Compute the CIDEr image-captioning metric.
+    """Compute the CIDEr-D image-captioning metric.
 
     Example::
 
