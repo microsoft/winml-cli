@@ -194,13 +194,13 @@ class WinMLCompileConfig:
 
     @classmethod
     def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
-        """Factory for Vitis AI (AMD NPU/GPU) compilation."""
+        """Factory for Vitis AI (AMD NPU) compilation."""
         provider_options: dict[str, str] = {}
         if device:
             provider_options["device_type"] = device.upper()
         return cls(
             ep_config=EPConfig(
-                provider="vitisai", enable_ep_context=False, provider_options=provider_options
+                provider="vitisai", enable_ep_context=True, provider_options=provider_options
             ),
         )
 
