@@ -207,6 +207,8 @@ def compile(
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Device:[/bold blue] {resolved_device}")
+    if ep:
+        console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")
     console.print(f"[bold blue]Compiler:[/bold blue] {compiler}")
     if qnn_sdk_root:

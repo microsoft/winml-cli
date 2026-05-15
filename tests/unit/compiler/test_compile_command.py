@@ -188,14 +188,23 @@ class TestCompileCommand:
     ) -> None:
         """Test --device gpu raises an unsupported-EPContext error.
 
-        GPU maps to the DML provider which has enable_ep_context=False.
-        Before the fix the error message listed 'dml' as a supported example,
-        which was misleading because DML never produces EPContext models.
+        When DML is the only available GPU EP, ``resolve_eps('gpu')`` returns
+        ``[DmlExecutionProvider]`` which has ``enable_ep_context=False``. Before
+        the fix the error message listed 'dml' as a supported example, which
+        was misleading because DML never produces EPContext models.
+
+        We pin ``resolve_eps`` so the test is independent of whatever EPs ORT
+        advertises on the host (e.g., OpenVINO can target GPU and *does*
+        produce EPContext, which would otherwise mask this code path).
         """
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
-        result = runner.invoke(main, ["compile", "-m", str(model_path), "--device", "gpu"])
+        with patch(
+            "winml.modelkit.commands.compile.resolve_eps",
+            return_value=["DmlExecutionProvider"],
+        ):
+            result = runner.invoke(main, ["compile", "-m", str(model_path), "--device", "gpu"])
 
         assert result.exit_code != 0
         assert "does not support EPContext compilation" in result.output
@@ -231,12 +240,18 @@ class TestCompileCommand:
         """Test --device cpu raises an unsupported-EPContext error.
 
         CPU never produces EPContext models, so it is rejected at the same
-        config-is-None gate as DML.
+        config-is-None gate as DML. Pin ``resolve_eps`` so a host with
+        OpenVINO (which also targets CPU and *does* produce EPContext) doesn't
+        mask this gate.
         """
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
-        result = runner.invoke(main, ["compile", "-m", str(model_path), "--device", "cpu"])
+        with patch(
+            "winml.modelkit.commands.compile.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ):
+            result = runner.invoke(main, ["compile", "-m", str(model_path), "--device", "cpu"])
 
         assert result.exit_code != 0
         assert "does not support EPContext compilation" in result.output
