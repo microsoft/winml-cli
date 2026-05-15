@@ -20,7 +20,13 @@ from winml.modelkit.commands.quantize import _resolve_quant_types
 
 
 class TestResolveCompileProvider:
-    """Test compile provider resolution from device + ep flags."""
+    """Test compile provider resolution from resolved-device + ep flags.
+
+    ``_resolve_compile_provider`` expects an already-resolved device
+    (lowercase, never ``"auto"``) — ``resolve_device`` is called upstream
+    by the ``compile`` CLI. Device case-handling and ``auto``-resolution
+    are covered by ``tests/unit/sysinfo`` and the CLI integration tests.
+    """
 
     def test_npu_defaults_to_qnn(self):
         assert _resolve_compile_provider("npu", None) == "QNNExecutionProvider"
@@ -30,12 +36,6 @@ class TestResolveCompileProvider:
 
     def test_cpu_returns_cpu(self):
         assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
-
-    def test_auto_defaults_to_qnn(self):
-        # auto maps to QNN (NPU-first, like DEVICE_POLICY_MAP)
-        result = _resolve_compile_provider("auto", None)
-        # auto is not in _DEVICE_TO_PROVIDER, falls through to QNN default
-        assert result == "QNNExecutionProvider"
 
     def test_ep_overrides_device(self):
         """ep takes priority over device mapping."""
@@ -66,10 +66,6 @@ class TestResolveCompileProvider:
     def test_all_valid_eps(self, ep, expected):
         """All alias inputs resolve to their canonical EP name."""
         assert _resolve_compile_provider("npu", ep) == expected
-
-    def test_device_case_insensitive(self):
-        assert _resolve_compile_provider("NPU", None) == "QNNExecutionProvider"
-        assert _resolve_compile_provider("GPU", None) == "DmlExecutionProvider"
 
 
 # =============================================================================
