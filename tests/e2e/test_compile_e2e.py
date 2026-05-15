@@ -32,7 +32,6 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
@@ -147,7 +146,7 @@ def _find_qairt_sdk_root() -> Path | None:
 # ---------------------------------------------------------------------------
 
 # Note: the input ONNX model is provided by the conftest's `simple_matmul_onnx`
-# fixture (1×4 MatMul, opset 13). Compile tests don't depend on the specific
+# fixture (1x4 MatMul, opset 13). Compile tests don't depend on the specific
 # weight values or input names, so we reuse it instead of defining a local
 # `simple_matmul_onnx` fixture.
 
