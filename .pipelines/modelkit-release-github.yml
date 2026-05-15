@@ -49,7 +49,7 @@ extends:
             targetPath: '$(Build.SourcesDirectory)/official_build'
 
         - task: PowerShell@2
-          displayName: 'Stage wheels + rules.zip'
+          displayName: 'Stage wheels + rules zip'
           inputs:
             targetType: 'inline'
             script: |
@@ -63,6 +63,15 @@ extends:
               }
               $wheels | Copy-Item -Destination $dst -Force
 
+              # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
+              # PEP 503 normalizes "winml-cli" -> "winml_cli" in filenames.
+              $firstWheel = $wheels | Select-Object -First 1
+              if ($firstWheel.Name -notmatch '^winml_cli-([^-]+)-') {
+                  throw "wheel filename '$($firstWheel.Name)' does not match expected pattern 'winml_cli-<version>-...'"
+              }
+              $version = $matches[1]
+              Write-Host "Version: $version"
+
               $rulesZipCandidates = Get-ChildItem $src -Filter "rules.zip" -Recurse
               if (-not $rulesZipCandidates) {
                 throw "No rules.zip found under $src. Release requires the official build to publish rules.zip."
@@ -71,10 +80,11 @@ extends:
                 Write-Warning "Found $($rulesZipCandidates.Count) rules.zip files; using the first one"
               }
               $selectedRulesZip = $rulesZipCandidates | Select-Object -First 1
-              Copy-Item $selectedRulesZip.FullName -Destination (Join-Path $dst "rules.zip") -Force
+              $rulesZipName = "rules-v$version.zip"
+              Copy-Item $selectedRulesZip.FullName -Destination (Join-Path $dst $rulesZipName) -Force
 
               Write-Host "Found $($wheels.Count) wheel(s)"
-              Write-Host "Using build-produced rules.zip from $($selectedRulesZip.FullName)"
+              Write-Host "Using build-produced rules.zip from $($selectedRulesZip.FullName) -> $rulesZipName"
               Write-Host "Staged GitHub release assets:"
               Get-ChildItem $dst | ForEach-Object { Write-Host (" - {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
 
@@ -98,9 +108,9 @@ extends:
               $wheel = Get-ChildItem "$(Build.SourcesDirectory)/release_assets/*.whl" | Select-Object -First 1
               if (-not $wheel) { throw "no wheel found in staged assets" }
               # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
-              # PEP 503 normalizes "winml-modelkit" -> "winml_modelkit" in filenames.
-              if ($wheel.Name -notmatch '^winml_modelkit-([^-]+)-') {
-                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_modelkit-<version>-...'"
+              # PEP 503 normalizes "winml-cli" -> "winml_cli" in filenames.
+              if ($wheel.Name -notmatch '^winml_cli-([^-]+)-') {
+                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_cli-<version>-...'"
               }
               $version = $matches[1]
               $tag = "v$version"
@@ -113,15 +123,15 @@ extends:
           displayName: 'Create GitHub Release'
           inputs:
             gitHubConnection: 'ModelKit'
-            repositoryName: 'microsoft/WinML-ModelKit'
+            repositoryName: 'microsoft/winml-cli'
             action: create
             target: '$(Build.SourceVersion)'
             tagSource: userSpecifiedTag
             tag: '$(ReleaseTag)'
-            title: 'ModelKit $(ReleaseTag)'
+            title: 'WinML CLI $(ReleaseTag)'
             assets: |
               $(Build.SourcesDirectory)/release_assets/*.whl
-              $(Build.SourcesDirectory)/release_assets/rules.zip
+              $(Build.SourcesDirectory)/release_assets/rules-v$(ReleaseVersion).zip
             isDraft: false
             isPreRelease: true
             addChangeLog: false

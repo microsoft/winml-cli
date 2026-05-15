@@ -26,6 +26,7 @@ EP_ALIASES = {
     "cpu": "CPUExecutionProvider",
     "dml": "DmlExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "trtrtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
 }
 

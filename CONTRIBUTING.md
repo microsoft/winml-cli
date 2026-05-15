@@ -5,7 +5,7 @@ We're always looking for your help to improve the product (bug fixes, new featur
 ## Contribute a code change
 
 * Start by reading the project [README](./README.md) to understand the scope and goals of WinML CLI.
-* If your change is non-trivial or introduces new public facing APIs, please use the [feature request issue template](https://github.com/microsoft/WinML-ModelKit/issues/new) to discuss it with the team first.
+* If your change is non-trivial or introduces new public facing APIs, please use the [feature request issue template](https://github.com/microsoft/winml-cli/issues/new) to discuss it with the team first.
 * For all other changes, you can directly create a pull request (PR) and we'll be happy to take a look.
 * Make sure your PR adheres to the coding conventions and standards below.
 

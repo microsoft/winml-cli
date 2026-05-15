@@ -7,26 +7,27 @@ also be fetched from release assets or `ModelKitArtifacts` for source builds.
 
 ## Setup
 
-### Option 1: Download from the latest GitHub release (for source builds)
+### Option 1: Download from a GitHub release (for source builds)
 
 If you are building from source code (for example, cloning this repo), download
-the `rules.zip` asset from the latest WinML-ModelKit release.
+the `rules-v<version>.zip` asset from a winml-cli release. Replace `<version>`
+with the release version you want (e.g. `0.0.3`) and `<tag>` with the matching
+release tag (e.g. `v0.0.3`); all current releases are pre-releases, so an
+explicit tag is required (`gh release download` without a tag skips
+pre-releases).
 
 ```bash
-gh release download --repo microsoft/WinML-ModelKit --pattern 'rules.zip' --dir .
+gh release download <tag> --repo microsoft/winml-cli --pattern 'rules-v<version>.zip' --dir .
 ```
 
-`gh release download` defaults to the latest release. Use `--tag <version>`
-to pin a specific release if you need a reproducible snapshot.
-
-Then extract `rules.zip` into this directory:
+Then extract the archive into this directory:
 
 ```powershell
-Expand-Archive -Path .\rules.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
+Expand-Archive -Path .\rules-v<version>.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
 ```
 
 ```bash
-unzip -o rules.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
+unzip -o rules-v<version>.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
 ```
 
 The zip preserves file paths relative to `runtime_check_rules/`.
@@ -43,7 +44,7 @@ The script sparse-checkouts `gim-home/ModelKitArtifacts/rules` and copies all `*
 files here (preserving subdirectories).
 
 This script downloads from the internal `ModelKitArtifacts` repo, not from
-WinML-ModelKit release assets.
+winml-cli release assets.
 
 Use `--force` to re-download all files even if they already exist locally.
 

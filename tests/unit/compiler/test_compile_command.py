@@ -181,6 +181,134 @@ class TestCompileCommand:
         call_kwargs = mock_compile_onnx.call_args.kwargs
         assert call_kwargs["output_path"] == output_file
 
+    def test_gpu_device_raises_unsupported_error(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test --device gpu raises an unsupported-EPContext error.
+
+        GPU maps to the DML provider which has enable_ep_context=False.
+        Before the fix the error message listed 'dml' as a supported example,
+        which was misleading because DML never produces EPContext models.
+        """
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+
+        result = runner.invoke(main, ["compile", "-m", str(model_path), "--device", "gpu"])
+
+        assert result.exit_code != 0
+        assert "does not support EPContext compilation" in result.output
+        assert "(e.g. qnn, dml, openvino)" not in result.output
+        assert "(e.g. qnn, openvino)" in result.output
+
+    def test_ep_dml_raises_unsupported_error(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test --ep dml raises an unsupported-EPContext error.
+
+        DML has enable_ep_context=False so for_provider('dml') returns None,
+        which triggers the error regardless of whether dml was reached via
+        --device gpu or --ep dml explicitly.
+        """
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+
+        result = runner.invoke(main, ["compile", "-m", str(model_path), "--ep", "dml"])
+
+        assert result.exit_code != 0
+        assert "dml" in result.output  # provider name in the "Provider 'dml' does not support" line
+        assert "(e.g. qnn, dml, openvino)" not in result.output
+        assert "(e.g. qnn, openvino)" in result.output
+
+    def test_cpu_device_raises_unsupported_error(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test --device cpu raises an unsupported-EPContext error.
+
+        CPU never produces EPContext models, so it is rejected at the same
+        config-is-None gate as DML.
+        """
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+
+        result = runner.invoke(main, ["compile", "-m", str(model_path), "--device", "cpu"])
+
+        assert result.exit_code != 0
+        assert "does not support EPContext compilation" in result.output
+
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_device_label_reflects_device_flag(
+        self,
+        mock_compile_onnx: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test the Device line in output shows the --device flag, not the EP-inferred device.
+
+        Before the fix the output used _EP_TO_DEVICE.get(provider, device).
+        For --device gpu --ep qnn that lookup returns 'npu' (qnn's canonical
+        device), so the displayed device contradicted what the user passed.
+        The fix drops the lookup and always prints the user-supplied device.
+        """
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = tmp_path / "model_gpu_ctx.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_onnx.return_value = mock_result
+
+        result = runner.invoke(
+            main,
+            ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "qnn"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Device:" in result.output
+        # Must show "gpu" (the flag value), not "npu" (what _EP_TO_DEVICE["qnn"] returns)
+        device_line = next(line for line in result.output.splitlines() if "Device:" in line)
+        assert "gpu" in device_line
+        assert "npu" not in device_line
+
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_compile_device_propagates_to_provider_options(
+        self,
+        mock_compile_onnx: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test --device npu --ep qnn sets provider_options[device_type] = NPU.
+
+        Before the fix, for_provider() was called without device so
+        provider_options was empty and _finalize_output searched for
+        ..._qnn_ctx.onnx instead of ..._npu_ctx.onnx.
+        """
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = tmp_path / "model_npu_ctx.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_onnx.return_value = mock_result
+
+        result = runner.invoke(
+            main,
+            ["compile", "-m", str(model_path), "--device", "npu", "--ep", "qnn"],
+        )
+
+        assert result.exit_code == 0, result.output
+        config = mock_compile_onnx.call_args.kwargs["config"]
+        assert config.ep_config.provider_options.get("device_type") == "NPU"
+
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""
         import onnx
