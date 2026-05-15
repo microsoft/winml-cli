@@ -67,12 +67,13 @@ class TestWinMLSessionEPSpecific:
                 "DmlExecutionProvider",
                 marks=pytest.mark.ep("dml"),
             ),
-            pytest.param(
-                "cuda",
-                "gpu",
-                "CUDAExecutionProvider",
-                marks=pytest.mark.ep("cuda"),
-            ),
+            # CUDA support disabled — re-enable when needed.
+            # pytest.param(
+            #     "cuda",
+            #     "gpu",
+            #     "CUDAExecutionProvider",
+            #     marks=pytest.mark.ep("cuda"),
+            # ),
             pytest.param(
                 "nv_tensorrt_rtx",
                 "gpu",
@@ -87,7 +88,8 @@ class TestWinMLSessionEPSpecific:
             ),
             pytest.param("rocm", "gpu", "ROCMExecutionProvider", marks=pytest.mark.ep("rocm")),
         ],
-        ids=["qnn", "openvino", "dml", "cuda", "nv_tensorrt_rtx", "vitisai", "rocm"],
+        # "cuda" omitted — CUDA support disabled.
+        ids=["qnn", "openvino", "dml", "nv_tensorrt_rtx", "vitisai", "rocm"],
     )
     def test_ep_inference(
         self,

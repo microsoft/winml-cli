@@ -93,7 +93,7 @@ _EP_TO_DEVICE: dict[EPName, str] = {
     "DmlExecutionProvider": "gpu",
     "MIGraphXExecutionProvider": "gpu",
     "NvTensorRTRTXExecutionProvider": "gpu",
-    "CUDAExecutionProvider": "gpu",
+    # "CUDAExecutionProvider": "gpu",  # CUDA support disabled — re-enable when needed.
     "OpenVINOExecutionProvider": "gpu",
     "CPUExecutionProvider": "cpu",
 }

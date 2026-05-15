@@ -15,7 +15,7 @@ import onnxruntime as ort
 # Source of truth: docs/naming-convention.md.
 EPName = Literal[
     "CPUExecutionProvider",
-    "CUDAExecutionProvider",
+    # "CUDAExecutionProvider",  # CUDA support disabled — re-enable when needed.
     "DmlExecutionProvider",
     "MIGraphXExecutionProvider",
     "NvTensorRTRTXExecutionProvider",
@@ -32,7 +32,7 @@ EPAlias = Literal[
     "vitisai",
     "vitis",
     "cpu",
-    "cuda",
+    # "cuda",  # CUDA support disabled — re-enable when needed.
     "dml",
     "nv_tensorrt_rtx",
     "trtrtx",
@@ -57,7 +57,7 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "vitisai": "VitisAIExecutionProvider",
     "vitis": "VitisAIExecutionProvider",
     "cpu": "CPUExecutionProvider",
-    "cuda": "CUDAExecutionProvider",
+    # "cuda": "CUDAExecutionProvider",  # CUDA support disabled — re-enable when needed.
     "dml": "DmlExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "trtrtx": "NvTensorRTRTXExecutionProvider",
@@ -73,7 +73,7 @@ EP_NAME_TO_ALIAS: dict[EPName, EPAlias] = {
     "OpenVINOExecutionProvider": "openvino",
     "VitisAIExecutionProvider": "vitisai",
     "CPUExecutionProvider": "cpu",
-    "CUDAExecutionProvider": "cuda",
+    # "CUDAExecutionProvider": "cuda",  # CUDA support disabled — re-enable when needed.
     "DmlExecutionProvider": "dml",
     "NvTensorRTRTXExecutionProvider": "nv_tensorrt_rtx",
     "MIGraphXExecutionProvider": "migraphx",

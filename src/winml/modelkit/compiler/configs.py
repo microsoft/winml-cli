@@ -31,7 +31,7 @@ class EPConfig:
     Controls how the model is compiled for the target EP.
 
     Attributes:
-        provider: Target execution provider (qnn, cpu, cuda, dml)
+        provider: Target execution provider (qnn, cpu, dml)
         provider_options: EP-specific options as key=value dict
         enable_ep_context: Generate EPContext model with pre-compiled graph
         embed_context: Embed context in ONNX (True) or external .bin file (False)
@@ -116,7 +116,8 @@ class WinMLCompileConfig:
         factories: dict[EPName, Any] = {
             "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
             "DmlExecutionProvider": cls.for_dml,
-            "CUDAExecutionProvider": cls.for_cuda,
+            # CUDA support disabled — re-enable when needed.
+            # "CUDAExecutionProvider": cls.for_cuda,
             "NvTensorRTRTXExecutionProvider": cls.for_nv_tensorrt_rtx,
             "OpenVINOExecutionProvider": lambda: cls.for_openvino(device=device),
             "VitisAIExecutionProvider": lambda: cls.for_vitisai(device=device),
@@ -156,12 +157,13 @@ class WinMLCompileConfig:
             ep_config=EPConfig(provider="cpu", enable_ep_context=False),
         )
 
-    @classmethod
-    def for_cuda(cls) -> WinMLCompileConfig:
-        """Factory for CUDA compilation."""
-        return cls(
-            ep_config=EPConfig(provider="cuda", enable_ep_context=False),
-        )
+    # @classmethod
+    # def for_cuda(cls) -> WinMLCompileConfig:
+    #     """Factory for CUDA compilation."""
+    #     # CUDA support disabled — re-enable when needed.
+    #     return cls(
+    #         ep_config=EPConfig(provider="cuda", enable_ep_context=False),
+    #     )
 
     @classmethod
     def for_dml(cls) -> WinMLCompileConfig:

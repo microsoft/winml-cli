@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 _EP_DEVICE_MAP: dict[EPName, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
-    "CUDAExecutionProvider": "gpu",
+    # "CUDAExecutionProvider": "gpu",  # CUDA support disabled — re-enable when needed.
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",

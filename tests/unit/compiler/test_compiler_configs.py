@@ -28,12 +28,12 @@ class TestEPConfig:
     def test_custom_values(self):
         """Test custom EP configuration."""
         config = EPConfig(
-            provider="cuda",
+            provider="dml",
             provider_options={"device_id": "1"},
             enable_ep_context=False,
             embed_context=True,
         )
-        assert config.provider == "cuda"
+        assert config.provider == "dml"
         assert config.provider_options == {"device_id": "1"}
         assert config.enable_ep_context is False
         assert config.embed_context is True
@@ -76,11 +76,12 @@ class TestCompileConfig:
         assert config.ep_config.provider == "cpu"
         assert config.ep_config.enable_ep_context is False
 
-    def test_for_cuda(self):
-        """Test CUDA factory method."""
-        config = WinMLCompileConfig.for_cuda()
-        assert config.ep_config.provider == "cuda"
-        assert config.ep_config.enable_ep_context is False
+    # CUDA support disabled — re-enable when needed.
+    # def test_for_cuda(self):
+    #     """Test CUDA factory method."""
+    #     config = WinMLCompileConfig.for_cuda()
+    #     assert config.ep_config.provider == "cuda"
+    #     assert config.ep_config.enable_ep_context is False
 
     def test_for_dml(self):
         """Test DirectML factory method."""
@@ -205,7 +206,7 @@ class TestForProvider:
             # EPs with enable_ep_context=False → no offline compile step → None
             ("dml", None),
             ("cpu", None),
-            ("cuda", None),
+            # ("cuda", None),  # CUDA support disabled — re-enable when needed.
             ("nv_tensorrt_rtx", None),
             ("vitisai", None),
             ("migraphx", None),
@@ -228,7 +229,8 @@ class TestForProvider:
 
     @pytest.mark.parametrize(
         "factory_name",
-        ["for_dml", "for_cpu", "for_cuda", "for_vitisai", "for_migraphx", "for_nv_tensorrt_rtx"],
+        # "for_cuda" omitted: CUDA support disabled — re-enable when needed.
+        ["for_dml", "for_cpu", "for_vitisai", "for_migraphx", "for_nv_tensorrt_rtx"],
     )
     def test_direct_factory_still_works(self, factory_name: str) -> None:
         """Low-level for_* factories are still callable directly even though
