@@ -9,10 +9,11 @@ Two metrics, computed once at the end of an eval pass:
 
 - **CER** (Character Error Rate): manual Levenshtein over (pred, ref).
   Standard OCR metric; lower is better.  No external deps.
-- **CIDEr**: ``pycocoevalcap.cider.cider.Cider`` — TF-IDF n-gram consensus
-  across multi-reference captions.  Standard image-captioning metric;
-  higher is better.  IDF is computed across the references provided in
-  the current call (self-IDF over the eval set).
+- **CIDEr**: TF-IDF n-gram consensus across multi-reference captions via
+  the in-house :class:`~winml.modelkit.eval.metrics.cider.Cider`.
+  Standard image-captioning metric; higher is better.  IDF is computed
+  across the references provided in the current call (self-IDF over the
+  eval set).
 """
 
 from __future__ import annotations
@@ -86,12 +87,9 @@ class TextSimilarityMetric:
         return edits / ref_chars
 
     def _cider(self) -> float | None:
-        """CIDEr-D via pycocoevalcap. Returns None if dep missing."""
-        try:
-            from pycocoevalcap.cider.cider import Cider
-        except ImportError:
-            logger.warning("pycocoevalcap not installed; CIDEr will be None.")
-            return None
+        """CIDEr score across the accumulated samples."""
+        from .cider import Cider
+
         try:
             refs_dict = {str(i): refs for i, refs in enumerate(self._references)}
             preds_dict = {str(i): [pred] for i, pred in enumerate(self._predictions)}

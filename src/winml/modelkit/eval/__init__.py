@@ -10,7 +10,7 @@ Provides accuracy evaluation using HuggingFace pipeline + evaluate library.
 
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
-from .evaluate import EvalResult, evaluate
+from .evaluate import EvalResult, evaluate, get_evaluator_class
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
 from .fill_mask_evaluator import WinMLFillMaskEvaluator
 from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
@@ -53,4 +53,5 @@ __all__ = [
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
+    "get_evaluator_class",
 ]

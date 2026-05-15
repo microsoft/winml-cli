@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 
     import onnx
 
+    from ...utils.constants import EPName
+
 
 class DocConstraintChecker:
     """Query documentation-based rules for operator constraint checking.
@@ -71,7 +73,7 @@ class DocConstraintChecker:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: str,
+        ep_name: EPName,
         device_type: str,
         skip_shape_inference: bool = False,
         node_key_by_node_id: dict[int, str] | None = None,

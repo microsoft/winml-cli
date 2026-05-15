@@ -74,6 +74,7 @@ _LOG_COLOR_RESET = "\033[0m"
 if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ...utils.constants import EPName
     from .node_checkers.base import NodeChecker
 
 
@@ -971,7 +972,7 @@ class RuntimeCheckerQuery:
     def __init__(
         self,
         model_proto: onnx.ModelProto,
-        ep_name: str,
+        ep_name: EPName,
         device_type: str,
         model_path: str | Path | None = None,
         dynamic_axis_strict_mode: bool = False,
@@ -2254,7 +2255,7 @@ class RuntimeCheckerQuery:
         self,
         node: onnx.NodeProto,
         for_debug: bool = False,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
     ) -> PatternRuntime:
         """Run runtime check for a single node.
@@ -2493,7 +2494,7 @@ class RuntimeCheckerQuery:
     def run_for_subgraph(
         self,
         pattern_match: PatternMatchResult,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> PatternRuntime:
         """Run runtime check for subgraph pattern via per-node checks."""
         pattern_name = pattern_match.pattern.__class__.__name__

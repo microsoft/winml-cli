@@ -11,8 +11,15 @@ import pytest
 from onnx import ModelProto, TensorProto, helper, load, numpy_helper, save
 from onnx.defs import get_schema
 
-from winml.modelkit.pattern.base import PatternMatcher, make_single_op_pattern
-from winml.modelkit.pattern.match import SkeletonMatchResult
+from winml.modelkit.onnx import ONNXDomain
+from winml.modelkit.pattern import (
+    Pattern,
+    PatternMatcher,
+    PatternSchema,
+    Skeleton,
+    SkeletonMatchResult,
+    make_single_op_pattern,
+)
 
 
 def _make_simple_model() -> ModelProto:
@@ -22,6 +29,37 @@ def _make_simple_model() -> ModelProto:
     node = helper.make_node("Identity", ["X"], ["Y"], name="id0")
     graph = helper.make_graph([node], "test", [x], [y])
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _make_two_identity_model() -> ModelProto:
+    """Create a two-node chain with one internal edge."""
+    x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])
+    y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])
+    id0 = helper.make_node("Identity", ["X"], ["mid"], name="id0")
+    id1 = helper.make_node("Identity", ["mid"], ["Y"], name="id1")
+    graph = helper.make_graph([id0, id1], "two_identity", [x], [y])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+class _TwoIdentityPattern(Pattern):
+    """Minimal two-node pattern used to verify matcher invariants."""
+
+    def get_skeleton(self) -> Skeleton:
+        return Skeleton(
+            node_op_types=["Identity", "Identity"],
+            node_domains=[ONNXDomain.AI_ONNX, ONNXDomain.AI_ONNX],
+            edges=[(-1, 0, 0, 0), (0, 0, 1, 0)],
+            exit_nodes=[1],
+            n_inputs=1,
+        )
+
+    def get_schema(self) -> PatternSchema:
+        return PatternSchema(name="TwoIdentityPattern", doc="", inputs=[], outputs=[])
+
+    def get_internal_constants_and_attributes(
+        self, inputs, attributes, is_constant_map, domain_versions
+    ):
+        return [], {}
 
 
 class TestPatternMatcherOnnxValidationFailure:
@@ -124,3 +162,17 @@ class TestPatternMatcherUnnamedNodeKeys:
                 matched_node_keys=[],
                 matcher=None,  # type: ignore[arg-type]
             )
+
+
+class TestPatternMatcherLookupInvariants:
+    """PatternMatcher should fail loudly when internal edge registration is broken."""
+
+    def test_missing_registered_edge_asserts(self):
+        """Missing edge_info entries for non-virtual inputs should raise immediately."""
+        matcher = PatternMatcher(_make_two_identity_model())
+        matcher.register_pattern(_TwoIdentityPattern())
+
+        matcher.edge_info_by_name["mid"].pop("id1")
+
+        with pytest.raises(AssertionError, match="Missing edge registration"):
+            matcher.match_skeleton()

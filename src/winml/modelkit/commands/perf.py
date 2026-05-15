@@ -27,6 +27,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..utils import cli as cli_utils
+from ..utils.constants import EPNameOrAlias
 from ._live_chart import LiveMonitorDisplay
 
 
@@ -78,7 +79,7 @@ class BenchmarkConfig:
     rebuild: bool = False
     ignore_cache: bool = False
     monitor: bool = False
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     shape_config: dict | None = None
 
 
@@ -512,7 +513,7 @@ def _perf_modules(
     console: Console,
     monitor: bool = False,
     device: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     precision: str = "auto",
 ) -> None:
     """Run per-module build and benchmark for matching submodules.
@@ -1111,15 +1112,9 @@ def _run_onnx_benchmark(
     required=False,
     optional_message="Overrides device-to-provider mapping.",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help=(
-        "Output JSON file path. Defaults to "
-        "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
-    ),
+@cli_utils.output_option(
+    "Output JSON file path. Defaults to "
+    "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
 @click.option(
     "--batch-size",
@@ -1193,7 +1188,7 @@ def perf(
     warmup: int,
     device: str,
     precision: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     output: Path | None,
     batch_size: int,
     shape_config_path: Path | None,
@@ -1286,7 +1281,7 @@ def perf(
             console=console,
             monitor=monitor,
             device=device.lower(),
-            ep=ep.lower() if ep else None,
+            ep=ep,
             precision=precision.lower(),
         )
         return
@@ -1329,7 +1324,7 @@ def perf(
         rebuild=rebuild,
         ignore_cache=ignore_cache,
         monitor=monitor,
-        ep=ep.lower() if ep else None,
+        ep=ep,
         shape_config=shape_config,
     )
 

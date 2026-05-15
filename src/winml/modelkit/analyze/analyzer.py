@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
 from .utils.timing_utils import make_timing_logger
@@ -85,7 +85,7 @@ class AnalysisResult:
         pattern_count = sum(self.output.metadata.detected_pattern_count.values())
         return f"AnalysisResult(patterns={pattern_count})"
 
-    def is_fully_supported(self, ep: str | None = None) -> bool:
+    def is_fully_supported(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if model is fully supported on the target EP and device.
 
         Args:
@@ -126,7 +126,7 @@ class AnalysisResult:
                 return False
         return found_target
 
-    def has_errors(self, ep: str | None = None) -> bool:
+    def has_errors(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if there are any unsupported patterns (blocking errors).
 
         Args:
@@ -159,7 +159,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def has_warnings(self, ep: str | None = None) -> bool:
+    def has_warnings(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if there are any partial patterns (warnings/optimization opportunities).
 
         Args:
@@ -192,7 +192,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def get_lint_result(self, ep: str | None = None) -> LintResult:
+    def get_lint_result(self, ep: EPNameOrAlias | None = None) -> LintResult:
         """Get lint-style result with error/warning/info counts.
 
         Args:
@@ -273,7 +273,7 @@ class AnalysisResult:
             optimization_config=optimization_config,
         )
 
-    def get_unsupported_operators(self, ep: str | None = None) -> list[str]:
+    def get_unsupported_operators(self, ep: EPNameOrAlias | None = None) -> list[str]:
         """Get list of unsupported operators for the target EP and device.
 
         Args:
@@ -308,7 +308,7 @@ class AnalysisResult:
 
         return unsupported
 
-    def get_optimization_opportunities(self, ep: str | None = None) -> list[Action]:
+    def get_optimization_opportunities(self, ep: EPNameOrAlias | None = None) -> list[Action]:
         """Get actions for patterns that could be optimized (UNSUPPORTED or PARTIAL status).
 
         Args:
@@ -351,7 +351,7 @@ class AnalysisResult:
                             seen_patterns.add(pattern_key)
         return actions
 
-    def get_optimization_config(self, ep: str | None = None) -> WinMLOptimizationConfig:
+    def get_optimization_config(self, ep: EPNameOrAlias | None = None) -> WinMLOptimizationConfig:
         """Generate WinML optimization configuration based on action items.
 
         This method extracts optimization settings from action_items in Actions,
@@ -493,11 +493,11 @@ class ONNXStaticAnalyzer:
     def analyze(
         self,
         model_path: str,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         device: str | None = None,
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
         on_ep_start: Callable | None = None,
@@ -623,12 +623,12 @@ class ONNXStaticAnalyzer:
     def analyze_from_proto(
         self,
         model_proto: onnx.ModelProto,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         device: str | None = None,
         enable_information: bool = True,
         model_path: str | None = None,
         htp_metadata_path: str | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
         on_ep_start: Callable | None = None,
@@ -674,7 +674,6 @@ class ONNXStaticAnalyzer:
         from .core.onnx_loader import ONNXLoader
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
-        from .utils.ep_utils import has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
         total_start = time.perf_counter()
@@ -685,7 +684,7 @@ class ONNXStaticAnalyzer:
         logger.info("Analyzing model from ModelProto")
 
         # Determine which EPs to analyze
-        eps_to_analyze: list[str] = []
+        eps_to_analyze: list[EPName] = []
         if ep_normalized is None:
             # Analyze all supported EPs
             eps_to_analyze = [
@@ -731,25 +730,7 @@ class ONNXStaticAnalyzer:
         information_list = {}
         ep_runtime_timing: dict[str, int] = {}
         ep_info_timing: dict[str, int] = {}
-        skipped_ep_count = 0
-
         for current_ep in eps_to_analyze:
-            # Skip EPs that have no rule data for the target device.
-            if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
-                skipped_ep_count += 1
-                if device_to_use:
-                    logger.warning(
-                        "No runtime check data for %s on %s — skipping op analysis.",
-                        current_ep,
-                        device_to_use,
-                    )
-                else:
-                    logger.warning(
-                        "No runtime check data for %s — skipping op analysis.",
-                        current_ep,
-                    )
-                continue
-
             logger.info("Checking runtime support for %s...", current_ep)
             if on_ep_start:
                 try:
@@ -816,7 +797,6 @@ class ONNXStaticAnalyzer:
             ep=ep_normalized,
             device=device_to_use,
             eps=len(eps_to_analyze),
-            skipped_eps=skipped_ep_count,
             patterns=len(pattern_matches),
             extraction_ms=extraction_ms,
             aggregate_ms=aggregate_ms,
@@ -868,10 +848,10 @@ class AnalyzeResult:
 def analyze_onnx(
     model: str | Path,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     autoconf: bool = True,
-    run_unknown_op: bool = True,
+    run_unknown_op: bool = False,
     on_ep_start: Callable | None = None,
     on_node_result: Callable | None = None,
 ) -> AnalyzeResult:

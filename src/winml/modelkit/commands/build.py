@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPName, EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -159,7 +160,7 @@ def _build_modules(
     output_dir: Path,
     *,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
@@ -279,11 +280,9 @@ def _build_modules(
     "--no-compile forces skip. Default: inherit from config; when auto-generating "
     "config (no -c), compilation is off unless --compile is passed.",
 )
-@click.option(
-    "--ep",
-    default=None,
-    help="Target execution provider for analyzer (e.g., 'qnn'). "
-    "Falls back to compile config EP if not set.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Falls back to compile config EP if not set.",
 )
 @click.option(
     "--device",
@@ -330,7 +329,7 @@ def build(
     no_quant: bool,
     no_compile: bool | None,
     no_optimize: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str,
     no_analyze: bool,
     max_optim_iterations: int | None,
@@ -383,7 +382,7 @@ def build(
         from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
-        candidate_eps = [
+        candidate_eps: list[EPName] = [
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
@@ -609,7 +608,7 @@ def _run_single_build(
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> None:
@@ -752,7 +751,7 @@ def _run_optimize_stage(
     config: WinMLBuildConfig,
     model_path: Path,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
@@ -802,7 +801,14 @@ def _run_optimize_stage(
             _current_iter[1] = max_iter
             _header_shown[0] = False
 
-        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
+        # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
+        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        from ..analyze.utils.ep_utils import has_rule_data_for_ep
+        from ..sysinfo import resolve_device as _resolve_device
+
+        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+
+        def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             _current_ep[0] = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
@@ -814,7 +820,9 @@ def _run_optimize_stage(
                     f"[bold]Analyzing[/bold] [cyan]{total}[/cyan] nodes  "
                     f"[dim](iter {_current_iter[0]}/{_current_iter[1]})[/dim]"
                 )
-            _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
+            # Skip bar for EPs with no rule data — all results would be 0/0/0
+            if has_rule_data_for_ep(ep_name, _resolved_device or ""):
+                _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
             ep_name = _current_ep[0]
@@ -1057,7 +1065,7 @@ def _build_hf_pipeline(
     output_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:
@@ -1180,7 +1188,7 @@ def _build_onnx_pipeline(
     onnx_path: Path,
     output_dir: Path,
     rebuild: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:

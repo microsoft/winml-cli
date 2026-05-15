@@ -13,26 +13,26 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ...utils.constants import EPName
     from ..models.ihv_type import IHVType
 
 
 logger = logging.getLogger(__name__)
 
 
-def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
+def infer_ihv_from_ep_name(ep_name: EPName) -> IHVType:
     """Infer IHVType from Execution Provider name.
 
     Maps an execution provider name to its corresponding IHV type.
     Supports multiple name variations for each provider.
+    Unknown EPs (e.g., CPUExecutionProvider, DmlExecutionProvider) resolve
+    to IHVType.MICROSOFT.
 
     Args:
         ep_name: Execution Provider name (e.g., QNNExecutionProvider, OpenVINOExecutionProvider)
 
     Returns:
-        IHVType: Inferred IHV type (QC, INTEL, AMD, or NVIDIA)
-
-    Raises:
-        ValueError: If EP name is not recognized
+        IHVType: Inferred IHV type (QC, INTEL, AMD, NVIDIA, or MICROSOFT)
 
     Examples:
         >>> infer_ihv_from_ep_name("QNNExecutionProvider")
@@ -43,8 +43,8 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
         <IHVType.AMD: 'AMD'>
         >>> infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
         <IHVType.NVIDIA: 'NVIDIA'>
-        >>> infer_ihv_from_ep_name("unknown")
-        ValueError: Unknown execution provider...
+        >>> infer_ihv_from_ep_name("CPUExecutionProvider")
+        <IHVType.MICROSOFT: 'Microsoft'>
     """
     from ..models.ihv_type import IHVType
 
@@ -66,18 +66,15 @@ def infer_ihv_from_ep_name(ep_name: str) -> IHVType:
     # NVIDIA / TensorRT RTX
     # This is intentionally a permissive substring fallback to cover common
     # TensorRT naming variants. Callers should prefer canonical EP names.
-    nvidia_keywords = ("nvidia", "nvtensorrt", "tensorrt", "rtx")
+    nvidia_keywords = ("nvidia", "nvtensorrt", "trtrtx", "tensorrt", "rtx")
     if any(kw in ep_lower for kw in nvidia_keywords):
         return IHVType.NVIDIA
 
-    raise ValueError(
-        f"Unknown execution provider: {ep_name}. "
-        "Supported: QNNExecutionProvider, OpenVINOExecutionProvider, "
-        "VitisAIExecutionProvider, NvTensorRTRTXExecutionProvider"
-    )
+    # Default: Microsoft (e.g., CPUExecutionProvider, DmlExecutionProvider)
+    return IHVType.MICROSOFT
 
 
-def get_devices_with_rule_data(ep_name: str) -> list[str]:
+def get_devices_with_rule_data(ep_name: EPName) -> list[str]:
     """Return all devices supported by an EP.
 
     First probes runtime-rule directories for parquet artifacts for each
@@ -108,7 +105,21 @@ def get_devices_with_rule_data(ep_name: str) -> list[str]:
     return [d.upper() for d in device_str.split("/") if d]
 
 
-def has_rule_data_for_ep(ep_name: str, device: str) -> bool:
+def has_any_rule_data() -> bool:
+    """Return True if any parquet rule file exists in any search directory.
+
+    Used to distinguish "no data at all" (needs setup) from "data exists
+    but not for this specific EP/device combination".
+    """
+    from .rule_loader import get_runtime_rules_search_dirs
+
+    for search_dir in get_runtime_rules_search_dirs():
+        if search_dir.is_dir() and any(search_dir.rglob("*.parquet")):
+            return True
+    return False
+
+
+def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
     """Check whether runtime check rule data exists for a given EP and device.
 
         Probes runtime-rule search directories for parquet files in either layout:

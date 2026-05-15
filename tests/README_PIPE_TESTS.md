@@ -227,7 +227,7 @@ def test_end_to_end_workflow(sample_model):
 
 ### Run all pipe tests
 ```bash
-cd D:\BYOM\WinML-ModelKit
+cd D:\BYOM\winml-cli
 uv run pytest tests/test_pipe_*.py tests/test_optimizer.py -v
 ```
 

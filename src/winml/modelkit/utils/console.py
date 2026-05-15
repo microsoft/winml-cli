@@ -26,6 +26,7 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from ..export.config import WinMLExportConfig
+    from .constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +408,7 @@ class StageLive:
 
     # ── EP analyzer bar lines (for optimize stage) ────────────────
 
-    def ep_bar_add(self, ep_name: str, total: int = 0) -> int:
+    def ep_bar_add(self, ep_name: EPName, total: int = 0) -> int:
         """Add a placeholder EP bar line, return index."""
         idx = len(self._lines)
         line = Text()
@@ -422,7 +423,7 @@ class StageLive:
     def ep_bar_update(
         self,
         idx: int,
-        ep_name: str,
+        ep_name: EPName,
         s: int,
         p: int,
         u: int,

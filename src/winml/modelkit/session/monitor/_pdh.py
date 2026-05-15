@@ -26,8 +26,11 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
+
+if TYPE_CHECKING:
+    from ...utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +367,7 @@ class PdhPoller:
         self,
         poll_interval_ms: int = 200,
         device: str = "auto",
-        ep_name: str | None = None,
+        ep_name: EPName | None = None,
     ) -> None:
         device_norm = (device or "auto").lower()
         if device_norm not in _DEVICE_KINDS:
@@ -518,7 +521,7 @@ class PdhPoller:
 
     @staticmethod
     def _resolve_adapter(
-        requested: str, ep_name: str | None = None
+        requested: str, ep_name: EPName | None = None
     ) -> tuple[str | None, str | None]:
         """Return (luid, kind) for the requested device.
 
