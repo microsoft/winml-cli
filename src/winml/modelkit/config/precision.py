@@ -18,14 +18,16 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 # Tasks where GPU auto-precision may differ (LLM = w4a16 recommendation)
-_LLM_TASKS = frozenset({
-    "text-generation",
-    "text2text-generation",
-})
+_LLM_TASKS = frozenset(
+    {
+        "text-generation",
+        "text2text-generation",
+    }
+)
 
 # Default auto-precision mapping: device -> precision
 _AUTO_PRECISION: dict[str, str] = {
-    "npu": "int8",
+    "npu": "w8a16",
     "gpu": "fp16",
     "cpu": "fp16",
 }
@@ -66,13 +68,26 @@ _DEVICE_TO_PROVIDER: dict[str, str | None] = {
     "cpu": None,
 }
 
+
+def get_provider_for_device(device: str) -> str | None:
+    """Get the default compile provider for a resolved device.
+
+    Args:
+        device: Resolved device name ("npu", "gpu", "cpu").
+
+    Returns:
+        Provider name (e.g., "qnn", "dml") or None for CPU.
+    """
+    return _DEVICE_TO_PROVIDER.get(device)
+
+
 # EP -> device inference (when --ep is given without --device)
 _EP_TO_DEVICE: dict[str, str] = {
     "qnn": "npu",
     "vitisai": "npu",
     "dml": "gpu",
     "migraphx": "gpu",
-    "tensorrt": "gpu",
+    "nv_tensorrt_rtx": "gpu",
     "cuda": "gpu",
     "openvino": "gpu",
     "cpu": "cpu",
@@ -206,7 +221,7 @@ def resolve_precision(
         device: Target device ("npu", "gpu", "cpu", or "auto").
         precision: Target precision ("fp32", "fp16", "int8", "int16", "w8a16", or "auto").
             "w8a16" = mixed precision: uint8 weights + uint16 activations.
-        ep: Explicit EP override (e.g., "migraphx", "tensorrt"). When set,
+        ep: Explicit EP override (e.g., "migraphx", "nv_tensorrt_rtx"). When set,
             overrides the default device→provider mapping. If device is
             "auto", the device is inferred from the EP.
         available_devices: Prioritized device list from resolve_device().
@@ -234,9 +249,7 @@ def resolve_precision(
     if ep is not None:
         ep = ep.lower()
         if ep not in VALID_EPS:
-            raise ValueError(
-                f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}"
-            )
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}")
         # Infer device from EP when device is "auto"
         if device == "auto":
             device = _EP_TO_DEVICE[ep]
@@ -263,7 +276,8 @@ def resolve_precision(
         # Device is "auto" but precision is explicit — pick best device
         # FIXME: improve device-precision compatibility lookup table later
         resolved_device = _pick_device_for_precision(
-            resolved_precision, available_devices or ["cpu"],
+            resolved_precision,
+            available_devices or ["cpu"],
         )
 
     # Resolve "auto" precision for the resolved device

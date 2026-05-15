@@ -7,12 +7,14 @@
 import onnxruntime as ort
 
 
-# Supported execution providers
-SUPPORTED_EPS = [
-    "QNNExecutionProvider",
-    "OpenVINOExecutionProvider",
-    "VitisAIExecutionProvider",
-]
+# Supported execution providers — derived from sysinfo's authoritative EP→device map.
+def _get_supported_eps() -> list[str]:
+    from ..sysinfo.device import get_ep_device_map
+
+    return list(get_ep_device_map().keys())
+
+
+SUPPORTED_EPS = _get_supported_eps()
 
 # EP shorthand aliases (case-insensitive)
 EP_ALIASES = {
@@ -21,6 +23,10 @@ EP_ALIASES = {
     "ov": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "vitis": "VitisAIExecutionProvider",
+    "cpu": "CPUExecutionProvider",
+    "dml": "DmlExecutionProvider",
+    "nv_tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
+    "migraphx": "MIGraphXExecutionProvider",
 }
 
 # All accepted EP names (full names + aliases)
@@ -84,7 +90,7 @@ def extract_ep_options(kwargs: dict) -> dict[str, str]:
     ep_aliases = list(EP_ALIASES.keys())
     ep_options = {}
     for param_name, param_value in kwargs.items():
-        parts = param_name.split('_', 1)
+        parts = param_name.split("_", 1)
         if param_value is not None and len(parts) == 2 and parts[0] in ep_aliases:
             ep_options[parts[1]] = str(param_value)
     return ep_options
@@ -96,6 +102,9 @@ SUPPORTED_DEVICES = [
     "GPU",
     "NPU",
 ]
+
+# TODO: unify casing with SUPPORTED_DEVICES (uppercase) and DEVICE_TO_DEVICE_TYPE keys
+SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
 
 # Device string to ORT device type mapping
 DEVICE_TO_DEVICE_TYPE = {

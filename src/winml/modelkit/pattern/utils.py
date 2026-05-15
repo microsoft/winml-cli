@@ -106,7 +106,9 @@ def get_tensor_shape(tensor_name: str, matcher: Any) -> tuple | None:
 
 DTYPE_MAP = {
     TensorProto.FLOAT: "FLOAT",
+    TensorProto.UINT4: "UINT4",
     TensorProto.UINT8: "UINT8",
+    TensorProto.INT4: "INT4",
     TensorProto.INT8: "INT8",
     TensorProto.UINT16: "UINT16",
     TensorProto.INT16: "INT16",
@@ -232,6 +234,7 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
     - Floats -> DUMMY_FLOAT
     - Lists/Tuples -> Tuple of processed elements
     - Dicts -> Tuple of sorted (key, processed_value) items
+    - ndarrays -> Tuple of processed elements (converted via tolist())
     - Others -> Original value
     """
     # Fast path: type identity checks avoid isinstance MRO traversal
@@ -246,6 +249,8 @@ def make_hashable(value: Any, replace_float_with_dummy: bool = True) -> Any:
         return tuple(
             sorted([(k, make_hashable(v, replace_float_with_dummy)) for k, v in value.items()])
         )
+    if isinstance(value, np.ndarray):
+        return make_hashable(value.tolist(), replace_float_with_dummy)
     if isinstance(value, np.floating):
         return DUMMY_FLOAT if replace_float_with_dummy else float(value)
     return value

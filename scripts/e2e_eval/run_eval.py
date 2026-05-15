@@ -350,13 +350,28 @@ def _run_build(
     precision: str,
     timeout: int,
     model_dir: Path,
+    ep: str | None = None,
 ) -> dict:
     """Run winml config + winml build for one model. Returns build result dict.
 
-    Flow: winml config → config.json → winml build --use-cache → ONNX path.
+    Flow: winml config → list of config JSONs → winml build each → ONNX paths.
+
+    Single models produce one config; composite models (e.g., T5 translation)
+    produce one per sub-component (suffixed names). Both go through the same
+    build loop — single model is just the list-of-1 case.
     """
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove any stale suffixed sub-configs BEFORE `wmk config` runs.
+    # For composite models `wmk config` writes files matching {stem}_*.json
+    # (e.g., build_config_encoder.json); cleaning those AFTER the command would
+    # delete the freshly-written configs and silently degrade composite builds
+    # to single-model. Running cleanup first removes prior-run artifacts without
+    # touching the current run's output.
+    for _stale in config_path.parent.glob(f"{config_path.stem}_*.json"):
+        safe_print(f"    [config] Removing stale sub-config from prior run: {_stale.name}")
+        _stale.unlink(missing_ok=True)
 
     # Step 1: winml config
     config_args = [
@@ -373,62 +388,98 @@ def _run_build(
     ]
     if entry.task:
         config_args += ["--task", entry.task]
+    if ep:
+        config_args += ["--ep", ep]
 
     config_proc = _run_subprocess(config_args, timeout)
     if config_proc["exit_code"] != 0:
         return {
             "success": False,
-            "onnx_path": None,
+            "onnx_paths": {},
             "stage": "config",
             "proc": config_proc,
         }
 
-    # Step 2: winml build --use-cache
-    build_args = [
-        *WINML_CLI,
-        "build",
-        "-c",
-        str(config_path),
-        "-m",
-        entry.hf_id,
-        "--use-cache",
-    ]
+    # Collect config files: composite models produce suffixed files
+    # (e.g., build_config_encoder.json); single models produce config_path itself.
+    sub_configs = sorted(config_path.parent.glob(f"{config_path.stem}_*.json"))
+    if not sub_configs:
+        sub_configs = [config_path]
 
-    build_proc = _run_subprocess(build_args, timeout)
-    if build_proc["exit_code"] != 0:
-        return {
-            "success": False,
-            "onnx_path": None,
-            "stage": "build",
-            "proc": build_proc,
-        }
+    # Step 2: build each sub-config
+    # Map component label → ONNX path. Single model uses "" as label.
+    onnx_paths: dict[str, str] = {}
+    last_proc = config_proc
 
-    # Extract ONNX path from build output
-    # winml build prints "Final artifact: <path>" in stderr
-    onnx_path = None
-    for line in build_proc["stderr"].splitlines():
-        if "Final artifact:" in line:
-            onnx_path = line.split("Final artifact:")[-1].strip()
-            break
+    # TODO: remove for loop once wimnl build supports building composite model to multiple onnx files
+    for sub_cfg in sub_configs:
+        label = sub_cfg.stem.removeprefix(f"{config_path.stem}_") if len(sub_configs) > 1 else ""
+        if label:
+            safe_print(f"    building component: {label}")
 
-    # Fallback: search cache for the built model
-    if not onnx_path:
-        for line in build_proc["stdout"].splitlines():
-            if "Final artifact:" in line:
-                onnx_path = line.split("Final artifact:")[-1].strip()
-                break
+        build_args = [
+            *WINML_CLI,
+            "build",
+            "-c",
+            str(sub_cfg),
+            "-m",
+            entry.hf_id,
+            "--use-cache",
+        ]
 
-    if not onnx_path or not Path(onnx_path).exists():
-        # Last resort: find _model.onnx in the cache
-        onnx_path = _find_cached_model(entry.hf_id, build_proc, entry.task)
+        build_proc = _run_subprocess(build_args, timeout)
+        last_proc = build_proc
+        if build_proc["exit_code"] != 0:
+            stage = f"build_{label}" if label else "build"
+            return {
+                "success": False,
+                "onnx_paths": onnx_paths,
+                "stage": stage,
+                "proc": build_proc,
+            }
+
+        task_hint = _extract_task_from_config(sub_cfg) or entry.task
+        path = _extract_onnx_path(build_proc, entry.hf_id, task_hint)
+        if path:
+            onnx_paths[label] = path
 
     return {
-        "success": onnx_path is not None,
-        "onnx_path": onnx_path,
+        "success": len(onnx_paths) == len(sub_configs),
+        "onnx_paths": onnx_paths,
         "stage": "complete",
-        "proc": build_proc,
-        "config_path": str(config_path),
+        "proc": last_proc,
     }
+
+
+def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
+    """Extract ONNX path from build subprocess output."""
+    # Patterns used by winml build to report the artifact path
+    markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
+    onnx_path = None
+    for line in (build_proc["stderr"] + build_proc["stdout"]).splitlines():
+        for marker in markers:
+            if marker in line:
+                candidate = line.split(marker)[-1].strip()
+                if candidate and Path(candidate).exists():
+                    onnx_path = candidate
+                    break
+        if onnx_path:
+            break
+
+    if not onnx_path or not Path(onnx_path).exists():
+        onnx_path = _find_cached_model(hf_id, build_proc, task)
+
+    return onnx_path
+
+
+def _extract_task_from_config(config_path: Path) -> str | None:
+    """Read the task from a build config JSON file."""
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        loader = data.get("loader", {})
+        return loader.get("task")
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) -> str | None:
@@ -447,6 +498,7 @@ def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) ->
         return None
 
     from winml.modelkit.loader.task import get_task_abbrev
+
     prefix = get_task_abbrev(task) + "_"
 
     model_files = sorted(
@@ -466,16 +518,17 @@ def run_model(
     entry: ModelEntry,
     device: str,
     timeout: int,
-    onnx_path: str | None = None,
+    onnx_paths: dict[str, str] | None = None,
+    ep: str | None = None,
 ) -> dict:
-    """Execute winml perf for one model. Returns raw subprocess result dict.
+    """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
-    When onnx_path is provided, benchmarks the pre-built ONNX directly
-    (skips internal build). Otherwise falls back to HF model ID.
+    When onnx_paths is provided, benchmarks each pre-built ONNX directly.
+    Single model is the {"": path} case. Results are merged (worst exit
+    code, concatenated stdout/stderr, summed elapsed).
     """
-    if onnx_path:
-        args = [*WINML_CLI, "perf", "-m", onnx_path, "--device", device]
-    else:
+    if not onnx_paths:
+        # No pre-built paths: fall back to HF model ID (single model only)
         args = [
             *WINML_CLI,
             "perf",
@@ -488,22 +541,72 @@ def run_model(
         ]
         if entry.task:
             args += ["--task", entry.task]
+        if ep:
+            args += ["--ep", ep]
+        args += ["--iterations", "10", "--warmup", "2"]
+        args += entry.perf_args
 
-    args += ["--iterations", "10", "--warmup", "2"]
-    args += entry.perf_args
+        proc = _run_subprocess(args, timeout)
+        proc["device"] = device
+        proc["timestamp"] = _utc_now()
+        proc["error_summary"] = (
+            ""
+            if proc["exit_code"] == 0
+            else f"timeout ({timeout}s)"
+            if proc["timeout"]
+            else f"exit code {proc['exit_code']}"
+        )
+        return proc
 
-    proc = _run_subprocess(args, timeout)
-    # Attach device and timestamp for build_eval_result
-    proc["device"] = device
-    proc["timestamp"] = _utc_now()
-    proc["error_summary"] = (
-        ""
-        if proc["exit_code"] == 0
-        else f"timeout ({timeout}s)"
-        if proc["timeout"]
-        else f"exit code {proc['exit_code']}"
-    )
-    return proc
+    # Run perf for each sub-model and merge results
+    all_stdout: list[str] = []
+    all_stderr: list[str] = []
+    total_elapsed = 0.0
+    worst_exit = 0
+    any_timeout = False
+    commands: list[str] = []
+
+    for label, path in onnx_paths.items():
+        if label:
+            safe_print(f"    perf: {label}")
+
+        args = [*WINML_CLI, "perf", "-m", path, "--device", device]
+        if ep:
+            args += ["--ep", ep]
+        args += ["--iterations", "10", "--warmup", "2"]
+        args += entry.perf_args
+
+        proc = _run_subprocess(args, timeout)
+        if label:
+            all_stdout.append(f"=== {label} ===\n{proc['stdout']}")
+            all_stderr.append(f"=== {label} ===\n{proc['stderr']}")
+        else:
+            all_stdout.append(proc["stdout"])
+            all_stderr.append(proc["stderr"])
+        total_elapsed += proc["elapsed"]
+        commands.append(proc["command"])
+        if proc["exit_code"] != 0:
+            worst_exit = proc["exit_code"]
+        if proc["timeout"]:
+            any_timeout = True
+
+    return {
+        "stdout": "\n".join(all_stdout),
+        "stderr": "\n".join(all_stderr),
+        "exit_code": worst_exit,
+        "elapsed": round(total_elapsed, 1),
+        "timeout": any_timeout,
+        "command": commands[0] if len(commands) == 1 else " | ".join(commands),
+        "device": device,
+        "timestamp": _utc_now(),
+        "error_summary": (
+            ""
+            if worst_exit == 0
+            else f"timeout ({timeout}s)"
+            if any_timeout
+            else f"exit code {worst_exit}"
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +678,7 @@ def _run_winml_eval(
     ds_config: dict,
     model_dir: Path,
     onnx_path: str | None = None,
+    ep: str | None = None,
 ) -> dict:
     """Invoke winml eval for one model. Returns process result + parsed metric."""
     output_path = model_dir / "winml_eval_output.json"
@@ -604,6 +708,8 @@ def _run_winml_eval(
         ]
     if entry.task:
         args += ["--task", entry.task]
+    if ep:
+        args += ["--ep", ep]
     # When ds_config is provided, pass explicit dataset args;
     # otherwise winml eval uses its built-in task defaults.
     if ds_config.get("dataset"):
@@ -762,6 +868,7 @@ def _run_accuracy_phase(
     timeout: int,
     model_dir: Path,
     onnx_path: str | None = None,
+    ep: str | None = None,
 ) -> dict:
     """Run winml eval + pytorch baseline for one model. Returns accuracy sub-section dict."""
     ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
@@ -769,7 +876,7 @@ def _run_accuracy_phase(
     # Build local dataset if a build_script is configured
     _build_dataset(ds_config, timeout)
 
-    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path)
+    winml = _run_winml_eval(entry, device, timeout, ds_config, model_dir, onnx_path, ep=ep)
 
     # Check baseline cache before running the expensive PyTorch baseline
     cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
@@ -917,6 +1024,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-type", help="Filter by model_type")
     parser.add_argument("--group", help="Filter by group")
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
+    parser.add_argument("--ep", default=None, help="Execution provider (e.g. qnn, dml, ov)")
     parser.add_argument(
         "--timeout", type=int, default=600, help="Per-subprocess timeout in seconds (default: 600)"
     )
@@ -984,8 +1092,8 @@ def main() -> None:
                     if e.hf_id == args.hf_model:
                         matched_entry = e
                         break
-        except Exception:
-            pass  # Registry is optional for single-model mode; proceed without enrichment
+        except Exception as e:
+            safe_print(f"  [registry] Optional enrichment skipped: {e}")
         if matched_entry is not None:
             # Override task if explicitly provided on CLI
             if args.task and args.task != matched_entry.task:
@@ -1048,8 +1156,10 @@ def main() -> None:
                         if _should_skip_existing(existing, retry_types, args.eval_type):
                             skipped_count += 1
                             continue
-                    except Exception:
-                        pass  # Corrupt result file — include model for re-evaluation
+                    except (OSError, json.JSONDecodeError, KeyError) as exc:
+                        safe_print(
+                            f"  [continue] Corrupt result file {result_path}: {exc} — re-evaluating"
+                        )
                 filtered.append(e)
             if skipped_count:
                 safe_print(
@@ -1097,7 +1207,10 @@ def main() -> None:
         retry_types = {t.upper() for t in args.retry_failed} if args.retry_failed else set()
 
     safe_print(f"E2E Evaluation: {len(entries)} models -> {output_dir}")
-    safe_print(f"Device: {args.device} | Timeout: {args.timeout}s | Eval: {args.eval_type}")
+    ep_label = args.ep or "auto"
+    safe_print(
+        f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
+    )
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
     if args.clean_cache:
         safe_print("Cache cleanup: ON (caches + temp files cleaned after each model)")
@@ -1182,70 +1295,70 @@ def main() -> None:
             perf_proc: dict | None = None
             accuracy_result: dict | None = None
 
-            # Build phase: winml config + winml build → ONNX path
+            # Build phase: winml config + winml build → list of ONNX paths
             # Build is shared by perf and eval, avoiding redundant builds.
-            onnx_path: str | None = None
-            if args.eval_type in ("perf", "both"):
-                build_result = _run_build(
-                    entry,
-                    args.device,
-                    _DEFAULT_PRECISION,
-                    args.timeout,
-                    model_dir,
-                )
-                if build_result["success"]:
-                    onnx_path = build_result["onnx_path"]
+            build_result = _run_build(
+                entry,
+                args.device,
+                _DEFAULT_PRECISION,
+                args.timeout,
+                model_dir,
+                ep=args.ep,
+            )
+            onnx_paths = build_result["onnx_paths"] if build_result["success"] else {}
+            # Composite models produce multiple ONNX paths; accuracy phase requires a
+            # single path and is not yet supported for composite models.
+            # TODO: composite model accuracy support
+            is_composite = len(onnx_paths) > 1
+            first_path = (
+                next(iter(onnx_paths.values()), None) if onnx_paths and not is_composite else None
+            )
 
-            if args.eval_type == "accuracy":
-                # Accuracy-only: build + eval (no perf)
-                build_result = _run_build(
+            if not build_result["success"]:
+                # Build failed — synthesize failed result for downstream phases
+                fail_proc = build_result["proc"]
+                fail_proc["device"] = args.device
+                fail_proc["timestamp"] = _utc_now()
+                fail_proc["error_summary"] = f"build_{build_result['stage']}_failed"
+
+                if args.eval_type != "accuracy":
+                    perf_proc = fail_proc
+                if args.eval_type != "perf":
+                    accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
+            elif is_composite and args.eval_type != "perf":
+                # Accuracy phase skipped for composite models (TODO: composite accuracy support)
+                safe_print(
+                    f"    [accuracy] Skipped for composite model {entry.hf_id} "
+                    "(multiple ONNX paths; composite accuracy evaluation not yet implemented)"
+                )
+                accuracy_result = {"skipped": True, "skip_reason": "composite_model_not_supported"}
+                if args.eval_type == "both":
+                    perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+            elif args.eval_type == "accuracy":
+                accuracy_result = _run_accuracy_phase(
                     entry,
                     args.device,
-                    _DEFAULT_PRECISION,
                     args.timeout,
                     model_dir,
+                    first_path,
+                    ep=args.ep,
                 )
-                if build_result["success"]:
-                    onnx_path = build_result["onnx_path"]
+            elif args.eval_type == "perf":
+                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+            else:
+                # "both": perf → eval
+                perf_proc = run_model(entry, args.device, args.timeout, onnx_paths, ep=args.ep)
+                if perf_proc["exit_code"] != 0:
+                    accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
+                else:
                     accuracy_result = _run_accuracy_phase(
                         entry,
                         args.device,
                         args.timeout,
                         model_dir,
-                        onnx_path,
+                        first_path,
+                        ep=args.ep,
                     )
-                else:
-                    accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
-            elif args.eval_type == "perf":
-                if onnx_path:
-                    perf_proc = run_model(entry, args.device, args.timeout, onnx_path)
-                else:
-                    # Build failed — synthesize a failed perf result
-                    perf_proc = build_result["proc"]
-                    perf_proc["device"] = args.device
-                    perf_proc["timestamp"] = _utc_now()
-                    perf_proc["error_summary"] = f"build_{build_result['stage']}_failed"
-            else:
-                # "both": build → perf → eval
-                if onnx_path:
-                    perf_proc = run_model(entry, args.device, args.timeout, onnx_path)
-                    if perf_proc["exit_code"] != 0:
-                        accuracy_result = {"skipped": True, "skip_reason": "perf_failed"}
-                    else:
-                        accuracy_result = _run_accuracy_phase(
-                            entry,
-                            args.device,
-                            args.timeout,
-                            model_dir,
-                            onnx_path,
-                        )
-                else:
-                    # Build failed
-                    perf_proc = build_result["proc"]
-                    perf_proc["device"] = args.device
-                    perf_proc["timestamp"] = _utc_now()
-                    perf_proc["error_summary"] = f"build_{build_result['stage']}_failed"
-                    accuracy_result = {"skipped": True, "skip_reason": "build_failed"}
 
         except KeyboardInterrupt:
             safe_print("\n\n[Ctrl+C] Interrupted — generating reports for completed models...")

@@ -29,6 +29,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@pytest.fixture(autouse=True)
+def _mock_rule_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bypass rule-data validation so CLI tests don't depend on rule zips."""
+    monkeypatch.setattr(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        lambda *_args, **_kwargs: True,
+    )
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
@@ -37,10 +46,16 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def mock_analyzer_result() -> Mock:
-    """Create a mock AnalysisOutput result."""
+    """Create a mock AnalysisResult (returned by ONNXStaticAnalyzer.analyze).
+
+    The command accesses ``result.output.results`` (list of EPSupport) for
+    Rich live display, ``result.is_fully_supported()`` for exit code, and
+    ``result.to_json()`` for JSON output.
+    """
     mock_result = Mock()
     mock_result.is_fully_supported.return_value = True
     mock_result.get_unsupported_operators.return_value = []
+    mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
             "analyzer_version": "0.1.0",
@@ -64,6 +79,7 @@ def mock_analyzer_partial_support() -> Mock:
     mock_result = Mock()
     mock_result.is_fully_supported.return_value = False
     mock_result.get_unsupported_operators.return_value = ["Conv", "Gemm", "Add"]
+    mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
             "analyzer_version": "0.1.0",
@@ -123,8 +139,8 @@ class TestAnalyzeCommandArguments:
         # Should not complain about missing --device argument
         assert "device" not in result.output.lower() or "missing" not in result.output.lower()
 
-    def test_validates_ep_choice(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test that --ep only accepts valid execution providers."""
+    def test_unknown_ep_with_device_exits_two(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test that unknown EP + explicit device exits with code 2."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -139,8 +155,7 @@ class TestAnalyzeCommandArguments:
                 "NPU",
             ],
         )
-        assert result.exit_code != 0
-        assert "invalid" in result.output.lower() or "choice" in result.output.lower()
+        assert result.exit_code == 2
 
     def test_validates_device_choice(self, runner: CliRunner, tmp_path: Path) -> None:
         """Test that --device only accepts valid device types."""
@@ -546,14 +561,19 @@ class TestAnalyzeCommandIntegration:
             assert result.exit_code == 0, f"Failed for EP: {ep}"
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    @patch(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        return_value=True,
+    )
     def test_all_supported_devices(
         self,
+        _mock_has_rule: Mock,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """Test all supported device types."""
+        """Test all supported device types (with rule data validation bypassed)."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -609,7 +629,141 @@ class TestAnalyzeCommandIntegration:
         # Verify analyze was called with correct parameters
         mock_instance.analyze.assert_called_once()
         call_kwargs = mock_instance.analyze.call_args[1]
-        assert call_kwargs["model_path"] == model_file
+        assert call_kwargs["model_path"] == str(model_file)
         assert call_kwargs["ep"] == "OpenVINOExecutionProvider"
         assert call_kwargs["device"] == "GPU"
         assert call_kwargs["enable_information"] is True
+
+
+class TestAnalyzeEPDeviceValidation:
+    """Test EP + device validation in analyze command."""
+
+    def test_dml_cpu_rejected_with_only_supports(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DML only supports GPU — passing CPU should exit 2 with helpful message."""
+        # Override the autouse mock to restore real validation
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "dml", "--device", "CPU"],
+        )
+        assert result.exit_code == 2
+        assert "only supports" in result.output.lower()
+        assert "gpu" in result.output.lower()
+
+    def test_cpu_ep_npu_rejected(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CPUExecutionProvider only supports CPU — passing NPU should exit 2."""
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "cpu", "--device", "NPU"],
+        )
+        assert result.exit_code == 2
+        assert "only supports" in result.output.lower()
+        assert "cpu" in result.output.lower()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    @patch(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        return_value=True,
+    )
+    def test_valid_combo_passes_validation(
+        self,
+        _mock_has_rule: Mock,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Valid EP+device combo should proceed to analysis."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "qnn", "--device", "NPU"],
+        )
+        assert result.exit_code == 0
+        mock_instance.analyze.assert_called_once()
+
+    def test_ep_alias_cpu_resolves(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """'cpu' alias should resolve to CPUExecutionProvider."""
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        # CPU EP + GPU → should fail validation with "only supports CPU"
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "cpu", "--device", "GPU"],
+        )
+        assert result.exit_code == 2
+        assert "cpuexecutionprovider" in result.output.lower()
+
+    def test_ep_alias_dml_resolves(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """'dml' alias should resolve to DmlExecutionProvider."""
+        monkeypatch.setattr(
+            "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+            lambda ep, dev: False,
+        )
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        # DML EP + NPU → should fail validation with "only supports GPU"
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "dml", "--device", "NPU"],
+        )
+        assert result.exit_code == 2
+        assert "dmlexecutionprovider" in result.output.lower()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_ep_without_device_skips_validation(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """When --device is omitted, EP+device validation should be skipped."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        # dml without --device should not exit 2 on validation
+        result = runner.invoke(
+            analyze,
+            ["--model", str(model_file), "--ep", "dml"],
+        )
+        # Should proceed to analysis (not fail on validation)
+        assert result.exit_code == 0
+        assert mock_instance.analyze.called

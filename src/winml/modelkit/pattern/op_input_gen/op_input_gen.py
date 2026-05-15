@@ -65,10 +65,19 @@ def _check_qnn_ep_setup_failure(result: dict) -> None:
 def register_runtime_checker_op(cls: type["OpInputGenerator"]) -> type["OpInputGenerator"]:
     """Decorator to register an OpInputGenerator class by its op_name.
 
+    For ops in non-default domains (e.g., com.microsoft), set op_domain on the
+    class to register under a domain-qualified key ("com.microsoft::Gelu").
+
     Usage:
         @register_runtime_checker_op
         class AbsInputGenerator(OpInputGenerator):
             op_name = "Abs"
+            ...
+
+        @register_runtime_checker_op
+        class MicrosoftGeluInputGenerator(OpInputGenerator):
+            op_name = "Gelu"
+            op_domain = "com.microsoft"
             ...
     """
     if not hasattr(cls, "op_name"):
@@ -76,20 +85,24 @@ def register_runtime_checker_op(cls: type["OpInputGenerator"]) -> type["OpInputG
             f"Class {cls.__name__} must have an 'op_name' class attribute to be registered"
         )
     op_name = cls.op_name
-    if op_name in _OP_INPUT_GENERATOR_REGISTRY:
+    op_domain = getattr(cls, "op_domain", "")
+    registry_key = f"{op_domain}::{op_name}" if op_domain else op_name
+    if registry_key in _OP_INPUT_GENERATOR_REGISTRY:
         raise ValueError(
-            f"Operator '{op_name}' is already registered by "
-            f"{_OP_INPUT_GENERATOR_REGISTRY[op_name].__name__}"
+            f"Operator '{registry_key}' is already registered by "
+            f"{_OP_INPUT_GENERATOR_REGISTRY[registry_key].__name__}"
         )
-    _OP_INPUT_GENERATOR_REGISTRY[op_name] = cls
+    _OP_INPUT_GENERATOR_REGISTRY[registry_key] = cls
     return cls
 
 
-def get_runtime_checker_op(op_name: str) -> type["OpInputGenerator"]:
+def get_runtime_checker_op(op_name: str, domain: str | None = None) -> type["OpInputGenerator"]:
     """Get registered OpInputGenerator class by operator name.
 
     Args:
         op_name: The ONNX operator name (e.g., "Abs", "Relu")
+        domain: Optional ONNX domain string (e.g., "com.microsoft"). When provided,
+            a domain-qualified lookup is tried first before falling back to op_name.
 
     Returns:
         The OpInputGenerator class for the specified operator
@@ -97,10 +110,15 @@ def get_runtime_checker_op(op_name: str) -> type["OpInputGenerator"]:
     Raises:
         KeyError: If no generator is registered for the operator
     """
+    if domain:
+        qualified_key = f"{domain}::{op_name}"
+        if qualified_key in _OP_INPUT_GENERATOR_REGISTRY:
+            return _OP_INPUT_GENERATOR_REGISTRY[qualified_key]
     if op_name not in _OP_INPUT_GENERATOR_REGISTRY:
         raise KeyError(
-            f"No OpInputGenerator registered for operator '{op_name}'. "
-            f"Available operators: {sorted(_OP_INPUT_GENERATOR_REGISTRY.keys())}"
+            f"No OpInputGenerator registered for operator '{op_name}'"
+            + (f" (domain: '{domain}')" if domain else "")
+            + f". Available operators: {sorted(_OP_INPUT_GENERATOR_REGISTRY.keys())}"
         )
     return _OP_INPUT_GENERATOR_REGISTRY[op_name]
 
@@ -1179,9 +1197,13 @@ class OpInputGenerator(ABC):
             should_val = should_qdq_map.get(input_name)
 
             if isinstance(should_val, SupportedONNXType):
-                # Specific type from qdq_types — always quantize with this type, skip
-                # weight/activation mode checks since the type is fully determined.
-                pass
+                # Sub-byte types (INT4/UINT4) use custom numpy dtypes (num >= 256) that
+                # ORT's session.run() cannot convert to MLDataType.  Only generate these
+                # as constant (initializer) inputs where the data lives in the model
+                # itself and never needs to be fed at runtime.
+                _subbyte_types = {SupportedONNXType.INT4, SupportedONNXType.UINT4}
+                if not is_constant and should_val in _subbyte_types:
+                    return
             else:
                 # should_val is True (from support_weight or support_activation)
                 # If neither flag is set, treat as pass-through.
@@ -1487,11 +1509,6 @@ class OpInputGenerator(ABC):
                     for k, v in kwargs.items()
                 }
                 print("Running", kwargs_summary)
-                try:
-                    _ = dry_run or self._run_op_on_cpu(kwargs, tags)
-                except Exception as e:
-                    print("Skipping invalid input causing with exception:", e)
-                    continue
 
                 for onnx_model, final_tags in self.iter_const_and_dynamic_models(kwargs, tags):
                     # Check if we should skip this case based on signature (delta/rerun mode)

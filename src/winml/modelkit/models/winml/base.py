@@ -64,6 +64,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         onnx_path: str | Path,
         config: PretrainedConfig | None = None,
         device: str = "auto",
+        session_options: Any | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -71,15 +72,20 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             onnx_path: Path to ONNX model file
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
             device: Target device ("auto", "npu", "gpu", "cpu")
+            session_options: ORT SessionOptions (e.g., for graph_optimization_level)
         """
         self._onnx_path = Path(onnx_path)
         self.config = config
         self._device = device
 
+        # Set by WinMLAutoModel.from_pretrained() after construction
+        self._build_config: Any = None
+
         # Create WinMLSession (delegates ORT operations)
         self._session = WinMLSession(
             onnx_path=self._onnx_path,
             device=device,
+            session_options=session_options,
         )
 
     @property
@@ -200,8 +206,26 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
 
     @property
     def device(self) -> str:
-        """Current device."""
-        return self._device
+        """Current device (delegates to session, resolved after compile)."""
+        return self._session.device
+
+    @property
+    def task(self) -> str | None:
+        """Resolved task from build config, or None if unavailable."""
+        build_config = getattr(self, "_build_config", None)
+        if build_config is not None:
+            loader = getattr(build_config, "loader", None)
+            if loader:
+                return loader.task
+        return None
+
+    @property
+    def precision(self) -> str | None:
+        """Resolved precision from build config, or None if unavailable.
+
+        TODO: derive from _build_config.quant.weight_type when ready.
+        """
+        return None
 
     @property
     def dtype(self) -> torch.dtype:

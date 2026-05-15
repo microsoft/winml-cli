@@ -6,6 +6,7 @@
 import concurrent.futures as cf
 import multiprocessing as mp
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -160,10 +161,101 @@ class ResilientRunner:
         self.timeout_sec = timeout_sec
         self.ctx = mp.get_context("spawn")  # avoid fork-related instability
         self.executor = self._new_executor()
+        self._executor_needs_recreate = False
+
+    _GRACEFUL_SHUTDOWN_TIMEOUT_SEC = 2.0
+    _FORCED_KILL_JOIN_TIMEOUT_SEC = 0.2
 
     def _new_executor(self) -> cf.ProcessPoolExecutor:
         """Create a new single-worker process pool executor."""
         return cf.ProcessPoolExecutor(max_workers=1, mp_context=self.ctx)
+
+    @staticmethod
+    def _snapshot_processes(executor: cf.ProcessPoolExecutor) -> list[Any]:
+        """Best-effort snapshot of worker process handles from the executor."""
+        try:
+            processes = getattr(executor, "_processes", None)
+            if not processes:
+                return []
+            return [proc for proc in processes.values() if proc is not None]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _is_process_alive(proc: Any) -> bool:
+        """Check process liveness without propagating process-state errors."""
+        try:
+            return bool(proc.is_alive())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _join_process(proc: Any, timeout: float | None = None) -> None:
+        """Best-effort process join that never raises."""
+        try:
+            proc.join(timeout=timeout)
+        except Exception:
+            # Intentionally suppress cleanup-time join errors to preserve
+            # resilient shutdown semantics ("never raises").
+            pass
+
+    @staticmethod
+    def _kill_process(proc: Any) -> None:
+        """Best-effort process kill that never raises."""
+        try:
+            proc.kill()
+        except Exception:
+            # Intentionally ignored: process may already be dead or handle invalid
+            # during teardown, and cleanup must remain best-effort/non-fatal.
+            pass
+
+    def _shutdown_executor_two_phase(
+        self,
+        *,
+        cancel_futures: bool,
+        graceful_timeout_sec: float | None = None,
+    ) -> None:
+        """Shutdown executor with graceful wait, then force-kill lingering workers."""
+        executor = self.executor
+        lingering = self._snapshot_processes(executor)
+
+        try:
+            executor.shutdown(wait=False, cancel_futures=cancel_futures)
+        except Exception as exc:
+            # Best-effort shutdown: ignore failures here, but surface context for debugging.
+            print(f"[ResilientRunner] executor.shutdown failed: {exc}", file=sys.stderr)
+
+        timeout = (
+            self._GRACEFUL_SHUTDOWN_TIMEOUT_SEC
+            if graceful_timeout_sec is None
+            else max(0.0, graceful_timeout_sec)
+        )
+        deadline = time.monotonic() + timeout
+
+        for proc in lingering:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            self._join_process(proc, timeout=remaining)
+
+        survivors = [proc for proc in lingering if self._is_process_alive(proc)]
+
+        for proc in survivors:
+            self._kill_process(proc)
+
+        for proc in survivors:
+            self._join_process(proc, timeout=self._FORCED_KILL_JOIN_TIMEOUT_SEC)
+
+        # Do not close multiprocessing.Process handles manually here. The
+        # ProcessPoolExecutor management thread may still call proc.join(), and
+        # prematurely closing handles can trigger WinError 6 on Windows.
+        try:
+            executor.shutdown(wait=True, cancel_futures=cancel_futures)
+        except Exception as exc:
+            print(
+                f"[ResilientRunner] executor.shutdown(wait=True) failed: {exc}",
+                file=sys.stderr,
+            )
 
     def run(self, fn: Callable[[Any, Any], Any] | None = None, *args: Any) -> dict[str, Any]:
         """Execute the function on a single input with automatic retry on failure.
@@ -187,6 +279,11 @@ class ResilientRunner:
                 "stdout": None,
                 "stderr": None,
             }
+
+        if self._executor_needs_recreate:
+            self.executor = self._new_executor()
+            self._executor_needs_recreate = False
+
         attempts = 0
         while True:
             attempts += 1
@@ -196,9 +293,16 @@ class ResilientRunner:
             try:
                 return future.result(timeout=self.timeout_sec)
             except Exception as e:
-                self.executor.shutdown(wait=False, cancel_futures=True)
-                self.executor = self._new_executor()
+                try:
+                    future.cancel()
+                except Exception:
+                    # Best-effort cleanup: ignore cancel failures so retry flow can continue.
+                    pass
+
+                self._shutdown_executor_two_phase(cancel_futures=True)
+
                 if attempts >= self.max_retries:
+                    self._executor_needs_recreate = True
                     # TODO: capture stdout/stderr on timeout/crashed inputs
                     return {
                         "result": {
@@ -208,11 +312,12 @@ class ResilientRunner:
                         "stdout": None,
                         "stderr": None,
                     }
+                self.executor = self._new_executor()
                 continue
 
     def shutdown(self) -> None:
         """Shut down the executor cleanly."""
-        self.executor.shutdown(wait=True, cancel_futures=False)
+        self._shutdown_executor_two_phase(cancel_futures=False)
 
     def __enter__(self) -> "ResilientRunner":
         """Support context manager protocol."""

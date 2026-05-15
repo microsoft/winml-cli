@@ -23,6 +23,8 @@ from .models.support_level import SupportLevel
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import onnx
 
     from .models.information import Action
@@ -393,7 +395,10 @@ class AnalysisResult:
                     continue
 
                 if action_item.optimization_options:
-                    optim_options.update(action_item.optimization_options)
+                    # Normalize kebab-case keys to snake_case (python_name)
+                    # so they match the capability system's python_name format.
+                    for key, value in action_item.optimization_options.items():
+                        optim_options[key.replace("-", "_")] = value
 
         # Create and return config from collected options
         return WinMLOptimizationConfig(**optim_options)
@@ -492,6 +497,8 @@ class ONNXStaticAnalyzer:
         htp_metadata_path: str | None = None,
         run_unknown_op: bool = True,
         save_node_types: set[str] | None = None,
+        on_node_result: Callable | None = None,
+        on_ep_start: Callable | None = None,
     ) -> AnalysisResult:
         """Analyze ONNX model for runtime support.
 
@@ -590,6 +597,8 @@ class ONNXStaticAnalyzer:
             htp_metadata_path=htp_metadata_path,
             run_unknown_op=run_unknown_op,
             save_node_types=save_node_types,
+            on_node_result=on_node_result,
+            on_ep_start=on_ep_start,
         )
 
     def analyze_from_proto(
@@ -602,6 +611,8 @@ class ONNXStaticAnalyzer:
         htp_metadata_path: str | None = None,
         run_unknown_op: bool = True,
         save_node_types: set[str] | None = None,
+        on_node_result: Callable | None = None,
+        on_ep_start: Callable | None = None,
     ) -> AnalysisResult:
         """Analyze ONNX model from ModelProto object.
 
@@ -611,7 +622,7 @@ class ONNXStaticAnalyzer:
         Args:
             model_proto: ONNX ModelProto object
             ep: Target execution provider (e.g., "QNNExecutionProvider",
-                "OpenVINOExecutionProvider", "DirectMLExecutionProvider").
+                "OpenVINOExecutionProvider", "DmlExecutionProvider").
                 Also supports aliases: "qnn", "ov"/"openvino", "vitis"/"vitisai".
                 If None, analyzes all supported EPs.
             device: Target device type (e.g., "CPU", "GPU", "NPU").
@@ -644,6 +655,7 @@ class ONNXStaticAnalyzer:
         from .core.onnx_loader import ONNXLoader
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
+        from .utils.ep_utils import has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
         ep_normalized = normalize_ep_name(ep)
@@ -665,9 +677,16 @@ class ONNXStaticAnalyzer:
         else:
             eps_to_analyze = [ep_normalized]
 
-        # Use default device if not specified
-        device_to_use = device if device is not None else "NPU"
-        logger.info("Using device: %s", device_to_use)
+        # Resolve device — rule files are device-specific (CPU/GPU/NPU).
+        if device is not None and device.lower() == "auto":
+            from ..sysinfo import resolve_device
+
+            resolved, _ = resolve_device("auto")
+            device_to_use = resolved.upper()
+            logger.info("Device 'auto' resolved to: %s", device_to_use)
+        else:
+            device_to_use = device if device is not None else "NPU"
+            logger.info("Using device: %s", device_to_use)
 
         # Step 1: Create ONNXModel and extract patterns (once)
         logger.info("Loading model and extracting patterns...")
@@ -690,7 +709,27 @@ class ONNXStaticAnalyzer:
         information_list = {}
 
         for current_ep in eps_to_analyze:
+            # Skip EPs that have no rule data for the target device.
+            if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
+                if device_to_use:
+                    logger.warning(
+                        "No runtime check data for %s on %s — skipping op analysis.",
+                        current_ep,
+                        device_to_use,
+                    )
+                else:
+                    logger.warning(
+                        "No runtime check data for %s — skipping op analysis.",
+                        current_ep,
+                    )
+                continue
+
             logger.info("Checking runtime support for %s...", current_ep)
+            if on_ep_start:
+                try:
+                    on_ep_start(current_ep, metadata.operator_counts)
+                except Exception:
+                    logger.debug("on_ep_start callback failed", exc_info=True)
 
             runtime_checker = RuntimeChecker(
                 ep=current_ep,
@@ -708,6 +747,7 @@ class ONNXStaticAnalyzer:
                 patterns=pattern_matches,
                 run_unknown_op=run_unknown_op_for_ep,
                 save_node_types=save_node_types,
+                on_node_result=on_node_result,
             )
 
             # Convert runtime summary to expected format
@@ -727,7 +767,6 @@ class ONNXStaticAnalyzer:
                     ep=current_ep,
                     model=onnx_model,
                     device=device_to_use,
-                    shape_inferred_model_proto=runtime_checker.get_shape_inferred_model_proto(),
                 )
                 information_list[current_ep] = engine.summary()  # Use EP name as key
 
@@ -786,6 +825,9 @@ def analyze_onnx(
     ep: str | None = None,
     device: str | None = None,
     autoconf: bool = True,
+    run_unknown_op: bool = True,
+    on_ep_start: Callable | None = None,
+    on_node_result: Callable | None = None,
 ) -> AnalyzeResult:
     """Analyze an ONNX model and return lint + autoconf results.
 
@@ -841,6 +883,9 @@ def analyze_onnx(
         ep=ep,
         device=device,
         enable_information=autoconf,
+        run_unknown_op=run_unknown_op,
+        on_ep_start=on_ep_start,
+        on_node_result=on_node_result,
     )
 
     # Extract lint result (always computed — uses RuntimeChecker classification)

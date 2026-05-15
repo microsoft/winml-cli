@@ -264,7 +264,7 @@ def build_onnx_model(
         "schema_version": 1,
         "source": "onnx",
         "input_onnx": str(onnx_path),
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
         "elapsed_seconds": round(elapsed, 3),
         "stages": [],
         "final_artifact": final_path.name,

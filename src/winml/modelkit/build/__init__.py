@@ -29,4 +29,31 @@ from .hf import BuildResult, build_hf_model
 from .onnx import build_onnx_model
 
 
-__all__ = ["BuildResult", "build_hf_model", "build_onnx_model"]
+__all__ = [
+    "BuildResult",
+    "build_hf_model",
+    "build_onnx_model",
+]
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "run_optimize_analyze_loop": (".common", "run_optimize_analyze_loop"),
+    "write_module_summary": (".module_summary", "write_module_summary"),
+}
+
+
+def __getattr__(name: str):
+    """Lazy-load build helpers to avoid pulling in heavy deps at import time."""
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
+
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return list(set(list(globals()) + __all__))

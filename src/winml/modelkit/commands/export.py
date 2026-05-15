@@ -31,9 +31,33 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from ..utils import cli as cli_utils
+
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def _delete_onnx_with_external_data(onnx_path: Path) -> None:
+    """Delete an ONNX file and its external data files."""
+    import onnx
+    from onnx.external_data_helper import ExternalDataInfo
+
+    try:
+        model = onnx.load(str(onnx_path), load_external_data=False)
+        ext_files: set[str] = set()
+        for tensor in model.graph.initializer:
+            if tensor.data_location == onnx.TensorProto.EXTERNAL:
+                ext_files.add(ExternalDataInfo(tensor).location)
+        for name in ext_files:
+            data_path = onnx_path.parent / name
+            if data_path.exists():
+                data_path.unlink()
+    except Exception:
+        logger.debug("Could not parse external data from %s", onnx_path, exc_info=True)
+
+    if onnx_path.exists():
+        onnx_path.unlink()
 
 
 @click.command()
@@ -110,6 +134,7 @@ console = Console()
     default=None,
     help='JSON with shape overrides (e.g., {"sequence_length": 2048, "height": 640}).',
 )
+@cli_utils.build_config_option
 @click.pass_context
 def export(
     ctx: click.Context,
@@ -124,6 +149,7 @@ def export(
     input_specs: Path | None,
     export_config: Path | None,
     shape_config: Path | None,
+    config_file: Path | None,
 ) -> None:
     r"""Export HuggingFace model to ONNX format with HTP.
 
@@ -170,8 +196,21 @@ def export(
     if ctx.obj.get("debug"):
         verbose = True
 
-    from ..export.config import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
-    from ..export.pytorch import export_pytorch as export_onnx
+    # Apply build config defaults (CLI explicit options take precedence)
+    _build_export_cfg = None
+    if config_file is not None:
+        build_cfg = cli_utils.load_build_config(config_file)
+        if build_cfg.export:
+            _build_export_cfg = build_cfg.export
+        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
+            task = build_cfg.loader.task
+        if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "no_hierarchy"):
+            no_hierarchy = not _build_export_cfg.enable_hierarchy_tags
+        if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "dynamo"):
+            dynamo = _build_export_cfg.dynamo
+
+    from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
+    from ..export import export_pytorch as export_onnx
     from ..loader import load_hf_model
 
     # Configure logging based on verbose flag
@@ -244,7 +283,7 @@ def export(
 
         # Auto-resolve input/output tensors via loader + Optimum
         try:
-            from ..export.config import resolve_export_config as resolve_cfg
+            from ..export import resolve_export_config as resolve_cfg
 
             auto_export_cfg, _ = resolve_cfg(
                 model_id=model,
@@ -265,12 +304,19 @@ def export(
             logger.debug("I/O tensor auto-resolution failed: %s", e)
 
     # Build WinMLExportConfig from loaded settings
-    config_kwargs = {
-        # Default: enable hierarchy tags unless --clean-onnx is set
-        "enable_hierarchy_tags": not no_hierarchy,
-        "verbose": verbose,
-        **export_config_dict,
-    }
+    config_kwargs = {}
+    # Layer 1: build config defaults (lowest precedence)
+    if _build_export_cfg is not None:
+        config_kwargs.update(_build_export_cfg.to_dict())
+    # Layer 2: --export-config file overrides
+    config_kwargs.update(export_config_dict)
+    # Layer 3: explicit CLI options (highest precedence)
+    if cli_utils.is_cli_provided(ctx, "no_hierarchy"):
+        config_kwargs["enable_hierarchy_tags"] = not no_hierarchy
+    if cli_utils.is_cli_provided(ctx, "verbose"):
+        config_kwargs["verbose"] = verbose
+    if cli_utils.is_cli_provided(ctx, "dynamo"):
+        config_kwargs["dynamo"] = dynamo
 
     # Add input/output tensors if we resolved them
     if input_tensors:
@@ -322,19 +368,27 @@ def export(
         else:
             console.print(f"[dim]Detected task: {detected_task}[/dim]")
 
-        # Export using export_onnx() - the single implementation path
-        result_path = export_onnx(
+        export_stats = export_onnx(
             model=pytorch_model,
             output_path=output_path,
             export_config=cfg,
-            model_id=model,  # For metadata
-            task=detected_task,  # Use detected task for proper OnnxConfig lookup
+            model_id=model,
+            task=detected_task,
             verbose=verbose,
             enable_reporting=with_report,
         )
+        logger.debug("Export stats: %s", export_stats)
+
+        # TODO: re-enable post-export optimization (shape inference, constant folding)
+        # Disabled: needs validation that optimize_onnx preserves HTP hierarchy tags.
+        # from ..optim.api import optimize_onnx
+        # raw_path = output_path.with_stem(f"{output_path.stem}_raw")
+        # output_path.rename(raw_path)
+        # optimize_onnx(raw_path, output=output_path)
+        # _delete_onnx_with_external_data(raw_path)
 
         # Show results
-        console.print(f"\n[bold green]Success![/bold green] Model exported to: {result_path}")
+        console.print(f"\n[bold green]Success![/bold green] Model exported to: {output_path}")
 
         # Show report file locations if enabled
         if with_report:

@@ -27,6 +27,7 @@ import json
 import logging
 import platform
 import sys
+from pathlib import Path
 from typing import Any
 
 import click
@@ -35,6 +36,13 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
+from ..ep_path import (
+    FilesystemSource,
+    MsixPackageSource,
+    NuGetSource,
+    PyPiSource,
+    WinMlCatalogSource,
+)
 from ..sysinfo import OS, get_ep_device_map
 
 
@@ -97,7 +105,7 @@ def _get_library_versions() -> dict[str, str | None]:
     for lib in lib_names:
         try:
             libraries[lib] = version(lib)
-        except PackageNotFoundError:  # noqa: PERF203
+        except PackageNotFoundError:
             libraries[lib] = None
 
     # onnxruntime has multiple distribution variants
@@ -105,7 +113,6 @@ def _get_library_versions() -> dict[str, str | None]:
         "onnxruntime",
         "onnxruntime-windowsml",
         "onnxruntime-gpu",
-        "onnxruntime-directml",
         "onnxruntime-silicon",
     ]
     libraries["onnxruntime"] = None
@@ -452,67 +459,263 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
 # --- EP listing ---
 
 
-def _gather_ep_info() -> list[dict[str, Any]]:
-    """Gather execution provider information.
+def _ep_vendor_prefix(ep_name: str) -> str:
+    """Return a short vendor qualifier (e.g. ``"Qualcomm "``) for display.
 
-    Tries WinMLEPRegistry first, falls back to ORT get_available_providers.
+    Empty string when the EP has no vendor requirement (CPU, DML, Azure)
+    or is unknown to the requirement table.
+    """
+    from ..ep_path import _EP_VENDOR_REQUIREMENT
+
+    vendors = _EP_VENDOR_REQUIREMENT.get(ep_name, set())
+    if not vendors:
+        return ""
+    # Pick the first short alias when multiple are listed (e.g., AMD).
+    short = sorted(vendors, key=len)[0]
+    return f"{short} "
+
+
+def _format_device_types(ep_name: str) -> str:
+    """Return ``"<vendor> <DEV1>/<DEV2>"`` device-type string for an EP."""
+    ep_device_map = get_ep_device_map()
+    raw = ep_device_map.get(ep_name, "unknown").upper()
+    return f"{_ep_vendor_prefix(ep_name)}{raw}"
+
+
+def _describe_source(source: Any) -> dict[str, Any]:
+    """Build a JSON-friendly per-source descriptor for ``--list-ep``.
+
+    Dispatches on concrete EpSource subclass via ``isinstance`` so a
+    future field-name collision (e.g. a new source class adding its
+    own ``distribution`` attribute) cannot misclassify rows.
+    """
+    desc: dict[str, Any] = {"source_kind": type(source).__name__}
+    if isinstance(source, PyPiSource):
+        from importlib import metadata
+
+        desc["distribution"] = source.distribution
+        try:
+            desc["distribution_version"] = metadata.version(source.distribution)
+        except metadata.PackageNotFoundError as e:
+            # Distribution declared by the source isn't actually installed —
+            # caller will see "?" in the rendered output. DEBUG log so a
+            # verbose run reveals the cause; never silent.
+            logger.debug(
+                "metadata.version(%r) not found: %s",
+                source.distribution,
+                e,
+            )
+            desc["distribution_version"] = None
+    elif isinstance(source, MsixPackageSource):
+        desc["family_name_prefix"] = source.family_name_prefix
+        desc["version"] = source.version
+    elif isinstance(source, NuGetSource):
+        # The cache may contain multiple installed versions; we don't pre-
+        # compute the chosen one here (resolve() picks at iteration time).
+        # Surface the package ID so the CLI can show "NuGet <id>".
+        desc["nuget_id"] = source.distribution
+    elif isinstance(source, WinMlCatalogSource):
+        desc["catalog_name"] = source.catalog_name
+    elif isinstance(source, FilesystemSource):
+        desc["root"] = str(source.root)
+        if source.env_var:
+            desc["env_var"] = source.env_var
+    return desc
+
+
+def _gather_ep_info() -> dict[str, dict[str, Any]]:
+    """Gather comprehensive EP inventory across every source.
+
+    Walks ``EP_PATH`` plus :func:`list_msix_eps` (to surface non-current
+    MSIX versions the catalog hides) plus the ``MODELKIT_EP_PATH`` env-var
+    override, then groups by canonical EP name with ``[primary]`` /
+    ``[shadowed]`` resolution status. Built-in EPs (CPU, Azure) reported
+    by ``onnxruntime.get_available_providers`` are appended as
+    ``source_kind="built-in"``.
 
     Returns:
-        List of EP dicts with name, device, and optional path.
+        Dict ``ep_name -> {compatible, device_types, entries: [...]}``.
     """
-    eps: list[dict[str, Any]] = []
-    winml_eps: dict[str, str] = {}
+    from ..ep_path import discover_eps, list_msix_eps
 
-    # Try WinML EP Registry first
-    try:
-        from ..session.ep_registry import WinMLEPRegistry
+    # discover_eps with return_shadowed gives us (primary, *shadowed) per EP.
+    # MSIX entries inject AFTER the default EP_PATH so they appear as
+    # shadowed alternatives — not as artificial primaries that would
+    # mislead the user about what would actually load.
+    msix = list_msix_eps()
+    full = discover_eps(extra_sources_after=msix, return_shadowed=True)
+    assert isinstance(full, dict)
 
-        registry = WinMLEPRegistry.get_instance()
-        winml_eps = registry.get_available_eps()
-    except Exception as e:
-        logger.debug("WinML EP registry unavailable: %s", e)
+    catalog_default_paths: set[Path] = set()
+    # Cross-reference WinMlCatalogSource's pick to tag (catalog default).
+    for entries in full.values():
+        for entry in entries:
+            if isinstance(entry.source, WinMlCatalogSource):
+                catalog_default_paths.add(entry.dll_path)
 
-    # Get ORT available providers as fallback / supplement
-    ort_providers: list[str] = []
+    result: dict[str, dict[str, Any]] = {}
+    for ep_name, entries in full.items():
+        # Compatibility is a property of the EP, not any single source.
+        # Guard against WMI/COM hiccups in is_compatible() so a single
+        # bad EP can't take down the whole --list-ep output. Default
+        # True (treat as compatible) so the EP at least appears.
+        if entries:
+            try:
+                compatible = entries[0].source.is_compatible()
+            except Exception as e:
+                logger.warning(
+                    "is_compatible() raised for EP %s; treating as compatible: %s",
+                    ep_name,
+                    e,
+                )
+                compatible = True
+        else:
+            compatible = True
+        ep_record: dict[str, Any] = {
+            "compatible": compatible,
+            "device_types": _format_device_types(ep_name),
+            "entries": [],
+        }
+        for entry in entries:
+            desc = _describe_source(entry.source)
+            # When the EP is incompatible with the machine, every entry's
+            # resolution status is moot — surface that directly to avoid
+            # the misleading "[primary]" tag on a source that cannot load.
+            desc["status"] = "incompatible" if not compatible else entry.status
+            desc["compatible"] = compatible
+            desc["dll_path"] = str(entry.dll_path)
+            if entry.dll_path in catalog_default_paths:
+                desc["is_catalog_default"] = True
+            ep_record["entries"].append(desc)
+        result[ep_name] = ep_record
+
+    # Append ORT built-ins that no EpSource provides (CPU, Azure).
     try:
         import onnxruntime as ort
 
-        ort_providers = ort.get_available_providers()
+        for ep_name in ort.get_available_providers():
+            if ep_name in result:
+                continue
+            from ..ep_path import _ep_is_compatible
+
+            result[ep_name] = {
+                "compatible": _ep_is_compatible(ep_name),
+                "device_types": _format_device_types(ep_name),
+                "entries": [
+                    {
+                        "status": "primary",
+                        "source_kind": "built-in",
+                        "dll_path": None,
+                    }
+                ],
+            }
     except Exception as e:
-        logger.debug("ORT not available: %s", e)
+        logger.warning(
+            "onnxruntime import failed during --list-ep; built-in EPs "
+            "(CPU/Azure/Dml) will not be listed: %s",
+            e,
+        )
 
-    # Merge: WinML EPs first (they have paths), then ORT-only EPs
-    ep_device_map = get_ep_device_map()
-    seen: set[str] = set()
-
-    for ep_name, ep_path in winml_eps.items():
-        device = ep_device_map.get(ep_name, "unknown").upper()
-        eps.append({"name": ep_name, "device": device, "path": ep_path})
-        seen.add(ep_name)
-
-    for ep_name in ort_providers:
-        if ep_name not in seen:
-            device = ep_device_map.get(ep_name, "unknown").upper()
-            eps.append({"name": ep_name, "device": device, "path": None})
-            seen.add(ep_name)
-
-    return eps
+    return result
 
 
-def _output_ep_text(eps: list[dict[str, Any]]) -> None:
-    """Display EP list in rich text format."""
+_SOURCE_KIND_LABEL = {
+    "PyPiSource": "PyPI",
+    "MsixPackageSource": "MSIX",
+    "NuGetSource": "NuGet",
+    "WinMlCatalogSource": "Catalog",
+    "FilesystemSource": "FS",
+    "built-in": "built-in",
+}
+
+
+def _short_msix_family(family_name_prefix: str) -> str:
+    """Drop the trailing ``_<publisherId>`` for compact CLI display.
+
+    Microsoft's WinML EP packages all share publisher id ``8wekyb3d8bbwe``;
+    showing it on every line is noise. Returns the prefix unchanged when
+    no underscore is present.
+    """
+    head, sep, _ = family_name_prefix.rpartition("_")
+    return head if sep else family_name_prefix
+
+
+def _extract_nuget_version(dll_path: str) -> str | None:
+    """Recover the NuGet version from a cache-relative DLL path.
+
+    Given e.g.
+    ``C:/Users/x/.nuget/packages/intel.ml.onnxruntime.ep.openvino/1.4.0/runtimes/win-x64/native/foo.dll``,
+    return ``"1.4.0"``. Looks for the segment immediately following
+    ``packages/<id>/`` (or just ``packages/<id>``). Returns ``None`` if
+    the path does not contain a recognizable cache layout (e.g., a
+    user-supplied symlink) — caller falls back to ``"?"``.
+    """
+    if not dll_path:
+        return None
+    try:
+        parts = Path(dll_path).parts
+    except Exception:
+        return None
+    for i, part in enumerate(parts):
+        if part.lower() == "packages" and i + 2 < len(parts):
+            return parts[i + 2]
+    return None
+
+
+def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
+    """Display the comprehensive EP inventory in rich text format."""
     console.print("\n[bold blue]Available Execution Providers[/bold blue]")
     if not eps:
         console.print("  [yellow]No execution providers found.[/yellow]")
         return
 
-    for ep in eps:
-        name_padded = ep["name"].ljust(30)
-        console.print(f"  [bold]{name_padded}[/bold] [dim]->[/dim] [cyan]{ep['device']}[/cyan]")
-        if ep.get("path"):
-            console.print(f"    Path: {ep['path']}")
-        else:
-            console.print("    [dim](built-in)[/dim]")
+    for ep_name, record in eps.items():
+        # Rich treats square brackets as markup; escape the literal status
+        # tags with backslashes so [primary] / [incompatible] render as text.
+        compat_tag = (
+            "" if record["compatible"]
+            else r"  [bold red]\[incompatible][/bold red]"
+        )
+        device_part = f"[cyan]{record['device_types']}[/cyan]"
+        console.print(f"  [bold]{ep_name}[/bold]{compat_tag}  [dim]->[/dim] {device_part}")
+
+        for entry in record["entries"]:
+            status = entry.get("status", "?")
+            kind = entry.get("source_kind", "?")
+            status_color = {
+                "primary": "green",
+                "shadowed": "yellow",
+                "incompatible": "red",
+            }.get(status, "white")
+            tag = f"[{status_color}]\\[{status}][/{status_color}]"
+
+            extras: list[str] = []
+            if "distribution" in entry:
+                ver = entry.get("distribution_version") or "?"
+                extras.append(f"{entry['distribution']} {ver}")
+            if "nuget_id" in entry:
+                # Render "<id> <version>" where version comes from the
+                # cache subdir name in the resolved dll_path. The text
+                # formatter avoids re-running resolve() so the version
+                # is recovered from the path the resolver picked.
+                ver = _extract_nuget_version(entry.get("dll_path") or "") or "?"
+                extras.append(f"{entry['nuget_id']} {ver}")
+            if "family_name_prefix" in entry:
+                short_family = _short_msix_family(entry["family_name_prefix"])
+                ver = entry.get("version") or "?"
+                extras.append(f"{short_family} v{ver}")
+                if entry.get("is_catalog_default"):
+                    extras.append("[dim](catalog default)[/dim]")
+            elif entry.get("is_catalog_default") and kind == "WinMlCatalogSource":
+                extras.append("[dim](catalog default)[/dim]")
+            if "root" in entry:
+                extras.append(f"root={entry['root']}")
+
+            short_kind = _SOURCE_KIND_LABEL.get(kind, kind)
+            extras_str = "  ".join(extras) if extras else ""
+            console.print(f"    {tag} [bold]{short_kind:9}[/bold] {extras_str}")
+            if entry.get("dll_path"):
+                console.print(f"              [dim]Path:[/dim] {entry['dll_path']}")
 
 
 @click.command()  # type: ignore[misc]
@@ -633,7 +836,10 @@ def sysinfo(
                 if list_ep:
                     try:
                         eps = _gather_ep_info()
-                        parts = [f"{ep['name']}({ep['device']})" for ep in eps]
+                        parts = [
+                            f"{name}({record['device_types']})"
+                            for name, record in eps.items()
+                        ]
                         click.echo("EPs: " + ", ".join(parts) if parts else "EPs: none")
                     except Exception as e:
                         logger.exception("Failed to detect execution providers")
@@ -684,14 +890,22 @@ def sysinfo(
                 try:
                     devices = _gather_device_info()
                     _output_device_text(devices)
-                except Exception:
-                    logger.debug("Device detection failed in default output")
+                except Exception as e:
+                    logger.warning("Device detection failed: %s", e)
+                    console.print(
+                        "[yellow]Device detection failed — re-run with "
+                        "[bold]-v[/bold] for the full traceback.[/yellow]"
+                    )
                 console.print()
                 try:
                     eps = _gather_ep_info()
                     _output_ep_text(eps)
-                except Exception:
-                    logger.debug("EP detection failed in default output")
+                except Exception as e:
+                    logger.warning("EP detection failed: %s", e)
+                    console.print(
+                        "[yellow]EP detection failed — re-run with "
+                        "[bold]-v[/bold] for the full traceback.[/yellow]"
+                    )
 
         except Exception as e:
             console.print(f"[bold red]Error gathering system information:[/bold red] {e}")

@@ -36,8 +36,9 @@ logger = logging.getLogger(__name__)
 
 # EP name -> target device type (all lowercase values)
 _EP_DEVICE_MAP: dict[str, str] = {
-    # NVIDIA
-    "NvTensorRTRTXExecutionProvider": "gpu",
+    # NVIDIA — camelCase per Microsoft Learn supported-execution-providers
+    # (canonical form used by ep_path.canonicalize_ep_name).
+    "NvTensorRtRtxExecutionProvider": "gpu",
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",

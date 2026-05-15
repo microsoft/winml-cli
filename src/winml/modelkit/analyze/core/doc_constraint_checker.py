@@ -124,7 +124,7 @@ class DocConstraintChecker:
                 df = pd.DataFrame(op_data)
                 op_dfs[op_type] = df
                 logger.debug(f"Loaded constraints for operator: {op_type} ({len(df)} records)")
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 logger.error(f"Failed to load constraints for {op_type}: {e}")
 
         return op_dfs

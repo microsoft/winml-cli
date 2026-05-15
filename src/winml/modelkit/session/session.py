@@ -33,6 +33,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@contextmanager
+def _suppress_native_output(log_path: str | Path | None = None):
+    """Redirect native stdout to a log file (or devnull).
+
+    QNN SDK compiler writes progress to stdout via native C++ code that
+    Python logging/warnings cannot intercept. Only redirects stdout —
+    stderr is left untouched so Rich displays and Python logging work.
+    """
+    if log_path is not None:
+        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    else:
+        fd = os.open(os.devnull, os.O_WRONLY)
+    old_stdout = os.dup(1)
+    os.dup2(fd, 1)
+    os.close(fd)
+    try:
+        yield
+    finally:
+        os.dup2(old_stdout, 1)
+        os.close(old_stdout)
+
+
 class SessionState(Enum):
     """WinMLSession states."""
 
@@ -117,7 +139,7 @@ class WinMLSession:
         "qnn": "QNNExecutionProvider",
         "dml": "DmlExecutionProvider",
         "migraphx": "MIGraphXExecutionProvider",
-        "tensorrt": "NvTensorRTRTXExecutionProvider",
+        "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
         "vitisai": "VitisAIExecutionProvider",
         "openvino": "OpenVINOExecutionProvider",
         "cuda": "CUDAExecutionProvider",
@@ -160,7 +182,7 @@ class WinMLSession:
             ep_config
                 persist_jit: Persist JIT-compiled EPContext model
                 provider_options: EP-specific options dict
-            ep: Explicit EP short name (e.g., "migraphx", "tensorrt").
+            ep: Explicit EP short name (e.g., "migraphx", "nv_tensorrt_rtx").
                 When set, bypasses policy-based selection and uses
                 add_provider_for_devices to force the specific EP.
             session_options: ORT SessionOptions. If None, creates default with
@@ -172,7 +194,8 @@ class WinMLSession:
         if not self._onnx_path.exists():
             raise FileNotFoundError(f"ONNX model not found: {onnx_path}")
 
-        self._device = device
+        # HF Pipeline may pass torch.device; coerce to string for downstream .lower() calls
+        self._device = str(device) if not isinstance(device, str) else device
         self._ep = ep.lower() if ep else None
         self._persist_jit = ep_config.enable_ep_context if ep_config else False
         self._embed_context = ep_config.embed_context if ep_config else False
@@ -234,6 +257,10 @@ class WinMLSession:
             logger.info("Using cached EPContext: %s", ctx_path)
 
         # Compile if needed (persist_jit=True and no cache)
+        # Native QNN SDK compiler writes progress to stdout/stderr;
+        # redirect to log file to keep the console clean.
+        compile_log = self._onnx_path.parent / "compile.log"
+
         if self._persist_jit and model_path == self._onnx_path:
             # Skip ModelCompiler if input model is already compiled (EPContext)
             if is_compiled_onnx(self._onnx_path):
@@ -247,7 +274,8 @@ class WinMLSession:
                         str(self._onnx_path),
                         embed_compiled_data_into_model=self._embed_context,
                     )
-                    model_compiler.compile_to_file(str(ctx_path))
+                    with _suppress_native_output(compile_log):
+                        model_compiler.compile_to_file(str(ctx_path))
 
                     # Use compiled model if it was created
                     if ctx_path.exists():
@@ -261,7 +289,8 @@ class WinMLSession:
         try:
             # Create InferenceSession
             sess_options = self._build_session_options(target_device)
-            session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+            with _suppress_native_output(compile_log):
+                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
             # Log which providers were selected by ORT (based on policy)
             actual_providers = session.get_providers()
@@ -287,6 +316,15 @@ class WinMLSession:
         # Store session
         self._session = session
         self._state = SessionState.COMPILED
+
+        # Resolve device label from the primary provider ORT actually selected
+        if self._device == "auto" and actual_providers:
+            from ..sysinfo.device import get_ep_device_map
+
+            ep_map = get_ep_device_map()
+            resolved = ep_map.get(actual_providers[0])
+            if resolved and "/" not in resolved:
+                self._device = resolved
 
     def run(
         self,
@@ -378,7 +416,7 @@ class WinMLSession:
         """Build ORT SessionOptions from instance session_options and device.
 
         When ``self._ep`` is set, uses ``add_provider_for_devices`` to
-        explicitly bind a specific EP (e.g., MIGraphX, TensorRT). Otherwise
+        explicitly bind a specific EP (e.g., MIGraphX, NvTensorRTRTX). Otherwise
         falls back to policy-based selection via DEVICE_POLICY_MAP.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
@@ -417,11 +455,18 @@ class WinMLSession:
     def _find_ep_device(ep_name: str) -> Any:
         """Find an OrtEpDevice matching the given EP name.
 
+        EP name aliases (e.g. NVIDIA's PascalCase ``NvTensorRTRTX...``
+        vs WinML's camelCase ``NvTensorRtRtx...``) are canonicalized on
+        both sides of the comparison so either spelling matches.
+
         Returns:
             The first matching OrtEpDevice, or None if not found.
         """
+        from ..ep_path import canonicalize_ep_name
+
+        target = canonicalize_ep_name(ep_name)
         for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == ep_name:
+            if canonicalize_ep_name(ep_dev.ep_name) == target:
                 return ep_dev
         return None
 
@@ -513,8 +558,8 @@ class WinMLSession:
     def _get_install_suggestion(self, device: str) -> str:
         """Get install suggestion for device policy."""
         suggestions = {
-            "npu": "Install appropriate NPU ONNX Runtime package",
-            "gpu": "Install onnxruntime-gpu or onnxruntime-directml",
+            "npu": "Install onnxruntime-windowsml",
+            "gpu": "Install onnxruntime-windowsml",
         }
         return suggestions.get(device.lower(), "")
 

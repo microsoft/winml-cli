@@ -137,13 +137,13 @@ def load_optimum_types() -> set[str]:
 
 
 def load_p0_entries(p0_path: Path) -> list[dict]:
-    """Load P0 entries (model + task + group) from P0 source JSON."""
+    """Load P0 entries (hf_id + task + group) from P0 source JSON."""
     with p0_path.open(encoding="utf-8") as f:
         entries = json.load(f)
     return [
-        {"model": e["model"], "task": e.get("task") or "", "group": e.get("group", "P0")}
+        {"hf_id": e["hf_id"], "task": e.get("task") or "", "group": e.get("group", "P0")}
         for e in entries
-        if "model" in e
+        if "hf_id" in e
     ]
 
 
@@ -210,8 +210,8 @@ def build_registry(
     p0_model_group: dict[str, str] = {}
     if p0_entries:
         for p0 in p0_entries:
-            p0_group_lookup[(p0["model"], p0["task"])] = p0["group"]
-            p0_model_group[p0["model"]] = p0["group"]
+            p0_group_lookup[(p0["hf_id"], p0["task"])] = p0["group"]
+            p0_model_group[p0["hf_id"]] = p0["group"]
 
     # Phase 1: Query HF Hub for top models per task
     # Soft filter: prioritize Optimum-supported models, then fill remaining slots
@@ -257,7 +257,7 @@ def build_registry(
             if is_p0:
                 priority = "P0"
                 group = p0_group_lookup.get((model_id, task)) or p0_model_group.get(
-                    model_id, "AITK"
+                    model_id, "Foundry Toolkit"
                 )
             else:
                 priority = "P1"
@@ -292,7 +292,7 @@ def build_registry(
     if p0_entries:
         safe_print("\n  Merging P0 models...")
         for p0 in p0_entries:
-            model_id = p0["model"]
+            model_id = p0["hf_id"]
             task = p0["task"]
             group = p0["group"]
 
@@ -390,10 +390,11 @@ def main() -> None:
         help="Output file",
     )
     parser.add_argument(
-        "--p0-source",
+        "--curated-source",
+        "-s",
         type=Path,
-        default=Path(__file__).parent / "testsets" / "models_P0.json",
-        help="P0 model list for priority assignment",
+        default=Path(__file__).parent / "testsets" / "models_curated.json",
+        help="Curated model list for priority assignment (promoted to P0)",
     )
     parser.add_argument(
         "--no-optimum-filter",
@@ -414,12 +415,12 @@ def main() -> None:
     # Load P0 models
     p0_entries: list[dict] = []
     p0_models: set[str] = set()
-    if args.p0_source.exists():
-        p0_entries = load_p0_entries(args.p0_source)
-        p0_models = {e["model"] for e in p0_entries}
+    if args.curated_source.exists():
+        p0_entries = load_p0_entries(args.curated_source)
+        p0_models = {e["hf_id"] for e in p0_entries}
         safe_print(
             f"Loaded {len(p0_models)} P0 model IDs"
-            f" ({len(p0_entries)} entries) from {args.p0_source}"
+            f" ({len(p0_entries)} entries) from {args.curated_source}"
         )
 
     # Load Optimum types via code
@@ -437,6 +438,7 @@ def main() -> None:
     safe_print(f"Building registry: top {args.top_n} models per task, {len(ALL_TASKS)} tasks")
 
     entries = build_registry(args.top_n, p0_models, p0_entries, optimum_types)
+    entries.sort(key=lambda e: (e["hf_id"], e.get("task", "")))
 
     safe_print(f"\n{'=' * 60}")
     safe_print(f"  Total: {len(entries)} entries")

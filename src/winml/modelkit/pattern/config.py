@@ -309,7 +309,7 @@ class UnifiedPatternConfig:
                 htp_pattern = SubgraphPattern(**htp_data)
                 self._htp_patterns.append(htp_pattern)
                 logger.debug(f"Loaded HTP pattern: {htp_pattern.pattern_id}")
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 pattern_id = htp_data.get("pattern_id", "unknown")
                 logger.warning(f"Failed to load HTP pattern {pattern_id}: {e}. Skipping.")
 

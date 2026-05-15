@@ -4,20 +4,20 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-modelkit"
-version = "0.0.1.dev1"
+version = "0.0.1"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.11,<3.12"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -27,17 +27,28 @@ dependencies = [
   "datasets>=4.1.1",
   "diffusers>=0.36",
   "evaluate>=0.4.6",
+  "fastapi>=0.135.3",
+  "httpx>=0.24.0",
   "jsonschema>=4.23",
+  "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  "onnx>=1.21,<1.22",
   "onnx-ir>=0.1",
-  "onnxruntime-windowsml>=1.23.2,<1.24.0",
+  # onnxruntime-windowsml = Microsoft's MSIX-aligned ORT distro. Same
+  # `onnxruntime/` Python module as upstream `onnxruntime`, but bundles
+  # DirectML EP and tracks the WinML ExecutionProviderCatalog cadence.
+  # The two distributions are mutually exclusive — only one can be
+  # installed at a time. Pinning to 1.24.5 series for compatibility with
+  # the wasdk-microsoft-windows-ai-machinelearning 2.0.1 contract.
+  "onnxruntime-windowsml>=1.24.5,<1.25",
   "onnxscript>=0.2",
+  "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
   "optimum-onnx>=0.1",
   "plotext>=5.3.2",
   "pydantic>=2",
+  "python-multipart>=0.0.22",
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
@@ -50,12 +61,8 @@ dependencies = [
   "torchinfo>=1.8",
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
-  "transformers>=4.57",
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
-  "winrt-runtime>=3.2.1",
-  "winrt-windows-foundation>=3.2.1",
-  "winrt-windows-foundation-collections>=3.2.1",
+  "transformers>=5,<6",
+  "uvicorn[standard]>=0.42.0",
 ]
 
 optional-dependencies.dev = [
@@ -75,9 +82,25 @@ optional-dependencies.dev = [
   "tqdm>=4.67",
   "types-colorama>=0.4.15.20250801",
 ]
-optional-dependencies.openvino = [ "openvino>=2023" ]
+optional-dependencies.audio = [ "soundfile>=0.13" ]
+optional-dependencies.openvino = [
+  "onnxruntime-ep-openvino>=1.4,<1.5",
+  "openvino>=2025",
+]
 optional-dependencies.qnn = [
-  "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
+  "onnxruntime-qnn>=2.1,<2.2",
+]
+optional-dependencies.winml-catalog = [
+  # [all] extra pulls in the winrt-Windows.{Foundation,ApplicationModel,...}
+  # bindings needed by IAsyncOperationWithProgress.get() during EP catalog
+  # ensure_ready_async() calls. Without [all], the catalog enumerates but
+  # cannot complete async ops.
+  "wasdk-microsoft-windows-ai-machinelearning[all]>=2.0.1",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap[all]>=2.0.1",
+  # PackageManager.FindPackagesForUser('') for MsixPackageSource (version pinning
+  # and `winml sys --list-ep` MSIX inventory). Not transitively pulled by wasdk's
+  # [all] extras, must be requested explicitly. Same winrt 3.2.x family.
+  "winrt-Windows.Management.Deployment>=3.2.1",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
@@ -101,6 +124,32 @@ dev = [
   "pytest-timeout>=2.4.0",
 ]
 
+# EXPERIMENTAL: transformers 5.x with PyPI optimum + optimum-onnx 0.1.0.
+# optimum-onnx 0.1.0 hardcodes imports against transformers 4.x internals
+# (is_offline_mode, get_parameter_dtype, _CAN_RECORD_REGISTRY, OutputRecorder).
+# We re-inject those symbols via src/winml/modelkit/_transformers_compat.py,
+# loaded at the top of src/winml/modelkit/__init__.py.
+# Remove the override + shim when optimum-onnx 0.2 lands.
+[tool.uv]
+override-dependencies = [
+  "transformers>=5,<6",
+  # wasdk-microsoft-windows-ai-machinelearning 2.0.1 metadata pins
+  # onnxruntime-windowsml==1.24.5.post202604171637 (PEP 440 normalized
+  # form), but PyPI publishes it as 1.24.5.202604171637 — uv cannot
+  # resolve the exact pin. Override with a flexible range so uv picks
+  # the actually-published version.
+  "onnxruntime-windowsml>=1.24.5,<1.25",
+  # onnxruntime-qnn declares 'onnxruntime' as a runtime dep, but
+  # onnxruntime-windowsml ships the same `onnxruntime/` Python module
+  # and satisfies the same role. Without this override, both distros
+  # get installed and the upstream wheel's files win on disk → DML EP
+  # disappears from get_available_providers(). Neutralize the upstream
+  # `onnxruntime` *transitive* requirement (NOT onnxruntime-windowsml
+  # itself, which we explicitly want) so only onnxruntime-windowsml
+  # ends up installed.
+  "onnxruntime; sys_platform == 'unobtainium'",
+]
+
 [tool.setuptools.packages.find]
 where = [ "src" ]
 include = [ "winml", "winml.*" ]
@@ -119,13 +168,16 @@ include = [ "winml", "winml.*" ]
 "winml.modelkit.pattern" = [
   "rules/**/*.json",
 ]
+"winml.modelkit.serve" = [
+  "static/**",
+]
 
 # =============================================================================
 # RUFF - Linting & Formatting (replaces black, isort, flake8, pylint)
 # =============================================================================
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 
 line-length = 100 # Extended for modern screens
 # Indent with spaces (consistent with PEP 8)
@@ -370,8 +422,8 @@ markers = [
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
   "cuda: marks tests requiring CUDA runtime",
-  "directml: marks tests for DirectML backend",
-  "tensorrt: marks tests for TensorRT backend",
+  "dml: marks tests for Dml backend",
+  "nv_tensorrt_rtx: marks tests for NvTensorRTRTX backend",
   "vitisai: marks tests for AMD Vitis AI backend",
   "training: marks tests requiring training-specific ORT features",
 ]
@@ -410,7 +462,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 
 # === Strict Mode ===
 strict = true

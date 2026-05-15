@@ -149,7 +149,7 @@
     "hf_id": "google/vit-base-patch16-224",
     "task": "image-classification",
     "model_type": "vit",
-    "group": "AITK",
+    "group": "Foundry Toolkit",
     "priority": "P0",
     "dataset_config": {
       "path": "timm/mini-imagenet",
@@ -204,7 +204,7 @@
     "hf_id": "microsoft/resnet-50",
     "task": "image-classification",
     "model_type": "resnet",
-    "group": "AITK",
+    "group": "Foundry Toolkit",
     "priority": "P0",
     "dataset_config": {
       "path": "timm/mini-imagenet",
@@ -217,7 +217,7 @@
     "hf_id": "Intel/bert-base-uncased-mrpc",
     "task": "text-classification",
     "model_type": "bert",
-    "group": "AITK",
+    "group": "Foundry Toolkit",
     "priority": "P0",
     "dataset_config": {
       "path": "nyu-mll/glue",
@@ -1012,6 +1012,262 @@
         "context_column": "context",
         "id_column": "id",
         "label_column": "answers"
+      }
+    }
+  },
+  {
+    "hf_id": "facebook/dinov2-small",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dinov2-base",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dinov2-large",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dino-vits16",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "facebook/dino-vitb16",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "google/vit-base-patch16-224-in21k",
+    "task": "image-feature-extraction",
+    "model_type": "vit",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "timm/mini-imagenet",
+      "split": "test",
+      "samples": 1000,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "microsoft/rad-dino",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Ewakaa/pneumonia_classification_chest_xray",
+      "split": "test",
+      "samples": 582,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "StanfordAIMI/dinov2-base-xray-224",
+    "task": "image-feature-extraction",
+    "model_type": "dinov2",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Ewakaa/pneumonia_classification_chest_xray",
+      "split": "test",
+      "samples": 582,
+      "metric": "knn_top1_accuracy",
+      "winml_metric_key": "knn_top1_accuracy"
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-uncased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/xlm-roberta-base",
+    "task": "fill-mask",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/roberta-large",
+    "task": "fill-mask",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/roberta-base",
+    "task": "fill-mask",
+    "model_type": "roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "distilbert/distilbert-base-uncased",
+    "task": "fill-mask",
+    "model_type": "distilbert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "FacebookAI/xlm-roberta-large",
+    "task": "fill-mask",
+    "model_type": "xlm-roberta",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-uncased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Top200",
+    "priority": "P1",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
+      }
+    }
+  },
+  {
+    "hf_id": "google-bert/bert-base-multilingual-cased",
+    "task": "fill-mask",
+    "model_type": "bert",
+    "group": "Foundry Toolkit",
+    "priority": "P0",
+    "dataset_config": {
+      "path": "Salesforce/wikitext",
+      "name": "wikitext-2-raw-v1",
+      "split": "test",
+      "samples": 100,
+      "metric": "pseudo_perplexity",
+      "winml_metric_key": "pseudo_perplexity",
+      "columns_mapping": {
+        "input_column": "text"
       }
     }
   }

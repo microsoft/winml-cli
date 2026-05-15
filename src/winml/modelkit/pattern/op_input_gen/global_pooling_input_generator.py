@@ -118,6 +118,7 @@ class GlobalAveragePoolInputGenerator(GlobalPoolingInputGenerator):
         """Return QDQ configuration for GlobalAveragePool operator inputs."""
         return {
             "X": QDQParameterConfig(support_activation=True),
+            "Y": QDQParameterConfig(support_activation=True, support_non_qdq=True),
         }
 
 
