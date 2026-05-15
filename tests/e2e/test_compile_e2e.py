@@ -16,12 +16,15 @@ EP categories
 -------------
 * **EP-context EPs** (``qnn``, ``openvino``): emit a new compiled ``*.onnx``
   containing an ``EPContext`` node.
-* **Passthrough EPs** (``cpu``, ``cuda``, ``dml``, ``nv_tensorrt_rtx``,
-  ``vitisai``, ``migraphx``): currently the ``winml compile`` CLI rejects
-  these with a "does not support EPContext compilation" error rather than
-  no-op passthrough. The CLI gate sits in front of the inner
-  ``compile_onnx(model, config=None)`` passthrough branch, so the user
-  always sees the rejection. See ``test_unsupported_ep_returns_error``.
+* **Passthrough EPs** (``cpu``, ``dml``; full set also includes ``cuda``,
+  ``nv_tensorrt_rtx``, ``vitisai``, ``migraphx``): currently the
+  ``winml compile`` CLI rejects these with a "does not support EPContext
+  compilation" error rather than no-op passthrough. The CLI gate sits in
+  front of the inner ``compile_onnx(model, config=None)`` passthrough
+  branch, so the user always sees the rejection. We parametrize the
+  rejection test over ``cpu`` and ``dml`` only — those are the EPs
+  commonly available on test hosts; the others hit the same gate.
+  See ``test_unsupported_ep_returns_error``.
 """
 
 from __future__ import annotations
@@ -50,7 +53,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 EPCONTEXT_EPS = ("qnn", "openvino")
-PASSTHROUGH_EPS = ("cpu", "cuda", "dml", "nv_tensorrt_rtx", "vitisai", "migraphx")
+PASSTHROUGH_EPS = ("cpu", "dml")
 
 
 def _invoke(*args: str) -> Result:
