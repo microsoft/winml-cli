@@ -141,6 +141,12 @@ def test_export_4xx_5xx_returns_failure(exporter):
 
 
 def test_export_translates_resource_to_ext(exporter):
+    # Resource carries the legacy `os.release` and `initTs` attributes that
+    # an older version of the exporter mapped into the envelope. The
+    # OneCollector CS 4.0 backend rejects any envelope that includes those
+    # fields (they are not part of the documented `ext.os` / `ext.app`
+    # slots) with `InvalidEventFormat: all`. The exporter must NOT translate
+    # them, even if they appear in the Resource.
     resource = Resource.create(
         {
             "device_id": "hash-abc",
@@ -176,12 +182,44 @@ def test_export_translates_resource_to_ext(exporter):
         "authId": "EXISTING",
         "deviceClass": "AMD64",
     }
-    assert ext["os"] == {"name": "Windows", "ver": "10.0.26200", "release": "11"}
-    assert ext["app"] == {
-        "ver": "0.0.1",
-        "sesId": "sesid-xyz",
-        "initTs": 1712678400.0,
-    }
+    assert ext["os"] == {"name": "Windows", "ver": "10.0.26200"}
+    assert ext["app"] == {"ver": "0.0.1", "sesId": "sesid-xyz"}
+
+
+def test_export_omits_undocumented_cs40_ext_fields(exporter):
+    """Regression guard for https://github.com/microsoft/winml-cli/issues/635.
+
+    `ext.os.release` and `ext.app.initTs` are not part of the documented
+    CS 4.0 `os` / `app` extension slots. Including them causes the
+    OneCollector backend to reject the entire batch with
+    ``{"acc":0,"efi":{"InvalidEventFormat":"all"}}``. This test fails
+    fast if anyone re-introduces either mapping in
+    :func:`_resource_to_ext`.
+    """
+    resource = Resource.create(
+        {
+            "os.name": "Windows",
+            "os.release": "11",
+            "app_version": "0.0.1",
+            "initTs": 1712678400.0,
+        }
+    )
+    ld = _make_log_data("WinMLCLIHeartbeat", {}, resource=resource)
+
+    captured = {}
+
+    def fake_post(url, data=None, **_kw):
+        captured["data"] = data
+        return MagicMock(status_code=200)
+
+    with patch.object(exporter._session, "post", side_effect=fake_post):
+        exporter.export([ld])
+
+    import json
+
+    envelope = json.loads(captured["data"].splitlines()[0])
+    assert "release" not in envelope["ext"].get("os", {})
+    assert "initTs" not in envelope["ext"].get("app", {})
 
 
 def test_export_serializes_multiple_envelopes_as_ndjson(exporter):
