@@ -36,7 +36,6 @@ import numpy as np
 import onnx
 import pytest
 from click.testing import CliRunner
-from onnx import TensorProto, helper
 
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
@@ -147,22 +146,10 @@ def _find_qairt_sdk_root() -> Path | None:
 # Fixtures
 # ---------------------------------------------------------------------------
 
-
-@pytest.fixture
-def tiny_model(tmp_path: Path) -> Path:
-    """A minimal MatMul ONNX model usable by every EP."""
-    x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 4])
-    y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])
-    w_arr = np.eye(4, dtype=np.float32)
-    w = helper.make_tensor("weight", TensorProto.FLOAT, [4, 4], w_arr.flatten().tolist())
-    node = helper.make_node("MatMul", ["input", "weight"], ["output"], name="matmul")
-    graph = helper.make_graph([node], "tiny", [x], [y], [w])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
-    model.ir_version = 8
-    onnx.checker.check_model(model)
-    path = tmp_path / "tiny.onnx"
-    onnx.save(model, str(path))
-    return path
+# Note: the input ONNX model is provided by the conftest's `simple_matmul_onnx`
+# fixture (1×4 MatMul, opset 13). Compile tests don't depend on the specific
+# weight values or input names, so we reuse it instead of defining a local
+# `simple_matmul_onnx` fixture.
 
 
 def _write_json(path: Path, data: dict) -> Path:
@@ -205,12 +192,12 @@ class TestCliSurface:
         assert "ort" in out and "qairt" in out
 
     def test_reject_already_compiled_model(
-        self, tiny_model: Path, tmp_path: Path
+        self, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         # Build an EPContext-looking ONNX by hand (no real compile needed).
-        x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 4])
-        y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])
-        node = helper.make_node(
+        x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 4])
+        y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 4])
+        node = onnx.helper.make_node(
             "EPContext",
             ["input"],
             ["output"],
@@ -218,10 +205,10 @@ class TestCliSurface:
             ep_cache_context=b"fake",
             domain="com.microsoft",
         )
-        graph = helper.make_graph([node], "fake_ctx", [x], [y])
-        model = helper.make_model(graph, opset_imports=[
-            helper.make_opsetid("", 17),
-            helper.make_opsetid("com.microsoft", 1),
+        graph = onnx.helper.make_graph([node], "fake_ctx", [x], [y])
+        model = onnx.helper.make_model(graph, opset_imports=[
+            onnx.helper.make_opsetid("", 17),
+            onnx.helper.make_opsetid("com.microsoft", 1),
         ])
         model.ir_version = 8
         ctx_path = tmp_path / "fake_ctx.onnx"
@@ -244,7 +231,7 @@ class TestCliSurface:
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
-def test_happy_path_per_ep(ep: str, tiny_model: Path, tmp_path: Path) -> None:
+def test_happy_path_per_ep(ep: str, simple_matmul_onnx: Path, tmp_path: Path) -> None:
     """``winml compile --ep <EP>`` succeeds and emits a valid EPContext artifact."""
     require_ep(ep)
 
@@ -252,10 +239,10 @@ def test_happy_path_per_ep(ep: str, tiny_model: Path, tmp_path: Path) -> None:
     out_dir.mkdir()
     out_file = out_dir / "out.onnx"
 
-    result = _invoke("-m", str(tiny_model), "--ep", ep, "-o", str(out_file))
+    result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "-o", str(out_file))
     assert result.exit_code == 0, f"compile --ep {ep} failed:\n{result.output}"
     assert "Success! Model compiled" in result.output
-    assert_epcontext_artifact(out_file, tiny_model, embed=False)
+    assert_epcontext_artifact(out_file, simple_matmul_onnx, embed=False)
 
 
 # ===========================================================================
@@ -265,11 +252,11 @@ def test_happy_path_per_ep(ep: str, tiny_model: Path, tmp_path: Path) -> None:
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep", PASSTHROUGH_EPS)
-def test_unsupported_ep_returns_error(ep: str, tiny_model: Path) -> None:
+def test_unsupported_ep_returns_error(ep: str, simple_matmul_onnx: Path) -> None:
     """EPs without offline compile support are rejected with a clear message."""
     require_ep(ep)
-    src_hash = _sha256(tiny_model)
-    result = _invoke("-m", str(tiny_model), "--ep", ep)
+    src_hash = _sha256(simple_matmul_onnx)
+    result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
 
     assert result.exit_code != 0, (
         f"--ep {ep} should be rejected but exit was 0.\n{result.output}"
@@ -279,7 +266,7 @@ def test_unsupported_ep_returns_error(ep: str, tiny_model: Path) -> None:
         f"Expected unsupported-EP error message for {ep}.\n{result.output}"
     )
     # The CLI must not have mutated the input model.
-    assert _sha256(tiny_model) == src_hash, "Input ONNX was mutated despite rejection"
+    assert _sha256(simple_matmul_onnx) == src_hash, "Input ONNX was mutated despite rejection"
 
 
 # ===========================================================================
@@ -291,21 +278,21 @@ def test_unsupported_ep_returns_error(ep: str, tiny_model: Path) -> None:
 class TestOutputPaths:
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
     def test_explicit_output_file(
-        self, ep: str, tiny_model: Path, tmp_path: Path
+        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         require_ep(ep)
         out = tmp_path / "custom_name.onnx"
-        result = _invoke("-m", str(tiny_model), "--ep", ep, "-o", str(out))
+        result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "-o", str(out))
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
 
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
-    def test_output_dir(self, ep: str, tiny_model: Path, tmp_path: Path) -> None:
+    def test_output_dir(self, ep: str, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         require_ep(ep)
         out_dir = tmp_path / "out"
         out_dir.mkdir()
         result = _invoke(
-            "-m", str(tiny_model), "--ep", ep, "--output-dir", str(out_dir)
+            "-m", str(simple_matmul_onnx), "--ep", ep, "--output-dir", str(out_dir)
         )
         assert result.exit_code == 0, result.output
         produced = [p for p in out_dir.glob("*.onnx") if is_compiled_onnx(p)]
@@ -321,27 +308,27 @@ class TestOutputPaths:
 class TestEmbedSidecar:
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
     def test_embed_produces_single_file(
-        self, ep: str, tiny_model: Path, tmp_path: Path
+        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         require_ep(ep)
         out_dir = tmp_path / "out"
         out_dir.mkdir()
         out = out_dir / "embedded.onnx"
-        result = _invoke("-m", str(tiny_model), "--ep", ep, "--embed", "-o", str(out))
+        result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "--embed", "-o", str(out))
         assert result.exit_code == 0, result.output
-        assert_epcontext_artifact(out, tiny_model, embed=True)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=True)
 
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
     def test_default_emits_external_bin(
-        self, ep: str, tiny_model: Path, tmp_path: Path
+        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         require_ep(ep)
         out_dir = tmp_path / "out"
         out_dir.mkdir()
         out = out_dir / "external.onnx"
-        result = _invoke("-m", str(tiny_model), "--ep", ep, "-o", str(out))
+        result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "-o", str(out))
         assert result.exit_code == 0, result.output
-        assert_epcontext_artifact(out, tiny_model, embed=False)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
 
 # ===========================================================================
@@ -349,41 +336,46 @@ class TestEmbedSidecar:
 # ===========================================================================
 
 
-_VALIDATE_TOKENS = ("validating compiled model", "validation")
+# The single emitter for the validation log line is
+# `src/winml/modelkit/compiler/stages/compile.py:153` ("Validating compiled
+# model..."). Use the exact phrase to avoid false positives like
+# "skipping validation" or any error message containing the bare word
+# "validation".
+_VALIDATE_LOG = "validating compiled model"
 
 
 @pytest.mark.e2e
 class TestValidate:
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
     def test_no_validate_skips_validation(
-        self, ep: str, tiny_model: Path, tmp_path: Path
+        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         require_ep(ep)
         out = tmp_path / "no_validate.onnx"
         result = _invoke(
-            "-m", str(tiny_model), "--ep", ep, "--no-validate", "--verbose",
+            "-m", str(simple_matmul_onnx), "--ep", ep, "--no-validate", "--verbose",
             "-o", str(out),
         )
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
         lower = result.output.lower()
-        assert not any(token in lower for token in _VALIDATE_TOKENS), (
+        assert _VALIDATE_LOG not in lower, (
             f"--no-validate stdout should not contain validation logs.\n{result.output}"
         )
 
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
     def test_default_runs_validation(
-        self, ep: str, tiny_model: Path, tmp_path: Path
+        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         require_ep(ep)
         out = tmp_path / "validated.onnx"
         result = _invoke(
-            "-m", str(tiny_model), "--ep", ep, "--verbose", "-o", str(out),
+            "-m", str(simple_matmul_onnx), "--ep", ep, "--verbose", "-o", str(out),
         )
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
         lower = result.output.lower()
-        assert any(token in lower for token in _VALIDATE_TOKENS), (
+        assert _VALIDATE_LOG in lower, (
             f"Default validate should emit validation logs.\n{result.output}"
         )
 
@@ -403,7 +395,7 @@ def _require_qairt_sdk() -> Path:
 @pytest.mark.e2e
 class TestQairtBackend:
     def test_qairt_backend_default_emits_sidecar(
-        self, tiny_model: Path, tmp_path: Path
+        self, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         """``--compiler qairt`` (no ``--embed``) emits sidecar EPContext artifact.
 
@@ -417,7 +409,7 @@ class TestQairtBackend:
 
         out = tmp_path / "qairt.onnx"
         result = _invoke(
-            "-m", str(tiny_model), "--ep", "qnn",
+            "-m", str(simple_matmul_onnx), "--ep", "qnn",
             "--compiler", "qairt", "--qnn-sdk-root", str(sdk),
             "-o", str(out), "--verbose",
         )
@@ -425,17 +417,17 @@ class TestQairtBackend:
         lower = result.output.lower()
         assert "compiler:" in lower and "qairt" in lower
         assert "sdk root:" in lower and str(sdk).lower() in lower
-        assert_epcontext_artifact(out, tiny_model, embed=False)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
         # QAIRT pipeline drops intermediate artifacts beside the source ONNX.
-        stem = tiny_model.stem
-        bin_path = tiny_model.parent / f"{stem}_qnn_ctx_qnn.bin"
-        info_path = tiny_model.parent / f"{stem}_cache_info.json"
+        stem = simple_matmul_onnx.stem
+        bin_path = simple_matmul_onnx.parent / f"{stem}_qnn_ctx_qnn.bin"
+        info_path = simple_matmul_onnx.parent / f"{stem}_cache_info.json"
         assert bin_path.is_file(), f"QAIRT intermediate .bin missing: {bin_path}"
         assert info_path.is_file(), f"QAIRT cache_info.json missing: {info_path}"
 
     def test_qairt_backend_with_embed(
-        self, tiny_model: Path, tmp_path: Path
+        self, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         """``--compiler qairt --embed`` produces an inlined EPContext artifact.
 
@@ -448,12 +440,12 @@ class TestQairtBackend:
 
         out = tmp_path / "qairt_embed.onnx"
         result = _invoke(
-            "-m", str(tiny_model), "--ep", "qnn",
+            "-m", str(simple_matmul_onnx), "--ep", "qnn",
             "--compiler", "qairt", "--qnn-sdk-root", str(sdk),
             "--embed", "-o", str(out), "--verbose",
         )
         assert result.exit_code == 0, result.output
-        assert_epcontext_artifact(out, tiny_model, embed=True)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=True)
 
 
 # ===========================================================================
@@ -473,7 +465,7 @@ def _make_compile_cfg(**compile_fields: object) -> dict:
 
 @pytest.mark.e2e
 class TestConfigFile:
-    def test_config_defaults_applied(self, tiny_model: Path, tmp_path: Path) -> None:
+    def test_config_defaults_applied(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         """Every field in the config's ``compile`` section is honored when no CLI flag overrides it.
 
         Config requests: provider=qnn, compiler=ort, embed_context=true,
@@ -491,17 +483,17 @@ class TestConfigFile:
             ),
         )
         out = tmp_path / "cfg_full.onnx"
-        result = _invoke("-m", str(tiny_model), "-c", str(cfg), "-o", str(out))
+        result = _invoke("-m", str(simple_matmul_onnx), "-c", str(cfg), "-o", str(out))
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
         assert "provider:" in lower and "qnn" in lower
         assert "compiler:" in lower and "ort" in lower
         # validate=false from config → no validation log lines
-        assert not any(t in lower for t in _VALIDATE_TOKENS), result.output
+        assert _VALIDATE_LOG not in lower, result.output
         # embed_context=true from config → inlined artifact, no sidecar
-        assert_epcontext_artifact(out, tiny_model, embed=True)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=True)
 
-    def test_cli_overrides_config(self, tiny_model: Path, tmp_path: Path) -> None:
+    def test_cli_overrides_config(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         """Explicit CLI flags beat the matching config-file fields.
 
         Config-file ships with ``embed_context: false`` and ``validate: false``.
@@ -529,7 +521,7 @@ class TestConfigFile:
         out_dir.mkdir()
         out = out_dir / "cli_wins.onnx"
         result = _invoke(
-            "-m", str(tiny_model), "-c", str(cfg),
+            "-m", str(simple_matmul_onnx), "-c", str(cfg),
             "--embed",       # overrides config embed_context=false
             "--validate",    # overrides config validate=false
             "--verbose",     # so we can observe the validation log line
@@ -538,13 +530,13 @@ class TestConfigFile:
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
         # CLI --validate beat config validate=false
-        assert any(t in lower for t in _VALIDATE_TOKENS), (
+        assert _VALIDATE_LOG in lower, (
             f"CLI --validate did not override config validate=false.\n{result.output}"
         )
         # CLI --embed beat config embed_context=false
-        assert_epcontext_artifact(out, tiny_model, embed=True)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=True)
 
-    def test_config_rejects_unsupported_ep(self, tiny_model: Path, tmp_path: Path) -> None:
+    def test_config_rejects_unsupported_ep(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         """A config-file that selects a passthrough EP also gets the explicit error.
 
         Verifies the unsupported-EP gate fires regardless of where the
@@ -555,7 +547,7 @@ class TestConfigFile:
             tmp_path / "build_cfg.json",
             _make_compile_cfg(execution_provider="cpu"),
         )
-        result = _invoke("-m", str(tiny_model), "-c", str(cfg))
+        result = _invoke("-m", str(simple_matmul_onnx), "-c", str(cfg))
         assert result.exit_code != 0, result.output
         assert "does not support epcontext compilation" in result.output.lower(), result.output
 
@@ -580,19 +572,19 @@ class TestConfigFile:
 @pytest.mark.e2e
 class TestDeviceResolution:
     def test_device_npu_resolves_to_qnn(
-        self, tiny_model: Path, tmp_path: Path
+        self, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         """``--device npu`` (no ``--ep``) → provider qnn → successful compile."""
         require_ep("qnn")
         out = tmp_path / "npu.onnx"
-        result = _invoke("-m", str(tiny_model), "--device", "npu", "-o", str(out))
+        result = _invoke("-m", str(simple_matmul_onnx), "--device", "npu", "-o", str(out))
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
         assert "device:" in lower and "npu" in lower
         assert "provider:" in lower and "qnn" in lower
-        assert_epcontext_artifact(out, tiny_model, embed=False)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
-    def test_device_gpu_resolves_to_dml(self, tiny_model: Path) -> None:
+    def test_device_gpu_resolves_to_dml(self, simple_matmul_onnx: Path) -> None:
         """``--device gpu`` (no ``--ep``) → provider dml → unsupported-EP error.
 
         Pins the resolver behavior: gpu maps to dml via ``_DEVICE_TO_PROVIDER``,
@@ -601,26 +593,26 @@ class TestDeviceResolution:
         ``for_provider`` returning ``None`` *before* the banner is printed,
         so the only externally observable signal is the error message.
         """
-        result = _invoke("-m", str(tiny_model), "--device", "gpu")
+        result = _invoke("-m", str(simple_matmul_onnx), "--device", "gpu")
         assert result.exit_code != 0, result.output
         lower = result.output.lower()
         assert "does not support epcontext compilation" in lower
         assert "'dml'" in lower
 
-    def test_device_cpu_resolves_to_cpu(self, tiny_model: Path) -> None:
+    def test_device_cpu_resolves_to_cpu(self, simple_matmul_onnx: Path) -> None:
         """``--device cpu`` (no ``--ep``) → provider cpu → unsupported-EP error.
 
         Same pre-banner rejection as ``test_device_gpu_resolves_to_dml``;
         only the error message is observable.
         """
-        result = _invoke("-m", str(tiny_model), "--device", "cpu")
+        result = _invoke("-m", str(simple_matmul_onnx), "--device", "cpu")
         assert result.exit_code != 0, result.output
         lower = result.output.lower()
         assert "does not support epcontext compilation" in lower
         assert "'cpu'" in lower
 
     def test_device_auto_falls_through_to_qnn(
-        self, tiny_model: Path, tmp_path: Path
+        self, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         """``--device auto`` (no ``--ep``) → resolver else-branch → qnn.
 
@@ -631,12 +623,12 @@ class TestDeviceResolution:
         """
         require_ep("qnn")
         out = tmp_path / "auto.onnx"
-        result = _invoke("-m", str(tiny_model), "--device", "auto", "-o", str(out))
+        result = _invoke("-m", str(simple_matmul_onnx), "--device", "auto", "-o", str(out))
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
         assert "device:" in lower and "auto" in lower
         assert "provider:" in lower and "qnn" in lower
-        assert_epcontext_artifact(out, tiny_model, embed=False)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
 
 # ===========================================================================
@@ -655,7 +647,7 @@ class TestEpOverridesDevice:
     # for those combinations will be added there.
 
     def test_ep_overrides_device_auto_with_qnn(
-        self, tiny_model: Path, tmp_path: Path
+        self, simple_matmul_onnx: Path, tmp_path: Path
     ) -> None:
         """``--device auto --ep qnn`` → provider qnn → real EPContext artifact.
 
@@ -667,14 +659,14 @@ class TestEpOverridesDevice:
         require_ep("qnn")
         out = tmp_path / "auto_qnn.onnx"
         result = _invoke(
-            "-m", str(tiny_model), "--device", "auto", "--ep", "qnn",
+            "-m", str(simple_matmul_onnx), "--device", "auto", "--ep", "qnn",
             "-o", str(out),
         )
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
         assert "device:" in lower and "auto" in lower
         assert "provider:" in lower and "qnn" in lower
-        assert_epcontext_artifact(out, tiny_model, embed=False)
+        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
 
 
 # ===========================================================================
@@ -685,7 +677,7 @@ class TestEpOverridesDevice:
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
 def test_reject_recompile_of_real_compiled_output(
-    ep: str, tiny_model: Path, tmp_path: Path
+    ep: str, simple_matmul_onnx: Path, tmp_path: Path
 ) -> None:
     """Feeding a real ``winml compile`` output back into ``winml compile`` is rejected.
 
@@ -698,7 +690,7 @@ def test_reject_recompile_of_real_compiled_output(
 
     # First compile produces a real EPContext artifact.
     out = tmp_path / "first.onnx"
-    first = _invoke("-m", str(tiny_model), "--ep", ep, "-o", str(out))
+    first = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "-o", str(out))
     assert first.exit_code == 0, first.output
     assert is_compiled_onnx(out)
 

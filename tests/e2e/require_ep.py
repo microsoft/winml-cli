@@ -50,17 +50,21 @@ def require_ep(ep: str) -> str:
             provider is not available on the host.
     """
     from winml.modelkit.session import WinMLEPRegistry
-    from winml.modelkit.utils.constants import normalize_ep_name
+    from winml.modelkit.utils import normalize_ep_name
 
     provider = normalize_ep_name(ep)
     if provider is None:
         pytest.skip(f"Unknown EP: {ep!r}")
 
-    # Singleton — first call probes; subsequent calls are free.
-    available = set(WinMLEPRegistry.get_instance().get_available_eps())
-    available.add("CPUExecutionProvider")  # always-on fallback
+    # CPU is always available via ORT itself but is not enumerated by
+    # WinMLEPRegistry, which only tracks WinML-discoverable backend EPs
+    # (QNN, OpenVINO, DML, ...). Short-circuit before consulting the
+    # registry so `require_ep("cpu")` doesn't spuriously skip.
+    if provider == "CPUExecutionProvider":
+        return provider
 
-    if provider not in available:
+    # Singleton — first call probes; subsequent calls are free.
+    if not WinMLEPRegistry.get_instance().is_ep_available(provider):
         pytest.skip(f"EP not available on this host: {provider}")
 
     return provider
