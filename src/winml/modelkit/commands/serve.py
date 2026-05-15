@@ -17,10 +17,15 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import TYPE_CHECKING
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 @click.command("serve")
@@ -74,7 +79,7 @@ def serve(
     model: str | None,
     task: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     port: int,
     host: str,
     idle_timeout: float,

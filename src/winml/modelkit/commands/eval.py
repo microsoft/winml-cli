@@ -10,10 +10,15 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -147,7 +152,7 @@ def eval(
     task: str | None,
     device: str,
     precision: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     samples: int,
     split: str,
     shuffle: bool,

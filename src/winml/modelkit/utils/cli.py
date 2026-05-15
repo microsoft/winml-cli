@@ -102,6 +102,7 @@ def ep_option(required=True, optional_message=None):
 
     return click.option(
         "--ep",
+        "--execution-provider",
         required=required,
         default=None,
         type=click.Choice(ALL_EP_NAMES, case_sensitive=False),

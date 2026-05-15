@@ -32,7 +32,6 @@ from .build import (
     resolve_quant_compile_config,
 )
 from .precision import (
-    VALID_EPS,
     PrecisionPolicy,
     is_quantized_precision,
     resolve_precision,
@@ -41,7 +40,6 @@ from .precision import (
 
 
 __all__ = [
-    "VALID_EPS",
     "PrecisionPolicy",
     "SubmoduleClassNotFoundError",
     "WinMLBuildConfig",

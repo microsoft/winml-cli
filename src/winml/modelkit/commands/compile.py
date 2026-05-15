@@ -20,14 +20,19 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 
-from ..config import VALID_EPS
 from ..config.precision import _DEVICE_TO_PROVIDER
 from ..onnx import is_compiled_onnx
 from ..utils import cli as cli_utils
+from ..utils.constants import normalize_ep_name
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 
 
@@ -58,11 +63,9 @@ console = Console()
     show_default=True,
     help="Target device",
 )
-@click.option(
-    "--ep",
-    type=click.Choice(sorted(VALID_EPS), case_sensitive=False),
-    default=None,
-    help="Force specific EP. Overrides device-to-provider mapping.",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping.",
 )
 @click.option(
     "--validate/--no-validate",
@@ -109,7 +112,7 @@ def compile(
     output: Path | None,
     output_dir: Path | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     validate: bool,
     verbose: bool,
     compiler: str,
@@ -250,17 +253,21 @@ def compile(
         raise click.ClickException(f"Compilation failed: {e}") from e
 
 
-def _resolve_compile_provider(device: str, ep: str | None) -> str:
+def _resolve_compile_provider(device: str, ep: EPNameOrAlias | None) -> EPName:
     """Resolve the compile provider from device + ep flags.
 
     Uses the canonical ``_DEVICE_TO_PROVIDER`` from ``config/precision.py``
-    as single source of truth. ``ep`` overrides the device mapping.
+    as single source of truth. ``ep`` overrides the device mapping. Returns
+    the canonical EP name (e.g., ``"QNNExecutionProvider"``).
     """
     if ep:
-        return ep.lower()
+        canonical = normalize_ep_name(ep)
+        if canonical is None:
+            raise click.UsageError(f"Unknown EP: {ep}")
+        return canonical
 
     provider = _DEVICE_TO_PROVIDER.get(device.lower())
     if provider is None:
-        # cpu maps to None in _DEVICE_TO_PROVIDER; use "cpu" for compile
-        return "cpu" if device.lower() == "cpu" else "qnn"
+        # cpu maps to None in _DEVICE_TO_PROVIDER; use CPUExecutionProvider for compile
+        return "CPUExecutionProvider" if device.lower() == "cpu" else "QNNExecutionProvider"
     return provider
