@@ -186,9 +186,15 @@ class TestB4ConfigModelTypeNoTask:
     @pytest.fixture(autouse=True)
     def _mock_device(self):
         """Mock hardware detection."""
-        with patch(
-            "winml.modelkit.session.resolve_device_category",
-            return_value=("cpu", ["cpu"]),
+        with (
+            patch(
+                "winml.modelkit.session.auto_detect_device",
+                return_value="cpu",
+            ),
+            patch(
+                "winml.modelkit.sysinfo.hardware.get_available_devices",
+                return_value=["cpu"],
+            ),
         ):
             yield
 

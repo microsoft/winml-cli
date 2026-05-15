@@ -458,18 +458,15 @@ class PerfBenchmark:
         """Load model via WinMLAutoModel (handles both HF and ONNX)."""
         from ..config import WinMLBuildConfig
         from ..models import WinMLAutoModel
-        from ..session import resolve_device, resolve_device_category
+        from ..session import resolve_device
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
-        # Resolve device once -- "auto" becomes concrete (e.g., "npu")
-        resolved_device, _ = resolve_device_category(device=self.config.device)
-
         # Resolve (ep, device) to EPDevice at the CLI boundary.
-        # resolve_device deduces the missing side (ep or device) automatically.
-        ep_device = resolve_device(ep=self.config.ep or None, device=resolved_device)
+        # resolve_device deduces missing sides and normalizes "auto".
+        ep_device = resolve_device(ep=self.config.ep or None, device=self.config.device)
 
         # Only override config when user explicitly passes --no-quantize
         override = None
@@ -1540,12 +1537,11 @@ def perf(
                 raise FileNotFoundError(f"ONNX file not found: {model_path}")
             console.print(f"[dim]Benchmarking ONNX:[/dim] {model_path}")
 
-            from ..session import resolve_device, resolve_device_category
+            from ..session import resolve_device
 
-            resolved_device, _ = resolve_device_category(device=config.device)
-
-            # Resolve to an EPDevice: resolve_device deduces missing ep or device.
-            ep_device = resolve_device(ep=config.ep or None, device=resolved_device)
+            # Resolve to an EPDevice: resolve_device handles "auto" and
+            # deduces missing ep or device.
+            ep_device = resolve_device(ep=config.ep or None, device=config.device)
 
             result = _run_onnx_benchmark(
                 model_path,

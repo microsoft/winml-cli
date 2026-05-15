@@ -203,11 +203,21 @@ def _build_session_options(
             f"{ep_device.device}, vendor_id=0x{ep_device.vendor_id:x}, "
             f"device_id=0x{ep_device.device_id:x}. Available: {available}"
         )
+    # Some hosts (dual-iGPU listings, OpenVINO on Intel) report multiple
+    # OrtEpDevices with identical (ep, type, vendor_id, device_id) — already
+    # collapsed to a single EPDevice by resolve_device(). Mirror that dedup
+    # here so add_provider_for_devices sees one handle.
     if len(matching) > 1:
-        raise AmbiguousMatch(
-            f"Multiple OrtEpDevices match {ep_device!r} after dedup — "
-            f"registry bug. Matched count: {len(matching)}."
-        )
+        unique_keys = {
+            (d.ep_name, d.device.type.name, d.device.vendor_id, d.device.device_id)
+            for d in matching
+        }
+        if len(unique_keys) > 1:
+            raise AmbiguousMatch(
+                f"Multiple OrtEpDevices match {ep_device!r} after dedup — "
+                f"registry bug. Matched count: {len(matching)}."
+            )
+        matching = matching[:1]
 
     options = _build_provider_options(ep_device, ep_config, ep_monitor)
     so.add_provider_for_devices([matching[0]], options)

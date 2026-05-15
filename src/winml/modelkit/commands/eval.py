@@ -228,9 +228,6 @@ def eval(
 
     from ..datasets import DatasetConfig
     from ..eval import WinMLEvaluationConfig, evaluate
-    from ..session import resolve_device_category
-
-    resolved_device, _ = resolve_device_category(device)
 
     ds_config = DatasetConfig(
         path=dataset_path,
@@ -247,7 +244,7 @@ def eval(
         model_path=model_path,
         model_id=model_id,
         task=task,
-        device=resolved_device,
+        device=device,
         dataset=ds_config,
         output_path=output,
     )

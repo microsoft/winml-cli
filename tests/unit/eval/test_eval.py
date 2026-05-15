@@ -527,13 +527,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch(
-                "winml.modelkit.session.resolve_device_category",
-                return_value=("npu", ["npu", "cpu"]),
-            ),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -577,10 +571,7 @@ class TestEvalCli:
         onnx_file.touch()
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.session.resolve_device_category", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate") as mock_evaluate,
-        ):
+        with patch("winml.modelkit.eval.evaluate") as mock_evaluate:
             mock_evaluate.return_value = EvalResult(
                 config=WinMLEvaluationConfig(),
                 metrics={},
@@ -679,10 +670,7 @@ class TestEvalCli:
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         runner = CliRunner()
-        with (
-            patch("winml.modelkit.session.resolve_device_category", return_value=("cpu", ["cpu"])),
-            patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")),
-        ):
+        with patch("winml.modelkit.eval.evaluate", side_effect=RuntimeError("broken model")):
             result = runner.invoke(
                 eval_cmd,
                 [

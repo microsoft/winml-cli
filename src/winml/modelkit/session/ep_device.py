@@ -296,26 +296,16 @@ def ep_to_device(ep: str) -> str:
     return device
 
 
-# --- resolve_device_category -----------------------------------------------
+# --- auto-detect helper ----------------------------------------------------
 
 
-def resolve_device_category(device: str = "auto") -> tuple[str, list[str]]:
-    """Resolve a device hint to (category, candidate EP names).
+def auto_detect_device() -> str:
+    """Pick the strongest hardware-and-EP-backed device on this host.
 
-    Args:
-        device: "auto", "npu", "gpu", or "cpu".
-
-    Returns:
-        (chosen_device, available_devices_list)
-
-    Raises:
-        ValueError: If device is not recognized.
+    Walks sysinfo's available-devices priority list, returning the first
+    entry whose catalog EPs are actually registered. Falls back to "cpu"
+    when no plugin EPs are discovered.
     """
-    device = device.lower()
-
-    if device != "auto" and device not in VALID_DEVICES:
-        raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
-
     from ..sysinfo.hardware import get_available_devices
     from .ep_registry import available_eps as _available_eps
 
@@ -328,27 +318,10 @@ def resolve_device_category(device: str = "auto") -> tuple[str, list[str]]:
             "Install onnxruntime or Windows App SDK for EP discovery."
         )
 
-    if device == "auto":
-        # Walk priority list, pick first device with a matching EP.
-        # eps_for_device returns canonical EP names from the catalog —
-        # includes OpenVINO for npu/gpu/cpu (the old _DEVICE_EP_MAP excluded it).
-        for dev in available_devices:
-            if any(ep in _eps for ep in eps_for_device(dev)):
-                return dev, available_devices
-        # Fallback: CPU is always valid
-        return "cpu", available_devices
-
-    # Explicit device requested -- warn if no compatible EP
-    compatible_eps = eps_for_device(device)
-    if not any(ep in _eps for ep in compatible_eps):
-        logger.warning(
-            "Device '%s' requested but no compatible EP found. "
-            "Compatible EPs: %s. Available EPs: %s",
-            device,
-            sorted(compatible_eps),
-            sorted(_eps),
-        )
-    return device, available_devices
+    for dev in available_devices:
+        if any(ep in _eps for ep in eps_for_device(dev)):
+            return dev
+    return "cpu"
 
 
 # --- resolution ------------------------------------------------------------
@@ -388,7 +361,7 @@ def resolve_device(
         ep: User-supplied EP name (short form e.g. ``"qnn"`` or full).
             ``None`` deduces from *device*.
         device: ``"cpu"`` | ``"gpu"`` | ``"npu"`` (case-insensitive).
-            ``None`` deduces from *ep* or sysinfo.
+            ``None`` or ``"auto"`` deduces from *ep* or sysinfo.
 
     Raises:
         ValueError:           Unknown EP or device string.
@@ -398,10 +371,12 @@ def resolve_device(
         AmbiguousMatch:       multiple OrtEpDevice match after dedup.
     """
     # --- deduction phase ---------------------------------------------------
+    if device is not None and device.lower() == "auto":
+        device = None
+
     if ep is None and device is None:
-        # Auto-detect: pick strongest available device via local resolver
-        resolved_device_str, _ = resolve_device_category(device="auto")
-        device = resolved_device_str
+        # Auto-detect: pick strongest available device on this host.
+        device = auto_detect_device()
 
     if ep is not None and device is None:
         # ep given, device missing — infer from catalog

@@ -97,7 +97,7 @@ def ep_option(required=True, optional_message=None):
     )
 
 
-def device_option(required=True, optional_message=None, default="npu"):
+def device_option(required=True, optional_message=None, default="npu", include_auto=False):
     """Add --device option to a Click command.
 
     Args:
@@ -106,11 +106,14 @@ def device_option(required=True, optional_message=None, default="npu"):
             optional (e.g., "If not specified, uses npu as
             default.")
         default: Default value when optional (default: "npu")
+        include_auto: Whether to include "auto" as a valid choice (default: False).
+            "auto" defers device selection to runtime via auto_detect_device().
 
     Returns:
         Decorator function
     """
-    help_text = "Target device type (cpu, gpu, npu)"
+    choices = [*_DEVICE_CHOICES, "auto"] if include_auto else _DEVICE_CHOICES
+    help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
@@ -118,7 +121,7 @@ def device_option(required=True, optional_message=None, default="npu"):
         "--device",
         required=required,
         default=default if not required else None,
-        type=click.Choice(_DEVICE_CHOICES, case_sensitive=False),
+        type=click.Choice(choices, case_sensitive=False),
         help=help_text,
     )
 

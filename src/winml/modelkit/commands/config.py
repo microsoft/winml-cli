@@ -455,10 +455,11 @@ def config(
 
             console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
 
-            # Fix #4: Device from resolve_device (existing API)
-            from ..session import resolve_device_category as _rd
+            # Fix #4: Device from auto_detect_device (resolves "auto"
+            # to a concrete category without registering EPs).
+            from ..session import auto_detect_device
 
-            _resolved_dev, _ = _rd(device)
+            _resolved_dev = auto_detect_device() if device.lower() == "auto" else device.lower()
             console.print(f"      Device:     [cyan]{_resolved_dev.upper()}[/cyan]")
 
             # EP — only shown when user explicitly passed --ep
