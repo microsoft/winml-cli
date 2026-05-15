@@ -11,12 +11,37 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
+from rich.console import Console
 
 from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
 
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+
+
+# Shared stderr console for security/diagnostic messages emitted from utils.
+# Mirrors the module-level ``console = Console()`` pattern used by individual
+# command modules, but targets stderr so messages survive ``-q/--quiet``.
+_stderr_console = Console(stderr=True)
+
+
+def warn_trust_remote_code(model_id: str | None = None) -> None:
+    """Print the ``trust_remote_code`` security warning to stderr.
+
+    Uses the shared stderr ``rich.Console`` so the warning renders in bold red
+    and matches the rest of the CLI's output style; bypassing the ``logging``
+    module also means it is **not** suppressed by ``-q/--quiet``. Emitted on
+    every call so each entry point that honours ``trust_remote_code=True``
+    surfaces the warning, even when the same process triggers multiple
+    downloads.
+    """
+    target = f" from '{model_id}'" if model_id else ""
+    _stderr_console.print(
+        f"[bold red]WARNING:[/bold red] trust_remote_code is enabled - "
+        f"custom Python{target} will be downloaded and executed. "
+        "Proceed only if you trust the publisher."
+    )
 
 
 def model_path_option(required=True):
@@ -200,11 +225,17 @@ def trust_remote_code_option(optional_message: str | None = None):
     if optional_message:
         help_text = f"{help_text} {optional_message}"
 
+    def _warn_callback(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            warn_trust_remote_code()
+        return value
+
     return click.option(
         "--trust-remote-code",
         is_flag=True,
         default=False,
         help=help_text,
+        callback=_warn_callback,
     )
 
 
