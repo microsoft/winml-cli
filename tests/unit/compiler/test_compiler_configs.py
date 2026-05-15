@@ -92,7 +92,7 @@ class TestCompileConfig:
         """Test NvTensorRTRTX factory method."""
         config = WinMLCompileConfig.for_nv_tensorrt_rtx()
         assert config.ep_config.provider == "nv_tensorrt_rtx"
-        assert config.ep_config.enable_ep_context is False
+        assert config.ep_config.enable_ep_context is True
 
     def test_for_openvino(self):
         """Test OpenVINO factory method."""
@@ -203,11 +203,11 @@ class TestForProvider:
             ("qnn", "qnn"),
             ("openvino", "openvino"),
             ("vitisai", "vitisai"),
+            ("nv_tensorrt_rtx", "nv_tensorrt_rtx"),
             # EPs with enable_ep_context=False → no offline compile step → None
             ("dml", None),
             ("cpu", None),
             ("cuda", None),
-            ("nv_tensorrt_rtx", None),
             ("migraphx", None),
             # Unknown/custom EPs: no EPContext support → None (same as known non-EPContext EPs)
             ("custom_ep", None),
@@ -228,7 +228,7 @@ class TestForProvider:
 
     @pytest.mark.parametrize(
         "factory_name",
-        ["for_dml", "for_cpu", "for_cuda", "for_migraphx", "for_nv_tensorrt_rtx"],
+        ["for_dml", "for_cpu", "for_cuda", "for_migraphx"],
     )
     def test_direct_factory_still_works(self, factory_name: str) -> None:
         """Low-level for_* factories are still callable directly even though

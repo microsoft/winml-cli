@@ -174,7 +174,7 @@ class WinMLCompileConfig:
     def for_nv_tensorrt_rtx(cls) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
         return cls(
-            ep_config=EPConfig(provider="nv_tensorrt_rtx", enable_ep_context=False),
+            ep_config=EPConfig(provider="nv_tensorrt_rtx", enable_ep_context=True),
         )
 
     @classmethod
