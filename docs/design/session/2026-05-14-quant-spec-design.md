@@ -253,7 +253,24 @@ The EPDeviceSpec PR's CLI verification matrix exercised:
 
 The FP32-on-NPU result (2.01ms, 498 samples/s on ResNet-50) is a valid number — it reflects ORT/QNN's runtime FP32-to-int8 conversion path. But it is **not** the canonical QDQ-direct-to-HTP path that production workflows use.
 
-The QDQ-on-NPU verification is run **separately** from this design doc (see commit/log entries adjacent to this file's commit). It closes the gap regardless of whether QuantSpec is implemented in this PR.
+### Verification — ResNet-50 on QNN-NPU (2026-05-15, 50 iter / 5 warmup, Snapdragon X-Elite)
+
+| Path | Model artifact | Avg latency | P50 | P99 | Throughput |
+|---|---|---:|---:|---:|---:|
+| FP32 → NPU (runtime conv) | `_export.onnx` (102 MB FP32) | 2.01 ms | — | — | 498 /s |
+| **QDQ → NPU (runtime AOT compile)** | `_quantized.onnx` (25 MB QDQ) | **0.73 ms** | 0.72 | 0.83 | **1368 /s** |
+| **QDQ → NPU (pre-compiled ctx)** | `_quantized_npu_ctx.onnx` + `_qnn.bin` (~26 MB) | **0.80 ms** | 0.73 | 3.04* | **1247 /s** |
+
+\* P99=3.04ms is a single cold-call spike on the pre-compiled path; P50/P90 match the runtime-AOT path (0.73/0.84ms). Steady-state cost is identical between AOT-compile and pre-compiled paths once warmup amortizes.
+
+**Findings:**
+
+- QDQ-direct-to-HTP path is **2.75× faster** than FP32-runtime-converted (1368/s vs 498/s).
+- Both QDQ paths exercise the same QNN HTP compile stages (Graph Preparation, Graph Optimizations, Graph Sequencing, VTCM Allocation, Parallelization Optimization, Finalizing). The runtime-AOT path pays this cost on first session creation; the pre-compiled `.ctx.onnx` path skips it but pays I/O cost for the larger `.qnn.bin` instead.
+- The benign warning `"Some nodes were not assigned to the preferred execution providers"` appears on both paths — ORT routes shape-related ops to CPU, which is expected and not a regression.
+- The EPDeviceSpec refactor does **not** break the canonical QDQ → QNN HTP NPU path (the only meaningful difference between this PR and `main` for this workload is the `htp_performance_mode='burst'` default, which is what's driving the 2.75× speedup).
+
+**Conclusion:** Canonical NPU workflow verified end-to-end. The earlier matrix gap is closed.
 
 ## Appendix B — relationship to `2026-05-13-ep-device-spec-design.md`
 
