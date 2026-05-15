@@ -171,10 +171,16 @@ def resolve_loader_config(
 
     from .task import get_supported_tasks, resolve_task_and_model_class
 
+    if trust_remote_code:
+        from ..utils.cli import warn_trust_remote_code
+
+        warn_trust_remote_code(model_id)
+
     # 1. Load hf_config (depends on: model_id, model_type, or model_class)
     if model_id is not None:
         hf_config = AutoConfig.from_pretrained(
-            model_id, trust_remote_code=trust_remote_code,
+            model_id,
+            trust_remote_code=trust_remote_code,
         )
     elif model_type is not None:
         try:
@@ -196,9 +202,7 @@ def resolve_loader_config(
         hf_config = _create_hf_config_from_model_class(cls)
         logger.info("Created HF config from model_class='%s'", model_class)
     else:
-        raise ValueError(
-            "At least one of model_id, model_type, or model_class must be provided."
-        )
+        raise ValueError("At least one of model_id, model_type, or model_class must be provided.")
 
     if getattr(hf_config, "model_type", None) is None:
         raise ValueError(
@@ -232,7 +236,8 @@ def resolve_loader_config(
 
     # 4. Resolve hf_config + model_type (depends on: resolved_class)
     resolved_hf_config, resolved_model_type = _resolve_hf_config_for_class(
-        hf_config, resolved_class,
+        hf_config,
+        resolved_class,
     )
 
     # 5. Build loader config

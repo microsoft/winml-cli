@@ -25,17 +25,28 @@ if TYPE_CHECKING:
 # command modules, but targets stderr so messages survive ``-q/--quiet``.
 _stderr_console = Console(stderr=True)
 
+# Per-process flag so the warning surfaces at most once per CLI run / API call.
+# Multiple instrumented entry points along a single call chain (e.g. CLI flag
+# -> generate_hf_build_config -> resolve_loader_config -> load_hf_model)
+# would otherwise emit the same warning several times.
+_trust_remote_code_warned = False
+
 
 def warn_trust_remote_code(model_id: str | None = None) -> None:
     """Print the ``trust_remote_code`` security warning to stderr.
 
     Uses the shared stderr ``rich.Console`` so the warning renders in bold red
     and matches the rest of the CLI's output style; bypassing the ``logging``
-    module also means it is **not** suppressed by ``-q/--quiet``. Emitted on
-    every call so each entry point that honours ``trust_remote_code=True``
-    surfaces the warning, even when the same process triggers multiple
-    downloads.
+    module also means it is **not** suppressed by ``-q/--quiet``. Emitted at
+    most once per process so a single CLI run or API call surfaces the
+    warning exactly once, even when several instrumented entry points (CLI
+    flag, ``load_hf_model``, ``generate_hf_build_config``, ...) are reached
+    along the same call chain.
     """
+    global _trust_remote_code_warned
+    if _trust_remote_code_warned:
+        return
+    _trust_remote_code_warned = True
     target = f" from '{model_id}'" if model_id else ""
     _stderr_console.print(
         f"[bold red]WARNING:[/bold red] trust_remote_code is enabled - "

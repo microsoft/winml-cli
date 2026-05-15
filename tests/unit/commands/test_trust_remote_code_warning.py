@@ -16,8 +16,18 @@ import pytest
 from click.testing import CliRunner
 
 
+@pytest.fixture(autouse=True)
+def _reset_trust_remote_code_flag():
+    """Per-process dedup flag must be reset between tests."""
+    import winml.modelkit.utils.cli as cli_utils
+
+    cli_utils._trust_remote_code_warned = False
+    yield
+    cli_utils._trust_remote_code_warned = False
+
+
 class TestWarnTrustRemoteCodeHelper:
-    """``warn_trust_remote_code`` writes to stderr on every call (no dedup)."""
+    """``warn_trust_remote_code`` writes to stderr, deduped per-process."""
 
     def test_emits_to_stderr(self, capsys) -> None:
         from winml.modelkit.utils.cli import warn_trust_remote_code
@@ -35,15 +45,16 @@ class TestWarnTrustRemoteCodeHelper:
         captured = capsys.readouterr()
         assert "microsoft/resnet-50" in captured.err
 
-    def test_emits_on_every_call(self, capsys) -> None:
+    def test_dedupes_per_process(self, capsys) -> None:
+        """Repeated calls in the same process emit only once."""
         from winml.modelkit.utils.cli import warn_trust_remote_code
 
         warn_trust_remote_code("first")
         warn_trust_remote_code("second")
         captured = capsys.readouterr()
-        assert captured.err.count("WARNING") == 2
+        assert captured.err.count("WARNING") == 1
         assert "first" in captured.err
-        assert "second" in captured.err
+        assert "second" not in captured.err
 
 
 class TestCliTrustRemoteCodeWarning:

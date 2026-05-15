@@ -150,6 +150,11 @@ class WinMLCompositeModel(PreTrainedModel):
         """
         from transformers import AutoConfig
 
+        if trust_remote_code:
+            from ...utils.cli import warn_trust_remote_code
+
+            warn_trust_remote_code(model_id)
+
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
         model_type = hf_config.model_type
 

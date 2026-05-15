@@ -291,6 +291,11 @@ class WinMLAutoModel:
         model_id = str(model_id_or_path)  # Ensure string for Path inputs
         logger.info("Loading WinML model from: %s", model_id)
 
+        if trust_remote_code:
+            from ..utils.cli import warn_trust_remote_code
+
+            warn_trust_remote_code(model_id)
+
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
         # =====================================================================
