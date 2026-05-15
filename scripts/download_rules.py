@@ -8,7 +8,7 @@ For Microsoft internal use only. Requires gh CLI authenticated with an account
 that has access to the gim-home org.
 
 External contributors should instead download rule parquet files from the latest
-WinML-ModelKit GitHub release; see
+winml-cli GitHub release; see
 src/winml/modelkit/analyze/rules/runtime_check_rules/README.md.
 
 This script does not download release assets. It pulls parquet files directly

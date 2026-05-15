@@ -1514,6 +1514,28 @@ class PatternMatcher:
         """
         return ONNXDomain.from_str(node.domain)
 
+    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo:
+        """Return edge info for a registered tensor-consumer pair.
+
+        Skeleton matching only queries edge metadata for non-virtual inputs with an
+        upstream producer in the model graph. Those entries must exist once
+        _build_lookups() has completed, so a miss indicates a broken registration
+        invariant rather than an ordinary pattern mismatch.
+
+        Args:
+            tensor_name: Name of the consumed tensor.
+            consumer_name: Canonical name of the consumer node.
+
+        Returns:
+            Registered EdgeInfo for the tensor-consumer pair.
+        """
+        edge_info = self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
+        assert edge_info is not None, (
+            f"Missing edge registration for tensor '{tensor_name}' consumed by "
+            f"'{consumer_name}'. Non-virtual inputs should be registered in _build_lookups()."
+        )
+        return edge_info
+
     def _check_constant_constraints(
         self,
         matched_nodes: list[str],
@@ -1680,6 +1702,10 @@ class PatternMatcher:
                 edge_partial_matching_results[graph_input.name] = []
 
         for _idx, node in enumerate(self.graph.node):
+            # Use canonical node name consistent with registration in
+            # edge_info_by_name (auto-generated when ONNX node name is empty).
+            node_name = node.name or f"node_{_idx}"
+
             # touch output edges
             for out_edge in node.output:
                 edge_partial_matching_results[out_edge] = []
@@ -1695,15 +1721,16 @@ class PatternMatcher:
                 input_slots = node_input_slots[subgraph_node]
                 src_slot_matched = True
                 for dst_slot, input_edge in enumerate(node.input):
-                    edge_info = self.edge_info_by_name[input_edge][node.name]
-                    if dst_slot in input_slots:
-                        # check 1: src_slot match
-                        src, src_slot = input_slots[dst_slot]
-                        if src >= 0 and edge_info.src_slot != src_slot:
-                            src_slot_matched = False
-                            break
-                    # else:
-                    # print("TODO: input slot unspecified: ")
+                    if dst_slot not in input_slots:
+                        continue
+                    src, src_slot = input_slots[dst_slot]
+                    if src < 0:
+                        # Free input (graph input / initializer); no edge_info needed.
+                        continue
+                    edge_info = self._get_registered_edge_info(input_edge, node_name)
+                    if edge_info.src_slot != src_slot:
+                        src_slot_matched = False
+                        break
                 if not src_slot_matched:
                     continue
 
@@ -1711,35 +1738,34 @@ class PatternMatcher:
                 dst_slot_partial_mappings = []
                 # src_node_matched = True
                 for dst_slot, input_edge in enumerate(node.input):
-                    edge_info = self.edge_info_by_name[input_edge][node.name]
-                    if dst_slot in input_slots:
-                        src, src_slot = input_slots[dst_slot]
-                        if src < 0:
-                            mapping = {src: input_edge}
-                            dst_slot_partial_mappings.append([mapping])
-                        else:
-                            if input_edge not in edge_partial_matching_results:
-                                assert input_edge in self.constant_and_initializer_names, (
-                                    f"Edge {input_edge} not in "
-                                    f"partial matching results or "
-                                    f"constants/initializers"
-                                )
-                                # cannot match non-constant/
-                                # initializer edges, since src >= 0
-                                dst_slot_partial_mappings.append([])
-                                # src_node_matched = False
-                                continue
-                            src_matched_mappings = [
-                                partial_mapping.node_mapping.copy()
-                                for partial_mapping in edge_partial_matching_results[input_edge]
-                                if (
-                                    src in partial_mapping.node_mapping
-                                    and edge_info.src_name == partial_mapping.node_mapping[src]
-                                )
-                            ]
-                            dst_slot_partial_mappings.append(src_matched_mappings)
-                    else:
+                    if dst_slot not in input_slots:
                         continue  # edge not specified in subgraph, skipping adding mapping
+                    src, src_slot = input_slots[dst_slot]
+                    if src < 0:
+                        mapping = {src: input_edge}
+                        dst_slot_partial_mappings.append([mapping])
+                    else:
+                        if input_edge not in edge_partial_matching_results:
+                            assert input_edge in self.constant_and_initializer_names, (
+                                f"Edge {input_edge} not in "
+                                f"partial matching results or "
+                                f"constants/initializers"
+                            )
+                            # cannot match non-constant/
+                            # initializer edges, since src >= 0
+                            dst_slot_partial_mappings.append([])
+                            # src_node_matched = False
+                            continue
+                        edge_info = self._get_registered_edge_info(input_edge, node_name)
+                        src_matched_mappings = [
+                            partial_mapping.node_mapping.copy()
+                            for partial_mapping in edge_partial_matching_results[input_edge]
+                            if (
+                                src in partial_mapping.node_mapping
+                                and edge_info.src_name == partial_mapping.node_mapping[src]
+                            )
+                        ]
+                        dst_slot_partial_mappings.append(src_matched_mappings)
 
                 # if not src_node_matched:
                 #     continue
@@ -1754,7 +1780,7 @@ class PatternMatcher:
                     merged_mapping = _merge_mappings(mapping_combination)
                     if merged_mapping is not None:
                         # valid mapping
-                        merged_mapping[subgraph_node] = node.name
+                        merged_mapping[subgraph_node] = node_name
                         valid_merged_mappings.append(merged_mapping)
                 # TODO: attach partial result to node of edge?
                 for out_edge in node.output:
