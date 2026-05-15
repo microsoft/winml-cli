@@ -14,6 +14,34 @@ from winml.modelkit.commands.compile import _resolve_compile_provider
 from winml.modelkit.commands.quantize import _resolve_quant_types
 
 
+_DEVICE_TO_EPS = {
+    "npu": ["QNNExecutionProvider"],
+    "gpu": ["DmlExecutionProvider"],
+    "cpu": ["CPUExecutionProvider"],
+}
+
+
+@pytest.fixture(autouse=True)
+def mock_resolve_device():
+    """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
+
+    The build command calls resolve_device() for I/O and (since #540)
+    WinMLEPRegistry.get_instance() for EP auto-selection when --ep is
+    not specified. Both must be mocked to avoid slow DLL scanning and
+    WinML SDK discovery on CI runners without WinML installed.
+    """
+    mock_registry = MagicMock()
+    mock_registry.is_ep_available.return_value = False
+
+    with (
+        patch(
+            "winml.modelkit.commands.compile.resolve_eps",
+            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+        ),
+    ):
+        yield
+
+
 # =============================================================================
 # _resolve_compile_provider tests
 # =============================================================================
