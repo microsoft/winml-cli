@@ -798,3 +798,14 @@ uv run winml compile -m <fp32>.onnx --ep qnn --device npu --output-dir test_post
 | `tests/unit/architecture/test_ep_device_import_rule.py` | Add `"get_provider_for_device"` to deleted-names detector | TBD |
 
 **Total: 8 src files + 2 test files = 10 files.**
+
+---
+
+## Successor
+
+This plan was executed in commits `6ce5aa3d`, `720a4ed4`, `eee42e7f`, `8fc6e30b`.
+
+A follow-up audit ([`2026-05-13-final-taxonomy-cleanup-plan-v2.md`](./2026-05-13-final-taxonomy-cleanup-plan-v2.md))
+found 1 BLOCKER + 4 IMPORTANT + 7 NICE-TO-HAVE items that this v1 plan's
+scope didn't cover (notably the `NvTensorRtRtx` casing bug surviving in
+`check_ops.py`). See **v2** for the next round.
