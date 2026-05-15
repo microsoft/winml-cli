@@ -242,7 +242,7 @@ class WinMLSession:
 
         # HF Pipeline may pass torch.device; coerce to string for downstream .lower() calls
         self._device = str(device) if not isinstance(device, str) else device
-        self._ep = ep if ep else None
+        self._ep: EPNameOrAlias | None = ep if ep else None
         self._persist_jit = ep_config.enable_ep_context if ep_config else False
         self._embed_context = ep_config.embed_context if ep_config else False
         self._provider_options = ep_config.provider_options if ep_config else {}
