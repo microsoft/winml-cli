@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass
 
 from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
+from ..sysinfo.device import resolve_eps
 
 
 logger = logging.getLogger(__name__)
@@ -278,11 +279,12 @@ def resolve_precision(
 
     # ep=CPUExecutionProvider means no EPContext compilation needed.
     # For all other explicit EPs (canonical names), use ep as the provider.
-    compile_provider: EPName | None = (
-        ep_canonical
-        if (ep_canonical and ep_canonical != "CPUExecutionProvider")
-        else None
-    )
+    compile_provider: EPName | None =  ep_canonical
+    if not compile_provider:
+        eps = resolve_eps(resolved_device)
+        compile_provider = eps[0] if eps else None
+    if compile_provider == "CPUExecutionProvider":
+        compile_provider = None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):
