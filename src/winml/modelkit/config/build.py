@@ -557,7 +557,7 @@ def generate_hf_build_config(
     if _trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
 
-        warn_trust_remote_code(model_id)
+        warn_trust_remote_code()
     loader_config, hf_config, resolved_class = resolve_loader_config(
         model_id,
         task=task,

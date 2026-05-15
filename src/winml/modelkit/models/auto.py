@@ -294,7 +294,7 @@ class WinMLAutoModel:
         if trust_remote_code:
             from ..utils.cli import warn_trust_remote_code
 
-            warn_trust_remote_code(model_id)
+            warn_trust_remote_code()
 
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file

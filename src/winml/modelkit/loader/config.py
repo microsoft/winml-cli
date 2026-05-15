@@ -174,7 +174,7 @@ def resolve_loader_config(
     if trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
 
-        warn_trust_remote_code(model_id)
+        warn_trust_remote_code()
 
     # 1. Load hf_config (depends on: model_id, model_type, or model_class)
     if model_id is not None:

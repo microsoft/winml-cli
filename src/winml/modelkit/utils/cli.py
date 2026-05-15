@@ -32,7 +32,7 @@ _stderr_console = Console(stderr=True)
 _trust_remote_code_warned = False
 
 
-def warn_trust_remote_code(model_id: str | None = None) -> None:
+def warn_trust_remote_code() -> None:
     """Print the ``trust_remote_code`` security warning to stderr.
 
     Uses the shared stderr ``rich.Console`` so the warning renders in bold red
@@ -47,11 +47,10 @@ def warn_trust_remote_code(model_id: str | None = None) -> None:
     if _trust_remote_code_warned:
         return
     _trust_remote_code_warned = True
-    target = f" from '{model_id}'" if model_id else ""
     _stderr_console.print(
-        f"[bold red]WARNING:[/bold red] trust_remote_code is enabled - "
-        f"custom Python{target} will be downloaded and executed. "
-        "Proceed only if you trust the publisher."
+        "[bold red]WARNING:[/bold red] trust_remote_code is enabled - "
+        "custom Python from the model repository will be downloaded and "
+        "executed. Proceed only if you trust the publisher."
     )
 
 

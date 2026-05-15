@@ -201,7 +201,7 @@ def load_hf_model(
     if trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
 
-        warn_trust_remote_code(model_name_or_path)
+        warn_trust_remote_code()
 
     # Validate user_script requirements before any network calls
     if user_script is not None:

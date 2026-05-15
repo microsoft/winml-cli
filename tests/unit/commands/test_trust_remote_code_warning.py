@@ -38,23 +38,14 @@ class TestWarnTrustRemoteCodeHelper:
         assert "WARNING" in captured.err
         assert "trust_remote_code" in captured.err
 
-    def test_includes_model_id_when_provided(self, capsys) -> None:
-        from winml.modelkit.utils.cli import warn_trust_remote_code
-
-        warn_trust_remote_code("microsoft/resnet-50")
-        captured = capsys.readouterr()
-        assert "microsoft/resnet-50" in captured.err
-
     def test_dedupes_per_process(self, capsys) -> None:
         """Repeated calls in the same process emit only once."""
         from winml.modelkit.utils.cli import warn_trust_remote_code
 
-        warn_trust_remote_code("first")
-        warn_trust_remote_code("second")
+        warn_trust_remote_code()
+        warn_trust_remote_code()
         captured = capsys.readouterr()
         assert captured.err.count("WARNING") == 1
-        assert "first" in captured.err
-        assert "second" not in captured.err
 
 
 class TestCliTrustRemoteCodeWarning:
@@ -117,7 +108,7 @@ class TestApiTrustRemoteCodeWarning:
 
         captured = capsys.readouterr()
         assert "WARNING" in captured.err
-        assert "microsoft/resnet-50" in captured.err
+        assert "trust_remote_code" in captured.err
 
     def test_load_hf_model_no_warning_when_flag_false(self, monkeypatch, capsys) -> None:
         from winml.modelkit.loader import hf as hf_loader
