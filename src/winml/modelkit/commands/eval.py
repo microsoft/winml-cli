@@ -13,6 +13,7 @@ from pathlib import Path
 
 import click
 
+from ..session import VALID_DEVICES
 from ..utils import cli as cli_utils
 
 
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--device",
-    type=click.Choice(["auto", "cpu", "gpu", "npu"], case_sensitive=False),
+    type=click.Choice(["auto", *sorted(VALID_DEVICES)], case_sensitive=False),
     default="auto",
     show_default=True,
     help="Device to run on. 'auto' detects the best available device.",
@@ -227,9 +228,9 @@ def eval(
 
     from ..datasets import DatasetConfig
     from ..eval import WinMLEvaluationConfig, evaluate
-    from ..sysinfo import resolve_device
+    from ..session import resolve_device_category
 
-    resolved_device, _ = resolve_device(device)
+    resolved_device, _ = resolve_device_category(device)
 
     ds_config = DatasetConfig(
         path=dataset_path,

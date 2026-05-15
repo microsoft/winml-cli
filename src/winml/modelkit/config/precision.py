@@ -14,6 +14,18 @@ import logging
 import re
 from dataclasses import dataclass
 
+# EP / device taxonomy — single source of truth lives in session/ep_device.py,
+# exposed through the session/ facade.  These names are used within this
+# module's logic; they are NOT re-exported from config/__init__.py
+# (callers must use `from ..session import ...`).
+from ..session import (
+    VALID_DEVICES,
+    VALID_EPS,
+    default_ep_for_device,
+    ep_to_device,
+    short_ep_name,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,43 +72,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     8: "uint8",
     16: "uint16",
 }
-
-# Device -> compile provider mapping (default when no --ep override)
-_DEVICE_TO_PROVIDER: dict[str, str | None] = {
-    "npu": "qnn",
-    "gpu": "dml",
-    "cpu": None,
-}
-
-
-def get_provider_for_device(device: str) -> str | None:
-    """Get the default compile provider for a resolved device.
-
-    Args:
-        device: Resolved device name ("npu", "gpu", "cpu").
-
-    Returns:
-        Provider name (e.g., "qnn", "dml") or None for CPU.
-    """
-    return _DEVICE_TO_PROVIDER.get(device)
-
-
-# EP -> device inference (when --ep is given without --device)
-_EP_TO_DEVICE: dict[str, str] = {
-    "qnn": "npu",
-    "vitisai": "npu",
-    "dml": "gpu",
-    "migraphx": "gpu",
-    "nv_tensorrt_rtx": "gpu",
-    "cuda": "gpu",
-    "openvino": "gpu",
-    "cpu": "cpu",
-}
-
-# Valid EP names (matches WinMLCompileConfig.for_provider() factories)
-VALID_EPS = frozenset(_EP_TO_DEVICE.keys())
-
-_VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 # Named precision presets (non-mixed)
 _NAMED_PRECISIONS = frozenset({"auto", "fp32", "fp16", "int8", "int16"})
@@ -189,7 +164,7 @@ class PrecisionPolicy:
         precision: Resolved precision string (e.g., "int8", "w8a16", "fp16").
         weight_type: Quantization weight type, or None for fp32/fp16.
         activation_type: Quantization activation type, or None for fp32/fp16.
-        compile_provider: "qnn", "dml", or None.
+        compile_provider: Short EP name (e.g. "qnn", "dml") or None for CPU.
     """
 
     device: str
@@ -224,7 +199,7 @@ def resolve_precision(
         ep: Explicit EP override (e.g., "migraphx", "nv_tensorrt_rtx"). When set,
             overrides the default device→provider mapping. If device is
             "auto", the device is inferred from the EP.
-        available_devices: Prioritized device list from resolve_device().
+        available_devices: Prioritized device list from resolve_device_category().
             Used when device="auto" + precision is explicit.
         task: Optional task name for LLM-specific warnings.
 
@@ -252,7 +227,7 @@ def resolve_precision(
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}")
         # Infer device from EP when device is "auto"
         if device == "auto":
-            device = _EP_TO_DEVICE[ep]
+            device = ep_to_device(ep)
             logger.info("Inferred device '%s' from EP '%s'", device, ep)
 
     # --- Both auto: no-op, keep config defaults ---
@@ -267,10 +242,8 @@ def resolve_precision(
 
     # --- Device is explicit ---
     if device != "auto":
-        if device not in _VALID_DEVICES:
-            raise ValueError(
-                f"Unknown device '{device}'. Expected one of: {sorted(_VALID_DEVICES)}"
-            )
+        if device not in VALID_DEVICES:
+            raise ValueError(f"Unknown device '{device}'. Expected one of: {sorted(VALID_DEVICES)}")
         resolved_device = device
     else:
         # Device is "auto" but precision is explicit — pick best device
@@ -292,8 +265,16 @@ def resolve_precision(
                 task,
             )
 
-    # EP override takes precedence over device→provider mapping
-    compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
+    # EP override takes precedence over device→provider mapping.
+    # For CPU, default_ep_for_device returns "CPUExecutionProvider" → short name "cpu".
+    # compile_provider=None means "no compile stage"; CPUExecutionProvider has no
+    # compile step, so map "cpu" (the short name) to None explicitly.
+    if ep:
+        compile_provider: str | None = ep
+    else:
+        _canonical = default_ep_for_device(resolved_device)
+        _short = short_ep_name(_canonical) if _canonical is not None else None
+        compile_provider = _short if _short != "cpu" else None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

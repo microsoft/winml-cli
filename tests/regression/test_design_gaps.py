@@ -187,7 +187,7 @@ class TestB4ConfigModelTypeNoTask:
     def _mock_device(self):
         """Mock hardware detection."""
         with patch(
-            "winml.modelkit.sysinfo.resolve_device",
+            "winml.modelkit.session.resolve_device_category",
             return_value=("cpu", ["cpu"]),
         ):
             yield

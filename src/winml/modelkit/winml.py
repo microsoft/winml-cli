@@ -166,6 +166,19 @@ class WinML:
             for module in modules:
                 if not skip_cache and name in self._registered_eps[module.__name__]:
                     continue
+                # Defensive guard: ORT's register_execution_provider_library is NOT
+                # idempotent — a second call for the same DLL calls C++ exit(127) with
+                # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
+                # WinMLEPRegistry (session/ep_registry.py) may have already registered
+                # this EP in the same process.  Consult the live ORT device list first.
+                try:
+                    already_loaded = any(d.ep_name == name for d in module.get_ep_devices())
+                except Exception:
+                    already_loaded = False  # conservative: attempt the load
+                if already_loaded:
+                    if name not in self._registered_eps[module.__name__]:
+                        self._registered_eps[module.__name__].append(name)
+                    continue
                 try:
                     module.register_execution_provider_library(name, path)
                     if name not in self._registered_eps[module.__name__]:
@@ -215,7 +228,7 @@ def add_ep_for_device(
         - "QNNExecutionProvider"
         - "OpenVINOExecutionProvider"
         - "VitisAIExecutionProvider"
-        - "NvTensorRTRTXExecutionProvider"
+        - "NvTensorRtRtxExecutionProvider"
 
     device_type is one of:
         - ort.OrtHardwareDeviceType.CPU

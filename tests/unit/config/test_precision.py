@@ -227,7 +227,7 @@ class TestEpOverride:
 
     def test_all_valid_eps(self) -> None:
         """All VALID_EPS should be accepted without error."""
-        from winml.modelkit.config.precision import VALID_EPS
+        from winml.modelkit.session import VALID_EPS
 
         for ep_name in VALID_EPS:
             policy = resolve_precision(ep=ep_name)
