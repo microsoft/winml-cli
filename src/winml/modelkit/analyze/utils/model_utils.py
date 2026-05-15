@@ -10,7 +10,11 @@ The node_to_pattern_match function stays here as it uses OperatorPattern (analyz
 
 from __future__ import annotations
 
+import base64
+import json
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 from ...pattern.models import OperatorPattern, PatternType
 
@@ -34,8 +38,60 @@ if TYPE_CHECKING:
     from winml.modelkit.pattern.match import PatternMatchResult
 
 
+def _normalize_for_parquet_encoding(value: object) -> object:
+    """Convert value to a JSON-serializable, type-tagged structure.
+
+    This keeps semantic distinctions (for example bool vs int, tuple vs scalar)
+    while producing a deterministic representation for parquet condition columns.
+    """
+    if isinstance(value, np.generic):
+        return _normalize_for_parquet_encoding(value.item())
+
+    val_type = type(value)
+    if value is None:
+        return {"t": "none"}
+    if val_type is bool:
+        return {"t": "bool", "v": value}
+    if val_type is int:
+        return {"t": "int", "v": value}
+    if val_type is float:
+        return {"t": "float", "v": repr(value)}
+    if val_type is str:
+        return {"t": "str", "v": value}
+    if val_type is bytes:
+        return {"t": "bytes", "v": base64.b64encode(value).decode("ascii")}
+    if val_type is tuple:
+        return {"t": "tuple", "v": [_normalize_for_parquet_encoding(v) for v in value]}
+    if val_type is list:
+        return {"t": "list", "v": [_normalize_for_parquet_encoding(v) for v in value]}
+    if val_type is dict:
+        items = sorted(value.items(), key=lambda kv: str(kv[0]))
+        return {
+            "t": "dict",
+            "v": [
+                [_normalize_for_parquet_encoding(k), _normalize_for_parquet_encoding(v)]
+                for k, v in items
+            ],
+        }
+
+    # Fallback: keep determinism and type visibility for unknown objects.
+    return {"t": "repr", "type": val_type.__name__, "v": repr(value)}
+
+
+def encode_rule_condition_value_for_parquet(value: object) -> str:
+    """Encode a rule condition value to a deterministic parquet-safe string.
+
+    Rule condition columns can contain mixed Python object shapes that pyarrow
+    cannot serialize reliably (for example tuple entries with mixed str/int).
+    This encoder normalizes values to a stable, type-tagged JSON string.
+    """
+    normalized = _normalize_for_parquet_encoding(make_hashable(value))
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
 def node_to_pattern_match(
     node: NodeProto,
+    stable_node_key: str,
 ) -> PatternMatchResult:
     """Convert an ONNX node to a PatternMatchResult object.
 
@@ -43,6 +99,7 @@ def node_to_pattern_match(
 
     Args:
         node: ONNX NodeProto to convert
+        stable_node_key: Stable non-empty node key for analyzer pipeline
 
     Returns:
         PatternMatchResult object representing the operator pattern
@@ -84,6 +141,7 @@ def node_to_pattern_match(
     skeleton_result = SkeletonMatchResult(
         pattern=operator_pattern,
         matched_nodes=[node],
+        matched_node_keys=[stable_node_key],
         matcher=None,  # type: ignore
         inputs=[],
         output="",

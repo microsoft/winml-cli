@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Model serving command for ModelKit CLI.
+"""Model serving command for WinML CLI.
 
 Usage:
     winml serve                                             # Phase 0: CLI wrapper
@@ -17,10 +17,15 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import TYPE_CHECKING
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 @click.command("serve")
@@ -74,7 +79,7 @@ def serve(
     model: str | None,
     task: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     port: int,
     host: str,
     idle_timeout: float,
@@ -82,7 +87,7 @@ def serve(
     memory_budget: float,
     auto_reload: bool,
 ) -> None:
-    r"""Start ModelKit as a local REST API server.
+    r"""Start WinML CLI as a local REST API server.
 
     Without --model starts in Phase 0 (CLI wrapper mode).
     With --model starts in Phase 1/3 (inference server mode).

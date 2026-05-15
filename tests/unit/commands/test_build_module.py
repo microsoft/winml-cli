@@ -38,7 +38,7 @@ class TestLoadConfigModuleMode:
             )
         )
 
-        result = _load_config(str(cfg), no_quant=False, no_compile=False)
+        result = _load_config(str(cfg), no_quant=False, no_compile=None)
         assert isinstance(result, WinMLBuildConfig)
 
     def test_array_config_returns_list(self, tmp_path: Path) -> None:
@@ -73,7 +73,7 @@ class TestLoadConfigModuleMode:
             )
         )
 
-        result = _load_config(str(cfg), no_quant=False, no_compile=False)
+        result = _load_config(str(cfg), no_quant=False, no_compile=None)
         assert isinstance(result, list)
         assert len(result) == 2
         assert all(isinstance(c, WinMLBuildConfig) for c in result)
@@ -101,7 +101,7 @@ class TestLoadConfigModuleMode:
             )
         )
 
-        result = _load_config(str(cfg), no_quant=True, no_compile=False)
+        result = _load_config(str(cfg), no_quant=True, no_compile=None)
         assert isinstance(result, list)
         assert result[0].quant is None
 
@@ -109,7 +109,7 @@ class TestLoadConfigModuleMode:
         """Empty JSON array returns empty list."""
         cfg = tmp_path / "empty.json"
         cfg.write_text("[]")
-        result = _load_config(str(cfg), no_quant=False, no_compile=False)
+        result = _load_config(str(cfg), no_quant=False, no_compile=None)
         assert isinstance(result, list)
         assert len(result) == 0
 
@@ -118,7 +118,7 @@ class TestLoadConfigModuleMode:
         cfg = tmp_path / "bad.json"
         cfg.write_text('[1, "not a dict"]')
         with pytest.raises(click.UsageError, match="Module config"):
-            _load_config(str(cfg), no_quant=False, no_compile=False)
+            _load_config(str(cfg), no_quant=False, no_compile=None)
 
     def test_invalid_json_type_raises(self, tmp_path: Path) -> None:
         """Non-dict, non-list JSON raises UsageError."""
@@ -126,7 +126,7 @@ class TestLoadConfigModuleMode:
         cfg.write_text('"just a string"')
 
         with pytest.raises(click.UsageError, match="JSON object or array"):
-            _load_config(str(cfg), no_quant=False, no_compile=False)
+            _load_config(str(cfg), no_quant=False, no_compile=None)
 
 
 class TestBuildModuleOrchestration:

@@ -31,7 +31,11 @@ from typing import TYPE_CHECKING
 
 from transformers import AutoConfig
 
-from .task import _detect_task_from_config, normalize_task, resolve_task_and_model_class
+from .task import (
+    _detect_task_from_config,
+    normalize_task,
+    resolve_task_and_model_class,
+)
 
 
 if TYPE_CHECKING:
@@ -219,6 +223,7 @@ def load_hf_model(
         task = _detect_task_from_config(hf_config) if task is None else normalize_task(task)
     else:
         # Standard resolution via resolve_task_and_model_class()
+        # (model-id task overrides are handled inside _detect_task_from_config)
         try:
             task, resolved_class = resolve_task_and_model_class(
                 hf_config,

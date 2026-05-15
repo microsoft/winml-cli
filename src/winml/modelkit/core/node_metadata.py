@@ -5,7 +5,7 @@
 """Node-level metadata system for ONNX models.
 
 This module provides a comprehensive metadata system for tracking ONNX node origins,
-transformations, optimizations, and semantic information through the ModelKit pipeline.
+transformations, optimizations, and semantic information through the WinML CLI pipeline.
 
 Metadata is stored as custom ONNX node attributes with the 'winml.' prefix.
 """

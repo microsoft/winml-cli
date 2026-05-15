@@ -319,7 +319,7 @@ def attention_builder():
     # Note: LayerNorm is not in opset 9 spec but ORT accepts it
     model = helper.make_model(
         graph,
-        producer_name="modelkit_test",
+        producer_name="winmlcli_test",
         opset_imports=[helper.make_opsetid("", 9)],
     )
     model.ir_version = 6

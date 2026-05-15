@@ -35,6 +35,41 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+class TestBanner:
+    """Test that the ASCII art banner appears on stderr for no-args and --help."""
+
+    @pytest.fixture
+    def split_runner(self) -> CliRunner:
+        """Runner with separate stderr capture."""
+        return CliRunner()
+
+    def test_no_args_exits_zero(self, split_runner: CliRunner) -> None:
+        """winml with no arguments must exit 0."""
+        result = split_runner.invoke(main, [])
+        assert result.exit_code == 0
+
+    def test_no_args_prints_banner_to_stderr(self, split_runner: CliRunner) -> None:
+        """winml with no arguments must print the banner to stderr."""
+        result = split_runner.invoke(main, [])
+        assert "Windows ML" in result.stderr
+
+    def test_help_exits_zero(self, split_runner: CliRunner) -> None:
+        """winml --help must exit 0."""
+        result = split_runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+
+    def test_help_prints_banner_to_stderr(self, split_runner: CliRunner) -> None:
+        """winml --help must print the banner to stderr."""
+        result = split_runner.invoke(main, ["--help"])
+        assert "Windows ML" in result.stderr
+
+    def test_subcommand_help_has_no_banner(self, split_runner: CliRunner) -> None:
+        """Subcommand --help must NOT print the banner."""
+        result = split_runner.invoke(main, ["sys", "--help"])
+        assert result.exit_code == 0
+        assert "Windows ML" not in result.stderr
+
+
 class TestCLIBasics:
     """Test basic CLI functionality."""
 
@@ -48,7 +83,7 @@ class TestCLIBasics:
         """Test --help shows usage information."""
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
-        assert "WML ModelKit" in result.output
+        assert "WinML CLI" in result.output
         assert "export" in result.output.lower()
 
     def test_debug_flag(self, runner: CliRunner) -> None:

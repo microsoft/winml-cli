@@ -9,6 +9,7 @@ Tests the _get_platform_info function with Windows version detection.
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 
@@ -176,3 +177,76 @@ class TestGetPlatformInfo:
         result = _get_platform_info()
 
         assert result["processor"] == "Unknown"
+
+
+class TestGetTorchInfo:
+    """Test _get_torch_info function."""
+
+    def test_non_verbose_uses_metadata_not_torch_import(self) -> None:
+        """Non-verbose torch info must derive version from importlib.metadata,
+        not from ``import torch``.
+
+        Importing torch costs ~1.5 s warm and used to dominate ``winml sys``
+        latency (issue #558). Setting ``sys.modules["torch"] = None`` inside
+        a patch.dict block makes ``import torch`` raise ImportError without
+        disturbing torch's actual loaded state — so if the function uses
+        the metadata path, availability + version are still reported.
+        """
+        from winml.modelkit.commands.sys import _get_torch_info
+
+        with patch.dict(sys.modules, {"torch": None}):
+            info = _get_torch_info(verbose=False)
+
+        assert info["available"] is True
+        assert info["version"]
+
+    def test_non_verbose_omits_cuda_keys(self) -> None:
+        """Non-verbose torch info must not query CUDA (which requires torch import)."""
+        from winml.modelkit.commands.sys import _get_torch_info
+
+        info = _get_torch_info(verbose=False)
+        assert "cuda_available" not in info
+        assert "cuda_version" not in info
+        assert "gpu_devices" not in info
+
+    @patch("winml.modelkit.commands.sys.version")
+    def test_returns_unavailable_when_torch_missing(self, mock_version: MagicMock) -> None:
+        """When torch is not installed, info reports unavailable."""
+        from importlib.metadata import PackageNotFoundError
+
+        from winml.modelkit.commands.sys import _get_torch_info
+
+        mock_version.side_effect = PackageNotFoundError("torch")
+        info = _get_torch_info(verbose=False)
+        assert info["available"] is False
+
+
+class TestGatherDeviceInfo:
+    """Test the parallel hardware detection path in _gather_device_info."""
+
+    def test_runs_hw_queries_in_parallel(self) -> None:
+        """Wall time of _gather_device_info should approach the slowest
+        single query, not the sum — proving the three subprocesses run
+        concurrently rather than sequentially.
+        """
+        import time
+
+        from winml.modelkit.commands import sys as sys_cmd
+
+        def slow_empty() -> list:
+            time.sleep(0.15)
+            return []
+
+        with (
+            patch.object(sys_cmd, "_gather_device_info", wraps=sys_cmd._gather_device_info),
+            patch("winml.modelkit.sysinfo.hardware.CPU.get_all", side_effect=slow_empty),
+            patch("winml.modelkit.sysinfo.hardware.GPU.get_all", side_effect=slow_empty),
+            patch("winml.modelkit.sysinfo.hardware.NPU.get_all", side_effect=slow_empty),
+        ):
+            t0 = time.perf_counter()
+            sys_cmd._gather_device_info()
+            elapsed = time.perf_counter() - t0
+
+        # Sequential would be 3 x 0.15 = 0.45s; parallel should be ~0.15s.
+        # Allow generous headroom for ThreadPoolExecutor scheduling.
+        assert elapsed < 0.35, f"Hardware queries appear to run sequentially ({elapsed:.2f}s)"

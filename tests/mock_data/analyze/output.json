@@ -1,5 +1,4 @@
 {
-  "analyzer_version": "0.1.0",
   "analysis_timestamp": "2025-12-03T14:30:00.123456",
   "metadata": {
     "model_path": "/path/to/resnet50.onnx",

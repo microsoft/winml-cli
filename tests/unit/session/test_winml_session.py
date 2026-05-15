@@ -76,6 +76,35 @@ class TestWinMLSessionInstantiation:
                 device="auto",
             )
 
+    def test_ep_name_is_none_before_compile(self, simple_matmul_onnx: Path):
+        """ep_name returns None before compile() since no providers are bound yet."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        assert session.ep_name is None
+
+    def test_ep_name_after_compile(self, simple_matmul_onnx: Path):
+        """ep_name returns the primary provider name once the session is built."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        session.compile()
+        assert isinstance(session.ep_name, str)
+        assert session.ep_name.endswith("ExecutionProvider")
+
+    def test_explicit_ep_cpu_binds_cpu_execution_provider(self, simple_matmul_onnx: Path):
+        """`--ep cpu` must bind CPUExecutionProvider explicitly.
+
+        Regression: previously the explicit-EP branch carried a
+        `self._ep != "cpu"` exception, so `ep="cpu"` fell through to
+        PREFER_CPU policy. On systems with OpenVINO (or any other
+        CPU-capable EP) registered, ORT then chose OV-on-CPU as the primary
+        and silently ignored the user's `--ep cpu` choice. The fix routes
+        `ep="cpu"` through `add_provider_for_devices` like any other EP, so
+        the resulting session has CPUExecutionProvider as the primary
+        provider regardless of what else is registered.
+        """
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
+        session.compile()
+        assert session.ep_name == "CPUExecutionProvider"
+        assert session._session.get_providers()[0] == "CPUExecutionProvider"
+
 
 class TestWinMLSessionCompilation:
     """Test WinMLSession compilation (EPContext creation)."""
@@ -773,3 +802,124 @@ class TestFindEpDevice:
         with self._patch_devices(devs):
             assert WinMLSession._find_ep_device(device="auto") is None
             assert WinMLSession._find_ep_device(device="auto", ep_name=None) is None
+
+
+class TestSuppressNativeOutput:
+    """Unit tests for _suppress_native_output context manager."""
+
+    def test_stderr_suppressed_when_flag_set(self, tmp_path):
+        import os
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        trap = tmp_path / "stderr_trap.bin"
+        trap_fd = os.open(str(trap), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        old_stderr = os.dup(2)
+        os.dup2(trap_fd, 2)
+        os.close(trap_fd)
+        try:
+            with _suppress_native_output(suppress_stderr=True):
+                os.write(2, b"should be suppressed")
+        finally:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+
+        assert trap.read_bytes() == b""
+
+    def test_stderr_not_suppressed_by_default(self, tmp_path):
+        import os
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        trap = tmp_path / "stderr_trap.bin"
+        trap_fd = os.open(str(trap), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        old_stderr = os.dup(2)
+        os.dup2(trap_fd, 2)
+        os.close(trap_fd)
+        try:
+            with _suppress_native_output():
+                os.write(2, b"visible text")
+        finally:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+
+        assert trap.read_bytes() == b"visible text"
+
+    def test_stderr_captured_to_log_file(self, tmp_path):
+        import os
+
+        from winml.modelkit.session.session import _suppress_native_output
+
+        log = tmp_path / "session.log"
+        with _suppress_native_output(log_path=log, suppress_stderr=True):
+            os.write(1, b"stdout line\n")
+            os.write(2, b"stderr line\n")
+
+        content = log.read_bytes()
+        assert b"stdout line" in content
+        assert b"stderr line" in content
+
+    @pytest.mark.skipif(
+        __import__("sys").platform != "win32", reason="Windows-only: tests SetStdHandle"
+    )
+    def test_win32_std_error_handle_redirected_and_restored(self):
+        """On Windows, _suppress_ep_registration_stderr must update STD_ERROR_HANDLE
+        so that native DLLs calling GetStdHandle(STD_ERROR_HANDLE) see the devnull handle."""
+        import ctypes
+
+        from winml.modelkit.session.session import _suppress_ep_registration_stderr
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetStdHandle.restype = ctypes.c_void_p
+        kernel32.GetStdHandle.argtypes = [ctypes.c_uint32]
+        std_error_handle = ctypes.c_uint32(0xFFFFFFF4)
+
+        original_handle = kernel32.GetStdHandle(std_error_handle)
+
+        with _suppress_ep_registration_stderr():
+            redirected = kernel32.GetStdHandle(std_error_handle)
+            assert redirected != original_handle, "STD_ERROR_HANDLE should change inside context"
+
+        restored = kernel32.GetStdHandle(std_error_handle)
+        assert restored == original_handle, "STD_ERROR_HANDLE should be restored after context"
+
+
+@pytest.mark.ep("openvino")
+@pytest.mark.e2e
+class TestOpenVINODeviceRouting:
+    """Integration guard: ep=openvino with device=cpu must compile without error.
+
+    Requires a machine with OpenVINO EP available.  Skipped when OpenVINO is
+    absent.  On NPU-capable machines where the bug manifests this test FAILs
+    until the fix is applied.
+    """
+
+    def test_compile_openvino_cpu_device_succeeds(self, simple_matmul_onnx: Path) -> None:
+        """WinMLSession with ep=openvino and device=cpu must compile successfully."""
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep="openvino",
+        )
+        session.compile()
+        assert session.state == SessionState.COMPILED
+
+    def test_compile_openvino_cpu_provider_not_npu(self, simple_matmul_onnx: Path) -> None:
+        """Session compiled with ep=openvino + device=cpu must not run on NPU.
+
+        If OpenVINO-CPU is unavailable and the code falls back to
+        CPUExecutionProvider, that is acceptable.  What must NOT happen is
+        routing to NPU (QNN/OpenVINO-NPU) when cpu was explicitly requested.
+        """
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep="openvino",
+        )
+        session.compile()
+
+        providers = session._session.get_providers()
+        npu_providers = {"QNNExecutionProvider", "NvTensorRTRTXExecutionProvider"}
+        assert not npu_providers.intersection(providers), (
+            f"ep=openvino + device=cpu must not select an NPU provider, got: {providers}"
+        )

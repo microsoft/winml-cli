@@ -2,13 +2,19 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Device detection, prioritization, and EP-aware resolution for ModelKit."""
+"""Device detection, prioritization, and EP-aware resolution for WinML CLI."""
 
 from __future__ import annotations
 
 import functools
 import logging
+from typing import TYPE_CHECKING
 
+from ..utils.constants import EPName, normalize_ep_name
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +41,10 @@ logger = logging.getLogger(__name__)
 #   - EP list: https://onnxruntime.ai/docs/execution-providers/
 
 # EP name -> target device type (all lowercase values)
-_EP_DEVICE_MAP: dict[str, str] = {
+_EP_DEVICE_MAP: dict[EPName, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
+    "CUDAExecutionProvider": "gpu",
     # AMD
     "MIGraphXExecutionProvider": "gpu",
     "VitisAIExecutionProvider": "npu",
@@ -52,7 +59,7 @@ _EP_DEVICE_MAP: dict[str, str] = {
 }
 
 # Derived inverse mapping (multi-device EPs are included in each device)
-_DEVICE_EP_MAP: dict[str, list[str]] = {}
+_DEVICE_EP_MAP: dict[str, list[EPName]] = {}
 for _ep, _device in _EP_DEVICE_MAP.items():
     for _d in _device.split("/"):
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
@@ -61,7 +68,7 @@ for _ep, _device in _EP_DEVICE_MAP.items():
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 
-def get_ep_device_map() -> dict[str, str]:
+def get_ep_device_map() -> dict[EPName, str]:
     """Return a copy of the EP-to-device mapping.
 
     Public accessor for the internal ``_EP_DEVICE_MAP``. Use this instead
@@ -122,7 +129,7 @@ def _get_available_devices() -> tuple[str, ...]:
 
 
 @functools.lru_cache(maxsize=1)
-def _get_available_eps() -> frozenset[str]:
+def _get_available_eps() -> frozenset[EPName]:
     """Collect available EP names from WinML and ORT (cached).
 
     Hardware and EPs do not change during a process lifetime,
@@ -131,7 +138,7 @@ def _get_available_eps() -> frozenset[str]:
     Returns:
         Frozenset of available EP name strings.
     """
-    available_eps: set[str] = set()
+    available_eps: set[EPName] = set()
 
     try:
         from ..session.ep_registry import WinMLEPRegistry
@@ -155,17 +162,25 @@ def _get_available_eps() -> frozenset[str]:
     return frozenset(available_eps)
 
 
-def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
+def resolve_device(
+    device: str = "auto",
+    *,
+    ep: EPNameOrAlias | None = None,
+) -> tuple[str, list[str]]:
     """Resolve target device with EP availability cross-check.
 
     Args:
         device: "auto", "npu", "gpu", or "cpu".
+        ep: Optional EP short name (e.g., "qnn", "dml"). When set,
+            ``available_devices`` is filtered to only those device types the
+            EP can target, and ``available_eps`` is filtered to just this EP
+            (intersected with what is actually available on the system).
 
     Returns:
         (chosen_device, available_devices_list)
 
     Raises:
-        ValueError: If device is not recognized.
+        ValueError: If device or ep is not recognized.
     """
     device = device.lower()
 
@@ -177,6 +192,14 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
     available_devices = list(_get_available_devices())
     available_eps = _get_available_eps()
 
+    if ep is not None:
+        ep_full = normalize_ep_name(ep)
+        if ep_full not in _EP_DEVICE_MAP:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_DEVICE_MAP)}")
+        available_eps = available_eps & {ep_full}
+        ep_compatible_devices = set(_EP_DEVICE_MAP[ep_full].split("/"))
+        available_devices = [d for d in available_devices if d in ep_compatible_devices]
+
     if not available_eps:
         logger.warning(
             "No execution providers detected. Falling back to CPU. "
@@ -187,11 +210,11 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
         # Walk priority list, pick first device with a matching EP
         for dev in available_devices:
             compatible_eps = _DEVICE_EP_MAP.get(dev, [])
-            if any(ep in available_eps for ep in compatible_eps):
+            if any(ep_name in available_eps for ep_name in compatible_eps):
                 logger.info(
                     "Auto-selected device '%s' with compatible EPs: %s for auto device",
                     dev,
-                    sorted(ep for ep in compatible_eps if ep in available_eps),
+                    sorted(ep_name for ep_name in compatible_eps if ep_name in available_eps),
                 )
                 return dev, available_devices
         # Fallback: CPU is always valid
@@ -199,7 +222,7 @@ def resolve_device(device: str = "auto") -> tuple[str, list[str]]:
 
     # Explicit device requested -- warn if no compatible EP
     compatible_eps = _DEVICE_EP_MAP.get(device, [])
-    if not any(ep in available_eps for ep in compatible_eps):
+    if not any(ep_name in available_eps for ep_name in compatible_eps):
         logger.warning(
             "Device '%s' requested but no compatible EP found. "
             "Compatible EPs: %s. Available EPs: %s",

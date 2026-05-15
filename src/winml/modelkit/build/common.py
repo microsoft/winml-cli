@@ -23,6 +23,7 @@ from ..optim import optimize_onnx
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def run_optimize_analyze_loop(
     optimized_path: Path,
     config: WinMLBuildConfig,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     max_optim_iterations: int = 0,
     on_ep_start: Any = None,
@@ -68,6 +69,10 @@ def run_optimize_analyze_loop(
     Raises:
         RuntimeError: If unsupported nodes persist after analysis.
     """
+    # Respect auto=False: flags are pre-configured, skip autoconf
+    if not config.auto:
+        max_optim_iterations = 0
+
     t0 = time.monotonic()
 
     # 1. Optimize
@@ -98,13 +103,14 @@ def run_optimize_analyze_loop(
         analyze_iterations, analyze_black_nodes, analyze_details = 0, 0, {}
 
     elapsed = time.monotonic() - t0
+
     return current_path, elapsed, analyze_iterations, analyze_black_nodes, analyze_details
 
 
 def _run_analyze_loop(
     *,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_optim_iterations: int,
     config: WinMLBuildConfig,

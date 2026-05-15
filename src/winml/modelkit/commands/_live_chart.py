@@ -15,6 +15,8 @@ from typing import Any
 from rich.console import Console
 from rich.panel import Panel
 
+from ..session.monitor.hw_monitor import adapter_label
+
 
 # Moving window size for the x-axis (seconds)
 _CHART_WINDOW_SECONDS = 10.0
@@ -38,11 +40,24 @@ class LiveMonitorDisplay:
         chart_width: int = 80,
         chart_height: int = 15,
         poll_interval_ms: int = 100,
+        device_kind: str | None = None,
     ) -> None:
         self._total = total_iterations
         self._warmup = warmup
         self._model_id = model_id
         self._device = device
+        # `device_kind` is the value HWMonitor resolved at start() — pass it
+        # in when you want the legend to reflect what's actually polled (e.g.
+        # "auto" that resolved to GPU). Falls back to the requested string
+        # when the caller doesn't know the resolved kind yet.
+        if device_kind is None:
+            requested = (device or "").lower()
+            device_kind = requested if requested in ("npu", "gpu") else None
+        # When no adapter is polled (CPU-only / auto resolved to nothing),
+        # hide the adapter line + status cell entirely instead of drawing
+        # a flat zero series labelled "Adapter".
+        self._show_adapter = device_kind is not None
+        self._adapter_label = adapter_label(device_kind)
         self._chart_width = chart_width
         self._chart_height = chart_height
         self._poll_interval_s = poll_interval_ms / 1000.0
@@ -111,21 +126,31 @@ class LiveMonitorDisplay:
         """Render utilization chart as a Rich renderable.
 
         Uses plotext with AnsiDecoder for flicker-free Rich Live integration.
-        Plots NPU (green) and CPU (cyan) with distinct colors.
+        Plots adapter (NPU/GPU, green) and CPU (cyan) with distinct colors.
         X-axis is a moving window of the last N seconds.
         Y-axis has fixed ticks: 0, 20, 40, 60, 80, 100.
         """
+        adapter = self._adapter_label
+        show_adapter = self._show_adapter
         try:
             import plotext as plt
         except ImportError:
             from rich.text import Text
 
+            # CPU-only fallback: drop the adapter line entirely.
+            if not show_adapter:
+                if cpu_samples:
+                    current = cpu_samples[-1]
+                    bar_len = min(50, max(0, int(current / 2)))
+                    bar = "#" * bar_len + "." * (50 - bar_len)
+                    return Text(f"  CPU: [{bar}] {current:.1f}%")
+                return Text("  CPU: [waiting for data...]")
             if util_samples:
                 current = util_samples[-1]
                 bar_len = min(50, max(0, int(current / 2)))
                 bar = "#" * bar_len + "." * (50 - bar_len)
-                return Text(f"  NPU: [{bar}] {current:.1f}%")
-            return Text("  NPU: [waiting for data...]")
+                return Text(f"  {adapter}: [{bar}] {current:.1f}%")
+            return Text(f"  {adapter}: [waiting for data...]")
 
         plt.clf()
         plt.theme("clear")
@@ -134,20 +159,20 @@ class LiveMonitorDisplay:
         window_samples = int(_CHART_WINDOW_SECONDS / self._poll_interval_s)
         total_npu = len(util_samples) if util_samples else 0
 
-        # Absolute elapsed time for each sample in the window
-        # e.g., at 15s elapsed with 10s window: x-axis shows 5.0 -> 15.0
-        npu_window = util_samples[-window_samples:] if util_samples else [0]
-        window_start_idx = max(0, total_npu - len(npu_window))
-        npu_times = [(window_start_idx + i) * self._poll_interval_s for i in range(len(npu_window))]
+        # Plot the adapter line only when an adapter is actually being polled.
+        if show_adapter:
+            npu_window = util_samples[-window_samples:] if util_samples else [0]
+            window_start_idx = max(0, total_npu - len(npu_window))
+            npu_times = [
+                (window_start_idx + i) * self._poll_interval_s for i in range(len(npu_window))
+            ]
+            plt.plot(npu_times, npu_window, marker="braille", color="green")
 
-        # Plot NPU in green (no label -- legend is in the title)
-        plt.plot(npu_times, npu_window, marker="braille", color="green")
-
-        # Plot CPU in cyan (distinct from NPU)
+        # Plot CPU in cyan (distinct from adapter)
         has_cpu = False
+        total_cpu = len(cpu_samples) if cpu_samples else 0
         if cpu_samples:
             has_cpu = True
-            total_cpu = len(cpu_samples)
             cpu_window = cpu_samples[-window_samples:]
             cpu_start_idx = max(0, total_cpu - len(cpu_window))
             cpu_times = [
@@ -162,8 +187,10 @@ class LiveMonitorDisplay:
         plt.ylim(0, 100)
         plt.yticks([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
 
-        # X-axis: absolute elapsed time, sliding window
-        elapsed = total_npu * self._poll_interval_s
+        # X-axis: absolute elapsed time, sliding window. Use whichever series
+        # we have to anchor the timeline so a CPU-only chart still scrolls.
+        sample_count = total_npu if show_adapter else total_cpu
+        elapsed = sample_count * self._poll_interval_s
         x_min = max(0.0, elapsed - _CHART_WINDOW_SECONDS)
         x_max = max(elapsed, _CHART_WINDOW_SECONDS)
         plt.xlim(x_min, x_max)
@@ -174,13 +201,16 @@ class LiveMonitorDisplay:
         from rich.console import Group
         from rich.text import Text
 
-        # Rich-colored title line with legend swatches
-        if has_cpu:
+        # Rich-colored title line with legend swatches.
+        if show_adapter and has_cpu:
             title = Text.from_markup(
-                "  Utilization ([green]\u2588\u2588[/green] NPU %  [cyan]\u2588\u2588[/cyan] CPU %)"
+                f"  Utilization ([green]\u2588\u2588[/green] {adapter} %  "
+                f"[cyan]\u2588\u2588[/cyan] CPU %)"
             )
+        elif show_adapter:
+            title = Text.from_markup(f"  Utilization ([green]\u2588\u2588[/green] {adapter} %)")
         else:
-            title = Text.from_markup("  Utilization ([green]\u2588\u2588[/green] NPU %)")
+            title = Text.from_markup("  Utilization ([cyan]\u2588\u2588[/cyan] CPU %)")
 
         ansi_output = plt.build()
         chart_lines = [Text.from_ansi(line) for line in ansi_output.splitlines()]
@@ -219,12 +249,17 @@ class LiveMonitorDisplay:
         pct_cell = f"{bar} {pct:.0%}"
         row1 = f"  {pct_cell:<30}|  {progress}  |  Device: {self._device}"
 
-        # Row 2: Hardware (pad each cell to fixed width, spaces before divider)
-        npu_cell = f"NPU: {mean_util:.1f}% avg ({current_util:.1f}% now)"
+        # Row 2: Hardware (pad each cell to fixed width, spaces before divider).
+        # CPU-only mode drops the adapter cell + device-memory cell since we
+        # have no live values to populate them with.
         cpu_cell = f"CPU: {cpu_pct:.1f}%"
         ram_cell = f"Sys Mem: {ram_mb:.0f} MB"
-        mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
-        row2 = f"  {npu_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
+        if self._show_adapter:
+            adapter_cell = f"{self._adapter_label}: {mean_util:.1f}% avg ({current_util:.1f}% now)"
+            mem_cell = f"Device Mem: {memory_local_mb:.0f}/{memory_shared_mb:.0f} MB (local/shared)"
+            row2 = f"  {adapter_cell:<30}| {cpu_cell:<12}|  {ram_cell}  |  {mem_cell}"
+        else:
+            row2 = f"  {cpu_cell:<12}|  {ram_cell}"
 
         # Row 3: Inference (pad each cell to fixed width, spaces before divider)
         lat_cell = f"Latency: {latency_ms:.2f} ms"

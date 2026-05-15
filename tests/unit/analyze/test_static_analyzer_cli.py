@@ -16,7 +16,7 @@ Tests verify:
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -25,16 +25,16 @@ from click.testing import CliRunner
 from winml.modelkit.commands.analyze import analyze
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
 @pytest.fixture(autouse=True)
 def _mock_rule_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bypass rule-data validation so CLI tests don't depend on rule zips."""
+    """Bypass rule-data validation so CLI tests don't depend on rule artifacts."""
     monkeypatch.setattr(
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
+        lambda: ([Path("runtime_check_rules")], [Path("runtime_check_rules/mock.parquet")]),
     )
 
 
@@ -58,7 +58,6 @@ def mock_analyzer_result() -> Mock:
     mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
-            "analyzer_version": "0.1.0",
             "analysis_timestamp": "2025-12-05T12:00:00",
             "metadata": {
                 "model_path": "test.onnx",
@@ -82,7 +81,6 @@ def mock_analyzer_partial_support() -> Mock:
     mock_result.output.results = []  # empty EP results list (iterable)
     mock_result.to_json.return_value = json.dumps(
         {
-            "analyzer_version": "0.1.0",
             "analysis_timestamp": "2025-12-05T12:00:00",
             "metadata": {
                 "model_path": "test.onnx",
@@ -191,6 +189,34 @@ class TestAnalyzeCommandArguments:
         )
         # Click should catch this with path validation
         assert result.exit_code != 0
+
+    def test_missing_runtime_rule_parquet_exits_two(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When no parquet is found in search dirs, analyze should fail fast."""
+        monkeypatch.setattr(
+            "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
+            lambda: ([Path("runtime_check_rules")], []),
+        )
+
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+            ],
+        )
+
+        assert result.exit_code == 2
+        assert "no runtime rule parquet files were found" in result.output.lower()
+        assert "reinstall" in result.output.lower()
 
 
 class TestAnalyzeCommandExecution:
@@ -492,7 +518,7 @@ class TestAnalyzeCommandOutput:
 
         # Verify file contains valid JSON
         content = json.loads(output_file.read_text())
-        assert "analyzer_version" in content
+        assert "metadata" in content
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_output_file_not_written_on_error(
@@ -780,19 +806,20 @@ class TestQDQNodeDisplayMapping:
     """
 
     def test_qdq_pattern_id_maps_to_base_op_for_table_key(self) -> None:
-        """_display_name + removesuffix(QDQ_SUFFIX) maps QDQ pattern IDs to base
+        """_display_name maps QDQ-suffixed and EP-suffixed pattern IDs to base
         op types so instance_counts keys match all_op_counts keys."""
-        from winml.modelkit.analyze import QDQ_SUFFIX
         from winml.modelkit.commands.analyze import _display_name
 
-        assert _display_name("OP/ai.onnx/Conv (QDQ)").removesuffix(QDQ_SUFFIX) == "Conv"
-        assert _display_name("OP/ai.onnx/Add (QDQ)").removesuffix(QDQ_SUFFIX) == "Add"
-        assert _display_name("OP/ai.onnx/Pad (QDQ)").removesuffix(QDQ_SUFFIX) == "Pad"
-        assert (
-            _display_name("OP/ai.onnx/DequantizeLinear").removesuffix(QDQ_SUFFIX)
-            == "DequantizeLinear"
-        )
-        assert _display_name("OP/ai.onnx/Reshape").removesuffix(QDQ_SUFFIX) == "Reshape"
+        # QDQ suffix
+        assert _display_name("OP/ai.onnx/Conv (QDQ)") == "Conv"
+        assert _display_name("OP/ai.onnx/Add (QDQ)") == "Add"
+        assert _display_name("OP/ai.onnx/Pad (QDQ)") == "Pad"
+        # No suffix
+        assert _display_name("OP/ai.onnx/DequantizeLinear") == "DequantizeLinear"
+        assert _display_name("OP/ai.onnx/Reshape") == "Reshape"
+        # EP-prefix suffix from EPContextNodeChecker
+        assert _display_name("OP/com.microsoft/EPContext (QNN)") == "EPContext"
+        assert _display_name("OP/com.microsoft/EPContext (Dml)") == "EPContext"
 
     @patch("winml.modelkit.commands.analyze.Live")
     @patch("winml.modelkit.commands.analyze.Console")

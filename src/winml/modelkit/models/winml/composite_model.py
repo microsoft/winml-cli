@@ -12,13 +12,13 @@ component names to HF tasks; ``from_pretrained()`` builds them all.
 Registry
 --------
 ``@register_composite_model(model_type, task)`` registers a pipeline class.
-``wmk config`` checks the registry to generate one config file per component::
+``winml config`` checks the registry to generate one config file per component::
 
-    wmk config -m google-t5/t5-small --task translation -o t5.json
+    winml config -m google-t5/t5-small --task translation -o t5.json
     # → t5_encoder.json (feature-extraction) + t5_decoder.json (text2text-generation)
 
-    wmk build -c t5_encoder.json -m google-t5/t5-small -o output/encoder
-    wmk build -c t5_decoder.json -m google-t5/t5-small -o output/decoder
+    winml build -c t5_encoder.json -m google-t5/t5-small -o output/encoder
+    winml build -c t5_decoder.json -m google-t5/t5-small -o output/decoder
 
 Per-component kwargs
 --------------------
@@ -61,12 +61,12 @@ logger = logging.getLogger(__name__)
 # =========================================================================
 
 # Maps (model_type, task) → pipeline class with _SUB_MODEL_CONFIG.
-# Used by `wmk config` to generate one config file per sub-component.
+# Used by `winml config` to generate one config file per sub-component.
 COMPOSITE_MODEL_REGISTRY: dict[tuple[str, str], type] = {}
 
 
 def register_composite_model(model_type: str, task: str):
-    """Class decorator that registers a composite model for `wmk config`."""
+    """Class decorator that registers a composite model for `winml config`."""
 
     def decorator(cls: type) -> type:
         key = (model_type, task)

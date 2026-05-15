@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Core utilities for ModelKit."""
+"""Core utilities for WinML CLI."""
 
 from .model_input_generator import generate_dummy_inputs_from_specs
 from .node_metadata import (

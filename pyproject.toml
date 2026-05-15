@@ -3,7 +3,7 @@ build-backend = "setuptools.build_meta"
 requires = [ "setuptools>=61", "wheel" ]
 
 [project]
-name = "winml-modelkit"
+name = "winml-cli"
 version = "0.0.2"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
@@ -31,7 +31,6 @@ dependencies = [
   "hf_xet>=1.1.10",
   "httpx>=0.24.0",
   "jsonschema>=4.23",
-  "Levenshtein>=0.27",
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
@@ -43,9 +42,9 @@ dependencies = [
   "optimum>=2",
   "optimum-onnx>=0.1",
   "plotext>=5.3.2",
-  "pycocoevalcap>=1.2",
   "pydantic>=2",
   "python-multipart>=0.0.22",
+  "rapidfuzz>=3.9",
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
@@ -61,8 +60,8 @@ dependencies = [
   "torchvision>=0.24",
   "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
+  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002,<2",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002,<2",
   "winrt-runtime>=3.2.1",
   "winrt-windows-foundation>=3.2.1",
   "winrt-windows-foundation-collections>=3.2.1",
@@ -90,10 +89,10 @@ optional-dependencies.openvino = [ "openvino>=2023" ]
 optional-dependencies.qnn = [
   "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
 ]
-urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
-urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
-urls.Homepage = "https://github.com/microsoft/ModelKit"
-urls.Repository = "https://github.com/microsoft/ModelKit.git"
+urls."Bug Tracker" = "https://github.com/microsoft/winml-cli/issues"
+urls.Documentation = "https://github.com/microsoft/winml-cli/blob/main/README.md"
+urls.Homepage = "https://github.com/microsoft/winml-cli"
+urls.Repository = "https://github.com/microsoft/winml-cli.git"
 # =============================================================================
 # SETUPTOOLS - Package Configuration (Flat Layout with Namespace Prefix)
 # =============================================================================
@@ -121,7 +120,7 @@ include = [ "winml", "winml.*" ]
 "winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
   "rules/**/*.json",
-  "rules/**/*.zip",
+  "rules/**/*.parquet",
   "runtime_checker/need_rerun_errors.json",
 ]
 "winml.modelkit.export" = [
@@ -381,6 +380,7 @@ markers = [
   "gpu: Tests requiring GPU hardware",
 
   # Environment Markers (Backend)
+  "ep(name): marks tests requiring a specific execution provider",
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
   "cuda: marks tests requiring CUDA runtime",
