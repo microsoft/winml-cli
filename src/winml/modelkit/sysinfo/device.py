@@ -234,11 +234,7 @@ def resolve_device(
     return device, available_devices
 
 
-def resolve_eps(resolved_device: str)-> list[EPName]:
+def resolve_eps(resolved_device: str) -> list[EPName]:
     """Return list of available EPs compatible with the given device."""
     available_eps = _get_available_eps()
-    eps = []
-    for ep in _DEVICE_EP_MAP.get(resolved_device, []):
-        if ep in available_eps:
-            eps.append(ep)
-    return eps
+    return [ep for ep in _DEVICE_EP_MAP.get(resolved_device, []) if ep in available_eps]
