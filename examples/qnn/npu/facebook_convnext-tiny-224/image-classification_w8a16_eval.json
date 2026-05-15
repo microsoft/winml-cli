@@ -1,0 +1,19 @@
+{
+  "model_id": "facebook/convnext-tiny-224",
+  "task": "image-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\facebook_convnext-tiny-224\\image-classification_w8a16_eval.json",
+  "metrics": {
+    "accuracy": 0.9,
+    "total_time_in_seconds": 0.7990776999940863,
+    "samples_per_second": 12.51442757077817,
+    "latency_in_seconds": 0.07990776999940863
+  }
+}

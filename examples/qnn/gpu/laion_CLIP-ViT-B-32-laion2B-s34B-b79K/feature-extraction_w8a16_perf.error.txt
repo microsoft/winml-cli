@@ -1,3 +1,0 @@
-forrtl: error (200): program aborting due to window-CLOSE event
-Image              PC                Routine            Line        Source             
-KERNELBASE.dll     00007FFA8E4A2DDC  Unknown               Unknown  Unknown

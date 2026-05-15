@@ -3,11 +3,11 @@ uestion-answering` for AutoModelForQuestionAnswering, `reinforcement-learning` f
 The above exception was the direct cause of the following exception:
 
 Traceback (most recent call last):
-  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 211, in eval
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 228, in eval
     result = evaluate(cfg)
-  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 226, in evaluate
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 231, in evaluate
     model = _load_model(config)
-  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 194, in _load_model
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 198, in _load_model
     return WinMLAutoModel.from_pretrained(
   File "C:\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 355, in from_pretrained
     build_config = generate_hf_build_config(
@@ -15,7 +15,7 @@ Traceback (most recent call last):
     loader_config, hf_config, resolved_class = resolve_loader_config(
   File "C:\repo\WinML-ModelKit\src\winml\modelkit\loader\config.py", line 226, in resolve_loader_config
     resolved_task, resolved_class = resolve_task_and_model_class(
-  File "C:\repo\WinML-ModelKit\src\winml\modelkit\loader\task.py", line 422, in resolve_task_and_model_class
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\loader\task.py", line 459, in resolve_task_and_model_class
     raise ValueError(
 ValueError: Task 'unknown' not supported by TasksManager. Check optimum documentation for supported tasks.
 Error: Evaluation failed: Task 'unknown' not supported by TasksManager. Check optimum documentation for supported tasks.

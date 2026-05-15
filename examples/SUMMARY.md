@@ -2,12 +2,14 @@
 
 ## Overview
 
-| EP | Models | Perf Pass | Eval Pass | Report |
-|----|--------|-----------|-----------|--------|
-| AMD (VitisAI, NPU) | 64 | 56/64 (87%) | 49/64 (76%) | [Report](vitisai/npu/REPORT.md) |
-| QNN (Qualcomm, NPU) | 56 | 183/192 (95%) | 161/192 (84%) | [Report](qnn/npu/REPORT.md) |
-| QNN (Qualcomm, GPU) | 56 | 162/192 (84%) | 105/192 (55%) | [Report](qnn/gpu/REPORT.md) |
-| OpenVINO (Intel, NPU) | 64 | 64/64 (100%) | 52/64 (81%) | [Report](openvino/npu/REPORT.md) |
-| OpenVINO (Intel, CPU) | 64 | 192/192 (100%) | 133/192 (69%) | [Report](openvino/cpu/REPORT.md) |
-| MLAS (CPU) | 46 | 46/46 (100%) | 36/46 (78%) | [Report](mlas/cpu/REPORT.md) |
-| NVIDIA TensorRT RTX (GPU) | 64 | 192/192 (100%) | 177/192 (92%) | [Report](nv_tensorrt_rtx/gpu/REPORT.md) |
+| EP | Models | Configs | Perf Pass | Eval Pass | Report |
+|----|--------|---------|-----------|-----------|--------|
+| AMD (VitisAI, NPU) | 56 | 192 | 140/192 (73%) | 151/192 (79%) | [Report](vitisai/npu/REPORT.md) |
+| QNN (Qualcomm, NPU) | 63 | 213 | 202/213 (95%) | 168/213 (79%) | [Report](qnn/npu/REPORT.md) |
+| QNN (Qualcomm, GPU) | 63 | 213 | 162/213 (76%) | 105/213 (49%) | [Report](qnn/gpu/REPORT.md) |
+| OpenVINO (Intel, NPU) | 56 | 192 | 144/192 (75%) | 156/192 (81%) | [Report](openvino/npu/REPORT.md) |
+| OpenVINO (Intel, CPU) | 56 | 192 | 0/192 (0%) | 133/192 (69%) | [Report](openvino/cpu/REPORT.md) |
+| MLAS (CPU) | 46 | 152 | 0/152 (0%) | 122/152 (80%) | [Report](mlas/cpu/REPORT.md) |
+| NVIDIA TensorRT RTX (GPU) | 56 | 192 | 0/192 (0%) | 177/192 (92%) | [Report](nv_tensorrt_rtx/gpu/REPORT.md) |
+
+All pass rates above are config-based (`*_config.json` as denominator).
