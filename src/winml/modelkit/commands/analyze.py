@@ -463,12 +463,7 @@ def _render_analysis_summary(
 )
 @cli_utils.verbosity_options
 @cli_utils.build_config_option
-@click.option(
-    "--output",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Save JSON output to file",
-)
+@cli_utils.output_option("Save JSON output to file")
 @click.option(
     "--information/--no-information",
     default=True,

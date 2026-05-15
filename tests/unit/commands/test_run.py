@@ -242,12 +242,12 @@ class TestPrintResult:
     def test_json_to_file(self, tmp_path: Path) -> None:
         out = tmp_path / "out.json"
         data = {"task": "test", "predictions": []}
-        _print_result(data, output_format="json", output_path=str(out))
+        _print_result(data, output_format="json", output_path=out)
         assert json.loads(out.read_text()) == data
 
     def test_text_to_file(self, tmp_path: Path) -> None:
         out = tmp_path / "out.txt"
-        _print_result(_MINIMAL_RESULT, output_format="text", output_path=str(out))
+        _print_result(_MINIMAL_RESULT, output_format="text", output_path=out)
         assert "Task:    test" in out.read_text()
 
     def test_text_to_stdout(self) -> None:

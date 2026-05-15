@@ -1112,15 +1112,9 @@ def _run_onnx_benchmark(
     required=False,
     optional_message="Overrides device-to-provider mapping.",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help=(
-        "Output JSON file path. Defaults to "
-        "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
-    ),
+@cli_utils.output_option(
+    "Output JSON file path. Defaults to "
+    "'~/.cache/winml/perf/<model_slug>[/<module_class>]/<timestamp>.json'."
 )
 @click.option(
     "--batch-size",

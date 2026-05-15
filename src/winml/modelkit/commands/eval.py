@@ -119,13 +119,7 @@ logger = logging.getLogger(__name__)
     default=None,
     help='Path to a JSON file with label mapping: {"label_name": id}.',
 )
-@click.option(
-    "-o",
-    "--output",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output JSON file path.",
-)
+@cli_utils.output_option("Output JSON file path.")
 @click.option(
     "-v",
     "--verbose",

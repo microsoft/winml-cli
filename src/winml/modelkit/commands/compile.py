@@ -48,13 +48,7 @@ console = Console()
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file (required unless --list)",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output file path (e.g., model_compiled.onnx)",
-)
+@cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
 @click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
