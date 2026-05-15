@@ -15,8 +15,10 @@ Usage:
         python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import onnxruntime as ort
 from onnx.defs import SchemaError
@@ -28,6 +30,10 @@ from ...pattern.op_input_gen import (
     get_registered_operators,
     get_runtime_checker_op,
 )
+
+
+if TYPE_CHECKING:
+    from ...utils.constants import EPName
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
@@ -277,7 +283,7 @@ class RTXChecker(EPChecker):
         )
 
 
-def get_ep_checker(ep_name: str, device: str) -> EPChecker:
+def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     """Get EPChecker for given execution provider name.
 
     Args:

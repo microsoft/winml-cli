@@ -10,10 +10,15 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -134,9 +139,7 @@ logger = logging.getLogger(__name__)
     default=None,
     help="Path to a Python script that builds the evaluation dataset.",
 )
-@cli_utils.trust_remote_code_option(
-    optional_message="Required when --dataset-script is used."
-)
+@cli_utils.trust_remote_code_option(optional_message="Required when --dataset-script is used.")
 @click.option(
     "--schema",
     "show_schema",
@@ -155,7 +158,7 @@ def eval(
     task: str | None,
     device: str,
     precision: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     samples: int,
     split: str,
     shuffle: bool,
@@ -371,9 +374,7 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
         )
 
     if not trust_remote_code:
-        raise click.UsageError(
-            "--trust-remote-code is required to execute a dataset script."
-        )
+        raise click.UsageError("--trust-remote-code is required to execute a dataset script.")
 
     import subprocess
     import sys
@@ -382,8 +383,7 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
     if not script_path.exists():
         raise click.BadParameter(f"Dataset script not found: {script_path}")
 
-    cmd = [sys.executable, str(script_path),
-           "--output", str(Path(cfg.dataset.path).expanduser())]
+    cmd = [sys.executable, str(script_path), "--output", str(Path(cfg.dataset.path).expanduser())]
 
     logger.info("Building dataset via %s ...", script_path.name)
     result = subprocess.run(  # noqa: S603
@@ -452,11 +452,13 @@ def _resolve_model_path(
                 )
             if role in sub_model_paths:
                 raise click.BadParameter(
-                    f"Duplicate role {role!r} in -m options.", param_hint="-m/--model",
+                    f"Duplicate role {role!r} in -m options.",
+                    param_hint="-m/--model",
                 )
             if not Path(path).exists():
                 raise click.BadParameter(
-                    f"ONNX file not found: {path}", param_hint="-m/--model",
+                    f"ONNX file not found: {path}",
+                    param_hint="-m/--model",
                 )
             sub_model_paths[role] = path
         return sub_model_paths, model_id
@@ -470,7 +472,8 @@ def _resolve_model_path(
     if Path(value).suffix.lower() == ".onnx":
         if not Path(value).exists():
             raise click.BadParameter(
-                f"ONNX file not found: {value}", param_hint="-m/--model",
+                f"ONNX file not found: {value}",
+                param_hint="-m/--model",
             )
         if model_id is None:
             raise click.UsageError(

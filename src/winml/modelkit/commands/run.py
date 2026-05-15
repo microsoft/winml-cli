@@ -30,11 +30,15 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
 from ..utils import cli as cli_utils
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
@@ -507,7 +511,7 @@ def run(
     input_args: tuple[str, ...],
     task: str | None,
     device: str,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     params: tuple[str, ...],
     show_schema: bool,
     output_format: str,

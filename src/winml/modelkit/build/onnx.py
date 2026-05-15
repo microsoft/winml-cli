@@ -29,6 +29,7 @@ from .hf import BuildResult
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def build_onnx_model(
     config: WinMLBuildConfig,
     output_dir: Path | str,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:

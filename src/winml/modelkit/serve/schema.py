@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..utils.constants import EPAlias, EPNameOrAlias
+
 
 # ---------------------------------------------------------------------------
 # Requests
@@ -23,7 +25,7 @@ from pydantic import BaseModel, Field
 class EpSwitchRequest(BaseModel):
     """POST /v1/ep — switch execution provider."""
 
-    ep: str = Field(..., description="EP short name: cpu, dml, qnn, openvino")
+    ep: EPAlias = Field(..., description="EP short name: cpu, dml, qnn, openvino")
 
 
 class PredictJsonRequest(BaseModel):
@@ -80,7 +82,7 @@ class HealthResponse(BaseModel):
     model_id: str | None = None
     task: str | None = None
     device: str | None = None
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     uptime_sec: float
 
 
@@ -90,7 +92,7 @@ class ResourceResponse(BaseModel):
     model_id: str | None = None
     task: str | None = None
     device: str | None = None
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     status: str = Field(..., description="ready | loading | unloaded")
     memory_mb: float = 0.0
     uptime_sec: float
@@ -104,7 +106,7 @@ class ModelInfo(BaseModel):
     model_id: str
     task: str | None = None
     device: str | None = None
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     status: str
     refcount: int = 0
     memory_mb: float = 0.0
@@ -122,7 +124,7 @@ class ModelLoadRequest(BaseModel):
     model_id: str = Field(..., description="HF model ID, build output dir, or .onnx path")
     task: str | None = Field(None, description="Task (required for raw .onnx)")
     device: str = Field("auto", description="auto | cpu | gpu | npu")
-    ep: str | None = Field(None, description="Explicit EP short name")
+    ep: EPNameOrAlias | None = Field(None, description="Explicit EP short name")
     alias: str | None = Field(
         None,
         description=(
