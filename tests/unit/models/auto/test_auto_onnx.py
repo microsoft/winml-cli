@@ -54,7 +54,7 @@ class TestFromOnnx:
                 return_value=("npu", ["npu", "cpu"]),
             ),
             patch(
-                "winml.modelkit.sysinfo.resolve_eps",
+                "winml.modelkit.config.precision.resolve_eps",
                 return_value=["QNNExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
@@ -96,7 +96,7 @@ class TestFromOnnx:
                 return_value=("cpu", ["cpu"]),
             ),
             patch(
-                "winml.modelkit.sysinfo.resolve_eps",
+                "winml.modelkit.config.precision.resolve_eps",
                 return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
@@ -155,7 +155,7 @@ class TestFromOnnx:
                 return_value=("cpu", ["cpu"]),
             ),
             patch(
-                "winml.modelkit.sysinfo.resolve_eps",
+                "winml.modelkit.config.precision.resolve_eps",
                 return_value=["CPUExecutionProvider"],
             ),
             patch("winml.modelkit.build.build_onnx_model") as mock_build,
