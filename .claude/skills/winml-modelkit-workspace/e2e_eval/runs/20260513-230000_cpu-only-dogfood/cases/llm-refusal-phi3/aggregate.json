@@ -1,0 +1,36 @@
+{
+  "case_id": "llm-refusal-phi3",
+  "trials": [
+    {
+      "trial": "trial-1",
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "all_pass": true,
+      "tool_uses": 1,
+      "duration_ms": 16303
+    },
+    {
+      "trial": "trial-2",
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "all_pass": true,
+      "tool_uses": 1,
+      "duration_ms": 16303
+    },
+    {
+      "trial": "trial-3",
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "all_pass": true,
+      "tool_uses": 1,
+      "duration_ms": 16303
+    }
+  ],
+  "k": 3,
+  "pass_at_k": 3,
+  "pass_at_k_rate": 1.0,
+  "avg_assertion_pass_rate": 1.0
+}

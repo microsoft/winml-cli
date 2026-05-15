@@ -1,0 +1,41 @@
+{
+  "scratch_dir": "C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit-workspace/e2e_eval/scratch/cpu-full-build-resnet/trial-2",
+  "artifacts": [
+    {
+      "path": "build/export.onnx",
+      "size_bytes": 102177229,
+      "archived": false,
+      "kind": "binary"
+    },
+    {
+      "path": "build/export_htp_metadata.json",
+      "size_bytes": 55351,
+      "archived": true,
+      "kind": "text"
+    },
+    {
+      "path": "build/model.onnx",
+      "size_bytes": 102188943,
+      "archived": false,
+      "kind": "binary"
+    },
+    {
+      "path": "build/optimized.onnx",
+      "size_bytes": 102188943,
+      "archived": false,
+      "kind": "binary"
+    },
+    {
+      "path": "build/winml_build_config.json",
+      "size_bytes": 816,
+      "archived": true,
+      "kind": "text"
+    },
+    {
+      "path": "resnet50_cpu_config.json",
+      "size_bytes": 816,
+      "archived": true,
+      "kind": "text"
+    }
+  ]
+}

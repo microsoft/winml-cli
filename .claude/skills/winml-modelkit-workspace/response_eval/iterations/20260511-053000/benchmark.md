@@ -1,13 +1,20 @@
-# Skill Benchmark: winml-modelkit
+# Response eval â€” 20260511-053000
 
-**Model**: <model-name>
-**Date**: 2026-05-11T06:15:19Z
-**Evals**: 1, 2, 3, 4, 5, 6 (3 runs each per configuration)
+## Overall
 
-## Summary
+| Metric | with_skill | baseline | Î” |
+|---|---|---|---|
+| Pass rate | **97.3%** (36/37) | 62.2% (23/37) | +35.1pp |
 
-| Metric | With Skill | Without Skill | Delta |
-|--------|------------|---------------|-------|
-| Pass Rate | 97% ± 7% | 63% ± 18% | +0.35 |
-| Time | 55.1s ± 14.3s | 28.0s ± 6.1s | +27.1s |
-| Tokens | 28110 ± 2776 | 19837 ± 505 | +8273 |
+## Per case
+
+| Case | with_skill | baseline | Details |
+|---|---|---|---|
+| `eval-is-model-supported` | 6/6 | 3/6 | [comparison](eval-is-model-supported/comparison.md) |
+| `eval-llm-out-of-scope` | 5/5 | 4/5 | [comparison](eval-llm-out-of-scope/comparison.md) |
+| `eval-npu-vs-cpu-comparison` | 7/7 | 3/7 | [comparison](eval-npu-vs-cpu-comparison/comparison.md) |
+| `eval-optimize-failure-recovery` | 6/6 | 4/6 | [comparison](eval-optimize-failure-recovery/comparison.md) |
+| `eval-ryzen-ai-quick-benchmark` | 5/6 âš  | 3/6 | [comparison](eval-ryzen-ai-quick-benchmark/comparison.md) |
+| `eval-snapdragon-resnet-build` | 7/7 | 6/7 | [comparison](eval-snapdragon-resnet-build/comparison.md) |
+
+Cases marked âš  have failing assertions â€” open the linked `comparison.md` for response text and per-assertion evidence.
