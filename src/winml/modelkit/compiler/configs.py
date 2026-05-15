@@ -123,15 +123,15 @@ class WinMLCompileConfig:
             "MIGraphXExecutionProvider": cls.for_migraphx,
             "CPUExecutionProvider": cls.for_cpu,
         }
-        factory = factories.get(provider)
-        if factory:
-            config = factory()
-            # EPs that don't produce EPContext have no offline compile step
-            if not config.ep_config.enable_ep_context:
-                return None
-            return config
-        # Generic fallback for unknown/custom providers — no EPContext support
-        return None
+        factory = factories.get(canonical)
+        if factory is None:
+            # Not a known EP — no typed EPConfig possible.
+            return None
+        config = factory()
+        # EPs that don't produce EPContext have no offline compile step
+        if not config.ep_config.enable_ep_context:
+            return None
+        return config
 
     @classmethod
     def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
