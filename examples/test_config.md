@@ -25,7 +25,8 @@ Options:
 - `--eval-only` — Skip perf, only run eval
 - `--models` — Comma-separated model slugs to test a subset (e.g. `--models microsoft_resnet-50,BAAI_bge-base-en-v1.5`)
 
-Results are saved alongside configs:
+Results are saved alongside configs. NPU targets have one config per precision; CPU/GPU
+targets have a single precision-less config:
 ```
 examples/qnn/npu/microsoft_resnet-50/
 ├── image-classification_w8a8_config.json
@@ -37,6 +38,11 @@ examples/qnn/npu/microsoft_resnet-50/
 ├── image-classification_fp16_config.json
 ├── image-classification_fp16_eval.error.txt  # failure
 └── ...
+
+examples/mlas/cpu/microsoft_resnet-50/
+├── image-classification_config.json
+├── image-classification_perf.json
+└── image-classification_eval.json
 ```
 
 ---

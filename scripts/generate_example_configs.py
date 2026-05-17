@@ -32,7 +32,11 @@ EPS = [
     ("dml", "dml", "gpu"),
 ]
 
-PRECISIONS = ["w8a8", "w8a16", "fp16"]
+# NPU targets are tested across multiple quantization precisions.
+# CPU/GPU targets generate a single config without an explicit --precision
+# (uses the EP's default), so we don't sweep precisions there.
+NPU_PRECISIONS = ["w8a8", "w8a16", "fp16"]
+CPU_GPU_PRECISIONS: list[str | None] = [None]
 
 # Builtin models: (hf_id, task)
 MODELS = [
@@ -154,7 +158,9 @@ def merge_eval_section(
     config["eval"] = eval_cfg
 
 
-def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str) -> dict | None:
+def generate_config(
+    hf_id: str, task: str, device: str, ep: str, precision: str | None
+) -> dict | None:
     """Run winml config and return the parsed JSON config.
 
     For composite models (e.g., CLIP with image-encoder + text-encoder),
@@ -166,8 +172,9 @@ def generate_config(hf_id: str, task: str, device: str, ep: str, precision: str)
         "--task", task,
         "--device", device,
         "--ep", ep,
-        "--precision", precision,
     ]
+    if precision is not None:
+        cmd.extend(["--precision", precision])
     try:
         result = subprocess.run(  # noqa: S603
             cmd, capture_output=True, text=True, timeout=120, cwd=str(REPO_ROOT)
@@ -247,7 +254,12 @@ def main() -> None:
     eval_lookup = load_eval_lookup()
     examples_dir = REPO_ROOT / "examples"
 
-    total = len(MODELS) * len(eps) * len(PRECISIONS)
+    # Pre-compute precision list per EP target (NPU sweeps, CPU/GPU single config).
+    ep_precisions = [
+        (ep_flag, ep_folder, hw, NPU_PRECISIONS if hw == "npu" else CPU_GPU_PRECISIONS)
+        for ep_flag, ep_folder, hw in eps
+    ]
+    total = sum(len(MODELS) * len(precs) for *_, precs in ep_precisions)
     done = 0
     created = 0
     skipped = 0
@@ -257,17 +269,22 @@ def main() -> None:
         slug = model_slug(hf_id)
         eval_dataset = eval_lookup.get((hf_id, task))
 
-        for ep_flag, ep_folder, hardware in eps:
-            for precision in PRECISIONS:
+        for ep_flag, ep_folder, hardware, precisions in ep_precisions:
+            for precision in precisions:
                 done += 1
                 out_dir = examples_dir / ep_folder / hardware / slug
-                out_file = out_dir / f"{task}_{precision}_config.json"
+                if precision is None:
+                    out_file = out_dir / f"{task}_config.json"
+                    label = "default"
+                else:
+                    out_file = out_dir / f"{task}_{precision}_config.json"
+                    label = precision
 
                 if out_file.exists():
                     skipped += 1
                     continue
 
-                print(f"[{done}/{total}] {hf_id} / {task} / {ep_folder} / {precision} ...", end=" ")
+                print(f"[{done}/{total}] {hf_id} / {task} / {ep_folder} / {label} ...", end=" ")
                 config = generate_config(hf_id, task, hardware, ep_flag, precision)
                 if config is None:
                     failed += 1
