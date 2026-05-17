@@ -1,0 +1,25 @@
+use of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 228, in eval
+    result = evaluate(cfg)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 247, in evaluate
+    task_evaluator = cls(config, model)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\zero_shot_image_classification_evaluator.py", line 55, in __init__
+    super().__init__(config, model)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 50, in __init__
+    self.data = self.prepare_data()
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 103, in prepare_data
+    dataset = load_dataset(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\load.py", line 1708, in load_dataset
+    builder_instance.download_and_prepare(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\builder.py", line 882, in download_and_prepare
+    self._download_and_prepare(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\builder.py", line 943, in _download_and_prepare
+    self._prepare_split(split_generator, **prepare_split_kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\builder.py", line 1646, in _prepare_split
+    for job_id, done, content in self._prepare_split_single(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\datasets\builder.py", line 1832, in _prepare_split_single
+    raise DatasetGenerationError("An error occurred while generating the dataset") from e
+datasets.exceptions.DatasetGenerationError: An error occurred while generating the dataset
+Error: Evaluation failed: An error occurred while generating the dataset

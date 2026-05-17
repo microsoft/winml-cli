@@ -1,0 +1,19 @@
+{
+  "model_id": "facebook/convnext-tiny-224",
+  "task": "image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\nv_tensorrt_rtx\\gpu\\facebook_convnext-tiny-224\\image-classification_eval.json",
+  "metrics": {
+    "accuracy": 0.77,
+    "total_time_in_seconds": 1.223143600000185,
+    "samples_per_second": 81.75654927188016,
+    "latency_in_seconds": 0.01223143600000185
+  }
+}

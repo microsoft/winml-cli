@@ -1,0 +1,22 @@
+Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 198, in _load_model
+    return WinMLAutoModel.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 334, in from_pretrained
+    return WinMLCompositeModel.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\composite_model.py", line 164, in from_pretrained
+    return resolved_cls.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\winml\composite_model.py", line 181, in from_pretrained
+    sub_models[name] = WinMLAutoModel.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 407, in from_pretrained
+    result = build_hf_model(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\build\hf.py", line 269, in build_hf_model
+    ) = run_optimize_analyze_loop(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\build\common.py", line 74, in run_optimize_analyze_loop
+    optimize_onnx(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\optim\api.py", line 273, in optimize_onnx
+    optimized_model = optimizer.optimize(optimized_model, **optimizer_kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\optim\optimizer.py", line 128, in optimize
+    model = pipe.process(model, config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\optim\pipes\fusion.py", line 296, in process
+    raise OptimizationError(
+winml.modelkit.optim.errors.OptimizationError: Failed to apply fusion optimizations | Pipe: ort_fusion | Model info: {'model_type': 'clip'} | Caused by: [Errno 28] No space left on device
+Error: Evaluation failed: Failed to apply fusion optimizations | Pipe: ort_fusion | Model info: {'model_type': 'clip'} | Caused by: [Errno 28] No space left on device

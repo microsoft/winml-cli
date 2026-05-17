@@ -1,0 +1,37 @@
+{
+  "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+  "task": "question-answering",
+  "device": "gpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\nv_tensorrt_rtx\\gpu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_eval.json",
+  "metrics": {
+    "exact": 88.0,
+    "f1": 89.85,
+    "total": 100,
+    "HasAns_exact": 87.5,
+    "HasAns_f1": 91.35416666666667,
+    "HasAns_total": 48,
+    "NoAns_exact": 88.46153846153847,
+    "NoAns_f1": 88.46153846153847,
+    "NoAns_total": 52,
+    "best_exact": 88.0,
+    "best_exact_thresh": 0.9954809546470642,
+    "best_f1": 89.85,
+    "best_f1_thresh": 0.9954809546470642,
+    "total_time_in_seconds": 3.2314259999984642,
+    "samples_per_second": 30.946090054374608,
+    "latency_in_seconds": 0.03231425999998464
+  }
+}

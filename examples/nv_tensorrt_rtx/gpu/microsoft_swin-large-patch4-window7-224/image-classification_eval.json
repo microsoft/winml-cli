@@ -1,0 +1,19 @@
+{
+  "model_id": "microsoft/swin-large-patch4-window7-224",
+  "task": "image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "timm/mini-imagenet"
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\nv_tensorrt_rtx\\gpu\\microsoft_swin-large-patch4-window7-224\\image-classification_eval.json",
+  "metrics": {
+    "accuracy": 0.15,
+    "total_time_in_seconds": 11.824983200000133,
+    "samples_per_second": 8.456671634002733,
+    "latency_in_seconds": 0.11824983200000135
+  }
+}
