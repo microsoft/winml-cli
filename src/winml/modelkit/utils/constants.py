@@ -174,7 +174,7 @@ SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
 EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
     "QNNExecutionProvider": ("npu", "gpu"),
     "VitisAIExecutionProvider": ("npu",),
-    "OpenVINOExecutionProvider": ("gpu", "npu", "cpu"),
+    "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
     "DmlExecutionProvider": ("gpu",),
     "MIGraphXExecutionProvider": ("gpu",),
     "NvTensorRTRTXExecutionProvider": ("gpu",),

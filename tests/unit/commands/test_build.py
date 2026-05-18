@@ -23,6 +23,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+_DEVICE_TO_EPS = {
+    "npu": ["QNNExecutionProvider"],
+    "gpu": ["DmlExecutionProvider"],
+    "cpu": ["CPUExecutionProvider"],
+}
+
+
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
     """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
@@ -39,6 +46,10 @@ def mock_resolve_device():
         patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "gpu", "cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",

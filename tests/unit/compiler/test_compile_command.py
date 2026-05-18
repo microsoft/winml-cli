@@ -219,10 +219,38 @@ class TestCompileCommand:
         result = runner.invoke(main, ["compile", "-m", str(model_path), "--ep", "dml"])
 
         assert result.exit_code != 0
-        # Canonical provider name appears in the "Provider '<name>' does not support" line.
+        # Error line is "Provider 'DmlExecutionProvider' does not support …"
         assert "DmlExecutionProvider" in result.output
         assert "(e.g. qnn, dml, openvino)" not in result.output
         assert "(e.g. qnn, openvino)" in result.output
+
+    @patch("winml.modelkit.compiler.compile_onnx")
+    def test_ep_trtrtx_propagates_gpu_device_type(
+        self,
+        mock_compile_onnx: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test --device gpu --ep trtrtx no longer injects provider_options[device_type]."""
+        model_path = tmp_path / "model.onnx"
+        self._create_simple_onnx(model_path)
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = tmp_path / "model_gpu_ctx.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+        mock_compile_onnx.return_value = mock_result
+
+        result = runner.invoke(
+            main,
+            ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "trtrtx"],
+        )
+
+        assert result.exit_code == 0, result.output
+        config = mock_compile_onnx.call_args.kwargs["config"]
+        assert config.ep_config.provider == "nv_tensorrt_rtx"
+        assert "device_type" not in config.ep_config.provider_options
 
     def test_cpu_device_raises_unsupported_error(
         self,
@@ -285,11 +313,11 @@ class TestCompileCommand:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Test --device npu --ep qnn sets provider_options[device_type] = NPU.
+        """Test --device npu --ep qnn stores device in both provider_options and ep_config.
 
-        Before the fix, for_provider() was called without device so
-        provider_options was empty and _finalize_output searched for
-        ..._qnn_ctx.onnx instead of ..._npu_ctx.onnx.
+        device_type in provider_options ensures NPU and GPU builds get different
+        cache keys. device in ep_config enables compile stage to align EPContext
+        filenames with the actual runtime-resolved device (e.g., model_npu_ctx.onnx).
         """
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
@@ -309,6 +337,7 @@ class TestCompileCommand:
         assert result.exit_code == 0, result.output
         config = mock_compile_onnx.call_args.kwargs["config"]
         assert config.ep_config.provider_options.get("device_type") == "NPU"
+        assert config.ep_config.device == "npu"
 
     def _create_simple_onnx(self, path: Path) -> None:
         """Create a simple ONNX model for testing."""

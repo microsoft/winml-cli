@@ -14,13 +14,38 @@ from winml.modelkit.commands.compile import _resolve_compile_provider
 from winml.modelkit.commands.quantize import _resolve_quant_types
 
 
+_DEVICE_TO_EPS = {
+    "npu": ["QNNExecutionProvider"],
+    "gpu": ["DmlExecutionProvider"],
+    "cpu": ["CPUExecutionProvider"],
+}
+
+
+@pytest.fixture(autouse=True)
+def mock_functions():
+    """Mock resolve_eps to avoid hardware detection."""
+    with (
+        patch(
+            "winml.modelkit.commands.compile.resolve_eps",
+            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+        ),
+    ):
+        yield
+
+
 # =============================================================================
 # _resolve_compile_provider tests
 # =============================================================================
 
 
 class TestResolveCompileProvider:
-    """Test compile provider resolution from device + ep flags."""
+    """Test compile provider resolution from resolved-device + ep flags.
+
+    ``_resolve_compile_provider`` expects an already-resolved device
+    (lowercase, never ``"auto"``) — ``resolve_device`` is called upstream
+    by the ``compile`` CLI. Device case-handling and ``auto``-resolution
+    are covered by ``tests/unit/sysinfo`` and the CLI integration tests.
+    """
 
     def test_npu_defaults_to_qnn(self):
         assert _resolve_compile_provider("npu", None) == "QNNExecutionProvider"
@@ -31,14 +56,10 @@ class TestResolveCompileProvider:
     def test_cpu_returns_cpu(self):
         assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
 
-    def test_auto_defaults_to_qnn(self):
-        # auto maps to QNN (NPU-first), like the device priority order.
-        assert _resolve_compile_provider("auto", None) == "QNNExecutionProvider"
-
-    def test_ep_alias_resolves_to_canonical_when_compatible(self):
-        """When (device, ep) is a compatible pair, the canonical EP is returned."""
-        assert _resolve_compile_provider("gpu", "migraphx") == "MIGraphXExecutionProvider"
-        assert _resolve_compile_provider("npu", "vitisai") == "VitisAIExecutionProvider"
+    def test_ep_overrides_device(self):
+        """ep takes priority over device mapping."""
+        assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
+        assert _resolve_compile_provider("gpu", "vitisai") == "VitisAIExecutionProvider"
         assert (
             _resolve_compile_provider("gpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
         )
@@ -69,9 +90,47 @@ class TestResolveCompileProvider:
         """All alias inputs resolve to their canonical EP name."""
         assert _resolve_compile_provider(device, ep) == expected
 
-    def test_device_case_insensitive(self):
-        assert _resolve_compile_provider("NPU", None) == "QNNExecutionProvider"
-        assert _resolve_compile_provider("GPU", None) == "DmlExecutionProvider"
+
+class TestCompileAutoDeviceEndToEnd:
+    """End-to-end test for ``--device auto`` through the compile CLI.
+
+    ``_resolve_compile_provider`` itself no longer accepts ``"auto"`` — the
+    CLI calls ``resolve_device("auto")`` upstream to produce a concrete
+    device. This test pins the full pipeline so the auto path keeps
+    resolving to QNN on an NPU-first host (replacing the removed
+    ``test_auto_defaults_to_qnn`` unit-level test).
+    """
+
+    def test_auto_resolves_to_qnn_when_npu_available(self, tmp_path):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.compile import compile
+
+        model_file = tmp_path / "model.onnx"
+        model_file.write_bytes(b"fake")
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.output_path = tmp_path / "model_compiled.onnx"
+        mock_result.compile_time = 1.0
+        mock_result.total_time = 1.5
+
+        # ``resolve_device`` is patched at compile.py's binding site so
+        # ``auto`` deterministically becomes ``npu``; ``resolve_eps`` is
+        # already pinned by the module-level autouse fixture.
+        with (
+            patch(
+                "winml.modelkit.commands.compile.resolve_device",
+                return_value=("npu", ["npu", "gpu", "cpu"]),
+            ),
+            patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
+            patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
+        ):
+            result = CliRunner().invoke(compile, ["-m", str(model_file), "--device", "auto"])
+
+        assert result.exit_code == 0, result.output
+        assert "Device: npu" in result.output
+        assert "Provider: QNNExecutionProvider" in result.output
 
     @pytest.mark.parametrize(
         ("device", "ep"),

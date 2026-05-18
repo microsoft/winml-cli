@@ -14,6 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from ..sysinfo import resolve_eps
 from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 
 
@@ -62,30 +63,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     8: "uint8",
     16: "uint16",
 }
-
-# Device -> canonical EP mapping (default when no --ep override).
-# ``CPUExecutionProvider`` is the EP that runs on CPU; consumers that distinguish
-# "no EPContext compilation needed" from "produce CPU artifact" must check
-# explicitly (see ``resolve_precision``). ``auto`` defaults to QNN (NPU-first).
-_DEVICE_TO_PROVIDER: dict[str, EPName] = {
-    "auto": "QNNExecutionProvider",
-    "npu": "QNNExecutionProvider",
-    "gpu": "DmlExecutionProvider",
-    "cpu": "CPUExecutionProvider",
-}
-
-
-def get_provider_for_device(device: str) -> EPName | None:
-    """Get the default EP for a resolved device.
-
-    Args:
-        device: Resolved device name ("npu", "gpu", "cpu").
-
-    Returns:
-        Canonical EP name, or ``None`` if ``device`` is not one of the three
-        supported device strings.
-    """
-    return _DEVICE_TO_PROVIDER.get(device)
 
 
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
@@ -285,10 +262,12 @@ def resolve_precision(
                 task,
             )
 
-    # ep=CPUExecutionProvider (or device=cpu) means no EPContext compilation
-    # needed -- CPU never produces an EPContext artifact. For all other
-    # explicit EPs (canonical names), use ``ep`` as the provider.
-    compile_provider: EPName | None = ep_canonical or _DEVICE_TO_PROVIDER.get(resolved_device)
+    # ep=CPUExecutionProvider means no EPContext compilation needed.
+    # For all other explicit EPs (canonical names), use ep as the provider.
+    compile_provider: EPName | None = ep_canonical
+    if not compile_provider:
+        eps = resolve_eps(resolved_device)
+        compile_provider = eps[0] if eps else None
     if compile_provider == "CPUExecutionProvider":
         compile_provider = None
 
