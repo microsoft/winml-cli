@@ -336,9 +336,10 @@ def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
             )
             continue
         logger.debug(
-            "Resolved %s LUID via ORT (ep=%s): %s",
+            "Resolved %s LUID via ORT (ep=%s, ep_name=%s): %s",
             kind.upper(),
             ep_dev.ep_name,
+            ep_name,
             formatted,
         )
         return formatted

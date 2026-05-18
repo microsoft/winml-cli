@@ -82,6 +82,20 @@ def get_ep_device_map() -> dict[EPName, str]:
     return dict(_EP_DEVICE_MAP)
 
 
+def get_device_ep_map() -> dict[str, list[EPName]]:
+    """Return a copy of the device-to-EP mapping.
+
+    Public accessor for the internal ``_DEVICE_EP_MAP``. Each device key
+    maps to the EPs that target it, in priority order (most powerful EP
+    first), derived from ``_EP_DEVICE_MAP``'s declaration order.
+
+    Returns:
+        Dict mapping device types to ordered EP-name lists (e.g.
+        ``{"gpu": ["NvTensorRTRTXExecutionProvider", ...], ...}``).
+    """
+    return {device: list(eps) for device, eps in _DEVICE_EP_MAP.items()}
+
+
 @functools.lru_cache(maxsize=1)
 def _get_available_devices() -> tuple[str, ...]:
     """Return prioritized tuple of available devices (cached).
