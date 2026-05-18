@@ -178,16 +178,16 @@ class TestGetDevicesWithRuleData:
             assert get_devices_with_rule_data("CPUExecutionProvider") == ["CPU"]
 
     def test_falls_back_to_ep_device_map_multi_device(self, tmp_path: Path) -> None:
-        """OpenVINO supports gpu/npu/cpu — fallback should return all three.
+        """OpenVINO supports npu/gpu/cpu — fallback should return all three.
 
         Order matches ``EP_SUPPORTED_DEVICES["OpenVINOExecutionProvider"]``:
-        GPU first (the canonical default for OpenVINO), then NPU, then CPU.
+        NPU first (the canonical default for OpenVINO), then GPU, then CPU.
         """
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("OpenVINOExecutionProvider") == [
-                "GPU",
                 "NPU",
+                "GPU",
                 "CPU",
             ]
 

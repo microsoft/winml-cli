@@ -216,7 +216,9 @@ class TestCompileCommand:
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
-        result = runner.invoke(main, ["compile", "-m", str(model_path), "--ep", "dml"])
+        result = runner.invoke(
+            main, ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "dml"]
+        )
 
         assert result.exit_code != 0
         # Error line is "Provider 'DmlExecutionProvider' does not support …"

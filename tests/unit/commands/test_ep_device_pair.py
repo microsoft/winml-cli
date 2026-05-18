@@ -59,8 +59,8 @@ class TestEpSupportedDevices:
             ("CUDAExecutionProvider", "gpu"),
             ("NvTensorRTRTXExecutionProvider", "gpu"),
             ("MIGraphXExecutionProvider", "gpu"),
-            # Historical pick: OpenVINO defaults to GPU (deliberate, not NPU).
-            ("OpenVINOExecutionProvider", "gpu"),
+            # OpenVINO defaults to NPU (first entry in the supported tuple).
+            ("OpenVINOExecutionProvider", "npu"),
         ],
     )
     def test_default_device_per_ep(self, ep: str, default: str) -> None:

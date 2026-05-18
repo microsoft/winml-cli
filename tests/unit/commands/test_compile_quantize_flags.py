@@ -57,9 +57,16 @@ class TestResolveCompileProvider:
         assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
 
     def test_ep_overrides_device(self):
-        """ep takes priority over device mapping."""
-        assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
-        assert _resolve_compile_provider("gpu", "vitisai") == "VitisAIExecutionProvider"
+        """``ep`` takes priority over the device default.
+
+        For each pair below, the device alone would resolve to a different
+        EP via ``resolve_eps`` (e.g. ``gpu`` -> NV first); the explicit
+        ``--ep`` overrides that default. Devices are kept compatible with
+        the EP per ``EP_SUPPORTED_DEVICES`` — the incompatible counterpart
+        is covered by ``test_incompatible_pair_rejected``.
+        """
+        assert _resolve_compile_provider("gpu", "migraphx") == "MIGraphXExecutionProvider"
+        assert _resolve_compile_provider("npu", "vitisai") == "VitisAIExecutionProvider"
         assert (
             _resolve_compile_provider("gpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
         )
@@ -156,13 +163,11 @@ class TestCompileAutoDeviceEndToEnd:
         with pytest.raises(click.UsageError):
             _resolve_compile_provider(device, ep)
 
-    def test_unknown_device_rejected(self):
-        """A device outside {auto, cpu, gpu, npu} must be rejected with a
-        ``UsageError`` rather than silently falling through to QNN."""
-        import click
 
-        with pytest.raises(click.UsageError):
-            _resolve_compile_provider("tpu", None)
+# Note: unknown / out-of-set devices are validated upstream by
+# ``resolve_device`` (called by the compile CLI before
+# ``_resolve_compile_provider``). The resolver itself trusts its caller to
+# pass a concrete device from ``{cpu, gpu, npu}``.
 
 
 # =============================================================================

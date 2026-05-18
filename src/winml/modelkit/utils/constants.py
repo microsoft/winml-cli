@@ -171,14 +171,19 @@ SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
 # the canonical default device when only ``--ep`` is provided. Single source
 # of truth for both compatibility checks and default-device inference.
 # ``sysinfo.device._EP_DEVICE_MAP`` is derived from this table.
+#
+# Iteration order also feeds ``sysinfo.device._DEVICE_EP_MAP`` (and therefore
+# ``resolve_eps``): the per-device priority is **IHV-first, native-last**
+# (Nvidia -> AMD -> Qualcomm -> Intel -> Microsoft -> CPU), so the keys are
+# listed in that order rather than alphabetically.
 EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
-    "QNNExecutionProvider": ("npu", "gpu"),
-    "VitisAIExecutionProvider": ("npu",),
-    "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
-    "DmlExecutionProvider": ("gpu",),
-    "MIGraphXExecutionProvider": ("gpu",),
     "NvTensorRTRTXExecutionProvider": ("gpu",),
     "CUDAExecutionProvider": ("gpu",),
+    "MIGraphXExecutionProvider": ("gpu",),
+    "VitisAIExecutionProvider": ("npu",),
+    "QNNExecutionProvider": ("npu", "gpu"),
+    "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
+    "DmlExecutionProvider": ("gpu",),
     "CPUExecutionProvider": ("cpu",),
 }
 
