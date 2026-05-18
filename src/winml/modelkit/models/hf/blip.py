@@ -46,7 +46,7 @@ from transformers import BlipForConditionalGeneration
 from transformers.cache_utils import DynamicCache, EncoderDecoderCache
 
 from ...config import WinMLBuildConfig
-from ...export import register_onnx_overwrite
+from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
 from ..winml.composite_model import register_composite_model
 from ..winml.encoder_decoder import EncoderDecoderInputGenerator, WinMLEncoderDecoderModel
@@ -69,6 +69,56 @@ BLIP_CONFIG = WinMLBuildConfig(
         matmul_add_fusion=True,
     ),
 )
+
+
+# =============================================================================
+# Monolithic ONNX Export Config (single-file image-to-text export)
+# =============================================================================
+#
+# TODO: remove once ``winml export`` supports composite models. This monolithic
+# config is a temporary fallback so ``winml export`` can produce a single ONNX
+# for BLIP at ``image-to-text`` / ``image-text-to-text``. The split encoder +
+# decoder configs above are the production path used by the composite pipeline
+# (``winml config`` / ``winml build``); when ``winml export`` learns to emit
+# multiple ONNX files for composite models, delete this class. See issue #636.
+
+
+@register_onnx_overwrite("blip", "image-to-text", library_name="transformers")
+@register_onnx_overwrite("blip", "image-text-to-text", library_name="transformers")
+class BlipCaptioningIOConfig(OnnxConfig):
+    """Monolithic ONNX config for BLIP captioning — single-graph fallback.
+
+    Traces ``BlipForConditionalGeneration.forward`` with pixel_values +
+    decoder input_ids/attention_mask -> logits. Only used by ``winml export``
+    (single-file path); the composite encoder + decoder split below is the
+    production export route used by ``winml config`` / ``winml build``.
+    """
+
+    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
+        num_channels="vision_config.num_channels",
+        image_size="vision_config.image_size",
+        vocab_size="text_config.vocab_size",
+        sequence_length="text_config.max_position_embeddings",
+        allow_new=True,
+    )
+    DUMMY_INPUT_GENERATOR_CLASSES = (
+        DummyVisionInputGenerator,
+        MaxLengthTextInputGenerator,
+    )
+
+    @property
+    def inputs(self) -> dict[str, dict[int, str]]:
+        return {
+            "pixel_values": {0: "batch_size", 1: "num_channels", 2: "height", 3: "width"},
+            "input_ids": {0: "batch_size", 1: "sequence_length"},
+            "attention_mask": {0: "batch_size", 1: "sequence_length"},
+        }
+
+    @property
+    def outputs(self) -> dict[str, dict[int, str]]:
+        return {
+            "logits": {0: "batch_size", 1: "sequence_length"},
+        }
 
 
 # =============================================================================
@@ -281,8 +331,8 @@ class WinMLBlipImageToText(WinMLEncoderDecoderModel):
                 "pad_token_id": tc.pad_token_id,
             }
             kw.setdefault("max_new_tokens", self._max_dec - 1)
-            kw.setdefault("num_beams", 1)        # static batch=1 ONNX → no beams
-            kw.setdefault("do_sample", False)    # deterministic greedy
+            kw.setdefault("num_beams", 1)  # static batch=1 ONNX → no beams
+            kw.setdefault("do_sample", False)  # deterministic greedy
             self._generation_config = GenerationConfig(**kw)
         return self._generation_config
 
