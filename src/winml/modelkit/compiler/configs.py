@@ -37,6 +37,7 @@ class EPConfig:
         embed_context: Embed context in ONNX (True) or external .bin file (False)
         compiler: Compiler backend ("ort" or "qairt")
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
+        device: Target device ("npu", "gpu", "cpu", "auto")
     """
 
     provider: EPAlias = "qnn"
@@ -45,6 +46,7 @@ class EPConfig:
     embed_context: bool = False
     compiler: str = "ort"
     qnn_sdk_root: Path | None = None
+    device: str = "auto"
 
 
 @dataclass
@@ -140,6 +142,8 @@ class WinMLCompileConfig:
         Args:
             device: Target device ("npu", "gpu"). Sets device_type in
                 provider_options so NPU and GPU builds get different cache keys.
+                Also stored in ep_config so compile stage can align EPContext
+                filenames with the actual runtime-resolved device.
 
         Returns:
             WinMLCompileConfig configured for QNN EP.
@@ -147,7 +151,13 @@ class WinMLCompileConfig:
         provider_options: dict[str, str] = {}
         if device:
             provider_options["device_type"] = device.upper()
-        return cls(ep_config=EPConfig(provider="qnn", provider_options=provider_options))
+        ep_cfg = EPConfig(
+            provider="qnn",
+            provider_options=provider_options,
+        )
+        if device:
+            ep_cfg.device = device
+        return cls(ep_config=ep_cfg)
 
     @classmethod
     def for_cpu(cls) -> WinMLCompileConfig:
@@ -173,12 +183,13 @@ class WinMLCompileConfig:
     @classmethod
     def for_nv_tensorrt_rtx(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
-        return cls(
-            ep_config=EPConfig(
-                provider="nv_tensorrt_rtx",
-                enable_ep_context=True,
-            ),
+        ep_cfg = EPConfig(
+            provider="nv_tensorrt_rtx",
+            enable_ep_context=True,
         )
+        if device:
+            ep_cfg.device = device
+        return cls(ep_config=ep_cfg)
 
     @classmethod
     def for_openvino(cls, device: str | None = None) -> WinMLCompileConfig:
@@ -189,11 +200,14 @@ class WinMLCompileConfig:
             # Embedding device_type ensures CPU and GPU builds get different
             # cache keys and don't accidentally share the wrong EPContext.
             provider_options["device_type"] = device.upper()
-        return cls(
-            ep_config=EPConfig(
-                provider="openvino", enable_ep_context=True, provider_options=provider_options
-            ),
+        ep_cfg = EPConfig(
+            provider="openvino",
+            enable_ep_context=True,
+            provider_options=provider_options,
         )
+        if device:
+            ep_cfg.device = device
+        return cls(ep_config=ep_cfg)
 
     @classmethod
     def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
@@ -201,11 +215,14 @@ class WinMLCompileConfig:
         provider_options: dict[str, str] = {}
         if device:
             provider_options["device_type"] = device.upper()
-        return cls(
-            ep_config=EPConfig(
-                provider="vitisai", enable_ep_context=True, provider_options=provider_options
-            ),
+        ep_cfg = EPConfig(
+            provider="vitisai",
+            enable_ep_context=True,
+            provider_options=provider_options,
         )
+        if device:
+            ep_cfg.device = device
+        return cls(ep_config=ep_cfg)
 
     @classmethod
     def for_migraphx(cls) -> WinMLCompileConfig:
@@ -229,6 +246,7 @@ class WinMLCompileConfig:
             "qnn_sdk_root": (
                 str(self.ep_config.qnn_sdk_root) if self.ep_config.qnn_sdk_root else None
             ),
+            "device": self.ep_config.device,
             "validate": self.validate,
         }
 
@@ -242,6 +260,7 @@ class WinMLCompileConfig:
             embed_context=data.get("embed_context", False),
             compiler=data.get("compiler", "ort"),
             qnn_sdk_root=(Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None),
+            device=data.get("device", "auto"),
         )
 
         return cls(

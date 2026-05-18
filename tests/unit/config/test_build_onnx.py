@@ -707,6 +707,8 @@ class TestResolveQuantCompileConfig:
         """Explicit ep overrides the default device-to-provider mapping.
 
         nv_tensorrt_rtx now supports EPContext compile config for GPU routing.
+        Device is stored in ep_config.device (not provider_options) to avoid
+        crashes when trtrtx gets device_type in add_provider_for_devices.
         """
         with patch(
             "winml.modelkit.sysinfo.resolve_device",
@@ -719,7 +721,7 @@ class TestResolveQuantCompileConfig:
 
         assert compile_cfg is not None
         assert compile_cfg.ep_config.provider == "nv_tensorrt_rtx"
-        assert compile_cfg.ep_config.provider_options.get("device_type") == "GPU"
+        assert compile_cfg.ep_config.device == "gpu"
 
     def test_task_forwarded_to_resolve_precision(self) -> None:
         """task parameter is forwarded to resolve_precision.
