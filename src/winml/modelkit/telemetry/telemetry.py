@@ -91,7 +91,6 @@ class Telemetry:
         self._logger = None  # set when enabled; None when disabled
         self._provider = None
         self._disabled = True  # set to False only after successful init
-        self._init_ts = time.time()
         self._app_instance_id = str(uuid.uuid4())
         # Kept in the event schema for forward-compat: today
         # `consent.resolve_consent()` returns "disabled" for non-TTY, so
@@ -163,11 +162,9 @@ class Telemetry:
                 "id_status": id_status,
                 "os.name": uname.system,
                 "os.version": uname.version,
-                "os.release": uname.release,
                 "os.arch": uname.machine,
                 "app_version": app_version,
                 "app_instance_id": self._app_instance_id,
-                "initTs": self._init_ts,
             }
         )
 
