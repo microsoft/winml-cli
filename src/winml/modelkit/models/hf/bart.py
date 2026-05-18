@@ -481,13 +481,21 @@ BART_CONFIG = WinMLBuildConfig(
 
 
 @register_composite_model("bart", "summarization")
+@register_composite_model("bart", "table-question-answering")
 class WinMLBartModel(WinMLEncoderDecoderModel):
-    """BART encoder-decoder model for summarization.
+    """BART encoder-decoder model for summarization and table-question-answering.
 
     Declares BART sub-component tasks and generation-config defaults.
     All encoder-decoder forward/cache logic lives in
     ``WinMLEncoderDecoderModel``.  Uses ``WinMLSlidingWindowCache`` — see
     module docstring for the rationale.
+
+    The ``table-question-answering`` registration covers TAPEX-style models
+    (e.g., ``microsoft/tapex-base-finetuned-wikisql``).  TAPEX is plain BART
+    fine-tuned for table QA — the table+query are serialized to text by the
+    tokenizer (``TapexTokenizer``), then the encoder-decoder generates the
+    answer.  The export and inference paths are identical to summarization
+    (encoder=feature-extraction, decoder=text2text-generation sub-tasks).
     """
 
     _SUB_MODEL_CONFIG: ClassVar[dict[str, str]] = {
