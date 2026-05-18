@@ -202,11 +202,6 @@ class WinMLSession:
 
         target_device = self._device
 
-        # Resolve auto device
-        if target_device == "auto":
-            target_device = self._detect_best_device()
-            self._device = target_device  # Update instance device
-
         if self._is_verbose():
             logger.info("Compiling for device: %s", target_device)
 
@@ -466,19 +461,22 @@ class WinMLSession:
         """Find the first OrtEpDevice matching the given filters.
 
         Behavior:
-            - ``ep_name`` set, ``device == "auto"`` → first ep_device
-              matching ``ep_name`` (or None).
-            - ``ep_name`` unset, ``device == "auto"`` → ``None`` (no
+            - ``ep_name`` set, ``device == "auto"`` → aggregate ep_devices
+              matching ``ep_name`` and pick the first one whose device type
+              appears earliest in that EP's preferred device list
+              (``get_ep_device_map()``).
+            - ``ep_name`` unset, ``device`` is a concrete type → aggregate
+              ep_devices matching that device type and pick the first one
+              whose EP name appears earliest in that device's EP priority
+              list (``get_device_ep_map()``).
+            - Both set (and ``device != "auto"``) → ep_device must satisfy
+              both filters (or None).
+            - ``ep_name`` unset and ``device == "auto"`` → ``None`` (no
               effective filter — refuse to pick an arbitrary ep_device).
-            - ``ep_name`` unset, ``device`` is a concrete type → first
-              ep_device matching that device type (or None).
-            - Both set → ep_device must satisfy both (or None).
 
-        Note: Selection order is determined by the ORT EP registry, which is
-        not part of any documented contract. On systems where multiple EPs
-        match the same device type (e.g., QNN and DML both appear as GPU),
-        a device-only query returns the first one in registry order. Pass
-        ``ep_name`` to disambiguate.
+        Note: When the ORT EP registry order disagrees with the priority
+        maps, the priority maps win — selection is deterministic and
+        independent of registry order.
 
         Args:
             device: Device policy ("cpu", "gpu", "npu", "auto"). ``"auto"``
@@ -489,6 +487,7 @@ class WinMLSession:
         Returns:
             The matching OrtEpDevice, or None if not found.
         """
+        from ..sysinfo.device import get_device_ep_map, get_ep_device_map
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
@@ -497,13 +496,40 @@ class WinMLSession:
         if not ep_name and device_type is None:
             return None
 
+        all_ep_devices = []
         for ep_dev in ort.get_ep_devices():
             if ep_name and ep_dev.ep_name != ep_name:
                 continue
             if device_type is not None and ep_dev.device.type != device_type:
                 continue
-            return ep_dev
-        return None
+            all_ep_devices.append(ep_dev)
+
+        if not all_ep_devices:
+            return None
+
+        # Both filters set: any aggregated entry already satisfies both.
+        if ep_name and device_type is not None:
+            return all_ep_devices[0]
+
+        # ep_name set, device == "auto": pick by EP's preferred device order.
+        if ep_name:
+            preferred_devices = get_ep_device_map().get(ep_name, "").split("/")
+            for d in preferred_devices:
+                wanted = DEVICE_TO_DEVICE_TYPE.get(d.upper())
+                if wanted is None:
+                    continue
+                for ep_dev in all_ep_devices:
+                    if ep_dev.device.type == wanted:
+                        return ep_dev
+            return all_ep_devices[0]
+
+        # ep_name unset, device != "auto": pick by device's EP priority list.
+        ep_priority = get_device_ep_map().get(device.lower(), [])
+        for preferred_ep in ep_priority:
+            for ep_dev in all_ep_devices:
+                if ep_dev.ep_name == preferred_ep:
+                    return ep_dev
+        return all_ep_devices[0]
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
         """Validate inputs against model expectations.
@@ -562,19 +588,6 @@ class WinMLSession:
             ort_inputs[name] = arr
 
         return ort_inputs
-
-    def _detect_best_device(self) -> str:
-        """Auto-detect best available device.
-
-        Returns "auto" to let ORT select the best provider based on PREFER_NPU policy.
-        This avoids using any explicit EP provider names.
-        """
-        # With PREFER_NPU policy, ORT will automatically select:
-        # 1. NPU (QNN) if available
-        # 2. GPU (CUDA/DML) if no NPU
-        # 3. CPU as fallback
-        logger.info("Auto-detecting device (using PREFER_NPU policy)")
-        return "auto"
 
     def _get_compile_suggestion(self, device: str, error: Exception) -> str:
         """Get compile error suggestion based on device policy."""
