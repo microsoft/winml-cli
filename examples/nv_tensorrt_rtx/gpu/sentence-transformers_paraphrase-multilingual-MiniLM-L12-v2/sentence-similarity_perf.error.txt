@@ -1,9 +1,0 @@
-[2026-05-17T18:57:45] WARNING: Output names count mismatch: config has 1 ['last_hidden_state'], model trace inferred 2 ['last_hidden_state', 'pooler_output']. Keeping config names (from Optimum OnnxConfig).
-[2026-05-17T18:57:45] WARNING: Optimum model patcher failed for model_type='bert', task='sentence-similarity'. Export may produce incorrect results for models requiring Transformers 4.53+ tracing patches.
-Traceback (most recent call last):
-  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 474, in _get_optimum_patcher
-    cfg_cls = TasksManager.get_exporter_config_constructor(
-  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
-    raise ValueError(
-ValueError: bert doesn't support task sentence-similarity for the onnx backend. Supported tasks are: feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification.
-Error: Benchmark failed: [Errno 28] No space left on device

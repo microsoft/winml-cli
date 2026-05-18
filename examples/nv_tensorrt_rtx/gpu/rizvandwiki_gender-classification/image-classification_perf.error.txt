@@ -1,2 +1,0 @@
-[2026-05-17T18:53:25] ERROR: ✗ ort_graph failed: [Errno 28] No space left on device
-Error: Benchmark failed: [Errno 28] No space left on device

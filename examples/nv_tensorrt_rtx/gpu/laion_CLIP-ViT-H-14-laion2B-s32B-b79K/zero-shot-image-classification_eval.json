@@ -1,0 +1,21 @@
+{
+  "model_id": "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+  "task": "zero-shot-image-classification",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "uoft-cs/cifar100",
+    "columns_mapping": {
+      "input_column": "img",
+      "label_column": "fine_label"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\nv_tensorrt_rtx\\gpu\\laion_CLIP-ViT-H-14-laion2B-s32B-b79K\\zero-shot-image-classification_eval.json",
+  "metrics": {
+    "top1_accuracy": 78.7,
+    "top5_accuracy": 94.3
+  }
+}

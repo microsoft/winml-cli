@@ -1,7 +1,7 @@
 RT Version is: 1.23.5
 The requested API version [24] is not available, only API versions [1, 23] are supported in this build. Current ORT Version is: 1.23.5
 The requested API version [24] is not available, only API versions [1, 23] are supported in this build. Current ORT Version is: 1.23.5
-[2026-05-17T16:53:46] ERROR: Evaluation failed
+[2026-05-18T12:36:45] ERROR: Evaluation failed
 Traceback (most recent call last):
   File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 228, in eval
     result = evaluate(cfg)
