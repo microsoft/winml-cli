@@ -44,7 +44,6 @@ import onnx
 import pandas as pd
 import pytest
 from click.testing import CliRunner
-from onnx import TensorProto, helper
 
 from winml.modelkit.commands.analyze import analyze
 
@@ -76,12 +75,12 @@ def _assert_no_traceback(result) -> None:
 
 def _build_add_onnx(path: Path, opset: int = 13) -> Path:
     """Write a minimal single-Add ONNX model to ``path``."""
-    a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
-    b = helper.make_tensor_value_info("B", TensorProto.FLOAT, [1, 4])
-    y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 4])
-    node = helper.make_node("Add", ["A", "B"], ["Y"], name="add")
-    graph = helper.make_graph([node], "add_graph", [a, b], [y])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+    a = onnx.helper.make_tensor_value_info("A", onnx.TensorProto.FLOAT, [1, 4])
+    b = onnx.helper.make_tensor_value_info("B", onnx.TensorProto.FLOAT, [1, 4])
+    y = onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [1, 4])
+    node = onnx.helper.make_node("Add", ["A", "B"], ["Y"], name="add")
+    graph = onnx.helper.make_graph([node], "add_graph", [a, b], [y])
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", opset)])
     model.ir_version = 8
     onnx.save(model, str(path))
     return path
