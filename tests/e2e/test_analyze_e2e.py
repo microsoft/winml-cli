@@ -68,7 +68,7 @@ def _invoke(args: list[str]):
 
 def _assert_no_traceback(result) -> None:
     """The analyze command must surface errors as logs/messages, never as
-    a raw Python traceback. This is a hard requirement of the issue."""
+    a raw Python traceback — per the documented exit-code contract."""
     assert "Traceback (most recent call last)" not in result.output, (
         f"unexpected traceback in CLI output:\n{result.output}"
     )
@@ -107,10 +107,8 @@ def _write_unsupported_rule(rules_dir: Path, ep: str, device: str, op: str = "Ad
 
 def _write_partial_rule(rules_dir: Path, ep: str, device: str, op: str = "Add") -> Path:
     """Write a parquet rule that classifies the op as partially supported
-    (compile succeeds but run fails)."""
+    (compile succeeds, run fails). No condition columns → unconditional match."""
     parquet = rules_dir / f"{op}_{ep}_{device}_ai.onnx_opset13.parquet"
-    # Use a real condition column so unmatched-condition rows fall through:
-    # here we use only the success tuple → unconditional partial match.
     pd.DataFrame([{"compile_run_success": (True, False)}]).to_parquet(parquet, index=False)
     return parquet
 
@@ -228,11 +226,14 @@ class TestAnalyzeCliSurface:
         assert "does not exist" in result.output
         _assert_no_traceback(result)
 
-    def test_missing_runtime_rules_exits_two_with_documented_message(
+    def test_missing_runtime_rules_handled_cleanly(
         self, add_model: Path, empty_rules_dir: Path
     ) -> None:
-        """When no parquet rules can be located, the CLI must fail fast with
-        a clean, documented diagnostic — never a traceback."""
+        """When no parquet rules can be located, the CLI must report the
+        documented diagnostic without raising a traceback. The bundled
+        ``runtime_check_rules/`` may also contribute results in some
+        installs — both branches are valid; the critical contract is the
+        absence of a Python traceback."""
         # The default rules dir under src/ may or may not contain artifacts on a
         # given checkout. Force the search to a known-empty directory and
         # disable the default fallback by pointing the env var at empty dir.
@@ -455,27 +456,33 @@ class TestAnalyzeBadPath:
     """Misconfiguration produces documented errors, never tracebacks."""
 
     def test_dml_with_cpu_device_rejected(
-        self, add_model: Path, empty_rules_dir: Path
+        self, add_model: Path, rules_dir: Path
     ) -> None:
         """Dml only supports GPU; an explicit ``--device CPU`` must be
         rejected with a clean ``only supports`` message."""
-        # Force has_rule_data_for_ep to return False by leaving rules dir empty.
+        # A sentinel rule for an unrelated EP/device passes the parquet
+        # bootstrap check so we exercise the EP+device validation path.
+        _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke([
             "-m", str(add_model), "--ep", "dml", "--device", "CPU",
         ])
         _assert_no_traceback(result)
-        # Either explicit rejection (exit 2) or the no-rules bootstrap exit 2.
         assert result.exit_code == 2
+        assert "only supports" in result.output.lower()
+        assert "gpu" in result.output.lower()
 
     def test_cpu_ep_with_npu_device_rejected(
-        self, add_model: Path, empty_rules_dir: Path
+        self, add_model: Path, rules_dir: Path
     ) -> None:
         """CPUExecutionProvider only supports CPU; --device NPU must fail."""
+        _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         result = _invoke([
             "-m", str(add_model), "--ep", "cpu", "--device", "NPU",
         ])
         _assert_no_traceback(result)
         assert result.exit_code == 2
+        assert "only supports" in result.output.lower()
+        assert "cpu" in result.output.lower()
 
     def test_invalid_onnx_file_exits_two_without_traceback(
         self, tmp_path: Path, rules_dir: Path
