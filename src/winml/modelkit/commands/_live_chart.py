@@ -17,7 +17,7 @@ from rich.panel import Panel
 
 
 # Moving window size for the x-axis (seconds)
-_CHART_WINDOW_SECONDS = 10.0
+_CHART_WINDOW_SECONDS = 15.0
 
 # Display refresh rate (frames per second)
 _REFRESH_FPS = 5
@@ -35,7 +35,7 @@ class LiveMonitorDisplay:
         warmup: int,
         model_id: str,
         device: str,
-        chart_width: int = 80,
+        chart_width: int = 120,
         chart_height: int = 15,
         poll_interval_ms: int = 100,
     ) -> None:

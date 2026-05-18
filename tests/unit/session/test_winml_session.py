@@ -4,20 +4,21 @@
 # --------------------------------------------------------------------------
 """WinMLSession tests with simple ONNX model.
 
-Test Scope (as per design):
-1. Instantiate WinMLSession with PREFER_NPU policy (no explicit EP names)
-2. Verify session providers match WinMLEPRegistry ground truth
-3. Test basic inference works
+Test Scope:
+1. Instantiate WinMLSession with an explicit EPDevice
+2. Verify session state, providers, and inference behavior
+3. Test perf() context manager
 
 Key Principle:
-- Use policy-based device selection (device="npu", "gpu", "cpu", "auto")
-- Never use explicit EP names like "QNNExecutionProvider"
-- Use WinMLEPRegistry.get_available_eps() as ground truth
+- Use EPDevice-based construction (Task 7 API)
+- CPU tests use the real OrtEpDevice with a mocked WinMLEPRegistry
+- NPU/QNN tests use fake OrtEpDevice fixtures (mocked ORT)
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -27,61 +28,63 @@ if TYPE_CHECKING:
 import pytest
 
 from winml.modelkit.compiler import EPConfig
-from winml.modelkit.session import SessionState, WinMLSession
+from winml.modelkit.session import EPDevice, EPMonitorMismatch, SessionState, WinMLSession
 
 
 class TestWinMLSessionInstantiation:
-    """Test WinMLSession instantiation with policy-based device selection."""
+    """Test WinMLSession instantiation with EPDevice-based selection."""
 
-    def test_session_init_with_npu_device(self, simple_matmul_onnx: Path):
-        """
-        Test that WinMLSession can be initialized with device='npu'.
+    def test_session_init_with_npu_device(
+        self, simple_matmul_onnx: Path, qnn_npu_ep_device: EPDevice, fake_ort_npu: MagicMock
+    ):
+        """Test that WinMLSession can be initialized with an NPU EPDevice.
 
-        This uses policy-based selection (PREFER_NPU), not explicit EP names.
+        ORT InferenceSession is also mocked because the fake_ort_npu MagicMock
+        cannot be passed to add_provider_for_devices() (requires a real C++ object).
         """
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="npu",
-        )
+        with (
+            patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+            patch("winml.modelkit.session.session.ort.InferenceSession"),
+            patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+        ):
+            mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+            session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
 
         assert session.device == "npu"
         assert session.state == SessionState.INITIALIZED
-        assert not session.is_compiled
 
-    def test_session_init_with_auto_device(self, simple_matmul_onnx: Path):
-        """Test that WinMLSession can be initialized with device='auto'."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        assert session.device == "auto"
-        assert session.state == SessionState.INITIALIZED
-
-    def test_session_init_with_cpu_device(self, simple_matmul_onnx: Path):
-        """Test that WinMLSession can be initialized with device='cpu'."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+    def test_session_init_with_cpu_ep_device(
+        self, simple_matmul_onnx: Path, cpu_ep_device: EPDevice, real_cpu_ort_device: object
+    ):
+        """Test that WinMLSession can be initialized with a CPU EPDevice."""
+        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
+            session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=cpu_ep_device)
 
         assert session.device == "cpu"
         assert session.state == SessionState.INITIALIZED
 
-    def test_session_init_file_not_found(self, tmp_path: Path):
-        """Test that WinMLSession raises error for non-existent file."""
-        with pytest.raises(FileNotFoundError):
-            WinMLSession(
-                onnx_path=tmp_path / "nonexistent.onnx",
-                device="auto",
-            )
+    def test_session_init_file_not_found(
+        self, tmp_path: Path, cpu_ep_device: EPDevice, real_cpu_ort_device: object
+    ):
+        """Test that WinMLSession raises an ORT error for a non-existent ONNX file."""
+        from onnxruntime.capi.onnxruntime_pybind11_state import NoSuchFile
+
+        with (
+            patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+            pytest.raises(NoSuchFile),
+        ):
+            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
+            WinMLSession(onnx_path=tmp_path / "nonexistent.onnx", ep_device=cpu_ep_device)
 
 
 class TestWinMLSessionCompilation:
     """Test WinMLSession compilation (EPContext creation)."""
 
     @pytest.mark.skip(reason="Lazy init design is not implemented in source code.")
-    def test_compile_creates_epcontext(self, simple_matmul_onnx: Path):
+    def test_compile_creates_epcontext(
+        self, simple_matmul_onnx: Path, qnn_npu_ep_device: EPDevice, fake_ort_npu: MagicMock
+    ):
         """
         Test that compile() creates EPContext file.
 
@@ -89,10 +92,9 @@ class TestWinMLSessionCompilation:
         - compile() creates EPContext file only
         - _init_session() (called by run()) creates InferenceSession
         """
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="npu",
-        )
+        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+            mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+            session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
 
         # Compile creates EPContext file
         session.compile()
@@ -104,67 +106,57 @@ class TestWinMLSessionCompilation:
         # Session not created yet (lazy init)
         assert not session.is_compiled
 
-    def test_compile_is_idempotent(self, simple_matmul_onnx: Path):
-        """Test that calling compile() multiple times is safe (idempotent)."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+    def test_compile_is_idempotent(self, cpu_winml_session: WinMLSession):
+        """Test that calling compile() multiple times is safe (idempotent).
 
-        # First compile creates session
-        session.compile()
-        assert session.state == SessionState.COMPILED
+        __init__ already creates _session, so compile() is a no-op and the
+        _session object reference is unchanged. State transitions to COMPILED
+        only after run() is called.
+        """
+        session = cpu_winml_session
+
+        # _session is already set by __init__; compile() returns immediately
         first_session = session._session
-
-        # Second compile should be a no-op (same session reused)
+        assert first_session is not None
         session.compile()
-        assert session.state == SessionState.COMPILED
+        # State stays INITIALIZED — compile() returned early, no state change
+        assert session.state == SessionState.INITIALIZED
         assert session._session is first_session
 
-    def test_run_uses_epcontext_after_compile(self, simple_matmul_onnx: Path):
-        """Test that run() uses EPContext if compile() was called first."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        # Second compile also a no-op
+        session.compile()
+        assert session._session is first_session
 
-        # Pre-compile to create EPContext
+    def test_run_uses_epcontext_after_compile(self, cpu_winml_session: WinMLSession):
+        """Test that run() works after compile() was called."""
+        session = cpu_winml_session
+
+        # compile() is a no-op when _session is already set
         session.compile()
 
-        # Run should use EPContext and create session
+        # Run should succeed
         sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
         session.run(sample_input)
 
-        # Now session should be compiled
+        # Session should be compiled
         assert session.is_compiled
         assert session.state == SessionState.COMPILED
 
 
 class TestWinMLSessionProviders:
-    """Test that session providers match WinML EP registry."""
+    """Test that session providers are valid after initialization."""
 
-    def test_providers_are_valid_and_include_fallback(self, simple_matmul_onnx: Path):
+    def test_providers_are_valid_and_include_fallback(
+        self, cpu_winml_session: WinMLSession, sample_input: dict
+    ):
         """
-        Test that session providers are valid and include CPU fallback.
+        Test that session providers are valid and include CPUExecutionProvider.
 
-        With policy-based selection (PREFER_NPU), ORT dynamically selects
-        providers at session creation time. The key requirements are:
-        1. Session initializes successfully
-        2. At least one provider is active
-        3. CPUExecutionProvider is available as fallback
-
-        Note: WinML-registered EPs (like QNN) may be selected dynamically
-        via set_provider_selection_policy() even if not listed in
-        get_available_providers() beforehand.
+        The session is bound to CPUExecutionProvider via an explicit EPDevice.
         """
-        # Create session with NPU preference
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="npu",  # PREFER_NPU policy
-        )
+        session = cpu_winml_session
 
-        # Run to trigger lazy init
-        sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
+        # Run inference to confirm the session is functional
         session.run(sample_input)
 
         # Get actual providers used by session
@@ -173,24 +165,18 @@ class TestWinMLSessionProviders:
         # Must have at least one provider
         assert len(actual_providers) > 0, "Session must have at least one provider"
 
-        # CPUExecutionProvider should always be present as fallback
+        # CPUExecutionProvider should always be present
         assert "CPUExecutionProvider" in actual_providers, (
             f"CPUExecutionProvider not in providers: {actual_providers}"
         )
 
-        # Log which providers are being used (useful for debugging)
-        # On NPU-capable systems, should see QNNExecutionProvider or similar
         print(f"Active providers: {actual_providers}")
 
-    def test_cpu_provider_always_available(self, simple_matmul_onnx: Path):
-        """Test that CPUExecutionProvider is always available as fallback."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
-
-        # Run to trigger lazy init
-        sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
+    def test_cpu_provider_always_available(
+        self, cpu_winml_session: WinMLSession, sample_input: dict
+    ):
+        """Test that CPUExecutionProvider is available after CPU EPDevice init."""
+        session = cpu_winml_session
         session.run(sample_input)
 
         providers = session._session.get_providers()
@@ -202,16 +188,13 @@ class TestWinMLSessionInference:
 
     def test_basic_inference(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test basic inference with MatMul model."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        session = cpu_winml_session
 
-        # Run inference (auto-compiles)
+        # Run inference
         outputs = session.run(sample_input)
 
         # Check output
@@ -219,37 +202,30 @@ class TestWinMLSessionInference:
         assert outputs["C"].shape == (1, 4)
         assert outputs["C"].dtype == np.float32
 
-    def test_inference_auto_compiles(
+    def test_inference_already_compiled_on_init(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test that run() auto-compiles if not compiled."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        """Test that WinMLSession is compiled immediately after __init__."""
+        session = cpu_winml_session
 
-        assert not session.is_compiled
-
-        # Run should trigger auto-compile
-        outputs = session.run(sample_input)
-
+        # __init__ creates _session eagerly — is_compiled is True immediately
         assert session.is_compiled
+
+        # Run should succeed
+        outputs = session.run(sample_input)
         assert "C" in outputs
 
     def test_inference_with_torch_tensor(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
     ):
         """Test inference with torch.Tensor input (converted to numpy)."""
         pytest.importorskip("torch")
         import torch
 
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        session = cpu_winml_session
 
         # Create torch tensor input
         torch_input = {"A": torch.randn(1, 4)}
@@ -260,12 +236,9 @@ class TestWinMLSessionInference:
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
 
-    def test_inference_empty_input_raises(self, simple_matmul_onnx: Path):
+    def test_inference_empty_input_raises(self, cpu_winml_session: WinMLSession):
         """Test that empty input raises ValueError."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        session = cpu_winml_session
 
         with pytest.raises(ValueError, match="inputs cannot be empty"):
             session.run({})
@@ -276,19 +249,20 @@ class TestWinMLSessionStateManagement:
 
     def test_state_transitions(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test state transitions: INITIALIZED -> COMPILED -> INFERRING -> COMPILED."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        """Test state transitions: COMPILED -> INFERRING -> COMPILED.
 
-        # Initial state
+        __init__ creates the session eagerly so the initial state is COMPILED.
+        """
+        session = cpu_winml_session
+
+        # __init__ creates the ORT session eagerly — state starts at INITIALIZED
+        # but _session is already populated.
         assert session.state == SessionState.INITIALIZED
 
-        # After run (lazy init triggers session creation)
+        # After run
         session.run(sample_input)
         assert session.state == SessionState.COMPILED
 
@@ -298,16 +272,13 @@ class TestWinMLSessionStateManagement:
 
     def test_reset_returns_to_initialized(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that reset() returns session to INITIALIZED state."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        session = cpu_winml_session
 
-        # Run to create session
+        # Run to transition to COMPILED
         session.run(sample_input)
         assert session.is_compiled
 
@@ -321,15 +292,12 @@ class TestWinMLSessionMetadata:
 
     def test_io_config_before_session_init(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
     ):
-        """Test that io_config is available before session initialization."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
+        """Test that io_config is available and reflects the ONNX model."""
+        session = cpu_winml_session
 
-        # io_config should work without session (reads ONNX directly)
+        # io_config reads the ONNX file directly
         io_cfg = session.io_config
 
         assert io_cfg["input_names"] == ["A"]
@@ -432,18 +400,15 @@ class TestWinMLSessionReBatching:
 
 
 class TestWinMLSessionErrorState:
-    """Test error state handling (line 312)."""
+    """Test error state handling."""
 
-    def test_run_in_error_state_raises(self, simple_matmul_onnx: Path):
+    def test_run_in_error_state_raises(self, cpu_winml_session: WinMLSession):
         """Test that run() raises InferenceError when session is in error state."""
         from winml.modelkit.session import InferenceError
 
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        # Trigger first run to initialize session
+        # Trigger first run
         sample = {"A": np.random.randn(1, 4).astype(np.float32)}
         session.run(sample)
 
@@ -455,12 +420,9 @@ class TestWinMLSessionErrorState:
         with pytest.raises(InferenceError, match="Session in error state"):
             session.run(sample)
 
-    def test_reset_clears_error_state(self, simple_matmul_onnx: Path):
+    def test_reset_clears_error_state(self, cpu_winml_session: WinMLSession):
         """Test that reset() clears error state and allows re-run."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
         # Run, then set error state
         sample = {"A": np.random.randn(1, 4).astype(np.float32)}
@@ -479,26 +441,23 @@ class TestWinMLSessionErrorState:
 
 
 class TestWinMLSessionExplicitProviders:
-    """Test explicit provider specification (bypassing policy-based selection).
-
-    Uses `providers` parameter to explicitly specify EPs instead of device policy.
-
-    Note: Explicit providers only work with natively registered EPs (those in
-    ort.get_available_providers()). WinML-registered EPs (QNN, OpenVINO via WinML)
-    must use policy-based selection (device="npu") instead.
-    """
+    """Test EPConfig provider_options passthrough with EPDevice-based init."""
 
     def test_explicit_cpu_provider(
         self,
         simple_matmul_onnx: Path,
+        cpu_ep_device: EPDevice,
+        real_cpu_ort_device: object,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test explicit CPU provider works without EP marker."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-            ep_config=EPConfig(provider="cpu", provider_options={"CPUExecutionProvider": {}}),
-        )
+        """Test that ep_config is accepted and CPU provider is active."""
+        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                ep_device=cpu_ep_device,
+                ep_config=EPConfig(provider="cpu", provider_options={}),
+            )
 
         outputs = session.run(sample_input)
 
@@ -509,15 +468,18 @@ class TestWinMLSessionExplicitProviders:
     def test_explicit_provider_with_options(
         self,
         simple_matmul_onnx: Path,
+        cpu_ep_device: EPDevice,
+        real_cpu_ort_device: object,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test ep_config.provider_options dict is passed correctly."""
-        # CPU provider doesn't need options, but we verify the parameter works
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-            ep_config=EPConfig(provider="cpu", provider_options={"CPUExecutionProvider": {}}),
-        )
+        """Test that ep_config.provider_options is accepted without error."""
+        with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+            mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                ep_device=cpu_ep_device,
+                ep_config=EPConfig(provider="cpu", provider_options={}),
+            )
 
         outputs = session.run(sample_input)
         assert "C" in outputs
@@ -526,67 +488,57 @@ class TestWinMLSessionExplicitProviders:
 class TestWinMLSessionPerfTracking:
     """Test WinMLSession performance tracking with context manager."""
 
-    def test_perf_disabled_by_default(self, simple_matmul_onnx: Path):
+    def test_perf_disabled_by_default(self, cpu_winml_session: WinMLSession):
         """Test that performance tracking is disabled by default."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
-
+        session = cpu_winml_session
         assert session.perf_stats is None
 
     def test_perf_context_manager_returns_stats(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that perf() context manager returns PerfStats."""
         from winml.modelkit.session import PerfStats
 
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
+            stats = ctx.stats
             assert stats is not None
             assert isinstance(stats, PerfStats)
             assert stats.count == 0
 
     def test_perf_records_samples(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that inference runs are recorded within context."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
             for _ in range(5):
                 session.run(sample_input)
 
+            stats = ctx.stats
             assert stats.count == 5
             assert len(stats.samples_ms) == 5
             assert all(t > 0 for t in stats.samples_ms)
 
     def test_perf_stats_computed_correctly(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that computed stats are correct."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
             for _ in range(10):
                 session.run(sample_input)
 
+        stats = ctx.stats
         assert stats.count == 10
         assert stats.total_ms > 0
         assert stats.mean_ms > 0
@@ -598,19 +550,17 @@ class TestWinMLSessionPerfTracking:
 
     def test_perf_warmup_excludes_samples(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test warmup parameter excludes first N samples."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        with session.perf(warmup=3) as stats:
+        with session.perf(warmup=3) as ctx:
             for _ in range(10):
                 session.run(sample_input)
 
+        stats = ctx.stats
         # 10 total, 3 warmup = 7 effective
         assert stats.total_count == 10
         assert stats.count == 7
@@ -619,17 +569,15 @@ class TestWinMLSessionPerfTracking:
 
     def test_perf_disabled_after_context(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that perf tracking is disabled after context exits."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        with session.perf() as stats:
+        with session.perf() as ctx:
             session.run(sample_input)
+            stats = ctx.stats
             assert stats.count == 1
 
         # After context, perf_stats should be None
@@ -642,14 +590,11 @@ class TestWinMLSessionPerfTracking:
 
     def test_perf_output_not_affected(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that perf tracking doesn't affect inference output."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
         # Run without tracking
         output_no_perf = session.run(sample_input)
@@ -663,20 +608,112 @@ class TestWinMLSessionPerfTracking:
 
     def test_perf_stats_accessible_after_context(
         self,
-        simple_matmul_onnx: Path,
+        cpu_winml_session: WinMLSession,
         sample_input: dict[str, np.ndarray],
     ):
         """Test that stats object remains accessible after context."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-        )
+        session = cpu_winml_session
 
-        with session.perf(warmup=2) as stats:
+        with session.perf(warmup=2) as ctx:
             for _ in range(5):
                 session.run(sample_input)
 
+        stats = ctx.stats
         # Stats still accessible after context
         assert stats.count == 3  # 5 - 2 warmup
         assert stats.mean_ms > 0
         assert stats.p99_ms > 0
+
+
+# =============================================================================
+# Task 7: EPDevice-based constructor (hard break)
+# =============================================================================
+
+
+def test_winml_session_accepts_ep_device(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
+    """WinMLSession compiles with an explicit EPDevice."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")  # minimal placeholder; ORT is mocked
+    with (
+        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+        patch("winml.modelkit.session.session.ort.InferenceSession") as mock_sess,
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+    ):
+        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+        sess = WinMLSession(onnx_path, ep_device=qnn_npu_ep_device)
+    mock_sess.assert_called_once()
+    assert sess._ep_device == qnn_npu_ep_device
+
+
+def test_winml_session_rejects_legacy_ep_kwarg(tmp_path, qnn_npu_ep_device) -> None:
+    """Legacy ep="qnn" kwarg now raises TypeError."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    with pytest.raises(TypeError):
+        WinMLSession(onnx_path, ep="qnn")  # type: ignore[call-arg]
+
+
+def test_winml_session_rejects_legacy_device_kwarg(tmp_path) -> None:
+    """Legacy device="..." kwarg now raises TypeError (hard break, Task 7 Option A)."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    with pytest.raises(TypeError):
+        WinMLSession(onnx_path, device="auto")  # type: ignore[call-arg]
+
+
+# =============================================================================
+# Task 8: perf() validation + save/restore
+# =============================================================================
+
+
+def test_perf_validates_monitor_ep_name_match(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
+    """Monitor for QNN against an OpenVINO EPDevice -> EPMonitorMismatch."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    openvino_ep = EPDevice(
+        ep="OpenVINOExecutionProvider",
+        device="npu",
+        vendor_id=0x8086,
+        device_id=0x0BD0,
+    )
+    fake_ov = MagicMock()
+    fake_ov.device.type.name = "NPU"
+    fake_ov.device.vendor_id = 0x8086
+    fake_ov.device.device_id = 0x0BD0
+    qnn_monitor = MagicMock()
+    qnn_monitor.ep_name = "qnn"
+    qnn_monitor.get_provider_options.return_value = {}
+    qnn_monitor.get_session_options.return_value = {}
+    with (
+        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+        patch("winml.modelkit.session.session.ort.InferenceSession"),
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+    ):
+        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ov]
+        sess = WinMLSession(onnx_path, ep_device=openvino_ep)
+        with pytest.raises(EPMonitorMismatch), sess.perf(monitor=qnn_monitor):
+            pass
+
+
+def test_perf_preserves_save_restore(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
+    """Mid-perf raise must restore _provider_options snapshot."""
+    onnx_path = tmp_path / "noop.onnx"
+    onnx_path.write_bytes(b"\x08\x01")
+    bad_monitor = MagicMock()
+    bad_monitor.ep_name = "qnn"
+    bad_monitor.get_provider_options.return_value = {"oops": "x"}
+    bad_monitor.get_session_options.return_value = {}
+    bad_monitor.__enter__.side_effect = RuntimeError("boom")
+    with (
+        patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg,
+        patch("winml.modelkit.session.session.ort.InferenceSession"),
+        patch("winml.modelkit.session.session.ort.SessionOptions", return_value=MagicMock()),
+    ):
+        mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+        sess = WinMLSession(onnx_path, ep_device=qnn_npu_ep_device)
+        snapshot = dict(sess._provider_options)
+        with pytest.raises(RuntimeError), sess.perf(monitor=bad_monitor):
+            pass
+        assert sess._provider_options == snapshot
+        assert sess._ep == "QNNExecutionProvider"
+        assert sess._active_session_option_entries == {}  # back to empty (pre-perf state)

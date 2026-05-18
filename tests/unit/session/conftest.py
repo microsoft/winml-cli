@@ -11,14 +11,17 @@ EP Markers:
 
     Example:
         @pytest.mark.ep("qnn")
-        def test_qnn_inference(self, simple_matmul_onnx):
-            session = WinMLSession(onnx_path=simple_matmul_onnx, device="npu")
+        def test_qnn_inference(self, simple_matmul_onnx, qnn_npu_ep_device, fake_ort_npu):
+            with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+                mock_reg.get_instance.return_value.register_ep.return_value = [fake_ort_npu]
+                session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=qnn_npu_ep_device)
             ...
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -26,8 +29,17 @@ import numpy as np
 if TYPE_CHECKING:
     from pathlib import Path
 import onnx
+import onnxruntime as ort
 import pytest
 from onnx import TensorProto, helper
+
+from winml.modelkit.session import EPDevice
+from winml.modelkit.session.session import WinMLSession
+
+
+# Qualcomm vendor ID used in test fixtures — 0x4D4F is the 16-bit prefix from Qualcomm's
+# device identification scheme. Centralised here so all session tests share one definition.
+QNN_VENDOR_ID: int = 0x4D4F
 
 
 # =============================================================================
@@ -40,7 +52,8 @@ EP_NAME_MAP = {
     "openvino": "OpenVINOExecutionProvider",
     "dml": "DmlExecutionProvider",
     "cuda": "CUDAExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
+    "tensorrt": "TensorrtExecutionProvider",
+    "tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "coreml": "CoreMLExecutionProvider",
     "rocm": "ROCMExecutionProvider",
@@ -52,7 +65,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "ep(name): mark test to run only when specific EP is available "
-        "(qnn, openvino, dml, cuda, nv_tensorrt_rtx, vitisai, coreml, rocm)",
+        "(qnn, openvino, dml, cuda, tensorrt, tensorrt_rtx, vitisai, coreml, rocm)",
     )
 
 
@@ -229,3 +242,79 @@ def sample_input() -> dict[str, np.ndarray]:
     """Create sample input for MatMul model."""
     np.random.seed(123)
     return {"A": np.random.randn(1, 4).astype(np.float32)}
+
+
+# =============================================================================
+# Task 7+: EPDevice fixtures (shared across Tasks 10-11 callsite sweeps)
+# =============================================================================
+
+
+@pytest.fixture
+def qnn_npu_ep_device() -> EPDevice:
+    return EPDevice(
+        ep="QNNExecutionProvider",
+        device="npu",
+        vendor_id=QNN_VENDOR_ID,
+        device_id=0x0001,
+        vendor="Qualcomm",
+    )
+
+
+@pytest.fixture
+def fake_ort_npu() -> MagicMock:
+    d = MagicMock()
+    d.device.type.name = "NPU"
+    d.device.vendor_id = QNN_VENDOR_ID
+    d.device.device_id = 0x0001
+    return d
+
+
+# =============================================================================
+# CPU EPDevice fixtures — use real OrtEpDevice so ORT inference actually runs
+# =============================================================================
+
+# Cached at module-scope so we only call get_ep_devices() once per test session.
+_REAL_CPU_ORT_DEVICE: ort.OrtEpDevice | None = None
+
+
+def _get_real_cpu_ort_device() -> ort.OrtEpDevice:
+    """Return the CPUExecutionProvider OrtEpDevice from ort.get_ep_devices()."""
+    global _REAL_CPU_ORT_DEVICE
+    if _REAL_CPU_ORT_DEVICE is None:
+        devices = ort.get_ep_devices()
+        matches = [d for d in devices if d.ep_name == "CPUExecutionProvider"]
+        if not matches:
+            pytest.skip("CPUExecutionProvider not available in ort.get_ep_devices()")
+        _REAL_CPU_ORT_DEVICE = matches[0]
+    return _REAL_CPU_ORT_DEVICE
+
+
+@pytest.fixture
+def real_cpu_ort_device() -> ort.OrtEpDevice:
+    """Real OrtEpDevice for CPUExecutionProvider (from ort.get_ep_devices())."""
+    return _get_real_cpu_ort_device()
+
+
+@pytest.fixture
+def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> EPDevice:
+    """EPDevice that targets CPUExecutionProvider, matching the real OrtEpDevice."""
+    return EPDevice(
+        ep="CPUExecutionProvider",
+        device="cpu",
+        vendor_id=real_cpu_ort_device.device.vendor_id,
+        device_id=real_cpu_ort_device.device.device_id,
+    )
+
+
+@pytest.fixture
+def cpu_winml_session(
+    simple_matmul_onnx: Path,
+    cpu_ep_device: EPDevice,
+    real_cpu_ort_device: ort.OrtEpDevice,
+) -> WinMLSession:
+    """WinMLSession bound to CPU, using a mocked WinMLEPRegistry so that the
+    real OrtEpDevice is returned by register_ep() and ORT inference runs.
+    """
+    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+        mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
+        return WinMLSession(simple_matmul_onnx, ep_device=cpu_ep_device)

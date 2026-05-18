@@ -25,20 +25,38 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
+    """Mock device resolution helpers and WinMLEPRegistry to avoid hardware detection.
 
-    The build command calls resolve_device() for I/O and (since #540)
-    WinMLEPRegistry.get_instance() for EP auto-selection when --ep is
-    not specified. Both must be mocked to avoid slow DLL scanning and
-    WinML SDK discovery on CI runners without WinML installed.
+    The build command calls auto_detect_device() / get_available_devices() for I/O
+    and resolve_device() for EP auto-selection (since #540). It also touches
+    WinMLEPRegistry.get_instance() when --ep is not specified. All must be
+    mocked to avoid slow DLL scanning and WinML SDK discovery on CI runners
+    without WinML installed.
     """
+    from winml.modelkit.session import EPDevice
+
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
 
+    fake_cpu_ep_device = EPDevice(
+        ep="CPUExecutionProvider",
+        device="cpu",
+        vendor_id=0x0000,
+        device_id=0x0001,
+    )
+
     with (
         patch(
-            "winml.modelkit.sysinfo.resolve_device",
-            return_value=("npu", ["npu", "gpu", "cpu"]),
+            "winml.modelkit.session.auto_detect_device",
+            return_value="npu",
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
+        ),
+        patch(
+            "winml.modelkit.session.resolve_device",
+            return_value=fake_cpu_ep_device,
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
