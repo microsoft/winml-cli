@@ -338,7 +338,7 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
 
 
 class TestCompileStageProcess:
-    def test_process_strips_trtrtx_device_type_before_session(self, tmp_path):
+    def test_process_preserves_trtrtx_provider_options(self, tmp_path):
         from unittest.mock import MagicMock, patch
 
         from winml.modelkit.compiler import CompileContext, CompileStage
@@ -374,7 +374,7 @@ class TestCompileStageProcess:
             stage.process(context)
 
         passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
-        assert passed_ep_config.provider_options == {"precision": "fp16"}
+        assert passed_ep_config.provider_options == {"device_type": "GPU", "precision": "fp16"}
         assert mock_session_cls.call_args.kwargs["ep"] == "NvTensorRTRTXExecutionProvider"
 
 
@@ -421,8 +421,8 @@ class TestCompileStageFinalizeOutput:
         stage = CompileStage()
         stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
 
-        # Verify: output EPContext should have updated ep_cache_context
-        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
+        # Verify: output EPContext should preserve the source ctx filename
+        final_ctx_path = output_dir / "model_to_compile_qnn_ctx.onnx"
         assert final_ctx_path.exists(), f"Expected {final_ctx_path} to exist"
 
         # Load and check the attribute was updated
@@ -431,8 +431,10 @@ class TestCompileStageFinalizeOutput:
             if node.op_type == "EPContext":
                 for attr in node.attribute:
                     if attr.name == "ep_cache_context":
-                        # Should be updated to new name based on original model stem
-                        assert b"mymodel_qnn_ctx" in attr.s, f"Expected updated name, got {attr.s}"
+                        # Should be updated to new name based on the source ctx stem
+                        assert b"model_to_compile_qnn_ctx" in attr.s, (
+                            f"Expected updated name, got {attr.s}"
+                        )
                         break
 
     def test_skips_update_when_embedded(self, tmp_path):
@@ -468,7 +470,7 @@ class TestCompileStageFinalizeOutput:
         stage._finalize_output(context, ctx_path.parent / "model_to_compile.onnx", output_dir)
 
         # Verify: output should exist but ep_cache_context should be unchanged
-        final_ctx_path = output_dir / "mymodel_qnn_ctx.onnx"
+        final_ctx_path = output_dir / "model_to_compile_qnn_ctx.onnx"
         assert final_ctx_path.exists()
 
         model = onnx.load(str(final_ctx_path))
@@ -554,7 +556,7 @@ class TestCompileStageFinalizeOutput:
         assert context.output_path == user_output
         assert user_output.exists()
         # The auto-generated name should NOT exist
-        auto_name = output_dir / "mymodel_qnn_ctx.onnx"
+        auto_name = output_dir / "model_to_compile_qnn_ctx.onnx"
         assert not auto_name.exists()
 
     def test_finalize_output_bin_uses_user_stem(self, tmp_path):
@@ -601,7 +603,7 @@ class TestCompileStageFinalizeOutput:
             f"Expected {expected_bin}, found: {list(output_dir.iterdir())}"
         )
         # The old auto-generated name should NOT exist
-        assert not (output_dir / "mymodel_qnn_ctx.bin").exists()
+        assert not (output_dir / "model_to_compile_qnn_ctx.bin").exists()
 
 
 class TestCompilerPipeline:

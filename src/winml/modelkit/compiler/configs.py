@@ -173,14 +173,10 @@ class WinMLCompileConfig:
     @classmethod
     def for_nv_tensorrt_rtx(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
-        provider_options: dict[str, str] = {}
-        if device:
-            provider_options["device_type"] = device.upper()
         return cls(
             ep_config=EPConfig(
                 provider="nv_tensorrt_rtx",
                 enable_ep_context=True,
-                provider_options=provider_options,
             ),
         )
 

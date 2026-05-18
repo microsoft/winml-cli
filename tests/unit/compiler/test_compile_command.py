@@ -231,7 +231,7 @@ class TestCompileCommand:
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Test --device gpu --ep trtrtx sets provider_options[device_type] = GPU."""
+        """Test --device gpu --ep trtrtx no longer injects provider_options[device_type]."""
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
@@ -250,7 +250,7 @@ class TestCompileCommand:
         assert result.exit_code == 0, result.output
         config = mock_compile_onnx.call_args.kwargs["config"]
         assert config.ep_config.provider == "nv_tensorrt_rtx"
-        assert config.ep_config.provider_options.get("device_type") == "GPU"
+        assert "device_type" not in config.ep_config.provider_options
 
     def test_cpu_device_raises_unsupported_error(
         self,

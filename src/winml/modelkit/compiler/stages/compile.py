@@ -63,23 +63,10 @@ class CompileStage(BaseStage):
             context.log(f"Model path: {model_path}")
 
             ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
-            # Derive the target device from provider_options["device_type"] so
-            # that e.g. QNN GPU compile doesn't silently fall back to NPU.
-            # WinMLSession.device expects "npu"/"gpu"/"cpu", not an EP name.
-            device = ep_config.provider_options.get("device_type", "auto").lower()
-            # TODO: Revisit EP provider_options design. NvTensorRTRTX crashes if the
-            # generic device_type option is forwarded into add_provider_for_devices binding.
-            # OpenVINO handles it gracefully, but TensorRT's strict validation rejects it.
-            # This should be redesigned to either:
-            # 1. Handle EP-specific provider option filtering at WinMLSession level, or
-            # 2. Separate config-level metadata (device_type for cache keys) from
-            #    session-level options passed to add_provider_for_devices()
-            if ep_config.provider == "nv_tensorrt_rtx" and "device_type" in ep_config.provider_options:
-                ep_config.provider_options = {
-                    key: value
-                    for key, value in ep_config.provider_options.items()
-                    if key != "device_type"
-                }
+            # Derive the target device from the runtime session so the compile
+            # stage stays aligned with the actual EPContext filename produced by
+            # WinMLSession instead of carrying device metadata in provider_options.
+            device = "auto"
             explicit_ep = normalize_ep_name(ep_config.provider)
             session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
             context.log(f"Creating {session_cls_name} for device: {device}")
@@ -95,6 +82,10 @@ class CompileStage(BaseStage):
             session = winml_session._session
             context.session = session
 
+            resolved_device = getattr(winml_session, "_device", device)
+            if isinstance(resolved_device, str) and resolved_device:
+                device = resolved_device.lower()
+
             # Log actual providers used
             if session is not None:
                 actual_providers = session.get_providers()
@@ -109,7 +100,7 @@ class CompileStage(BaseStage):
 
             # Find and relocate EPContext files to output directory
             if ep_config.enable_ep_context:
-                self._finalize_output(context, model_path, output_dir)
+                self._finalize_output(context, model_path, output_dir, device=device)
 
         except Exception as e:
             context.add_error(f"Compilation failed: {e}")
@@ -219,23 +210,26 @@ class CompileStage(BaseStage):
 
         return inputs
 
-    def _finalize_output(self, context: CompileContext, model_path: Path, output_dir: Path) -> None:
+    def _finalize_output(
+        self,
+        context: CompileContext,
+        model_path: Path,
+        output_dir: Path,
+        *,
+        device: str | None = None,
+    ) -> None:
         """Find EPContext files and copy to output directory.
 
         WinMLSession saves to work_dir. This method copies the output
         to the final output directory (default: same as input model).
         """
-        # Derive device the same way compile() does: from provider_options["device_type"]
-        # so the filename we search for matches what WinMLSession actually wrote.
-        po = context.config.get("provider_options", {})
-        device = po.get("device_type", context.execution_provider).lower()
-
         # Find EPContext in work_dir (where WinMLSession saved it).
-        # Search explicit patterns first, then fall back to any *_ctx.onnx in the dir.
-        ctx_patterns = [
-            model_path.parent / f"{model_path.stem}_{device}_ctx.onnx",
-            model_path.parent / f"{model_path.stem}_ctx.onnx",
-        ]
+        # Prefer the runtime-resolved device, then fall back to generic and globbed matches.
+        ctx_patterns = []
+        if device:
+            ctx_patterns.append(model_path.parent / f"{model_path.stem}_{device}_ctx.onnx")
+        ctx_patterns.append(model_path.parent / f"{model_path.stem}_ctx.onnx")
+        ctx_patterns.extend(sorted(model_path.parent.glob(f"{model_path.stem}_*_ctx.onnx")))
 
         src_ctx_path = None
         for pattern in ctx_patterns:
@@ -253,9 +247,7 @@ class CompileStage(BaseStage):
         if user_output and Path(user_output).suffix:
             final_ctx_path = Path(user_output)
         else:
-            original_stem = context.model_path.stem
-            final_ctx_name = f"{original_stem}_{device}_ctx.onnx"
-            final_ctx_path = output_dir / final_ctx_name
+            final_ctx_path = output_dir / src_ctx_path.name
 
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)
