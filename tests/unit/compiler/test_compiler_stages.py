@@ -337,6 +337,47 @@ def create_epcontext_onnx(path: Path, bin_name: str, embed_mode: int = 0) -> Non
     onnx.save(model, str(path))
 
 
+class TestCompileStageProcess:
+    def test_process_strips_trtrtx_device_type_before_session(self, tmp_path):
+        from unittest.mock import MagicMock, patch
+
+        from winml.modelkit.compiler import CompileContext, CompileStage
+
+        model_path = tmp_path / "model.onnx"
+        create_simple_model(model_path)
+
+        fake_session = MagicMock()
+        fake_session.get_providers.return_value = ["NvTensorRTRTXExecutionProvider"]
+        fake_session.get_inputs.return_value = []
+        fake_session.get_outputs.return_value = []
+
+        fake_winml_session = MagicMock()
+        fake_winml_session._session = fake_session
+
+        context = CompileContext(
+            model_path=model_path,
+            config={
+                "execution_provider": "nv_tensorrt_rtx",
+                "provider_options": {"device_type": "GPU", "precision": "fp16"},
+                "enable_ep_context": True,
+                "validate": False,
+            },
+        )
+
+        mock_session_cls = MagicMock(return_value=fake_winml_session)
+        with patch.dict(
+            "winml.modelkit.compiler.stages.compile.COMPILER_SESSION_MAPPING",
+            {"ort": mock_session_cls},
+            clear=False,
+        ):
+            stage = CompileStage()
+            stage.process(context)
+
+        passed_ep_config = mock_session_cls.call_args.kwargs["ep_config"]
+        assert passed_ep_config.provider_options == {"precision": "fp16"}
+        assert mock_session_cls.call_args.kwargs["ep"] == "NvTensorRTRTXExecutionProvider"
+
+
 class TestCompileStageFinalizeOutput:
     """Test CompileStage._finalize_output method."""
 

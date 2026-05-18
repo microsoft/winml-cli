@@ -117,7 +117,7 @@ class WinMLCompileConfig:
             "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
             "DmlExecutionProvider": cls.for_dml,
             "CUDAExecutionProvider": cls.for_cuda,
-            "NvTensorRTRTXExecutionProvider": cls.for_nv_tensorrt_rtx,
+            "NvTensorRTRTXExecutionProvider": lambda: cls.for_nv_tensorrt_rtx(device=device),
             "OpenVINOExecutionProvider": lambda: cls.for_openvino(device=device),
             "VitisAIExecutionProvider": lambda: cls.for_vitisai(device=device),
             "MIGraphXExecutionProvider": cls.for_migraphx,
@@ -171,10 +171,17 @@ class WinMLCompileConfig:
         )
 
     @classmethod
-    def for_nv_tensorrt_rtx(cls) -> WinMLCompileConfig:
+    def for_nv_tensorrt_rtx(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
+        provider_options: dict[str, str] = {}
+        if device:
+            provider_options["device_type"] = device.upper()
         return cls(
-            ep_config=EPConfig(provider="nv_tensorrt_rtx", enable_ep_context=True),
+            ep_config=EPConfig(
+                provider="nv_tensorrt_rtx",
+                enable_ep_context=True,
+                provider_options=provider_options,
+            ),
         )
 
     @classmethod

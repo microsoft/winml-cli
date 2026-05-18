@@ -16,6 +16,7 @@ import numpy as np
 
 from ...onnx import load_onnx, save_onnx
 from ...session import WinMLQairtSession, WinMLSession
+from ...utils.constants import normalize_ep_name
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -66,11 +67,27 @@ class CompileStage(BaseStage):
             # that e.g. QNN GPU compile doesn't silently fall back to NPU.
             # WinMLSession.device expects "npu"/"gpu"/"cpu", not an EP name.
             device = ep_config.provider_options.get("device_type", "auto").lower()
-            context.log(f"Creating {session_cls.__name__} for device: {device}")
+            # TODO: Revisit EP provider_options design. NvTensorRTRTX crashes if the
+            # generic device_type option is forwarded into add_provider_for_devices binding.
+            # OpenVINO handles it gracefully, but TensorRT's strict validation rejects it.
+            # This should be redesigned to either:
+            # 1. Handle EP-specific provider option filtering at WinMLSession level, or
+            # 2. Separate config-level metadata (device_type for cache keys) from
+            #    session-level options passed to add_provider_for_devices()
+            if ep_config.provider == "nv_tensorrt_rtx" and "device_type" in ep_config.provider_options:
+                ep_config.provider_options = {
+                    key: value
+                    for key, value in ep_config.provider_options.items()
+                    if key != "device_type"
+                }
+            explicit_ep = normalize_ep_name(ep_config.provider)
+            session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
+            context.log(f"Creating {session_cls_name} for device: {device}")
             winml_session = session_cls(
                 onnx_path=model_path,
                 device=device,
                 ep_config=ep_config,
+                ep=explicit_ep,
             )
             winml_session.compile()
 
