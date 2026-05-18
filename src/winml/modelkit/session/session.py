@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
@@ -33,83 +32,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-# WORKAROUND: Suppress compatibility noise printed during EP DLL registration.
-#
-# Symptom: two lines appear on every run even when the EP is unused:
-#   "The requested API version [24] is not available, only API versions
-#    [1, 23] are supported in this build. Current ORT Version is: 1.23.5"
-#
-# Root cause: the WinApp SDK 2.0 EP DLLs were built against ORT API v24, but
-# the currently bundled WinML runtime is still v1.8 (ORT 1.23.5, API v23).
-# The DLL prints this mismatch warning to native stderr during registration.
-# Functionality is NOT affected — ORT falls back cleanly to an available EP.
-#
-# Fix: upgrade the WinML runtime to 2.0. Remove this workaround once that
-# upgrade lands and the API version mismatch is resolved.
-#
-# Technical note: the DLL writes via Win32 GetStdHandle(STD_ERROR_HANDLE)
-# rather than the CRT fd table, so os.dup2 alone is not sufficient on
-# Windows — SetStdHandle must also be updated.
-@contextmanager
-def _suppress_ep_registration_stderr():
-    """Suppress native stderr during EP DLL registration (Win32 + CRT)."""
-    null_fd = os.open(os.devnull, os.O_WRONLY)
-    old_fd = os.dup(2)
-    # Capture the Win32 handle BEFORE os.dup2 changes STD_ERROR_HANDLE.
-    # os.dup2(null_fd, 2) on Windows calls SetStdHandle internally, so reading
-    # GetStdHandle after the redirect would return the devnull handle, not the
-    # original — making the later restore a no-op.
-    old_w32 = None
-    if sys.platform == "win32":
-        import ctypes
-        import msvcrt
-
-        k32 = ctypes.WinDLL("kernel32")
-        _std_err = ctypes.c_uint32(0xFFFFFFF4)
-        old_w32 = k32.GetStdHandle(_std_err)
-    os.dup2(null_fd, 2)
-    os.close(null_fd)
-    if sys.platform == "win32" and old_w32 is not None:
-        k32.SetStdHandle(_std_err, msvcrt.get_osfhandle(2))
-    try:
-        yield
-    finally:
-        os.dup2(old_fd, 2)
-        os.close(old_fd)
-        if old_w32 is not None:
-            k32.SetStdHandle(_std_err, old_w32)
-
-
-@contextmanager
-def _suppress_native_output(log_path: str | Path | None = None, suppress_stderr: bool = False):
-    """Redirect native stdout (and optionally stderr) to a log file (or devnull).
-
-    QNN SDK compiler writes progress to stdout via native C++ code that
-    Python logging/warnings cannot intercept. By default only redirects
-    stdout — stderr is left untouched so Rich displays and Python logging work.
-    Pass suppress_stderr=True to also redirect stderr to the same destination.
-    """
-    if log_path is not None:
-        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-    else:
-        fd = os.open(os.devnull, os.O_WRONLY)
-    old_stdout = os.dup(1)
-    os.dup2(fd, 1)
-    old_stderr = None
-    if suppress_stderr:
-        old_stderr = os.dup(2)
-        os.dup2(fd, 2)
-    os.close(fd)
-    try:
-        yield
-    finally:
-        os.dup2(old_stdout, 1)
-        os.close(old_stdout)
-        if old_stderr is not None:
-            os.dup2(old_stderr, 2)
-            os.close(old_stderr)
 
 
 class SessionState(Enum):
@@ -200,8 +122,7 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                with _suppress_ep_registration_stderr():
-                    registered = registry.register_to_ort()
+                registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
             logger.debug("WinML EP init skipped: %s", e)
@@ -303,9 +224,6 @@ class WinMLSession:
             logger.info("Using cached EPContext: %s", ctx_path)
 
         # Compile if needed (persist_jit=True and no cache)
-        # Native QNN SDK compiler writes progress to stdout/stderr;
-        # redirect to log file to keep the console clean.
-        compile_log = self._onnx_path.parent / "compile.log"
 
         if self._persist_jit and model_path == self._onnx_path:
             # Skip ModelCompiler if input model is already compiled (EPContext)
@@ -319,8 +237,7 @@ class WinMLSession:
                         str(self._onnx_path),
                         embed_compiled_data_into_model=self._embed_context,
                     )
-                    with _suppress_native_output(compile_log):
-                        model_compiler.compile_to_file(str(ctx_path))
+                    model_compiler.compile_to_file(str(ctx_path))
 
                     # Use compiled model if it was created
                     if ctx_path.exists():
@@ -337,8 +254,7 @@ class WinMLSession:
             # registry, e.g. QNN) or left to ORT's device policy (fallback).
             # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
-            with _suppress_native_output(compile_log):
-                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+            session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
         except Exception as ep_err:
             self._state = SessionState.ERROR

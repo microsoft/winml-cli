@@ -16,6 +16,7 @@ from winml.modelkit.sysinfo.device import (
     _EP_DEVICE_MAP,
     _get_available_devices,
     resolve_device,
+    resolve_eps,
 )
 from winml.modelkit.utils.constants import EP_NAMES
 
@@ -498,3 +499,95 @@ class TestResolveDeviceWithEp:
         assert device == "cpu"
         assert available == ["npu", "gpu"]
         assert any("no compatible EP found" in record.message for record in caplog.records)
+
+
+class TestResolveEps:
+    """Tests for resolve_eps()."""
+
+    def test_returns_priority_list_when_multiple_eps_available(self) -> None:
+        """resolve_eps preserves the _EP_DEVICE_MAP iteration order.
+
+        For ``gpu``, the priority is NV → CUDA → MIGraphX → QNN → OpenVINO →
+        DML (IHV-first, native-last). When all are advertised, all are
+        returned in that order.
+        """
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset(
+                {
+                    "NvTensorRTRTXExecutionProvider",
+                    "CUDAExecutionProvider",
+                    "MIGraphXExecutionProvider",
+                    "QNNExecutionProvider",
+                    "OpenVINOExecutionProvider",
+                    "DmlExecutionProvider",
+                }
+            ),
+        ):
+            assert resolve_eps("gpu") == [
+                "NvTensorRTRTXExecutionProvider",
+                "CUDAExecutionProvider",
+                "MIGraphXExecutionProvider",
+                "QNNExecutionProvider",
+                "OpenVINOExecutionProvider",
+                "DmlExecutionProvider",
+            ]
+
+    def test_gpu_with_only_dml_available(self) -> None:
+        """Common Windows case: DML is the only GPU EP advertised."""
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset({"DmlExecutionProvider", "CPUExecutionProvider"}),
+        ):
+            assert resolve_eps("gpu") == ["DmlExecutionProvider"]
+
+    def test_npu_filters_to_installed_eps(self) -> None:
+        """Only EPs that ORT/WinML actually advertises are returned."""
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset({"QNNExecutionProvider", "CPUExecutionProvider"}),
+        ):
+            # _DEVICE_EP_MAP["npu"] includes Vitis and OpenVINO too, but only
+            # QNN is in the available set.
+            assert resolve_eps("npu") == ["QNNExecutionProvider"]
+
+    def test_cpu_includes_multi_device_eps(self) -> None:
+        """OpenVINO declares ``npu/gpu/cpu`` so it shows up for cpu too."""
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset(
+                {"OpenVINOExecutionProvider", "CPUExecutionProvider"}
+            ),
+        ):
+            assert resolve_eps("cpu") == [
+                "OpenVINOExecutionProvider",
+                "CPUExecutionProvider",
+            ]
+
+    def test_case_insensitive(self) -> None:
+        """Upper-case input is normalized before lookup."""
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset({"QNNExecutionProvider"}),
+        ):
+            assert resolve_eps("NPU") == ["QNNExecutionProvider"]
+            assert resolve_eps("Npu") == ["QNNExecutionProvider"]
+
+    def test_unknown_device_returns_empty(self) -> None:
+        """Unknown device name returns ``[]``, not a KeyError."""
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset({"QNNExecutionProvider", "CPUExecutionProvider"}),
+        ):
+            assert resolve_eps("tpu") == []
+            assert resolve_eps("") == []
+
+    def test_no_eps_available_returns_empty(self) -> None:
+        """When ORT/WinML advertises nothing, every device resolves to []."""
+        with patch(
+            "winml.modelkit.sysinfo.device._get_available_eps",
+            return_value=frozenset(),
+        ):
+            assert resolve_eps("npu") == []
+            assert resolve_eps("gpu") == []
+            assert resolve_eps("cpu") == []

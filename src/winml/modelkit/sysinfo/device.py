@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 #   - EP list: https://onnxruntime.ai/docs/execution-providers/
 
 # EP name -> target device type (all lowercase values)
+# Sort from powerful to least powerful device for resolution logic later
 _EP_DEVICE_MAP: dict[EPName, str] = {
     # NVIDIA
     "NvTensorRTRTXExecutionProvider": "gpu",
@@ -50,10 +51,10 @@ _EP_DEVICE_MAP: dict[EPName, str] = {
     "VitisAIExecutionProvider": "npu",
     # Qualcomm (QNN supports both NPU and GPU via Adreno backend)
     "QNNExecutionProvider": "npu/gpu",
-    # Microsoft
-    "DmlExecutionProvider": "gpu",
     # Intel
     "OpenVINOExecutionProvider": "npu/gpu/cpu",
+    # Microsoft
+    "DmlExecutionProvider": "gpu",
     # Always available
     "CPUExecutionProvider": "cpu",
 }
@@ -231,3 +232,23 @@ def resolve_device(
             sorted(available_eps),
         )
     return device, available_devices
+
+
+def resolve_eps(resolved_device: str) -> list[EPName]:
+    """Return list of available EPs compatible with the given device.
+
+    Args:
+        resolved_device: Concrete device name (``"npu"``, ``"gpu"``, or
+            ``"cpu"``). Case-insensitive; ``"NPU"`` is accepted. An unknown
+            value returns an empty list rather than raising.
+
+    Returns:
+        EPs from ``_DEVICE_EP_MAP[device]`` that are also currently
+        advertised by ORT/WinML, in ``_DEVICE_EP_MAP`` priority order.
+    """
+    available_eps = _get_available_eps()
+    return [
+        ep
+        for ep in _DEVICE_EP_MAP.get(resolved_device.lower(), [])
+        if ep in available_eps
+    ]
