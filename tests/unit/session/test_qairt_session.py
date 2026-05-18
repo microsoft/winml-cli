@@ -257,7 +257,7 @@ class TestQairtSessionPaths:
 
         assert session._bin_path == model_dir / f"{model_stem}_qnn_ctx_qnn.bin"
         assert session._bin_info_path == model_dir / f"{model_stem}_cache_info.json"
-        assert session._ctx_path == model_dir / f"{model_stem}_qnn_ctx.onnx"
+        assert session._ctx_path == model_dir / f"{model_stem}_ctx.onnx"
 
     def test_uses_sdk_root_from_ep_config(
         self, simple_matmul_onnx: Path, mock_qairt_sdk_root: Path, monkeypatch
