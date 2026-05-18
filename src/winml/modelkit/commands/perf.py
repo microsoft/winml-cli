@@ -409,11 +409,10 @@ class PerfBenchmark:
         from ..utils.constants import normalize_ep_name
 
         monitor_device = self._model.device or self.config.device or "auto"
-        ep_name = normalize_ep_name(self.config.ep) if self.config.ep else None
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
             device=monitor_device,
-            ep_name=ep_name,
+            ep_name=session.ep_name,
         )
 
         # EP-specific proof-of-execution monitor.
@@ -663,7 +662,7 @@ def _perf_modules(
                         hw_ctx = HWMonitor(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
                             device=resolved_device,
-                            ep_name=normalize_ep_name(ep) if ep else None,
+                            ep_name=session.ep_name,
                         )
 
                 if hw_ctx:
@@ -1025,7 +1024,7 @@ def _run_onnx_benchmark(
             hw_ctx = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
                 device=session.device or device,
-                ep_name=normalize_ep_name(config.ep) if config.ep else None,
+                ep_name=session.ep_name,
             )
         else:
             Console(stderr=True).print(
