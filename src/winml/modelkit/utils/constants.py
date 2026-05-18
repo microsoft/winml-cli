@@ -13,15 +13,16 @@ import onnxruntime as ort
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).
 # Source of truth: docs/naming-convention.md.
+# Order here is also the preferred EP priority for deterministic selection.
 EPName = Literal[
-    "CPUExecutionProvider",
-    "CUDAExecutionProvider",
-    "DmlExecutionProvider",
-    "MIGraphXExecutionProvider",
     "NvTensorRTRTXExecutionProvider",
     "OpenVINOExecutionProvider",
     "QNNExecutionProvider",
     "VitisAIExecutionProvider",
+    "DmlExecutionProvider",
+    "CUDAExecutionProvider",
+    "MIGraphXExecutionProvider",
+    "CPUExecutionProvider",
 ]
 
 # Shorthand aliases users can pass on the CLI (case-insensitive at the parser layer).
@@ -48,6 +49,9 @@ EPNameOrAlias: TypeAlias = EPName | EPAlias
 # Membership parity with ``sysinfo.device._EP_DEVICE_MAP`` is enforced by
 # ``tests/unit/utils/test_ep_constants.py::test_matches_ep_device_map_keys``.
 SUPPORTED_EPS: list[EPName] = list(get_args(EPName))
+EP_PRIORITY: dict[EPName, int] = {
+    ep_name: idx for idx, ep_name in enumerate(SUPPORTED_EPS)
+}
 
 # EP shorthand aliases (case-insensitive)
 EP_ALIASES: dict[EPAlias, EPName] = {
@@ -159,13 +163,13 @@ def extract_ep_options(kwargs: dict) -> dict[str, str]:
 
 # Supported device types
 SUPPORTED_DEVICES = [
-    "CPU",
-    "GPU",
     "NPU",
+    "GPU",
+    "CPU",
 ]
-
-# TODO: unify casing with SUPPORTED_DEVICES (uppercase) and DEVICE_TO_DEVICE_TYPE keys
-SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
+DEVICE_PRIORITY: dict[str, int] = {
+    device_name: idx for idx, device_name in enumerate(SUPPORTED_DEVICES)
+}
 
 # Device string to ORT device type mapping
 DEVICE_TO_DEVICE_TYPE = {

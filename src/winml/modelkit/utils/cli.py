@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
+from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
 
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
     Returns:
         Decorator function
     """
-    choices = SUPPORTED_DEVICES_WITH_AUTO if include_auto else SUPPORTED_DEVICES
+    choices = ["AUTO", *SUPPORTED_DEVICES] if include_auto else SUPPORTED_DEVICES
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"

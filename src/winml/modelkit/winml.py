@@ -125,6 +125,18 @@ def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> d
     return WinML().register_execution_providers(ort=ort, ort_genai=ort_genai)
 
 
+def get_registered_ep_devices() -> list[Any]:
+    """Return ORT EP devices after ensuring WinML EPs are registered.
+
+    This helper centralizes the common sequence used by callers that need the
+    authoritative autoEP device list from ``onnxruntime.get_ep_devices()``.
+    """
+    import onnxruntime as ort
+
+    register_execution_providers(ort=True)
+    return list(ort.get_ep_devices())
+
+
 def add_ep_for_device(
     session_options: Any,
     ep_name: EPName,
