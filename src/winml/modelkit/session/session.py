@@ -487,7 +487,7 @@ class WinMLSession:
         Returns:
             The matching OrtEpDevice, or None if not found.
         """
-        from ..sysinfo.device import get_device_ep_map, get_ep_device_map
+        from ..sysinfo import get_device_ep_map, get_ep_device_map
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
