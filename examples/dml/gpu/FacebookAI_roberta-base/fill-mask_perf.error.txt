@@ -1,0 +1,4 @@
+Usage: python -m winml.modelkit perf [OPTIONS]
+Try 'python -m winml.modelkit perf --help' for help.
+
+Error: Model not found: [Errno 2] No such file or directory: 'C:\\Users\\shzhen\\.cache\\winml\\artifacts\\FacebookAI_roberta-base\\mask_ef3f96678984bc21_export.onnx.data'

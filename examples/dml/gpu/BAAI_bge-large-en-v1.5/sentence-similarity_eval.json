@@ -1,0 +1,21 @@
+{
+  "model_id": "BAAI/bge-large-en-v1.5",
+  "task": "sentence-similarity",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\dml\\gpu\\BAAI_bge-large-en-v1.5\\sentence-similarity_eval.json",
+  "metrics": {
+    "cosine_spearman": 90.3971
+  }
+}

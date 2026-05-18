@@ -1,0 +1,23 @@
+lization.py", line 121, in deserialize_proto
+    decoded = typing.cast(Optional[int], proto.ParseFromString(serialized))
+google.protobuf.message.DecodeError: Error parsing message with type 'onnx.ModelProto'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 228, in eval
+    result = evaluate(cfg)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 231, in evaluate
+    model = _load_model(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 198, in _load_model
+    return WinMLAutoModel.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 407, in from_pretrained
+    result = build_hf_model(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\build\hf.py", line 242, in build_hf_model
+    is_pre_quantized = is_quantized_onnx(current_path) or skip_optimize
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\onnx\detection.py", line 44, in is_quantized_onnx
+    model = _load_model_lightweight(model_path, "quantization check")
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\onnx\detection.py", line 36, in _load_model_lightweight
+    raise ValueError(
+ValueError: Failed to load ONNX model for quantization check: C:\Users\shzhen\.cache\winml\artifacts\facebook_convnext-tiny-224\imgcls_85075f4c65891f29_export.onnx. Ensure the file is a valid ONNX model. Error: Error parsing message with type 'onnx.ModelProto'
+Error: Evaluation failed: Failed to load ONNX model for quantization check: C:\Users\shzhen\.cache\winml\artifacts\facebook_convnext-tiny-224\imgcls_85075f4c65891f29_export.onnx. Ensure the file is a valid ONNX model. Error: Error parsing message with type 'onnx.ModelProto'

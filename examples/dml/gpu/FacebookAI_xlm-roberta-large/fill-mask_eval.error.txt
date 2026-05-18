@@ -1,0 +1,26 @@
+winml\modelkit\commands\eval.py", line 228, in eval
+    result = evaluate(cfg)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 231, in evaluate
+    model = _load_model(config)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 198, in _load_model
+    return WinMLAutoModel.from_pretrained(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 407, in from_pretrained
+    result = build_hf_model(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\build\hf.py", line 216, in build_hf_model
+    export_onnx(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\export\pytorch.py", line 89, in export_pytorch
+    return exporter.export(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 297, in export
+    self._embed_tags_in_onnx(output_path, onnx_model, **kwargs)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 600, in _embed_tags_in_onnx
+    save_onnx(onnx_model, output_path)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\onnx\persistence.py", line 131, in save_onnx
+    onnx.save_model(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\onnx\__init__.py", line 341, in save_model
+    proto = write_external_data_tensors(proto, basepath)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\onnx\external_data_helper.py", line 327, in write_external_data_tensors
+    save_external_data(tensor, filepath)
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\onnx\external_data_helper.py", line 216, in save_external_data
+    data_file.write(tensor.raw_data)
+OSError: [Errno 28] No space left on device
+Error: Evaluation failed: [Errno 28] No space left on device

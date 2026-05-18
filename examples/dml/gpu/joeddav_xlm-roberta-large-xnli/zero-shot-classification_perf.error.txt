@@ -1,0 +1,11 @@
+Some weights of the model checkpoint at joeddav/xlm-roberta-large-xnli were not used when initializing XLMRobertaForSequenceClassification: ['roberta.pooler.dense.bias', 'roberta.pooler.dense.weight']
+- This IS expected if you are initializing XLMRobertaForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing XLMRobertaForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[2026-05-17T14:06:53] WARNING: Optimum model patcher failed for model_type='xlm-roberta', task='zero-shot-classification'. Export may produce incorrect results for models requiring Transformers 4.53+ tracing patches.
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 474, in _get_optimum_patcher
+    cfg_cls = TasksManager.get_exporter_config_constructor(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: xlm-roberta doesn't support task zero-shot-classification for the onnx backend. Supported tasks are: feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification.
+Error: Benchmark failed: [Errno 28] No space left on device

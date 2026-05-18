@@ -1,0 +1,12 @@
+Some weights of ViTModel were not initialized from the model checkpoint at facebook/dino-vitb16 and are newly initialized: ['pooler.dense.bias', 'pooler.dense.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+[2026-05-17T13:30:45] WARNING: Output names count mismatch: config has 1 ['last_hidden_state'], model trace inferred 2 ['last_hidden_state', 'pooler_output']. Keeping config names (from Optimum OnnxConfig).
+[2026-05-17T13:30:45] WARNING: Optimum model patcher failed for model_type='vit', task='image-feature-extraction'. Export may produce incorrect results for models requiring Transformers 4.53+ tracing patches.
+Traceback (most recent call last):
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\src\winml\modelkit\export\htp\exporter.py", line 474, in _get_optimum_patcher
+    cfg_cls = TasksManager.get_exporter_config_constructor(
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: vit doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: feature-extraction, image-classification, masked-im.
+[2026-05-17T13:31:16] WARNING: analyze_onnx called with ep=None — results will aggregate all EPs. For the build pipeline, always pass an explicit ep.
+Error: Benchmark failed: Error parsing message with type 'onnx.ModelProto'
