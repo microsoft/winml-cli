@@ -406,8 +406,6 @@ class PerfBenchmark:
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        from ..utils.constants import normalize_ep_name
-
         monitor_device = self._model.device or self.config.device or "auto"
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
@@ -656,7 +654,6 @@ def _perf_modules(
 
                 if monitor:
                     from ..session.monitor.hw_monitor import HWMonitor
-                    from ..utils.constants import normalize_ep_name
 
                     if HWMonitor.is_available():
                         hw_ctx = HWMonitor(
@@ -1018,7 +1015,6 @@ def _run_onnx_benchmark(
     # Determine if hardware monitoring is available
     if config.monitor:
         from ..session.monitor.hw_monitor import HWMonitor
-        from ..utils.constants import normalize_ep_name
 
         if HWMonitor.is_available():
             hw_ctx = HWMonitor(
