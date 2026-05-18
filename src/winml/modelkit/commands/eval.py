@@ -266,7 +266,7 @@ def _build_eval_config(
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
+        build_cfg, raw = cli_utils.load_build_config(config_file)
 
         # Loader task as lowest-priority fallback
         if build_cfg.loader and build_cfg.loader.task:
@@ -286,11 +286,7 @@ def _build_eval_config(
             if quant_overrides:
                 cfg = merge_config(cfg, quant_overrides)
 
-        # Eval section overrides quant/loader (read raw JSON for this)
-        try:
-            raw = json.loads(config_file.read_text())
-        except (json.JSONDecodeError, OSError):
-            raw = {}
+        # Eval section overrides quant/loader
         eval_data = raw.get("eval")
         if eval_data:
             cfg = merge_config(cfg, eval_data)

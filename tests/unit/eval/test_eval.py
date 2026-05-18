@@ -890,7 +890,7 @@ class TestEvalCli:
             patch("winml.modelkit.sysinfo.resolve_device", return_value=("gpu", ["gpu", "cpu"])),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
-                return_value=fake_build_cfg,
+                return_value=(fake_build_cfg, {}),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
@@ -932,7 +932,7 @@ class TestEvalCli:
             patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
-                return_value=fake_build_cfg,
+                return_value=(fake_build_cfg, {}),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
