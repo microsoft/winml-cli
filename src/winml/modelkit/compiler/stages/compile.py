@@ -66,7 +66,7 @@ class CompileStage(BaseStage):
             # Derive the target device from the runtime session so the compile
             # stage stays aligned with the actual EPContext filename produced by
             # WinMLSession instead of carrying device metadata in provider_options.
-            device = "auto"
+            device = context.config.get("device", "auto")
             explicit_ep = normalize_ep_name(ep_config.provider)
             session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
             context.log(f"Creating {session_cls_name} for device: {device}")
