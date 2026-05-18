@@ -154,9 +154,8 @@ class WinMLCompileConfig:
         ep_cfg = EPConfig(
             provider="qnn",
             provider_options=provider_options,
+            device=device or "auto",
         )
-        if device:
-            ep_cfg.device = device
         return cls(ep_config=ep_cfg)
 
     @classmethod
@@ -186,9 +185,8 @@ class WinMLCompileConfig:
         ep_cfg = EPConfig(
             provider="nv_tensorrt_rtx",
             enable_ep_context=True,
+            device=device or "auto",
         )
-        if device:
-            ep_cfg.device = device
         return cls(ep_config=ep_cfg)
 
     @classmethod
@@ -204,9 +202,8 @@ class WinMLCompileConfig:
             provider="openvino",
             enable_ep_context=True,
             provider_options=provider_options,
+            device=device or "auto",
         )
-        if device:
-            ep_cfg.device = device
         return cls(ep_config=ep_cfg)
 
     @classmethod
@@ -219,9 +216,8 @@ class WinMLCompileConfig:
             provider="vitisai",
             enable_ep_context=True,
             provider_options=provider_options,
+            device=device or "auto",
         )
-        if device:
-            ep_cfg.device = device
         return cls(ep_config=ep_cfg)
 
     @classmethod
