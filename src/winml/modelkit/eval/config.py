@@ -136,6 +136,7 @@ class WinMLEvaluationConfig:
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
             streaming=ds_data.get("streaming", False),
+            revision=ds_data.get("revision"),
             build_script=ds_data.get("build_script"),
             label_mapping_file=ds_data.get("label_mapping_file"),
         )

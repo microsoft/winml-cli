@@ -742,6 +742,8 @@ def _run_winml_eval(
     args += ["--samples", str(num_samples)]
     if ds_config.get("dataset_config"):
         args += ["--dataset-name", ds_config["dataset_config"]]
+    if ds_config.get("revision"):
+        args += ["--dataset-revision", ds_config["revision"]]
     for k, v in ds_config.get("columns_mapping", {}).items():
         args += ["--column", f"{k}={v}"]
     if ds_config.get("label_mapping_file"):
@@ -864,6 +866,8 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
         args += ["--split", ds_config["split"]]
     if ds_config.get("dataset_config"):
         args += ["--dataset-config", ds_config["dataset_config"]]
+    if ds_config.get("revision"):
+        args += ["--dataset-revision", ds_config["revision"]]
     if ds_config.get("columns_mapping"):
         args += ["--columns-mapping", json.dumps(ds_config["columns_mapping"])]
     if ds_config.get("label_mapping_file"):
