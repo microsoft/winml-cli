@@ -5,6 +5,7 @@
 """Utility modules for ModelExport."""
 
 from .config_utils import merge_config
+from .constants import normalize_ep_name
 from .hub_utils import (
     inject_hub_metadata,
     is_hub_model,
@@ -24,5 +25,6 @@ __all__ = [
     "load_hf_components_from_onnx",
     "load_optimum_model",
     "merge_config",
+    "normalize_ep_name",
     "save_local_model_configs",
 ]
