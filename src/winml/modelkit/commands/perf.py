@@ -627,7 +627,7 @@ def _perf_modules(
             cfg.quant = None
             cfg.compile = None
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             try:
                 build_result = build_hf_model(
                     config=cfg,
@@ -647,6 +647,9 @@ def _perf_modules(
                 )
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
+
+                # Compile session early so session.device is resolved for display
+                session.compile()
 
                 total_iters = warmup + iterations
                 hw_ctx = None
