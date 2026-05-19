@@ -437,20 +437,21 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(device=device)
-                # Propagate task/model_name from existing config so HF-build
-                # validation passes. resolve_quant_compile_config returns a
-                # bare quant template without these calibration identifiers.
-                if resolved_quant is not None:
-                    is_onnx_build = cfg.export is None
-                    is_submodule = bool(cfg.loader and cfg.loader.module_path)
-                    if not is_onnx_build and not is_submodule:
-                        if cfg.loader and cfg.loader.task:
-                            resolved_quant.task = cfg.loader.task
-                        if cfg.quant is not None and cfg.quant.model_name:
-                            resolved_quant.model_name = cfg.quant.model_name
-                        elif model_id:
-                            resolved_quant.model_name = model_id
-                cfg.quant = resolved_quant
+                if resolved_quant is None:
+                    cfg.quant = None
+                elif cfg.quant is None:
+                    # Populate calibration identifiers from the loader/model
+                    # so the resulting config passes HF-build validation.
+                    if cfg.loader is not None and cfg.loader.task:
+                        resolved_quant.task = cfg.loader.task
+                    if model_id:
+                        resolved_quant.model_name = model_id
+                    cfg.quant = resolved_quant
+                else:
+                    # Only update precision fields; preserve task/model_name
+                    # and other calibration settings from the existing config.
+                    cfg.quant.weight_type = resolved_quant.weight_type
+                    cfg.quant.activation_type = resolved_quant.activation_type
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -783,6 +784,7 @@ def _run_optimize_stage(
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
+    analyze_output_path: Path | None = None,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -894,6 +896,7 @@ def _run_optimize_stage(
             on_patterns_discovered=_on_patterns,
             on_reoptimize=_on_reoptimize,
             use_external_data=True,
+            analyze_output_path=analyze_output_path,
         )
         # Mark config as resolved so CI/CD reruns skip the analyzer.
         config.auto = False
@@ -1126,6 +1129,7 @@ def _build_hf_pipeline(
     compiled_path = output_dir / _name("compiled.onnx")
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Reuse check
     if final_path.exists() and not rebuild:
@@ -1181,6 +1185,7 @@ def _build_hf_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=False,
+        analyze_output_path=analyze_result_path,
     )
 
     # Persist config after autoconf
@@ -1244,6 +1249,7 @@ def _build_onnx_pipeline(
     compiled_path = output_dir / f"{stem}_compiled.onnx"
     final_path = output_dir / "model.onnx"
     config_path = output_dir / "winml_build_config.json"
+    analyze_result_path = output_dir / "analyze_result.json"
 
     # Reuse check
     if final_path.exists() and not rebuild:
@@ -1273,6 +1279,7 @@ def _build_onnx_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=True,
+        analyze_output_path=analyze_result_path,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
