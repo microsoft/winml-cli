@@ -1224,6 +1224,7 @@ def analyze(
         # Save JSON if requested
         if output:
             try:
+                output.parent.mkdir(parents=True, exist_ok=True)
                 if len(analysis_results) == 1:
                     output.write_text(result.to_json(), encoding="utf-8")
                 else:
@@ -1258,6 +1259,7 @@ def analyze(
                         ),
                     )
                 config = analysis_results[0].get_optimization_config(ep=config_ep)
+                optim_config.parent.mkdir(parents=True, exist_ok=True)
                 optim_config.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
                 logger.info("Optimization config saved to: %s", optim_config)
             except OSError as e:
