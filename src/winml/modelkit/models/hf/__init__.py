@@ -35,6 +35,7 @@ from .bart import BartEncoderIOConfig as _BartEncoderIOConfig  # triggers regist
 from .bert import BERT_CONFIG
 from .blip import BLIP_CONFIG
 from .blip import MODEL_CLASS_MAPPING as _BLIP_CLASS_MAPPING
+from .blip import BlipCaptioningIOConfig as _BlipCaptioningIOConfig  # triggers registration
 from .blip import BlipDecoderIOConfig as _BlipDecoderIOConfig  # triggers registration
 from .blip import BlipVisionEncoderIOConfig as _BlipVisionEncoderIOConfig  # triggers registration
 from .clip import CLIP_CONFIG

@@ -14,6 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from ..sysinfo import resolve_eps
 from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 
 
@@ -62,25 +63,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     8: "uint8",
     16: "uint16",
 }
-
-# Device -> compile provider mapping (default when no --ep override)
-_DEVICE_TO_PROVIDER: dict[str, EPName | None] = {
-    "npu": "QNNExecutionProvider",
-    "gpu": "DmlExecutionProvider",
-    "cpu": None,
-}
-
-
-def get_provider_for_device(device: str) -> EPName | None:
-    """Get the default compile provider for a resolved device.
-
-    Args:
-        device: Resolved device name ("npu", "gpu", "cpu").
-
-    Returns:
-        Canonical EP name (e.g., "QNNExecutionProvider") or None for CPU.
-    """
-    return _DEVICE_TO_PROVIDER.get(device)
 
 
 # EP -> device inference (when --ep is given without --device).
@@ -297,11 +279,12 @@ def resolve_precision(
 
     # ep=CPUExecutionProvider means no EPContext compilation needed.
     # For all other explicit EPs (canonical names), use ep as the provider.
-    compile_provider: EPName | None = (
-        ep_canonical
-        if (ep_canonical and ep_canonical != "CPUExecutionProvider")
-        else _DEVICE_TO_PROVIDER.get(resolved_device)
-    )
+    compile_provider: EPName | None =  ep_canonical
+    if not compile_provider:
+        eps = resolve_eps(resolved_device)
+        compile_provider = eps[0] if eps else None
+    if compile_provider == "CPUExecutionProvider":
+        compile_provider = None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

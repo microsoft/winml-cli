@@ -45,7 +45,7 @@
 | **Windows 11** (x64 or ARM64) | Windows 11 24H2+ required for NPU support |
 | **UV** | Install [UV](https://github.com/astral-sh/uv) |
 | **Windows App SDK Runtime 1.8** | [Latest Windows App SDK downloads](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads) |
-| **WinML CLI** (Python wheel) | See release instructions |
+| **WinML CLI** (Python wheel) | [Releases](https://github.com/microsoft/winml-cli/releases) |
 
 ### Required Hardware
 
