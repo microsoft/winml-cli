@@ -554,3 +554,30 @@ class TestBuildOnnxManifest:
         assert result.reused is True
         assert result.manifest_path is None
         assert not (output_dir / "build_manifest.json").exists()
+
+
+# =============================================================================
+# ANALYZE JSON OUTPUT TESTS
+# =============================================================================
+
+
+class TestOnnxAnalyzeJsonOutput:
+    """Test that analyze_result.json is written to the build folder."""
+
+    def test_analyze_onnx_called_with_output_path(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config_minimal, mock_onnx_pipeline
+    ) -> None:
+        """analyze_onnx is called with output_path = output_dir/analyze_result.json."""
+        output_dir = tmp_path / "output"
+        build_onnx_model(fake_onnx, config=sample_onnx_config_minimal, output_dir=output_dir)
+
+        for call in mock_onnx_pipeline["analyze"].call_args_list:
+            assert call.kwargs["output_path"] == output_dir / "analyze_result.json"
+
+    def test_no_output_path_for_prequantized(
+        self, tmp_path: Path, fake_onnx: Path, sample_onnx_config, mock_onnx_pipeline
+    ) -> None:
+        """Pre-quantized path never calls analyze_onnx (no JSON written)."""
+        mock_onnx_pipeline["is_quantized_onnx"].return_value = True
+        build_onnx_model(fake_onnx, config=sample_onnx_config, output_dir=tmp_path / "output")
+        mock_onnx_pipeline["analyze"].assert_not_called()

@@ -875,3 +875,101 @@ class TestBuildHfPreQuantized:
         assert "quantize" in result.stages_skipped
         mock_pipeline["optimize"].assert_called_once()
         mock_pipeline["quantize"].assert_not_called()
+
+
+# =============================================================================
+# ANALYZE JSON OUTPUT TESTS
+# =============================================================================
+
+
+class TestAnalyzeJsonOutput:
+    """Test that analyze_result.json is written to the build folder."""
+
+    def test_analyze_onnx_called_with_output_path(
+        self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
+    ) -> None:
+        """analyze_onnx is called with output_path pointing to analyze_result.json."""
+        build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            ep="qnn",
+        )
+        # Both loop call and final call pass output_path
+        for call in mock_pipeline["analyze"].call_args_list:
+            assert call.kwargs["output_path"] == tmp_path / "analyze_result.json"
+
+    def test_analyze_output_path_respects_cache_key(
+        self, tmp_path: Path, sample_config_no_quant_compile, mock_pipeline
+    ) -> None:
+        """analyze_result.json is prefixed when cache_key is set."""
+        build_hf_model(
+            config=sample_config_no_quant_compile,
+            output_dir=tmp_path,
+            model_id="test",
+            cache_key="imgcls_abc123",
+        )
+        expected = tmp_path / "imgcls_abc123_analyze_result.json"
+        for call in mock_pipeline["analyze"].call_args_list:
+            assert call.kwargs["output_path"] == expected
+
+    def test_no_output_path_for_prequantized(
+        self, tmp_path: Path, sample_config, mock_pipeline
+    ) -> None:
+        """Pre-quantized path never calls analyze_onnx (no JSON written)."""
+        mock_pipeline["is_quantized_onnx"].return_value = True
+        build_hf_model(
+            config=sample_config,
+            output_dir=tmp_path / "output",
+            pytorch_model=mock_pipeline["model"],
+        )
+        mock_pipeline["analyze"].assert_not_called()
+
+    def test_analyze_onnx_writes_json_to_disk(self, tmp_path: Path) -> None:
+        """analyze_onnx with output_path writes a valid JSON file."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        from winml.modelkit.analyze import analyze_onnx
+
+        # Build a trivial ONNX model (single Relu node)
+        node = helper.make_node("Relu", inputs=["x"], outputs=["y"])
+        graph = helper.make_graph(
+            [node],
+            "test",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+        )
+        model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_path = tmp_path / "tiny.onnx"
+        onnx.save(model_proto, str(model_path))
+
+        output_path = tmp_path / "analyze_result.json"
+        analyze_onnx(model_path, ep="qnn", output_path=output_path)
+
+        assert output_path.exists()
+        data = json.loads(output_path.read_text())
+        assert "metadata" in data
+        assert "results" in data
+
+    def test_analyze_onnx_no_output_path_writes_nothing(self, tmp_path: Path) -> None:
+        """analyze_onnx without output_path writes no file (backward compat)."""
+        import onnx
+        from onnx import TensorProto, helper
+
+        from winml.modelkit.analyze import analyze_onnx
+
+        node = helper.make_node("Relu", inputs=["x"], outputs=["y"])
+        graph = helper.make_graph(
+            [node],
+            "test",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+        )
+        model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_path = tmp_path / "tiny.onnx"
+        onnx.save(model_proto, str(model_path))
+
+        analyze_onnx(model_path, ep="qnn")  # no output_path
+
+        assert not any(tmp_path.glob("*.json"))
