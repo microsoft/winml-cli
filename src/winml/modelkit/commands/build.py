@@ -437,6 +437,19 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(device=device)
+                # Propagate task/model_name from existing config so HF-build
+                # validation passes. resolve_quant_compile_config returns a
+                # bare quant template without these calibration identifiers.
+                if resolved_quant is not None:
+                    is_onnx_build = cfg.export is None
+                    is_submodule = bool(cfg.loader and cfg.loader.module_path)
+                    if not is_onnx_build and not is_submodule:
+                        if cfg.loader and cfg.loader.task:
+                            resolved_quant.task = cfg.loader.task
+                        if cfg.quant is not None and cfg.quant.model_name:
+                            resolved_quant.model_name = cfg.quant.model_name
+                        elif model_id:
+                            resolved_quant.model_name = model_id
                 cfg.quant = resolved_quant
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
