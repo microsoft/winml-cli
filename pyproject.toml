@@ -17,7 +17,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -199,7 +199,7 @@ lint.select = [
   "TID", # flake8-tidy-imports (import hygiene)
   # === Exception Handling ===
   "TRY", # tryceratops (exception handling best practices)
-  "UP",  # pyupgrade (Python 3.10+ syntax)
+  "UP",  # pyupgrade (Python 3.11+ syntax)
 
   "W", # pycodestyle warnings (PEP 8)
 ]
@@ -423,7 +423,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 
 # === Strict Mode ===
 strict = true
