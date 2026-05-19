@@ -395,6 +395,7 @@ def build(
             resolved_device, _ = _resolve_device(device=device)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
+        device = resolved_device
         ep = _resolve_eps(resolved_device)[0]
         logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
