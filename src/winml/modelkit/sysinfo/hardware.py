@@ -60,10 +60,23 @@ class CPU:
         x64 = 9  # pylint: disable=invalid-name
         ARM64 = 12
 
+    # Properties read by __init__. Restricting the WMI projection is a ~6x
+    # speedup on Win32_Processor (~1.3 s -> ~0.2 s warm) because the class
+    # has ~50 fields and unfiltered Get-CimInstance hydrates all of them.
+    _CIM_PROPERTIES = (
+        "Name",
+        "Manufacturer",
+        "NumberOfCores",
+        "NumberOfLogicalProcessors",
+        "Architecture",
+    )
+
     @staticmethod
     def get_all() -> list["CPU"]:
         """Get all CPUs in the system."""
-        cim_instances = CimInstance.get_by_class_name("Win32_Processor")
+        cim_instances = CimInstance.get_by_class_name(
+            "Win32_Processor", properties=list(CPU._CIM_PROPERTIES)
+        )
         return [CPU(cim_instance) for cim_instance in cim_instances]
 
     def __init__(self, cim_instance: CimInstance) -> None:
@@ -113,10 +126,21 @@ class CPU:
 class GPU:
     """Represents GPU information from Windows WMI."""
 
+    # Properties read by __init__ + the PCI/ACPI filter below.
+    _CIM_PROPERTIES = (
+        "Name",
+        "AdapterCompatibility",
+        "DriverVersion",
+        "AdapterRAM",
+        "PNPDeviceID",
+    )
+
     @staticmethod
     def get_all() -> list["GPU"]:
         """Get all hardware GPUs in the system."""
-        cim_instances = CimInstance.get_by_class_name("Win32_VideoController")
+        cim_instances = CimInstance.get_by_class_name(
+            "Win32_VideoController", properties=list(GPU._CIM_PROPERTIES)
+        )
         results = []
         for cim_instance in cim_instances:
             # Assumption: Hardware GPUs are PCI or ACPI devices.
@@ -181,8 +205,13 @@ class NPU:
 
     @staticmethod
     def get_all() -> list["NPU"]:
-        """Get all NPUs in the system."""
-        pnp_devices = PnpDevice.get_by_class_name("ComputeAccelerator")
+        """Get all NPUs in the system.
+
+        Uses the batched PnP query so Get-PnpDevice and Get-PnpDeviceProperty
+        share a single PowerShell startup — the per-NPU follow-up subprocess
+        used to be the slowest part of this call.
+        """
+        pnp_devices = PnpDevice.get_by_class_name_with_properties("ComputeAccelerator")
         return [NPU(pnp_device) for pnp_device in pnp_devices]
 
     def __init__(self, pnp_device: PnpDevice) -> None:

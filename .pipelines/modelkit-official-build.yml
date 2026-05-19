@@ -72,23 +72,62 @@ extends:
                 displayName: 'Check Python version'
 
               - powershell: |
-                  $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\rules_zip"
+                  $rulesDir = "$(Build.SourcesDirectory)\ModelKitArtifacts\rules"
                   $destDir = "$(Build.SourcesDirectory)\src\winml\modelkit\analyze\rules\runtime_check_rules"
-                  $outDir = "$(ob_outputDirectory)"
-                  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-                  $zips = Get-ChildItem "$rulesDir\*.zip"
-                  Write-Host "Found $($zips.Count) rule zips"
-                  $zips | Copy-Item -Destination $destDir
-                  $zips | Copy-Item -Destination $outDir
-                  Write-Host "Copied $($zips.Count) rule zips to $destDir and $outDir"
+                  $parquets = Get-ChildItem "$rulesDir\*.parquet" -Recurse
+                  Write-Host "Found $($parquets.Count) rule parquet file(s)"
+                  foreach ($parquet in $parquets) {
+                    $relativePath = $parquet.FullName.Substring($rulesDir.Length).TrimStart('\\')
+                    $targetPath = Join-Path $destDir $relativePath
+                    New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+                    Copy-Item $parquet.FullName -Destination $targetPath -Force
+                  }
+                  Write-Host "Copied $($parquets.Count) rule parquet file(s) to $destDir"
                 displayName: 'Copy runtime check rules'
+
+              - powershell: |
+                  Add-Type -AssemblyName System.IO.Compression
+                  Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+                  $rulesRoot = "$(Build.SourcesDirectory)\src\winml\modelkit\analyze\rules\runtime_check_rules"
+                  $outDir = "$(ob_outputDirectory)"
+                  $rulesZipPath = Join-Path $outDir "rules.zip"
+                  $parquets = Get-ChildItem "$rulesRoot\*.parquet" -Recurse
+
+                  if (-not $parquets) {
+                    throw "No runtime rule parquet files found under $rulesRoot"
+                  }
+
+                  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+                  if (Test-Path $rulesZipPath) {
+                    Remove-Item -Path $rulesZipPath -Force
+                  }
+
+                  $zip = [System.IO.Compression.ZipFile]::Open($rulesZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+                  try {
+                    foreach ($parquet in $parquets) {
+                      $entryName = $parquet.FullName.Substring($rulesRoot.Length).TrimStart('\').Replace('\', '/')
+                      [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                        $zip,
+                        $parquet.FullName,
+                        $entryName,
+                        [System.IO.Compression.CompressionLevel]::Optimal
+                      ) | Out-Null
+                    }
+                  }
+                  finally {
+                    $zip.Dispose()
+                  }
+
+                  Write-Host "Packed $($parquets.Count) runtime rule parquet file(s) into $rulesZipPath"
+                displayName: 'Create rules.zip for drop/release'
 
               - task: PipAuthenticate@1
                 inputs:
                   artifactFeeds: 'windows.ai.toolkit/Modelkit'
                 displayName: 'Authenticate pip with Azure Artifacts'
 
-              - script: pip install --upgrade build twine packaging
+              - script: python -m pip install --upgrade build twine packaging
                 displayName: 'Install build tools'
 
               # Build sdist BEFORE iKey injection so the source archive
@@ -121,6 +160,7 @@ extends:
               # of each archive directly catches build-cache / ordering
               # bugs that disk-only checks would miss.
               - powershell: |
+                  Add-Type -AssemblyName System.IO.Compression
                   Add-Type -AssemblyName System.IO.Compression.FileSystem
 
                   function Read-ConstantsFromArchive($archivePath) {
@@ -159,6 +199,6 @@ extends:
                   Write-Host "Sdist verified - constants.py has empty placeholder"
                 displayName: 'Verify wheel has iKey, sdist does not'
 
-              - script: twine check "$(ob_outputDirectory)\*.whl" "$(ob_outputDirectory)\*.tar.gz"
+              - script: python -m twine check "$(ob_outputDirectory)\*.whl" "$(ob_outputDirectory)\*.tar.gz"
                 continueOnError: true
                 displayName: 'Validate packages for PyPI'

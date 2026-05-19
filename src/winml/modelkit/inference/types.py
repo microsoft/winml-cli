@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..utils.constants import EPNameOrAlias
+
 
 class Prediction(BaseModel):
     """Single prediction entry.
@@ -34,7 +36,7 @@ class PredictionResult(BaseModel):
     task: str
     model_id: str | None = None
     device: str
-    ep: str | None = None
+    ep: EPNameOrAlias | None = None
     predictions: list[Prediction] | dict[str, Any] = Field(
         ..., description="list[Prediction] for classification; raw dict for other tasks"
     )

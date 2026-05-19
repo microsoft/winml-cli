@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -24,9 +25,8 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.text import Text
 
-from ..analyze import QDQ_SUFFIX
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 from ..utils.logging import configure_logging
 
 
@@ -44,9 +44,42 @@ _COLORS = {
 }
 
 
+def _discover_runtime_rule_parquet_files() -> tuple[list[Path], list[Path]]:
+    """Return runtime-rule search directories and discovered parquet files.
+
+    The runtime checker supports both flat and one-level nested layouts.
+    """
+    from ..analyze.utils.rule_loader import get_runtime_rules_search_dirs
+
+    search_dirs = get_runtime_rules_search_dirs()
+    parquet_files: list[Path] = []
+
+    for search_dir in search_dirs:
+        if not search_dir.is_dir():
+            continue
+        parquet_files.extend(sorted(search_dir.glob("*.parquet")))
+        parquet_files.extend(sorted(search_dir.glob("*/*.parquet")))
+
+    return search_dirs, parquet_files
+
+
+_TRAILING_PAREN_RE = re.compile(r" \([^()]*\)$")
+
+
 def _display_name(pattern_id: str) -> str:
-    """Extract operator display name from pattern_id ('OP/ai.onnx/Conv' -> 'Conv')."""
-    return pattern_id.split("/")[-1]
+    """Extract operator display name from pattern_id.
+
+    Examples::
+
+        'OP/ai.onnx/Conv'              -> 'Conv'
+        'OP/ai.onnx/Conv (QDQ)'        -> 'Conv'
+        'OP/com.microsoft/EPContext (QNN)' -> 'EPContext'
+
+    Strips any trailing ``" (xxx)"`` annotation (QDQ marker, EP-prefix
+    suffix produced by EPContextNodeChecker, etc.).
+    """
+    name = pattern_id.split("/")[-1]
+    return _TRAILING_PAREN_RE.sub("", name)
 
 
 _LEVEL_ICONS = [
@@ -111,7 +144,7 @@ def _build_analyzed_text(counts: dict[str, int]) -> Text:
 
 def _build_analysis_table(
     data: dict[str, dict[str, int]],
-    ep_name: str = "",
+    ep_name: EPName | None = None,
     complete: bool = False,
     all_ops: dict[str, int] | None = None,
 ) -> Table:
@@ -301,8 +334,9 @@ def _render_analysis_summary(
     ep_instance_counts: dict[str, dict[str, dict[str, int]]],
     ep_patterns: dict[str, dict[str, dict]] | None = None,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
+    no_data_eps: set[str] | None = None,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -339,6 +373,25 @@ def _render_analysis_summary(
 
     for ep_support in results:
         ep_name = ep_support.ep_type
+
+        # For EPs with no rule data, skip op-level rows — only show patterns.
+        # Always render at least a header so the EP is visible in the summary.
+        if no_data_eps and ep_name in no_data_eps:
+            patterns = (ep_patterns or {}).get(ep_name, {})
+            console.print(f"   🔵 [bold bright_black]{ep_name}[/bold bright_black]:")
+            if patterns:
+                console.print("      [dim]Op check skipped — no rule data[/dim]")
+                for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
+                    status = p["status"]
+                    icon_p = _STATUS_ICONS.get(status, "❓")
+                    label = _PATTERN_STATUS_LABELS.get(status, "unknown")
+                    console.print(
+                        f"      {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
+                    )
+            else:
+                console.print("      [dim]Op check skipped — no rule data, no patterns[/dim]")
+            console.print()
+            continue
 
         # Aggregate instance counts for this EP
         ep_data = ep_instance_counts.get(ep_name, {})
@@ -406,16 +459,13 @@ def _render_analysis_summary(
     required=False, optional_message="If not specified, analyzes all supported EPs"
 )
 @cli_utils.device_option(
-    required=False, optional_message="If not specified, uses NPU as default", default="NPU"
+    required=False,
+    optional_message="If not specified, derived from --ep (default: NPU when --ep is omitted)",
+    default=None,
 )
 @cli_utils.verbosity_options
 @cli_utils.build_config_option
-@click.option(
-    "--output",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Save JSON output to file",
-)
+@cli_utils.output_option("Save JSON output to file")
 @click.option(
     "--information/--no-information",
     default=True,
@@ -429,8 +479,8 @@ def _render_analysis_summary(
 )
 @click.option(
     "--run-unknown-op/--no-run-unknown-op",
-    default=True,
-    help="Run unknown operators on local machine if possible (default: enabled)",
+    default=False,
+    help="Run unknown operators on local machine if possible (default: disabled)",
 )
 @click.option(
     "--save-node",
@@ -449,7 +499,7 @@ def _render_analysis_summary(
 def analyze(
     ctx: click.Context,
     model: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     output: Path | None,
     information: bool,
@@ -497,6 +547,14 @@ def analyze(
             logger.error("ONNX model file not found: %s", model)
             sys.exit(2)
 
+        search_dirs, parquet_files = _discover_runtime_rule_parquet_files()
+        if not parquet_files:
+            searched = ", ".join(str(p) for p in search_dirs) if search_dirs else "(none)"
+            logger.error("No runtime rule parquet files were found.")
+            logger.error("Please reinstall winml-cli, or manually download rule parquet files.")
+            logger.error("Searched directories: %s", searched)
+            sys.exit(2)
+
         from ..analyze.utils.ep_utils import (
             get_devices_with_rule_data,
             has_rule_data_for_ep,
@@ -512,24 +570,34 @@ def analyze(
             and not has_rule_data_for_ep(ep_normalized, device)
         ):
             available = get_devices_with_rule_data(ep_normalized)
-            if available:
+            if available and device.upper() not in [a.upper() for a in available]:
+                # Device is not supported by this EP at all.
                 logger.error(
                     "%s only supports %s.",
                     ep_normalized,
                     ", ".join(available),
                 )
-            else:
+                sys.exit(2)
+            elif not available:
+                # EP is completely unknown — no rule data and not in the EP map.
                 logger.error(
                     "%s has no rule data for %s.",
                     ep_normalized,
                     device,
                 )
-            sys.exit(2)
+                sys.exit(2)
+            # else: device is valid for this EP but no rule data exists —
+            # proceed; RuntimeChecker will return no_data results gracefully.
+
+        # Fill in --device default when omitted: derive from --ep when given,
+        # else fall back to NPU. ``ep`` is left as None when not given, so the
+        # analyzer scans all EPs.
+        if device is None:
+            device = EP_SUPPORTED_DEVICES[ep_normalized][0].upper() if ep_normalized else "NPU"
 
         ep_label = ep_normalized or "all EPs"
-        device_label = device or "NPU"
         logger.info("Analyzing model: %s", model)
-        logger.info("Target: %s on %s", ep_label, device_label)
+        logger.info("Target: %s on %s", ep_label, device)
 
         analyzer = ONNXStaticAnalyzer()
 
@@ -562,9 +630,7 @@ def analyze(
                     f"   📋 Operators: [cyan]{_total_ops}[/cyan] total, "
                     f"[cyan]{_unique_ops}[/cyan] unique types"
                 )
-                console.print(
-                    f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device_label}[/bold]"
-                )
+                console.print(f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device}[/bold]")
                 console.print()
                 del _proto  # free memory
             except Exception:
@@ -577,9 +643,10 @@ def analyze(
         ep_instance_counts: dict[str, dict[str, dict[str, int]]] = {}
         live: Live | None = None
         ep_counter = 0
+        _no_data_eps: set[str] = set()  # EPs with no op rule data
 
         run_unknown_op_for_ep = run_unknown_op
-        if ep == "VitisAIExecutionProvider":
+        if ep_normalized == "VitisAIExecutionProvider":
             run_unknown_op_for_ep = False
             logger.info(
                 "Disabling --run-unknown-op for VitisAIExecutionProvider: "
@@ -613,7 +680,6 @@ def analyze(
         def on_ep_start(ep_name, operator_counts):
             """Called when analysis starts for a new EP."""
             nonlocal current_ep_name, instance_counts, all_op_counts, ep_counter, live
-            ep_counter += 1
 
             # Finalize previous EP's Live display
             if current_ep_name:
@@ -624,6 +690,15 @@ def analyze(
             current_ep_name = ep_name
             all_op_counts = {_display_name(k): v for k, v in operator_counts.items()}
             instance_counts = {}
+
+            # Skip OP CHECK display for EPs with no rule data —
+            # op results would all be 0/0/0 (unknown). Pattern detection
+            # still runs; results appear in the ANALYSIS SUMMARY.
+            if not has_rule_data_for_ep(ep_name, device or ""):
+                _no_data_eps.add(ep_name)
+                return
+
+            ep_counter += 1
 
             # EP section header
             console.print("─" * 80)
@@ -644,7 +719,7 @@ def analyze(
 
         def on_node_result(pattern_runtime):
             """Callback invoked per-node during analysis."""
-            op = _display_name(pattern_runtime.pattern_id).removesuffix(QDQ_SUFFIX)
+            op = _display_name(pattern_runtime.pattern_id)
             level = pattern_runtime.result.classification.value
             op_counts = instance_counts.setdefault(op, {})
             op_counts[level] = op_counts.get(level, 0) + 1
@@ -709,6 +784,7 @@ def analyze(
                 ep_patterns=ep_patterns,
                 ep=ep_normalized,
                 device=device,
+                no_data_eps=_no_data_eps,
             )
 
             # Legend (at the very bottom, only when there are EP results)
@@ -737,6 +813,7 @@ def analyze(
         # Save JSON if requested
         if output:
             try:
+                output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(result.to_json(), encoding="utf-8")
                 logger.info("JSON results saved to: %s", output)
             except OSError as e:
@@ -751,6 +828,7 @@ def analyze(
 
             try:
                 config = result.get_optimization_config(ep=ep_normalized)
+                optim_config.parent.mkdir(parents=True, exist_ok=True)
                 optim_config.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
                 logger.info("Optimization config saved to: %s", optim_config)
             except OSError as e:

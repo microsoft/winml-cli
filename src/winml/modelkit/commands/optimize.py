@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +29,7 @@ import click
 from rich.console import Console
 
 from ..onnx import load_onnx, save_onnx
+from ..utils import cli as cli_utils
 
 
 if TYPE_CHECKING:
@@ -121,11 +121,12 @@ def capability_options(func: Callable) -> Callable:
 
     for cap in all_caps:
         if isinstance(cap, BoolCapability):
+            default_str = "enabled" if cap.default else "disabled"
             func = click.option(
                 f"--enable-{cap.name}/--disable-{cap.name}",
                 cap.python_name,
                 default=None,  # Use None to detect explicit vs default
-                help=cap.description,
+                help=f"{cap.description} (Default: {default_str})",
             )(func)
         elif isinstance(cap, IntCapability):
             func = click.option(
@@ -133,7 +134,7 @@ def capability_options(func: Callable) -> Callable:
                 cap.python_name,
                 type=click.IntRange(min=cap.min_value, max=cap.max_value),
                 default=None,
-                help=cap.description,
+                help=f"{cap.description} (Default: {cap.default})",
             )(func)
         elif isinstance(cap, ChoiceCapability):
             func = click.option(
@@ -141,7 +142,7 @@ def capability_options(func: Callable) -> Callable:
                 cap.python_name,
                 type=click.Choice(cap.choices),
                 default=None,
-                help=cap.description,
+                help=f"{cap.description} (Default: {cap.default})",
             )(func)
 
     return func
@@ -168,13 +169,7 @@ def capability_options(func: Callable) -> Callable:
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output path (default: {input}_opt.onnx)",
-)
+@cli_utils.output_option("Output path (default: {input}_opt.onnx)")
 @click.option(
     "--config",
     "-c",
@@ -393,10 +388,9 @@ def optimize(
     all_errors = errors + dep_errors
 
     if all_errors:
-        console.print("[bold red]Configuration validation errors:[/bold red]")
-        for error in all_errors:
-            console.print(f"  [red]* {error}[/red]")
-        sys.exit(1)
+        header = click.style("Configuration validation errors:", fg="red", bold=True)
+        bullets = "\n".join(click.style(f"  * {error}", fg="red") for error in all_errors)
+        raise click.UsageError(f"{header}\n{bullets}")
 
     # Convert capability names (kebab-case) to python names (snake_case) for optimizer
     optimizer_kwargs: dict[str, Any] = {}

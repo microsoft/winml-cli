@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""ModelKit telemetry singleton.
+"""WinML CLI telemetry singleton.
 
 Lazily constructed: on first call, consults :func:`consent.resolve_consent`,
 builds a :class:`LoggerProvider` with device ID + OS + app context, and
@@ -19,7 +19,7 @@ import platform
 import sys
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import consent as consent_mod
 from . import constants
@@ -27,13 +27,17 @@ from .deviceid import get_or_create_device_id
 from .utils import _extract_exception_stack, _format_exception_message
 
 
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
+
+
 _LOGGER = logging.getLogger(__name__)
 
 _INSTANCE: Telemetry | None = None
 
-_HEARTBEAT_EVENT = "ModelKitHeartbeat"
-_ACTION_EVENT = "ModelKitAction"
-_ERROR_EVENT = "ModelKitError"
+_HEARTBEAT_EVENT = "WinMLCLIHeartbeat"
+_ACTION_EVENT = "WinMLCLIAction"
+_ERROR_EVENT = "WinMLCLIError"
 
 _ALLOWED_KEYS: dict[str, set[str]] = {
     _HEARTBEAT_EVENT: set(),
@@ -87,7 +91,6 @@ class Telemetry:
         self._logger = None  # set when enabled; None when disabled
         self._provider = None
         self._disabled = True  # set to False only after successful init
-        self._init_ts = time.time()
         self._app_instance_id = str(uuid.uuid4())
         # Kept in the event schema for forward-compat: today
         # `consent.resolve_consent()` returns "disabled" for non-TTY, so
@@ -117,6 +120,9 @@ class Telemetry:
         must never propagate to the CLI.
         """
         try:
+            if not constants.TELEMETRY_ENABLED:
+                _clear_cache_quietly()
+                return
             if not constants.INSTRUMENTATION_KEY:
                 _clear_cache_quietly()
                 return
@@ -156,16 +162,14 @@ class Telemetry:
                 "id_status": id_status,
                 "os.name": uname.system,
                 "os.version": uname.version,
-                "os.release": uname.release,
                 "os.arch": uname.machine,
                 "app_version": app_version,
                 "app_instance_id": self._app_instance_id,
-                "initTs": self._init_ts,
             }
         )
 
     def log_heartbeat(self) -> None:
-        """Emit a ``ModelKitHeartbeat`` event (session-started signal)."""
+        """Emit a ``WinMLCLIHeartbeat`` event (session-started signal)."""
         try:
             if self._logger is None:
                 return
@@ -177,12 +181,12 @@ class Telemetry:
         self,
         action_name: str,
         device: str | None,
-        ep: str | None,
+        ep: EPNameOrAlias | None,
         duration_ms: int,
         success: bool,
         **_unused: Any,
     ) -> None:
-        """Emit a ``ModelKitAction`` event for a completed CLI command."""
+        """Emit a ``WinMLCLIAction`` event for a completed CLI command."""
         try:
             if self._logger is None:
                 return
@@ -199,7 +203,7 @@ class Telemetry:
             _LOGGER.debug("log_action failed", exc_info=True)
 
     def log_error(self, exc: BaseException) -> None:
-        """Emit a ``ModelKitError`` event for an unhandled exception."""
+        """Emit a ``WinMLCLIError`` event for an unhandled exception."""
         try:
             if self._logger is None:
                 return

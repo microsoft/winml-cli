@@ -79,7 +79,23 @@ BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
 EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
-_DEFAULT_PRECISION = "w8a16"
+_DEFAULT_PRECISION_NPU = "w8a16"
+
+
+def _resolve_precision(device: str, explicit: str | None) -> str | None:
+    """Return the precision to pass to winml config/perf, or None to omit the flag.
+
+    w8a16 is only applied by default on NPU.  For CPU/GPU the flag is omitted
+    so winml config uses its own auto-detection.  Forcing w8a16 on GPU produces
+    a QDQ-quantized model that fails at ORT session creation with QNN GPU EP
+    (NHWC layout transformer inserts Conv nodes that QNN GPU's GetCapability
+    does not claim).
+
+    An explicit per-model precision always takes precedence.
+    """
+    if explicit:
+        return explicit
+    return _DEFAULT_PRECISION_NPU if device == "npu" else None
 
 
 def _load_timeout_skip_set() -> set[tuple[str, str]]:
@@ -117,9 +133,9 @@ _NO_SPACE_PATTERNS = (
 )
 
 _HF_CACHE = Path.home() / ".cache" / "huggingface"
-_WML_CACHE = Path.home() / ".cache" / "winml"
+_WINML_CACHE = Path.home() / ".cache" / "winml"
 _TEMP_DIR = Path(os.environ.get("TEMP", os.environ.get("TMP", tempfile.gettempdir())))
-_TEMP_PREFIXES = ("wmk_", "modelkit_compat_")
+_TEMP_PREFIXES = ("winmlcli_", "winmlcli_compat_")
 
 
 def _is_no_space_error(proc: dict) -> bool:
@@ -129,8 +145,8 @@ def _is_no_space_error(proc: dict) -> bool:
 
 
 def _clear_disk_caches() -> None:
-    """Delete HuggingFace, WML cache directories and leaked temp files."""
-    for cache_dir in (_HF_CACHE, _WML_CACHE):
+    """Delete HuggingFace, WinML cache directories and leaked temp files."""
+    for cache_dir in (_HF_CACHE, _WINML_CACHE):
         if cache_dir.exists():
             safe_print(f"  [cleanup] Removing cache: {cache_dir}")
             try:
@@ -139,7 +155,7 @@ def _clear_disk_caches() -> None:
             except OSError as exc:
                 safe_print(f"  [cleanup] Warning: could not remove {cache_dir}: {exc}")
 
-    # Clean leaked temp directories/files (wmk_*, modelkit_compat_*, tmp*.onnx*)
+    # Clean leaked temp directories/files (winmlcli_*, winmlcli_compat_*, tmp*.onnx*)
     if _TEMP_DIR.is_dir():
         cleaned = 0
         for entry in _TEMP_DIR.iterdir():
@@ -347,7 +363,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 def _run_build(
     entry: ModelEntry,
     device: str,
-    precision: str,
+    precision: str | None,
     timeout: int,
     model_dir: Path,
     ep: str | None = None,
@@ -363,8 +379,8 @@ def _run_build(
     config_path = model_dir / "build_config.json"
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Remove any stale suffixed sub-configs BEFORE `wmk config` runs.
-    # For composite models `wmk config` writes files matching {stem}_*.json
+    # Remove any stale suffixed sub-configs BEFORE `winml config` runs.
+    # For composite models `winml config` writes files matching {stem}_*.json
     # (e.g., build_config_encoder.json); cleaning those AFTER the command would
     # delete the freshly-written configs and silently degrade composite builds
     # to single-model. Running cleanup first removes prior-run artifacts without
@@ -381,11 +397,11 @@ def _run_build(
         entry.hf_id,
         "--device",
         device,
-        "--precision",
-        precision,
         "-o",
         str(config_path),
     ]
+    if precision:
+        config_args += ["--precision", precision]
     if entry.task:
         config_args += ["--task", entry.task]
     if ep:
@@ -425,7 +441,11 @@ def _run_build(
             "-m",
             entry.hf_id,
             "--use-cache",
+            "--device",
+            device,
         ]
+        if ep:
+            build_args += ["--ep", ep]
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
@@ -529,6 +549,7 @@ def run_model(
     """
     if not onnx_paths:
         # No pre-built paths: fall back to HF model ID (single model only)
+        precision = _resolve_precision(device, None)
         args = [
             *WINML_CLI,
             "perf",
@@ -536,9 +557,9 @@ def run_model(
             entry.hf_id,
             "--device",
             device,
-            "--precision",
-            _DEFAULT_PRECISION,
         ]
+        if precision:
+            args += ["--precision", precision]
         if entry.task:
             args += ["--task", entry.task]
         if ep:
@@ -847,6 +868,9 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
         args += ["--columns-mapping", json.dumps(ds_config["columns_mapping"])]
     if ds_config.get("label_mapping_file"):
         args += ["--label-mapping-file", ds_config["label_mapping_file"]]
+    winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
+    if winml_key:
+        args += ["--winml-metric-key", winml_key]
 
     proc = _run_subprocess(args, timeout)
     metric = _parse_metric_from_stdout(proc["stdout"]) if proc["exit_code"] == 0 else None
@@ -1312,7 +1336,7 @@ def main() -> None:
             build_result = _run_build(
                 entry,
                 args.device,
-                entry.precision or _DEFAULT_PRECISION,
+                _resolve_precision(args.device, entry.precision),
                 args.timeout,
                 model_dir,
                 ep=args.ep,

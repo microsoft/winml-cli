@@ -1,88 +1,82 @@
 # Runtime Check Rules
 
-This directory contains zip files with runtime check rules (negative rules and tables) used by the static analyzer. Each zip corresponds to a specific `{EP}_{Device}_{Domain}_opset{N}` combination.
+This directory contains parquet runtime rule artifacts used by the analyzer.
 
-The zip files are **not tracked by git**. They are hosted in a separate repo.
+Files are **not tracked by git**. They are bundled in wheel installs and can
+also be fetched from release assets or `ModelKitArtifacts` for source builds.
 
 ## Setup
 
-### Option 1: Download from the latest GitHub release (for external contributors)
+### Option 1: Download from a GitHub release (for source builds)
 
-Rule zips are published as individual assets on the **latest** [WinML-ModelKit release](https://github.com/microsoft/WinML-ModelKit/releases/latest). No special access required.
-
-Each asset is named `{EP}_{Device}_{Domain}_opset{N}.zip` (for example, `QNNExecutionProvider_NPU_ai.onnx_opset17.zip`). Download only the combinations you need and place them in this directory.
-
-To download all assets from the latest release with [GitHub CLI](https://cli.github.com):
+If you are building from source code (for example, cloning this repo), download
+the `rules-v<version>.zip` asset from a winml-cli release. Replace `<version>`
+with the release version you want (e.g. `0.0.3`) and `<tag>` with the matching
+release tag (e.g. `v0.0.3`); all current releases are pre-releases, so an
+explicit tag is required (`gh release download` without a tag skips
+pre-releases).
 
 ```bash
-gh release download --repo microsoft/WinML-ModelKit --pattern '*.zip' --dir src/winml/modelkit/analyze/rules/runtime_check_rules
+gh release download <tag> --repo microsoft/winml-cli --pattern 'rules-v<version>.zip' --dir .
 ```
 
-`gh release download` defaults to the latest release. Pin to a specific tag with `--tag <version>` (for example, `--tag v0.0.1`) if you need a reproducible snapshot.
+Then extract the archive into this directory:
 
-### Option 2: Download script (Microsoft internal)
+```powershell
+Expand-Archive -Path .\rules-v<version>.zip -DestinationPath src\winml\modelkit\analyze\rules\runtime_check_rules -Force
+```
 
-For Microsoft developers with access to the `gim-home` org. Requires [GitHub CLI](https://cli.github.com) (`gh`) authenticated with such an account.
+```bash
+unzip -o rules-v<version>.zip -d src/winml/modelkit/analyze/rules/runtime_check_rules
+```
+
+The zip preserves file paths relative to `runtime_check_rules/`.
+
+### Option 2: Download script (Microsoft internal fallback)
+
+Requires [GitHub CLI](https://cli.github.com) (`gh`) with an account that has access to `gim-home`.
 
 ```bash
 uv run python scripts/download_rules.py --account <your_gim-home_account>
 ```
 
-The script uses the specified `gh` account's token to authenticate, does a sparse checkout (downloads only the zip folder, not the full repo), and copies files here.
+The script sparse-checkouts `gim-home/ModelKitArtifacts/rules` and copies all `*.parquet`
+files here (preserving subdirectories).
+
+This script downloads from the internal `ModelKitArtifacts` repo, not from
+winml-cli release assets.
 
 Use `--force` to re-download all files even if they already exist locally.
 
-### Option 3: Manual copy (Microsoft internal)
+### Option 3: Manual copy (Microsoft internal fallback)
 
-Copy all `*.zip` files from [`gim-home/ModelKitArtifacts/rules_zip/`](https://github.com/gim-home/ModelKitArtifacts/tree/main/rules_zip) into this directory.
+Copy all runtime rule parquet files from:
 
-### Option 4: Use external rules directory via environment variable
+`gim-home/ModelKitArtifacts/rules/`
 
-Set `MODELKIT_RULES_DIR` to one or more directories containing runtime rule zip files.
+### Option 4: Use external rules directories via environment variable
 
-Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` (the directory of `rule_loader.py`), not from your current terminal working directory.
+Set `WINMLCLI_RULES_DIR` to one or more directories containing parquet rule artifacts.
 
-- Windows (PowerShell, user-level absolute path): `[Environment]::SetEnvironmentVariable("MODELKIT_RULES_DIR", "C:\*path*\rules_zip", "User")`
-- Windows (PowerShell, user-level repo-relative path): `[Environment]::SetEnvironmentVariable("MODELKIT_RULES_DIR", "..\..\..\..\..\..\ModelKitArtifacts\rules_zip", "User")`
+Important: relative paths are resolved from `src/winml/modelkit/analyze/utils/` (the
+directory of `rule_loader.py`), not from the current terminal working directory.
+
+- Windows (PowerShell, user-level absolute path): `[Environment]::SetEnvironmentVariable("WINMLCLI_RULES_DIR", "C:\*path*\rules", "User")`
+- Windows (PowerShell, user-level repo-relative path): `[Environment]::SetEnvironmentVariable("WINMLCLI_RULES_DIR", "..\..\..\..\..\..\ModelKitArtifacts\rules", "User")`
 
 Multiple directories are supported using `os.pathsep` (`;` on Windows, `:` on Unix-like systems).
 
-### Option 5: Expand rule zips via CLI command
+## Rule lookup order
 
-You can materialize delta snapshots to full payloads in-place with:
+The analyzer searches directories in this order:
 
-```bash
-winml expand_rules
-```
+1. Directories listed in `WINMLCLI_RULES_DIR` (left to right)
+2. Embedded default directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
 
-This command reads all entries from `MODELKIT_RULES_DIR`, resolves each via
-`_resolve_env_rules_dir_entry`, and performs in-place rewrite for each existing
-directory that contains matching zip files.
+`WINMLCLI_RULES_DIR` takes precedence over the embedded default when the same parquet file
+exists in multiple locations.
 
-After a folder is successfully expanded (and has at least one matching zip),
-an empty marker file named `expanded` is created in that folder.
+## What happens if parquet rules are missing
 
-You can also override the path entry:
-
-```bash
-winml expand_rules --rules-dir-entry C:\path\to\rules_zip
-```
-
-Multiple explicit entries are supported:
-
-```bash
-winml expand_rules --rules-dir-entry C:\path\a --rules-dir-entry C:\path\b
-```
-
-## Rule zip lookup order
-
-The analyzer searches zip files in this order:
-
-1. Directories listed in `MODELKIT_RULES_DIR` (left to right)
-2. This embedded directory: `src/winml/modelkit/analyze/rules/runtime_check_rules/`
-
-This means `MODELKIT_RULES_DIR` takes precedence over the embedded default directory when the same zip filename exists in both locations.
-
-## What happens if zips are missing
-
-The analyzer will log a warning and treat affected operators as unknown. Analysis results will be incomplete but will not crash.
+`winml analyze` exits with code 2 and prints an error. Reinstall the package first,
+or use one of the fallback methods above to provide parquet rule files.

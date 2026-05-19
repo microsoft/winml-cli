@@ -53,39 +53,50 @@ class TestInferIHVFromEPName:
         assert infer_ihv_from_ep_name("qnnexecutionprovider") == IHVType.QC
         assert infer_ihv_from_ep_name("OPENVINOEXECUTIONPROVIDER") == IHVType.INTEL
         assert infer_ihv_from_ep_name("vitisaiexecutionprovider") == IHVType.AMD
+        assert infer_ihv_from_ep_name("nvtensorrtxexecutionprovider") == IHVType.NVIDIA
 
-    def test_unknown_ep_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("TotallyFakeEP")
+    def test_unknown_ep_resolves_to_microsoft(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
 
-    def test_cpu_ep_raises(self) -> None:
-        """CPUExecutionProvider has no IHV — should raise."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("CPUExecutionProvider")
+        assert infer_ihv_from_ep_name("TotallyFakeEP") == IHVType.MICROSOFT
 
-    def test_dml_ep_raises(self) -> None:
-        """DmlExecutionProvider is Microsoft, not an IHV — should raise."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("DmlExecutionProvider")
+    def test_cpu_ep_resolves_to_microsoft(self) -> None:
+        """CPUExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
 
-    def test_nvidia_ep_raises(self) -> None:
-        """NvTensorRTRTXExecutionProvider has no IHV mapping — should raise."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider")
+        assert infer_ihv_from_ep_name("CPUExecutionProvider") == IHVType.MICROSOFT
+
+    def test_dml_ep_resolves_to_microsoft(self) -> None:
+        """DmlExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("DmlExecutionProvider") == IHVType.MICROSOFT
+
+    def test_nvidia_ep_maps_to_nvidia(self) -> None:
+        """NvTensorRTRTXExecutionProvider should map to IHVType.NVIDIA."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
+
+    def test_trtrtx_ep_maps_to_nvidia(self) -> None:
+        """TrtRTXExecutionProvider should map to IHVType.NVIDIA."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("TrtRTXExecutionProvider") == IHVType.NVIDIA
 
 
 class TestHasRuleDataForEP:
     """Tests for has_rule_data_for_ep()."""
 
     def test_returns_false_for_empty_search_dir(self, tmp_path: Path) -> None:
-        """No zip files at all — should return False."""
+        """No parquet rule files at all — should return False."""
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert has_rule_data_for_ep("DmlExecutionProvider", "GPU") is False
 
     def test_returns_false_for_unmatched_ep(self, tmp_path: Path) -> None:
-        """Zip files exist but none match the requested EP+device."""
-        (tmp_path / "OtherEP_GPU_ai_onnx_opset13.zip").touch()
+        """Parquet files exist but none match the requested EP+device."""
+        (tmp_path / "Add_OtherEP_GPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert has_rule_data_for_ep("FakeEP", "NPU") is False
@@ -97,16 +108,25 @@ class TestHasRuleDataForEP:
             mp.setattr(_PATCH_TARGET, lambda: [missing])
             assert has_rule_data_for_ep("QNNExecutionProvider", "NPU") is False
 
-    def test_returns_true_when_zip_exists(self, tmp_path: Path) -> None:
-        """Should return True when a matching zip file is present."""
-        (tmp_path / "FakeEP_NPU_ai_onnx_opset13.zip").touch()
+    def test_returns_true_when_parquet_exists_in_flat_layout(self, tmp_path: Path) -> None:
+        """Should return True when a matching parquet file is present in root layout."""
+        (tmp_path / "Add_FakeEP_NPU_ai.onnx_opset13.parquet").touch()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
+            assert has_rule_data_for_ep("FakeEP", "NPU") is True
+
+    def test_returns_true_when_parquet_exists_in_provider_subdir(self, tmp_path: Path) -> None:
+        """Should return True for rules_dir/<EP>_<DEVICE>/*.parquet layout."""
+        nested = tmp_path / "FakeEP_NPU"
+        nested.mkdir()
+        (nested / "Add_FakeEP_NPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert has_rule_data_for_ep("FakeEP", "NPU") is True
 
     def test_device_is_case_insensitive(self, tmp_path: Path) -> None:
-        """Device is uppercased internally, so 'npu' should match 'NPU' prefix."""
-        (tmp_path / "FakeEP_NPU_ai_onnx_opset13.zip").touch()
+        """Device is uppercased internally, so 'npu' should match NPU parquet files."""
+        (tmp_path / "Add_FakeEP_NPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert has_rule_data_for_ep("FakeEP", "npu") is True
@@ -117,8 +137,10 @@ class TestHasRuleDataForEP:
         dir_b = tmp_path / "b"
         dir_a.mkdir()
         dir_b.mkdir()
-        # Only dir_b has the zip
-        (dir_b / "MyEP_GPU_rules.zip").touch()
+        # Only dir_b has parquet rules in provider subdir layout
+        provider_dir = dir_b / "MyEP_GPU"
+        provider_dir.mkdir()
+        (provider_dir / "Mul_MyEP_GPU_ai.onnx_opset14.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [dir_a, dir_b])
             assert has_rule_data_for_ep("MyEP", "GPU") is True
@@ -128,35 +150,39 @@ class TestGetDevicesWithRuleData:
     """Tests for get_devices_with_rule_data()."""
 
     def test_returns_devices_from_rule_data(self, tmp_path: Path) -> None:
-        """Should return all devices that have matching rule zips."""
-        (tmp_path / "TestEP_NPU_opset13.zip").touch()
-        (tmp_path / "TestEP_GPU_opset13.zip").touch()
+        """Should return all devices that have matching parquet rule files."""
+        (tmp_path / "Add_TestEP_NPU_ai.onnx_opset13.parquet").touch()
+        (tmp_path / "Add_TestEP_GPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("TestEP") == ["NPU", "GPU"]
 
     def test_preserves_priority_order(self, tmp_path: Path) -> None:
         """Devices should be returned in NPU > GPU > CPU order."""
-        (tmp_path / "TestEP_CPU_opset13.zip").touch()
-        (tmp_path / "TestEP_NPU_opset13.zip").touch()
+        (tmp_path / "Add_TestEP_CPU_ai.onnx_opset13.parquet").touch()
+        (tmp_path / "Add_TestEP_NPU_ai.onnx_opset13.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("TestEP") == ["NPU", "CPU"]
 
     def test_falls_back_to_ep_device_map_for_dml(self, tmp_path: Path) -> None:
-        """DML has no rule zips — should fall back to sysinfo EP device map."""
+        """DML has no parquet rule data — should fall back to sysinfo EP device map."""
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("DmlExecutionProvider") == ["GPU"]
 
     def test_falls_back_to_ep_device_map_for_cpu(self, tmp_path: Path) -> None:
-        """CPU EP has no rule zips — should fall back to sysinfo EP device map."""
+        """CPU EP has no parquet rule data — should fall back to sysinfo EP device map."""
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("CPUExecutionProvider") == ["CPU"]
 
     def test_falls_back_to_ep_device_map_multi_device(self, tmp_path: Path) -> None:
-        """OpenVINO supports npu/gpu/cpu — fallback should return all three."""
+        """OpenVINO supports npu/gpu/cpu — fallback should return all three.
+
+        Order matches ``EP_SUPPORTED_DEVICES["OpenVINOExecutionProvider"]``:
+        NPU first (the canonical default for OpenVINO), then GPU, then CPU.
+        """
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("OpenVINOExecutionProvider") == [
@@ -172,9 +198,9 @@ class TestGetDevicesWithRuleData:
             assert get_devices_with_rule_data("TotallyFakeEP") == []
 
     def test_rule_data_takes_precedence_over_ep_device_map(self, tmp_path: Path) -> None:
-        """If rule zips exist, EP device map should NOT be used."""
+        """If parquet rule data exists, EP device map should NOT be used."""
         # Imagine DML gets rule data for NPU in the future
-        (tmp_path / "DmlExecutionProvider_NPU_opset17.zip").touch()
+        (tmp_path / "Add_DmlExecutionProvider_NPU_ai.onnx_opset17.parquet").touch()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             # Rule data says NPU, not the EP device map ["GPU"]

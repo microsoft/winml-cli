@@ -15,6 +15,7 @@ from onnx import TensorProto, helper
 from winml.modelkit.analyze.core import runtime_checker_query as runtime_checker_query_module
 from winml.modelkit.analyze.core.runtime_checker_query import (
     RuntimeCheckerQuery,
+    _build_query_signature,
     _build_table_filter_conditions,
     get_query_conditions_for_node,
     node_to_pattern_match,
@@ -22,6 +23,7 @@ from winml.modelkit.analyze.core.runtime_checker_query import (
 )
 from winml.modelkit.analyze.exceptions import OpOptionalInputSupportError
 from winml.modelkit.analyze.utils.model_utils import DUMMY_FLOAT
+from winml.modelkit.analyze.utils.node_key_utils import resolve_stable_node_key
 from winml.modelkit.onnx import ONNXDomain
 
 
@@ -93,6 +95,34 @@ class TestBuildTableFilterConditions:
         )
 
         assert result == {}
+
+
+class TestBuildQuerySignature:
+    """Test query-signature construction for result-cache keys."""
+
+    def test_skips_columns_absent_from_filter_conditions(self):
+        """Columns not used by table filter (for example infinite properties) are ignored."""
+        signature = _build_query_signature(
+            column_names=["T_Add", "A_shape", "input_dim"],
+            filter_conditions={
+                "T_Add": "FLOAT",
+                "input_dim": 4,
+            },
+        )
+
+        assert signature == ("FLOAT", 4)
+
+    def test_preserves_column_order_for_present_entries(self):
+        """Signature order follows table-column order after dropping missing columns."""
+        signature = _build_query_signature(
+            column_names=["input_dim", "T_Add", "A_shape"],
+            filter_conditions={
+                "T_Add": "FLOAT",
+                "input_dim": 4,
+            },
+        )
+
+        assert signature == (4, "FLOAT")
 
 
 class TestGetQueryConditionsForNode:
@@ -289,7 +319,7 @@ class TestLocalEPFallback:
             node=node,
             op_domain=ONNXDomain.AI_ONNX,
             opset_version=17,
-            pattern_match=node_to_pattern_match(node),
+            pattern_match=node_to_pattern_match(node, "add_node"),
             node_tags=[],
             fallback_reason="rules_not_found",
         )
@@ -309,3 +339,30 @@ class TestLocalEPFallback:
             single_node_model.ParseFromString(model_bytes)
             assert {vi.name for vi in single_node_model.graph.input} == {"weight", "input"}
             assert {init.name for init in single_node_model.graph.initializer} == set()
+
+
+class TestStableNodeKeyResolution:
+    """Test stable key resolution behavior for unknown nodes."""
+
+    def test_runtime_checker_query_rejects_unknown_unnamed_node(self):
+        """Unknown unnamed nodes should raise instead of using node_obj fallback."""
+        node = helper.make_node("Add", ["a", "b"], ["c"], name="add_node")
+        input_a = helper.make_tensor_value_info("a", TensorProto.FLOAT, [1])
+        input_b = helper.make_tensor_value_info("b", TensorProto.FLOAT, [1])
+        output_c = helper.make_tensor_value_info("c", TensorProto.FLOAT, [1])
+        graph = helper.make_graph([node], "stable_key_graph", [input_a, input_b], [output_c])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+        query = RuntimeCheckerQuery(model, ep_name="CPUExecutionProvider", device_type="CPU")
+
+        unknown_unnamed_node = helper.make_node("Relu", ["x"], ["y"])
+        with pytest.raises(KeyError, match="unnamed node outside RuntimeCheckerQuery model graph"):
+            resolve_stable_node_key(
+                unknown_unnamed_node,
+                node_key_by_node_id=query._node_key_by_node_id,
+                graph_nodes=query._graph_nodes,
+                unknown_unnamed_error=(
+                    "Cannot resolve stable key for unnamed node outside "
+                    "RuntimeCheckerQuery model graph."
+                ),
+            )

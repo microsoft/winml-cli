@@ -12,7 +12,7 @@ from typing import Any
 class SupportLevel(Enum):
     """Support level for each component."""
 
-    SUPPORTED = "supported"  # Explicit config exists in ModelKit
+    SUPPORTED = "supported"  # Explicit config exists in WinML CLI
     DEFAULT = "default"  # Using framework defaults (TasksManager/Optimum)
     GENERIC = "generic"  # Using generic fallback class
     UNSUPPORTED = "unsupported"  # No viable path found

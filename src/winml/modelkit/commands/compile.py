@@ -5,7 +5,7 @@
 """Compile command for winml CLI.
 
 This module provides the compile command that compiles ONNX models to
-EP-specific formats (e.g., QNN EPContext) with optional quantization.
+EP-specific formats (e.g., QNN EPContext).
 
 Usage:
     winml compile --model MODEL [OPTIONS]
@@ -14,21 +14,25 @@ Examples:
     winml compile -m model.onnx
     winml compile -m model.onnx --device npu
     winml compile -m model.onnx --device gpu --ep migraphx
-    winml compile -m model_qdq.onnx --no-quantize
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 
-from ..config import VALID_EPS
-from ..config.precision import _DEVICE_TO_PROVIDER, _EP_TO_DEVICE
 from ..onnx import is_compiled_onnx
+from ..sysinfo import resolve_device, resolve_eps
 from ..utils import cli as cli_utils
+from ..utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 
 
@@ -44,13 +48,7 @@ console = Console()
     type=click.Path(exists=True, path_type=Path),
     help="Input ONNX model file (required unless --list)",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output file path (e.g., model_compiled.onnx)",
-)
+@cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
 @click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
@@ -61,20 +59,13 @@ console = Console()
     "--device",
     "-d",
     type=click.Choice(["auto", "npu", "gpu", "cpu"], case_sensitive=False),
-    default="npu",
+    default="auto",
     show_default=True,
     help="Target device",
 )
-@click.option(
-    "--ep",
-    type=click.Choice(sorted(VALID_EPS), case_sensitive=False),
-    default=None,
-    help="Force specific EP. Overrides device-to-provider mapping.",
-)
-@click.option(
-    "--quantize/--no-quantize",
-    default=True,
-    help="Enable/disable quantization (default: enabled)",
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Overrides device-to-provider mapping.",
 )
 @click.option(
     "--validate/--no-validate",
@@ -121,8 +112,7 @@ def compile(
     output: Path | None,
     output_dir: Path | None,
     device: str,
-    ep: str | None,
-    quantize: bool,
+    ep: EPNameOrAlias | None,
     validate: bool,
     verbose: bool,
     compiler: str,
@@ -134,8 +124,7 @@ def compile(
     r"""Compile ONNX model to EP-specific format.
 
     This command compiles an ONNX model to an EP-specific format (e.g., QNN
-    EPContext) with optional quantization. For pre-quantized models (containing
-    QDQ nodes), use --no-quantize.
+    EPContext).
 
     \b
     Examples:
@@ -147,9 +136,6 @@ def compile(
 
         # Compile for GPU with MIGraphX
         winml compile -m model.onnx --device gpu --ep migraphx
-
-        # Compile pre-quantized model
-        winml compile -m model_qdq.onnx --no-quantize
 
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
@@ -176,11 +162,13 @@ def compile(
 
     configure_logging(verbose=verbose)
 
+    resolved_device, _ = resolve_device(device, ep=ep)
+
     # Handle --list
     if list_compilers_flag:
         from ..compiler import list_compilers
 
-        provider = _resolve_compile_provider(device, ep)
+        provider = _resolve_compile_provider(resolved_device, ep)
         click.echo(list_compilers(provider))
         return
 
@@ -198,8 +186,15 @@ def compile(
     from ..compiler import WinMLCompileConfig, compile_onnx
 
     # Resolve EP from device + ep flags
-    provider = _resolve_compile_provider(device, ep)
-    config = WinMLCompileConfig.for_provider(provider)
+    provider = _resolve_compile_provider(resolved_device, ep)
+    config = WinMLCompileConfig.for_provider(provider, device=resolved_device)
+
+    if config is None:
+        raise click.ClickException(
+            f"Provider '{provider}' does not support EPContext compilation. "
+            "Compile is only supported for providers that produce EPContext models "
+            "(e.g. qnn, openvino)."
+        )
 
     config.validate = validate
     config.verbose = verbose
@@ -209,17 +204,9 @@ def compile(
     config.ep_config.qnn_sdk_root = qnn_sdk_root
     config.ep_config.embed_context = embed
 
-    # Deprecation notice for --no-quantize
-    if not quantize:
-        console.print(
-            "[yellow]Note:[/yellow] --no-quantize has no effect. "
-            "Quantization is no longer performed during compile. "
-            "Use 'winml quantize' before 'winml compile' to control quantization."
-        )
-
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
-    console.print(f"[bold blue]Device:[/bold blue] {_EP_TO_DEVICE.get(provider, device)}")
+    console.print(f"[bold blue]Device:[/bold blue] {resolved_device}")
     if ep:
         console.print(f"[bold blue]EP:[/bold blue] {ep}")
     console.print(f"[bold blue]Provider:[/bold blue] {provider}")
@@ -268,17 +255,34 @@ def compile(
         raise click.ClickException(f"Compilation failed: {e}") from e
 
 
-def _resolve_compile_provider(device: str, ep: str | None) -> str:
+def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) -> EPName:
     """Resolve the compile provider from device + ep flags.
 
-    Uses the canonical ``_DEVICE_TO_PROVIDER`` from ``config/precision.py``
-    as single source of truth. ``ep`` overrides the device mapping.
+    ``ep`` overrides the device mapping. Returns
+    the canonical EP name (e.g., ``"QNNExecutionProvider"``).
     """
     if ep:
-        return ep.lower()
+        canonical = normalize_ep_name(ep)
+        if canonical is None:
+            raise click.UsageError(f"Unknown EP: {ep}")
+        supported = EP_SUPPORTED_DEVICES[canonical]
+        if resolved_device.lower() not in supported:
+            raise click.UsageError(
+                f"--ep {ep} cannot run on --device {resolved_device}. "
+                f"{canonical} supports: {', '.join(supported)}."
+            )
+        from ..session.ep_registry import WinMLEPRegistry
 
-    provider = _DEVICE_TO_PROVIDER.get(device.lower())
-    if provider is None:
-        # cpu maps to None in _DEVICE_TO_PROVIDER; use "cpu" for compile
-        return "cpu" if device.lower() == "cpu" else "qnn"
-    return provider
+        registry = WinMLEPRegistry.get_instance()
+        if not registry.is_ep_available(canonical):
+            available = [e for e in EP_SUPPORTED_DEVICES if registry.is_ep_available(e)]
+            raise click.UsageError(
+                f"--ep {ep} ({canonical}) is not registered on this host. "
+                f"Available EPs: {', '.join(available) if available else 'none'}."
+            )
+        return canonical
+
+    eps = resolve_eps(resolved_device)
+    if not eps:
+        return "CPUExecutionProvider"
+    return eps[0]

@@ -18,8 +18,8 @@ Export Strategy (split by task):
 Model: google-t5/t5-small, google-t5/t5-base, etc.
 
 Usage:
-    wmk config -m google-t5/t5-small --task feature-extraction       → encoder
-    wmk config -m google-t5/t5-small --task text2text-generation      → decoder
+    winml config -m google-t5/t5-small --task feature-extraction       → encoder
+    winml config -m google-t5/t5-small --task text2text-generation      → decoder
 """
 
 from __future__ import annotations

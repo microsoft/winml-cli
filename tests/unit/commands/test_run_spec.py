@@ -1202,7 +1202,7 @@ class TestPrintResultNoMutation:
             ],
         }
         out = tmp_path / "out.txt"
-        _print_result(result, output_format="text", output_path=str(out))
+        _print_result(result, output_format="text", output_path=out)
         # Original should still have mask
         assert result["predictions"][0]["mask"] == "base64encodeddata"
 
@@ -1216,7 +1216,7 @@ class TestPrintResultNoMutation:
             ],
         }
         out = tmp_path / "out.json"
-        _print_result(result, output_format="json", output_path=str(out))
+        _print_result(result, output_format="json", output_path=out)
         assert "base64data" in out.read_text()
 
 

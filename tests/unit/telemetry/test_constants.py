@@ -11,3 +11,12 @@ def test_instrumentation_key_is_empty_in_source():
     from winml.modelkit.telemetry import constants
 
     assert constants.INSTRUMENTATION_KEY == ""
+
+
+def test_telemetry_enabled_default_is_true():
+    """Guard the master switch default. Set ``TELEMETRY_ENABLED = False``
+    in source only as a deliberate kill-switch; this test prevents it
+    being flipped off and forgotten."""
+    from winml.modelkit.telemetry import constants
+
+    assert constants.TELEMETRY_ENABLED is True

@@ -12,12 +12,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ..utils.constants import EPAlias
+
 # Canonical definition of ONNX QDQ operator types.
 # Import this constant instead of redefining {"QuantizeLinear", "DequantizeLinear"}.
 QDQ_OP_TYPES: frozenset[str] = frozenset({"QuantizeLinear", "DequantizeLinear"})
 
 
-def needs_format_conversion(model_path: Path, ep: str) -> bool:
+def needs_format_conversion(model_path: Path, ep: EPAlias) -> bool:
     """Check if model's quant format is compatible with target EP.
 
     Minimal detection: checks for QLinear ops targeting QDQ-only EPs.

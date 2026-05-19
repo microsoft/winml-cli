@@ -5,7 +5,7 @@
 """ONNX model persistence utilities.
 
 Load, save, and clean up ONNX models with external data support.
-Designed as the canonical persistence API for ModelKit ONNX workflows.
+Designed as the canonical persistence API for WinML CLI ONNX workflows.
 
 See also: docs/design/onnx/persistence.md (if available)
 """
@@ -13,6 +13,7 @@ See also: docs/design/onnx/persistence.md (if available)
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import onnx
@@ -117,14 +118,26 @@ def save_onnx(
             path,
             ext_location,
         )
-        onnx.save_model(
-            model,
-            str(path),
-            save_as_external_data=True,
-            all_tensors_to_one_file=True,
-            location=ext_location,
-            size_threshold=1024,
-        )
+        # Temporarily change CWD to the output directory so that the ONNX
+        # library's CWD-relative existence check (external_data_helper.py)
+        # resolves against the correct output directory rather than the
+        # process CWD.  This avoids a false-positive FileExistsError when a
+        # stale .data sidecar exists in the process CWD from a previous build
+        # but the actual output directory is clean.
+        # path.parent is guaranteed to exist: mkdir() was called above.
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(path.parent)
+            onnx.save_model(
+                model,
+                path.name,
+                save_as_external_data=True,
+                all_tensors_to_one_file=True,
+                location=ext_location,
+                size_threshold=1024,
+            )
+        finally:
+            os.chdir(original_cwd)
     else:
         logger.debug("Saving ONNX model inline to %s", path)
         onnx.save_model(model, str(path))

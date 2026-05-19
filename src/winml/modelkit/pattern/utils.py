@@ -100,6 +100,11 @@ def get_tensor_shape(tensor_name: str, matcher: Any) -> tuple | None:
     return matcher.tensor_shapes.get(tensor_name)
 
 
+def make_stable_node_key(node: Any, index: int) -> str:
+    """Create a stable non-empty key for a node in graph order."""
+    return node.name if node.name else f"node_{index}"
+
+
 # ---------------------------------------------------------------------------
 # From model_utils.py (pattern-relevant functions)
 # ---------------------------------------------------------------------------

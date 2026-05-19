@@ -12,14 +12,16 @@ Public API:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..optim.config import WinMLOptimizationConfig
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 from .models.information import Information
 from .models.support_level import SupportLevel
+from .utils.timing_utils import make_timing_logger
 
 
 if TYPE_CHECKING:
@@ -57,6 +59,7 @@ class LintResult:
 
 
 logger = logging.getLogger(__name__)
+_log_timing = make_timing_logger(logger)
 
 
 class AnalysisResult:
@@ -82,7 +85,7 @@ class AnalysisResult:
         pattern_count = sum(self.output.metadata.detected_pattern_count.values())
         return f"AnalysisResult(patterns={pattern_count})"
 
-    def is_fully_supported(self, ep: str | None = None) -> bool:
+    def is_fully_supported(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if model is fully supported on the target EP and device.
 
         Args:
@@ -123,7 +126,7 @@ class AnalysisResult:
                 return False
         return found_target
 
-    def has_errors(self, ep: str | None = None) -> bool:
+    def has_errors(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if there are any unsupported patterns (blocking errors).
 
         Args:
@@ -156,7 +159,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def has_warnings(self, ep: str | None = None) -> bool:
+    def has_warnings(self, ep: EPNameOrAlias | None = None) -> bool:
         """Check if there are any partial patterns (warnings/optimization opportunities).
 
         Args:
@@ -189,7 +192,7 @@ class AnalysisResult:
                 return True
         return False
 
-    def get_lint_result(self, ep: str | None = None) -> LintResult:
+    def get_lint_result(self, ep: EPNameOrAlias | None = None) -> LintResult:
         """Get lint-style result with error/warning/info counts.
 
         Args:
@@ -270,7 +273,7 @@ class AnalysisResult:
             optimization_config=optimization_config,
         )
 
-    def get_unsupported_operators(self, ep: str | None = None) -> list[str]:
+    def get_unsupported_operators(self, ep: EPNameOrAlias | None = None) -> list[str]:
         """Get list of unsupported operators for the target EP and device.
 
         Args:
@@ -305,7 +308,7 @@ class AnalysisResult:
 
         return unsupported
 
-    def get_optimization_opportunities(self, ep: str | None = None) -> list[Action]:
+    def get_optimization_opportunities(self, ep: EPNameOrAlias | None = None) -> list[Action]:
         """Get actions for patterns that could be optimized (UNSUPPORTED or PARTIAL status).
 
         Args:
@@ -348,7 +351,7 @@ class AnalysisResult:
                             seen_patterns.add(pattern_key)
         return actions
 
-    def get_optimization_config(self, ep: str | None = None) -> WinMLOptimizationConfig:
+    def get_optimization_config(self, ep: EPNameOrAlias | None = None) -> WinMLOptimizationConfig:
         """Generate WinML optimization configuration based on action items.
 
         This method extracts optimization settings from action_items in Actions,
@@ -476,7 +479,6 @@ class ONNXStaticAnalyzer:
             >>> config = AnalyzerConfig(enable_information=True)
             >>> analyzer = ONNXStaticAnalyzer(config=config)
         """
-        from . import __version__
         from .core.information_engine import InformationEngine
         from .core.output_aggregator import OutputAggregator
 
@@ -484,18 +486,18 @@ class ONNXStaticAnalyzer:
 
         # Initialize core components
         self.information_engine_cls = InformationEngine
-        self.output_aggregator = OutputAggregator(analyzer_version=__version__)
+        self.output_aggregator = OutputAggregator()
 
         logger.info("Initialized ONNXStaticAnalyzer with config: %s", self.config)
 
     def analyze(
         self,
         model_path: str,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         device: str | None = None,
         enable_information: bool = True,
         htp_metadata_path: str | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
         on_ep_start: Callable | None = None,
@@ -566,6 +568,8 @@ class ONNXStaticAnalyzer:
         """
         import onnx
 
+        total_start = time.perf_counter()
+
         # Normalize EP name (convert aliases to full names)
         ep_normalized = normalize_ep_name(ep)
         if ep != ep_normalized:
@@ -581,15 +585,18 @@ class ONNXStaticAnalyzer:
 
         # Load ONNX model
         try:
+            load_model_start = time.perf_counter()
             # Load without external data — static analysis only needs graph structure,
             # shapes, and small embedded constants; not multi-GB weight tensors.
             model_proto = onnx.load(str(model_file), load_external_data=False)
             # Skip onnx.checker.check_model() which rejects custom attributes
+            load_model_ms = int((time.perf_counter() - load_model_start) * 1000)
         except (OSError, FileNotFoundError) as e:
             raise RuntimeError(f"Failed to load ONNX model: {e}") from e
 
         # Delegate to analyze_from_proto
-        return self.analyze_from_proto(
+        delegate_start = time.perf_counter()
+        result = self.analyze_from_proto(
             model_proto=model_proto,
             ep=ep_normalized,
             device=device,
@@ -601,16 +608,27 @@ class ONNXStaticAnalyzer:
             on_node_result=on_node_result,
             on_ep_start=on_ep_start,
         )
+        delegate_ms = int((time.perf_counter() - delegate_start) * 1000)
+        _log_timing(
+            "analyzer.analyze",
+            model=model_file.name,
+            ep=ep_normalized,
+            device=device,
+            load_model_ms=load_model_ms,
+            analyze_from_proto_ms=delegate_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
+        )
+        return result
 
     def analyze_from_proto(
         self,
         model_proto: onnx.ModelProto,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         device: str | None = None,
         enable_information: bool = True,
         model_path: str | None = None,
         htp_metadata_path: str | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
         on_ep_start: Callable | None = None,
@@ -656,9 +674,9 @@ class ONNXStaticAnalyzer:
         from .core.onnx_loader import ONNXLoader
         from .core.pattern_extractor import PatternExtractor
         from .core.runtime_checker import RuntimeChecker
-        from .utils.ep_utils import has_rule_data_for_ep
 
         # Normalize EP name (convert aliases to full names)
+        total_start = time.perf_counter()
         ep_normalized = normalize_ep_name(ep)
         if ep != ep_normalized:
             logger.debug("EP alias '%s' normalized to '%s'", ep, ep_normalized)
@@ -666,13 +684,14 @@ class ONNXStaticAnalyzer:
         logger.info("Analyzing model from ModelProto")
 
         # Determine which EPs to analyze
-        eps_to_analyze: list[str] = []
+        eps_to_analyze: list[EPName] = []
         if ep_normalized is None:
             # Analyze all supported EPs
             eps_to_analyze = [
                 "QNNExecutionProvider",
                 "OpenVINOExecutionProvider",
                 "VitisAIExecutionProvider",
+                "NvTensorRTRTXExecutionProvider",
             ]
             logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
         else:
@@ -690,6 +709,7 @@ class ONNXStaticAnalyzer:
             logger.info("Using device: %s", device_to_use)
 
         # Step 1: Create ONNXModel and extract patterns (once)
+        extraction_start = time.perf_counter()
         logger.info("Loading model and extracting patterns...")
         onnx_loader = ONNXLoader(model_proto=model_proto)
         onnx_model = onnx_loader.load()
@@ -704,34 +724,21 @@ class ONNXStaticAnalyzer:
         metadata = extraction_result["summary"]
         pattern_matches = extraction_result["subgraph_patterns"]
         logger.info("Extracted %d patterns", len(pattern_matches))
+        extraction_ms = int((time.perf_counter() - extraction_start) * 1000)
 
         # Step 2: Check runtime support for each EP
         check_op_results = {}
         information_list = {}
-
+        ep_runtime_timing: dict[str, int] = {}
+        ep_info_timing: dict[str, int] = {}
         for current_ep in eps_to_analyze:
-            # Skip EPs that have no rule data for the target device.
-            if device_to_use is None or not has_rule_data_for_ep(current_ep, device_to_use):
-                if device_to_use:
-                    logger.warning(
-                        "No runtime check data for %s on %s — skipping op analysis.",
-                        current_ep,
-                        device_to_use,
-                    )
-                else:
-                    logger.warning(
-                        "No runtime check data for %s — skipping op analysis.",
-                        current_ep,
-                    )
-                continue
-
             logger.info("Checking runtime support for %s...", current_ep)
             if on_ep_start:
                 try:
                     on_ep_start(current_ep, metadata.operator_counts)
                 except Exception:
                     logger.debug("on_ep_start callback failed", exc_info=True)
-
+            runtime_summary_start = time.perf_counter()
             runtime_checker = RuntimeChecker(
                 ep=current_ep,
                 device=device_to_use,
@@ -750,6 +757,8 @@ class ONNXStaticAnalyzer:
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,
             )
+            runtime_summary_ms = int((time.perf_counter() - runtime_summary_start) * 1000)
+            ep_runtime_timing[current_ep] = runtime_summary_ms
 
             # Convert runtime summary to expected format
             op_results_list = runtime_summary.get("op_runtime_check_result", [])
@@ -762,6 +771,7 @@ class ONNXStaticAnalyzer:
                 logger.info("Generating recommendations for %s...", current_ep)
                 # Always create InformationEngine to run model-level validators
                 # even if there are no runtime check results
+                information_start = time.perf_counter()
                 engine = self.information_engine_cls(
                     op_runtime_results=op_results_list,
                     subgraph_runtime_results=subgraph_results_list,
@@ -770,14 +780,30 @@ class ONNXStaticAnalyzer:
                     device=device_to_use,
                 )
                 information_list[current_ep] = engine.summary()  # Use EP name as key
+                ep_info_timing[current_ep] = int((time.perf_counter() - information_start) * 1000)
 
         # Step 4: Aggregate results
         logger.info("Aggregating results...")
+        aggregate_start = time.perf_counter()
         output = self.output_aggregator.aggregate(
             metadata=metadata,
             check_results=check_op_results,
             information_list=information_list,
             device=device_to_use,
+        )
+        aggregate_ms = int((time.perf_counter() - aggregate_start) * 1000)
+
+        _log_timing(
+            "analyzer.analyze_from_proto",
+            ep=ep_normalized,
+            device=device_to_use,
+            eps=len(eps_to_analyze),
+            patterns=len(pattern_matches),
+            extraction_ms=extraction_ms,
+            aggregate_ms=aggregate_ms,
+            runtime_ms_by_ep=ep_runtime_timing,
+            information_ms_by_ep=ep_info_timing,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
         logger.info("Analysis complete")
@@ -823,12 +849,13 @@ class AnalyzeResult:
 def analyze_onnx(
     model: str | Path,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     autoconf: bool = True,
-    run_unknown_op: bool = True,
+    run_unknown_op: bool = False,
     on_ep_start: Callable | None = None,
     on_node_result: Callable | None = None,
+    output_path: Path | None = None,
 ) -> AnalyzeResult:
     """Analyze an ONNX model and return lint + autoconf results.
 
@@ -848,6 +875,9 @@ def analyze_onnx(
             detected patterns. Default ``True``. When ``False``, skips the
             information engine entirely for faster lint-only analysis
             (``optimization_config`` will be ``None``).
+        output_path: Optional file path to write the full :class:`AnalysisResult`
+            as JSON. The file is written (or overwritten) after each call, so
+            repeated calls with the same path keep the most recent result.
 
     Returns:
         AnalyzeResult with lint diagnostics and optional optimization config.
@@ -863,6 +893,11 @@ def analyze_onnx(
         ...     print(f"Errors: {result.lint.error_patterns}")
         >>> if result.autoconf:
         ...     print(f"Autoconf: {result.optimization_config.to_dict()}")
+
+        >>> # Save full analysis JSON alongside the model
+        >>> result = analyze_onnx(
+        ...     "model.onnx", ep="qnn", output_path=Path("analyze_result.json")
+        ... )
 
         >>> # Lint-only (skip autoconf — faster, no information engine)
         >>> result = analyze_onnx("model.onnx", ep="qnn", autoconf=False)
@@ -888,6 +923,12 @@ def analyze_onnx(
         on_ep_start=on_ep_start,
         on_node_result=on_node_result,
     )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(analysis.to_json(), encoding="utf-8")
+        logger.debug("Analysis result written: %s", output_path)
 
     # Extract lint result (always computed — uses RuntimeChecker classification)
     lint = analysis.get_lint_result(ep=ep)

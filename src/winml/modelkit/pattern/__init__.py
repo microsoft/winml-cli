@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Shared pattern matching infrastructure for ModelKit.
+"""Shared pattern matching infrastructure for WinML CLI.
 
 This package provides pattern matching, input generation, and graph rewriting
 infrastructure used by both the static analyzer and the optimizer.

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -163,11 +164,35 @@ def quantize_onnx(
         if use_external_data:
             qdq_config.use_external_data_format = True
         logger.info("Applying quantization...")
-        quantize(
-            model_input=str(model_path),
-            model_output=str(output_path),
-            quant_config=qdq_config,
-        )
+        # Temporarily change CWD to the output directory so that ORT's
+        # save_model_to_file() — which passes a bare filename
+        # (e.g. "quantized.onnx.data") to onnx.convert_model_to_external_data —
+        # resolves its CWD-relative os.path.exists() check against the actual
+        # output directory rather than the process CWD.  Without this, a stale
+        # .onnx.data sidecar in the process CWD from a previous build triggers
+        # a false-positive FileExistsError even when the output dir is clean.
+        # Use absolute paths so the chdir does not break relative input/output
+        # resolution.  output_path.parent is guaranteed to exist (caller mkdir).
+        abs_model_input = str(Path(model_path).resolve())
+        abs_model_output = str(Path(output_path).resolve())
+        # Remove stale output artifacts from a previous build.  ORT/onnx refuse
+        # to overwrite an existing external-data sidecar (e.g. quantized.onnx.data),
+        # raising FileExistsError, so we proactively clear them here.
+        if output_path.exists():
+            output_path.unlink()
+        stale_sidecar = output_path.parent / f"{output_path.name}.data"
+        if stale_sidecar.exists():
+            stale_sidecar.unlink()
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(output_path.parent)
+            quantize(
+                model_input=abs_model_input,
+                model_output=abs_model_output,
+                quant_config=qdq_config,
+            )
+        finally:
+            os.chdir(original_cwd)
 
         qdq_time = time.perf_counter() - qdq_start
 
