@@ -37,9 +37,8 @@ from rich.text import Text
 from ..utils import cli as cli_utils
 from ..utils.constants import (
     ALL_EP_NAMES,
-    DEVICE_PRIORITY,
     DEVICE_TYPE_TO_DEVICE,
-    EP_PRIORITY,
+    EP_SUPPORTED_DEVICES,
     SUPPORTED_DEVICES,
     SUPPORTED_EPS,
     EPName,
@@ -541,14 +540,30 @@ def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
 def _sort_ep_device_pairs(
     pairs: set[tuple[EPName, str]] | list[tuple[EPName, str]],
 ) -> list[tuple[EPName, str]]:
-    """Sort EP/device pairs by device preference then configured EP priority."""
+    """Sort EP/device pairs using ``EP_SUPPORTED_DEVICES`` declaration order.
+
+    Priority is derived from a single source of truth:
+    - EP priority: insertion order of keys in ``EP_SUPPORTED_DEVICES``
+    - Device priority: per-EP device tuple order in ``EP_SUPPORTED_DEVICES``
+    """
+    ep_priority = {ep_name: idx for idx, ep_name in enumerate(EP_SUPPORTED_DEVICES)}
+    device_priority_by_ep = {
+        ep_name: {device_name.upper(): idx for idx, device_name in enumerate(device_names)}
+        for ep_name, device_names in EP_SUPPORTED_DEVICES.items()
+    }
+
+    def _pair_sort_key(pair: tuple[EPName, str]) -> tuple[int, int, str, str]:
+        ep_name, device_name = pair
+        ep_rank = ep_priority.get(ep_name, len(ep_priority))
+        device_rank = device_priority_by_ep.get(ep_name, {}).get(
+            device_name.upper(),
+            len(device_priority_by_ep.get(ep_name, {})),
+        )
+        return ep_rank, device_rank, ep_name, device_name
+
     return sorted(
         set(pairs),
-        key=lambda p: (
-            DEVICE_PRIORITY.get(p[1], 99),
-            EP_PRIORITY.get(p[0], 99),
-            p[0],
-        ),
+        key=_pair_sort_key,
     )
 
 
