@@ -59,6 +59,27 @@ def _mock_runtime_rule_parquet_discovery(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
 
+@pytest.fixture(autouse=True)
+def _mock_has_rule_data_for_ep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix rule-data availability so tests do not depend on CI assets.
+
+    The analyze command gates execution on has_rule_data_for_ep before it
+    invokes ONNXStaticAnalyzer. Keep this matrix deterministic in unit tests.
+    """
+    simulated_rule_pairs = {
+        ("OpenVINOExecutionProvider", "NPU"),
+        ("OpenVINOExecutionProvider", "GPU"),
+        ("OpenVINOExecutionProvider", "CPU"),
+        ("QNNExecutionProvider", "NPU"),
+        ("NvTensorRTRTXExecutionProvider", "GPU"),
+    }
+
+    monkeypatch.setattr(
+        "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
+        lambda ep_name, device_name: (ep_name, str(device_name).upper()) in simulated_rule_pairs,
+    )
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
