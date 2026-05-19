@@ -7,22 +7,12 @@
 from __future__ import annotations
 
 import logging
+import warnings
+from typing import TYPE_CHECKING
 
 
-def _make_record(
-    message: str,
-    pathname: str = "",
-    level: int = logging.WARNING,
-) -> logging.LogRecord:
-    return logging.LogRecord(
-        name="py.warnings",
-        level=level,
-        pathname=pathname,
-        lineno=1,
-        msg=message,
-        args=(),
-        exc_info=None,
-    )
+if TYPE_CHECKING:
+    import pytest
 
 
 def _get_hf_symlinks_filter() -> logging.Filter:
@@ -31,6 +21,21 @@ def _get_hf_symlinks_filter() -> logging.Filter:
     matches = [f for f in logger.filters if type(f).__name__ == "_HFSymlinksInfoFilter"]
     assert matches, "_HFSymlinksInfoFilter not found on py.warnings logger"
     return matches[0]
+
+
+def _emit_warning(message: str, filename: str) -> None:
+    """Emit a UserWarning through the real logging.captureWarnings path."""
+    logging.captureWarnings(True)
+    try:
+        warnings.warn_explicit(
+            message=message,
+            category=UserWarning,
+            filename=filename,
+            lineno=1,
+            registry={},  # fresh registry — always route to showwarning
+        )
+    finally:
+        logging.captureWarnings(False)
 
 
 class TestHFSymlinksInfoFilter:
@@ -42,51 +47,49 @@ class TestHFSymlinksInfoFilter:
 
         _get_hf_symlinks_filter()  # asserts filter exists
 
-    def test_downgrade_to_info(self) -> None:
-        """Matching record is mutated to INFO and allowed through (returns True)."""
+    def test_downgrade_to_info(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Warning from huggingface_hub containing 'symlinks' is downgraded to INFO."""
         import winml.modelkit._warnings  # noqa: F401
 
-        f = _get_hf_symlinks_filter()
-        record = _make_record(
-            message=(
-                "`huggingface_hub` cache-system uses symlinks by default to efficiently "
-                "store duplicated files but your machine does not support them"
-            ),
-            pathname=r"C:\some\path\huggingface_hub\file_download.py",
-        )
+        with caplog.at_level(logging.DEBUG, logger="py.warnings"):
+            _emit_warning(
+                message=(
+                    "`huggingface_hub` cache-system uses symlinks by default to"
+                    " efficiently store duplicated files but your machine does not"
+                    " support them"
+                ),
+                filename="C:/fake/huggingface_hub/file_download.py",
+            )
 
-        result = f.filter(record)
+        records = [r for r in caplog.records if "symlinks" in r.getMessage()]
+        assert records, "No matching record captured"
+        assert records[0].levelno == logging.INFO
+        assert records[0].levelname == "INFO"
 
-        assert result is True
-        assert record.levelno == logging.INFO
-        assert record.levelname == "INFO"
-
-    def test_unrelated_warning_unchanged(self) -> None:
+    def test_unrelated_warning_unchanged(self, caplog: pytest.LogCaptureFixture) -> None:
         """Records without 'symlinks' in message are not modified."""
         import winml.modelkit._warnings  # noqa: F401
 
-        f = _get_hf_symlinks_filter()
-        record = _make_record(
-            message="Some other huggingface_hub warning",
-            pathname=r"C:\some\path\huggingface_hub\file_download.py",
-        )
+        with caplog.at_level(logging.DEBUG, logger="py.warnings"):
+            _emit_warning(
+                message="Some other huggingface_hub warning without the keyword",
+                filename="C:/fake/huggingface_hub/file_download.py",
+            )
 
-        result = f.filter(record)
+        records = [r for r in caplog.records if "huggingface_hub" in r.getMessage()]
+        assert records, "No matching record captured"
+        assert records[0].levelno == logging.WARNING
 
-        assert result is True
-        assert record.levelno == logging.WARNING
-
-    def test_symlinks_from_other_module_unchanged(self) -> None:
-        """A 'symlinks' message from a non-huggingface_hub path is not modified."""
+    def test_symlinks_from_other_module_unchanged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A 'symlinks' warning not from huggingface_hub is not modified."""
         import winml.modelkit._warnings  # noqa: F401
 
-        f = _get_hf_symlinks_filter()
-        record = _make_record(
-            message="symlinks are not supported",
-            pathname=r"C:\some\other\library\utils.py",
-        )
+        with caplog.at_level(logging.DEBUG, logger="py.warnings"):
+            _emit_warning(
+                message="symlinks are not supported on this platform",
+                filename="C:/fake/other_library/utils.py",
+            )
 
-        result = f.filter(record)
-
-        assert result is True
-        assert record.levelno == logging.WARNING
+        records = [r for r in caplog.records if "symlinks" in r.getMessage()]
+        assert records, "No matching record captured"
+        assert records[0].levelno == logging.WARNING
