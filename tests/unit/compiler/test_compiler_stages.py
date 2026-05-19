@@ -4,10 +4,18 @@
 # --------------------------------------------------------------------------
 """Tests for compiler stages."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import onnx
 from onnx import TensorProto, helper
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from winml.modelkit.utils.constants import EPAlias
 
 
 def create_simple_model(path: Path) -> None:
@@ -67,7 +75,7 @@ class TestOptimizeStage:
         clear_transforms()
 
         class DummyTransform:
-            def applies_to(self, ep: str) -> bool:
+            def applies_to(self, ep: EPAlias) -> bool:
                 return ep == "qnn"
 
             def transform(self, model: onnx.ModelProto) -> onnx.ModelProto:
@@ -100,7 +108,7 @@ class TestOptimizeStage:
         transform_called = []
 
         class TrackingTransform:
-            def applies_to(self, ep: str) -> bool:
+            def applies_to(self, ep: EPAlias) -> bool:
                 return ep == "qnn"
 
             def transform(self, model: onnx.ModelProto) -> onnx.ModelProto:
