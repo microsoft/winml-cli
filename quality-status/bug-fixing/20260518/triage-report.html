@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WinML-ModelKit — Issue Triage Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; font-size: 14px; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 24px 32px; }
+  .header h1 { font-size: 22px; font-weight: 600; color: #f0f6fc; }
+  .header .meta { color: #8b949e; margin-top: 4px; font-size: 13px; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; text-align: center; }
+  .card .num { font-size: 36px; font-weight: 700; }
+  .card .lbl { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  .card.total .num { color: #f0f6fc; }
+  .card.p0    .num { color: #f87171; }
+  .card.p1    .num { color: #fb923c; }
+  .card.p2    .num { color: #fbbf24; }
+
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 28px; }
+  .chart-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+  .chart-box h3 { font-size: 12px; color: #8b949e; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .bar-row { display: flex; align-items: center; margin-bottom: 10px; cursor: pointer; }
+  .bar-row:hover .bar-fill { opacity: 0.8; }
+  .bar-label { width: 120px; font-size: 13px; color: #c9d1d9; text-align: right; padding-right: 12px; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #21262d; border-radius: 4px; height: 20px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .bar-count { margin-left: 8px; font-size: 12px; color: #8b949e; width: 28px; flex-shrink: 0; }
+
+  .prio-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .prio-item:last-child { border-bottom: none; }
+  .prio-badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+  .prio-badge.P0 { background: rgba(248,113,113,0.18); color: #f87171; border: 1px solid rgba(248,113,113,0.35); }
+  .prio-badge.P1 { background: rgba(251,146,60,0.18);  color: #fb923c; border: 1px solid rgba(251,146,60,0.35); }
+  .prio-badge.P2 { background: rgba(251,191,36,0.18);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
+  .prio-count { font-size: 24px; font-weight: 700; }
+  .prio-desc { font-size: 12px; color: #8b949e; margin-top: 2px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+  .btn-group { display: flex; gap: 4px; }
+  .btn { padding: 5px 14px; border: 1px solid #30363d; border-radius: 6px; background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 13px; }
+  .btn:hover { background: #30363d; }
+  .btn.active { background: #388bfd22; border-color: #388bfd; color: #58a6ff; }
+  .toggle-grp { display: flex; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+  .toggle-grp .btn { border: none; border-radius: 0; border-right: 1px solid #30363d; }
+  .toggle-grp .btn:last-child { border-right: none; }
+  .search-input { padding: 5px 12px; border: 1px solid #30363d; border-radius: 6px; background: #21262d; color: #c9d1d9; font-size: 13px; width: 220px; }
+  .search-input:focus { outline: none; border-color: #388bfd; }
+  .spacer { flex: 1; }
+
+  .table-wrap { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #21262d; color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; }
+  td { padding: 10px 14px; border-top: 1px solid #21262d; vertical-align: top; }
+  tr:hover td { background: #1c212888; }
+  .group-header td { background: #1c2128; font-weight: 600; font-size: 13px; padding: 8px 14px; }
+  .group-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; margin: 1px; }
+  .label-tag { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+  .assignee { color: #58a6ff; font-size: 12px; display: block; }
+
+  .comp-Compile     { background: rgba(88,166,255,0.15);  color: #58a6ff;  border: 1px solid rgba(88,166,255,0.35); }
+  .comp-Perf        { background: rgba(63,185,80,0.15);   color: #3fb950;  border: 1px solid rgba(63,185,80,0.35); }
+  .comp-LoadExport  { background: rgba(86,211,245,0.15);  color: #56d3f5;  border: 1px solid rgba(86,211,245,0.35); }
+  .comp-Analyzer    { background: rgba(210,153,34,0.18);  color: #d4a017;  border: 1px solid rgba(210,153,34,0.35); }
+  .comp-Build       { background: rgba(46,160,67,0.15);   color: #2ea043;  border: 1px solid rgba(46,160,67,0.35); }
+  .comp-Quantize    { background: rgba(188,140,255,0.18); color: #bc8cff;  border: 1px solid rgba(188,140,255,0.35); }
+  .comp-Sys         { background: rgba(248,113,113,0.18); color: #f87171;  border: 1px solid rgba(248,113,113,0.35); }
+  .comp-Config      { background: rgba(251,146,60,0.18);  color: #fb923c;  border: 1px solid rgba(251,146,60,0.35); }
+  .comp-Eval        { background: rgba(232,121,249,0.18); color: #e879f9;  border: 1px solid rgba(232,121,249,0.35); }
+  .comp-Inspect     { background: rgba(52,211,153,0.18);  color: #34d399;  border: 1px solid rgba(52,211,153,0.35); }
+  .comp-Catalog     { background: rgba(99,179,237,0.18);  color: #63b3ed;  border: 1px solid rgba(99,179,237,0.35); }
+  .comp-Repository  { background: rgba(237,137,54,0.18);  color: #ed8936;  border: 1px solid rgba(237,137,54,0.35); }
+  .comp-Other       { background: rgba(113,128,150,0.18); color: #a0aec0;  border: 1px solid rgba(113,128,150,0.35); }
+
+  .bar-Compile    { background: #58a6ff; }
+  .bar-Perf       { background: #3fb950; }
+  .bar-LoadExport { background: #56d3f5; }
+  .bar-Analyzer   { background: #d4a017; }
+  .bar-Build      { background: #2ea043; }
+  .bar-Quantize   { background: #bc8cff; }
+  .bar-Sys        { background: #f87171; }
+  .bar-Config     { background: #fb923c; }
+  .bar-Eval       { background: #e879f9; }
+  .bar-Inspect    { background: #34d399; }
+  .bar-Catalog    { background: #63b3ed; }
+  .bar-Repository { background: #ed8936; }
+  .bar-Other      { background: #a0aec0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>WinML-ModelKit — Issue Triage Report</h1>
+  <div class="meta">Generated 2026-05-18 &nbsp;·&nbsp; <span id="issue-count"></span></div>
+</div>
+
+<div class="container">
+
+  <div class="cards">
+    <div class="card total"><div class="num" id="cnt-total">73</div><div class="lbl">Total Open</div></div>
+    <div class="card p0">   <div class="num" id="cnt-p0">12</div>   <div class="lbl">P0 Critical</div></div>
+    <div class="card p1">   <div class="num" id="cnt-p1">25</div>   <div class="lbl">P1 High</div></div>
+    <div class="card p2">   <div class="num" id="cnt-p2">36</div>   <div class="lbl">P2 Medium</div></div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <h3>Issues by Component (click to filter)</h3>
+      <div id="bar-chart"></div>
+    </div>
+    <div class="chart-box">
+      <h3>Priority Breakdown</h3>
+      <div class="prio-item">
+        <span class="prio-badge P0">P0</span>
+        <div><div class="prio-count" style="color:#f87171">12</div><div class="prio-desc">Silent failures, broken pipelines, no workaround</div></div>
+      </div>
+      <div class="prio-item">
+        <span class="prio-badge P1">P1</span>
+        <div><div class="prio-count" style="color:#fb923c">25</div><div class="prio-desc">Crashes, customer reports, misleading errors</div></div>
+      </div>
+      <div class="prio-item">
+        <span class="prio-badge P2">P2</span>
+        <div><div class="prio-count" style="color:#fbbf24">36</div><div class="prio-desc">Non-blocking bugs, UX issues, test coverage</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <span style="font-size:12px;color:#8b949e;margin-right:4px;line-height:28px;">Group by:</span>
+    <div class="toggle-grp">
+      <button class="btn active" id="btn-grp-comp" onclick="setGrouping('component')">Component</button>
+      <button class="btn"        id="btn-grp-prio" onclick="setGrouping('priority')">Priority</button>
+    </div>
+    <div class="btn-group" id="filter-buttons" style="flex-wrap:wrap"></div>
+    <div class="spacer"></div>
+    <input class="search-input" id="search" placeholder="Search issues…" oninput="render()">
+    <span id="visible-count" style="font-size:12px;color:#8b949e;line-height:28px;"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:60px">#</th>
+          <th>Title</th>
+          <th style="width:130px">Component</th>
+          <th style="width:60px">Priority</th>
+          <th style="width:160px">Labels</th>
+          <th style="width:160px">Assignees</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const ISSUES = [
+{"number":93,"title":"\"wmk perf --ep cpu --device cpu\" blocked by static analyzer not supporting CPU","priority":"P0","component":"Analyzer","assignees":["ziyuanguo1998","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/93","labels":["good first issue","static-analyzer","dev experience","bug","P0"]},
+{"number":217,"title":"winml perf --op-tracing fails with EPContext version mismatch between onnxruntime-windowsml and onnxruntime-qnn","priority":"P0","component":"Perf","assignees":["tezheng","xieofxie"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/217","labels":["NPU","bug","P0"]},
+{"number":431,"title":"fix: winml config --device npu silently succeeds when no NPU EP is available","priority":"P0","component":"Config","assignees":["timenick"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/431","labels":["hardware","NPU","dev experience","bug","0430 bugbash","P0"]},
+{"number":433,"title":"Bug: Quantize stage in build shows train output","priority":"P0","component":"Build","assignees":["tezheng","chinazhangchao","zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/433","labels":["dev experience","bug","customer report","P0"]},
+{"number":469,"title":"[SA] Default device hardcoded to NPU \u2014 winml analyze and run_sa_eval.py should auto-detect available device/EP","priority":"P0","component":"Analyzer","assignees":["fangyangci"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/469","labels":["static-analyzer","bug","P0"]},
+{"number":528,"title":"[winml eval] [P0] Bogus or mismatched --dataset leaks raw multi-frame datasets/internal traceback","priority":"P0","component":"Eval","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/528","labels":["bug","P0","quality"]},
+{"number":542,"title":"[winml inspect] [P0] Bogus HF id and missing local file both reported as \"Network error\"","priority":"P0","component":"Inspect","assignees":["DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/542","labels":["bug","P0","quality"]},
+{"number":543,"title":"[winml inspect] [P0] winml inspect -m <hf_id> takes 24 s end-to-end; first user-visible output silent for ~14 s","priority":"P0","component":"Inspect","assignees":["ziyuanguo1998"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/543","labels":["bug","P0","quality"]},
+{"number":544,"title":"[winml inspect] [P0] --list-tasks takes 12.6 s for what should be a static dict lookup","priority":"P0","component":"Inspect","assignees":["ziyuanguo1998"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/544","labels":["bug","P0","quality"]},
+{"number":555,"title":"[winml quantize] [P0] --precision banana silently falls back to defaults, prints \"Success!\", exits 1","priority":"P0","component":"Quantize","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/555","labels":["QDQ","bug","P0","quality"]},
+{"number":556,"title":"[winml quantize] [P0] --precision int8 does not echo the precision in output (user cannot verify the flag took effect)","priority":"P0","component":"Quantize","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/556","labels":["QDQ","bug","P0","quality"]},
+{"number":563,"title":"[cross-cutting] [P0] --model semantic drift across 10 commands","priority":"P0","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/563","labels":["dev experience","bug","P0","quality"]},
+{"number":193,"title":"wmk quantize output fails NPU compilation (QNN MaxPool NHWC layout error); wmk build pipeline unaffected","priority":"P1","component":"Quantize","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/193","labels":["QDQ","NPU","bug","P1"]},
+{"number":216,"title":"winml eval fails for text-classification models: label alignment error with auto-selected dataset","priority":"P1","component":"Eval","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/216","labels":["accuracy","bug","P1"]},
+{"number":245,"title":"onnx 1.21.0 upgrade: fix IR version 13 incompatibility with onnxruntime","priority":"P1","component":"Repository","assignees":["tezheng","timenick","KayMKM"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/245","labels":["infrastructure","dependencies","bug","P1"]},
+{"number":428,"title":"bug: winml compile crashes with AttributeError for AMD EPs (VitisAI / MIGraphX)","priority":"P1","component":"Compile","assignees":["tezheng","xieofxie","zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/428","labels":["hardware","bug","0430 bugbash","P1"]},
+{"number":430,"title":"bug: perf on AMD NPU (VitisAI EP) always triggers AOT compile stage, fails with TarWriter error","priority":"P1","component":"Perf","assignees":["tezheng","xieofxie"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/430","labels":["NPU","bug","0430 bugbash","P1"]},
+{"number":435,"title":"UX: analyze silently omits Vitis EP without explanation","priority":"P1","component":"Analyzer","assignees":["chinazhangchao","fangyangci","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/435","labels":["static-analyzer","dev experience","bug","customer report","P1"]},
+{"number":450,"title":"Custom architecture models fail with raw Python traceback instead of user-friendly error","priority":"P1","component":"Load & Export","assignees":["chinazhangchao","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/450","labels":["dev experience","bug","P1"]},
+{"number":508,"title":"[winml] [P1] winml exprt (typo) returns \"No such command\" with no suggestion","priority":"P1","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/508","labels":["dev experience","bug","P1","quality"]},
+{"number":509,"title":"[winml] [P1] Bare sys.exit(N) calls in command modules; no documented exit-code contract","priority":"P1","component":"Other","assignees":["tezheng","zhenchaoni","DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/509","labels":["bug","P1","quality"]},
+{"number":513,"title":"[winml analyze] [P1] --ep cpu silently changes target to NPU then exits 1","priority":"P1","component":"Analyzer","assignees":["vortex-captain"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/513","labels":["static-analyzer","bug","P1","quality"]},
+{"number":516,"title":"[winml build] [P1] --trust-remote-code runs custom code with no warning","priority":"P1","component":"Build","assignees":["tezheng","chinazhangchao","vortex-captain"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/516","labels":["bug","P1","quality"]},
+{"number":517,"title":"[winml build] [P1] Config-schema validation fires after printing Setup banner and Stages header","priority":"P1","component":"Build","assignees":["tezheng","chinazhangchao"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/517","labels":["bug","P1","quality"]},
+{"number":520,"title":"[winml build] [P1] Config loader.task is not validated against --model; incompatible pair fails mid-build with cryptic error","priority":"P1","component":"Build","assignees":["tezheng","chinazhangchao"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/520","labels":["bug","P1","quality"]},
+{"number":526,"title":"[winml config] [P1] Bogus HF model id reported as \"Network error\"","priority":"P1","component":"Config","assignees":["chinazhangchao"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/526","labels":["bug","P1","quality"]},
+{"number":529,"title":"[winml eval] [P1] eval accepts a pre-built ONNX whose I/O signature does not match --task; failure surfaces late","priority":"P1","component":"Eval","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/529","labels":["bug","P1","quality"]},
+{"number":530,"title":"[winml eval] [P1] --samples N silently ignored; output reports the wrong sample count","priority":"P1","component":"Eval","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/530","labels":["bug","P1","quality"]},
+{"number":536,"title":"[winml export] [P1] Library TracerWarning from torch leaks at default verbosity","priority":"P1","component":"Load & Export","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/536","labels":["bug","P1","quality"]},
+{"number":537,"title":"[winml export] [P1] Mismatched --task for HF model dumps a raw transformers traceback and a 100-line config-class wall","priority":"P1","component":"Load & Export","assignees":["chinazhangchao","zhenchaoni","vortex-captain"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/537","labels":["bug","P1","quality"]},
+{"number":546,"title":"[winml inspect] [P1] --task bogus-task leaks TasksManager jargon and points to Optimum docs","priority":"P1","component":"Inspect","assignees":["ziyuanguo1998"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/546","labels":["dev experience","bug","P1","quality"]},
+{"number":561,"title":"[cross-cutting] [P1] No safe-overwrite control on any output-producing command","priority":"P1","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/561","labels":["dev experience","bug","P1","quality"]},
+{"number":562,"title":"[cross-cutting] [P1] Missing-required-option errors lack a runnable example","priority":"P1","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/562","labels":["dev experience","bug","P1","quality"]},
+{"number":596,"title":"perf: HF model ID uses AOT build pipeline, ONNX file uses raw JIT \u2014 inconsistent results and divergent code paths","priority":"P1","component":"Perf","assignees":["tezheng","xieofxie"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/596","labels":["bug","P1"]},
+{"number":637,"title":"[Analyze] winml analyze fails on facebook/sam2.1-hiera-small.","priority":"P1","component":"Analyzer","assignees":["chinazhangchao","fangyangci"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/637","labels":["bug","P1"]},
+{"number":643,"title":"fix(analyze): create parent dirs for --optim-config and -o before writing","priority":"P1","component":"Analyzer","assignees":["chinazhangchao","fangyangci"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/643","labels":["bug","P1"]},
+{"number":648,"title":"Winml Analyze incorrect output on TRTRTX EP.","priority":"P1","component":"Analyzer","assignees":["fangyangci"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/648","labels":["bug","P1"]},
+{"number":218,"title":"winml perf --op-tracing: ANSI color codes garbled on Windows cp1252 terminal","priority":"P2","component":"Perf","assignees":["tezheng","xieofxie","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/218","labels":["good first issue","dev experience","bug","P2"]},
+{"number":259,"title":"bug: winml build shows misleading ValueError (opset domain) when disk is full during quantize step","priority":"P2","component":"Build","assignees":["tezheng","timenick","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/259","labels":["good first issue","dev experience","bug","P2"]},
+{"number":419,"title":"Bug: test_reshape_openvino_npu_quick hangs in EPChecker.check_compile (env/driver issue, not code regression)","priority":"P2","component":"Analyzer","assignees":["chinazhangchao","fangyangci"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/419","labels":["static-analyzer","hardware","bug","P2"]},
+{"number":462,"title":"[Exporter] winml export ai-forever/Real-ESRGAN failed.","priority":"P2","component":"Load & Export","assignees":["chinazhangchao","zhenchaoni","vortex-captain"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/462","labels":["bug","P2"]},
+{"number":481,"title":"Identify functional scenarios and implement E2E tests for winml","priority":"P2","component":"Other","assignees":["tezheng","DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/481","labels":["testing","P2","quality"]},
+{"number":482,"title":"Feature-owner self-check for winml","priority":"P2","component":"Other","assignees":["tezheng","DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/482","labels":["testing","P2","quality"]},
+{"number":483,"title":"Identify functional scenarios and implement E2E tests for winml analyze","priority":"P2","component":"Analyzer","assignees":["chinazhangchao"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/483","labels":["testing","P2","quality"]},
+{"number":484,"title":"Feature-owner self-check for winml analyze","priority":"P2","component":"Analyzer","assignees":["chinazhangchao"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/484","labels":["testing","P2","quality"]},
+{"number":489,"title":"Feature-owner self-check for winml compile","priority":"P2","component":"Compile","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/489","labels":["testing","P2","quality"]},
+{"number":493,"title":"Feature-owner self-check for winml eval","priority":"P2","component":"Eval","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/493","labels":["testing","P2","quality"]},
+{"number":496,"title":"Identify functional scenarios and implement E2E tests for winml hub","priority":"P2","component":"Catalog","assignees":["DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/496","labels":["testing","P2","quality"]},
+{"number":497,"title":"Feature-owner self-check for winml hub","priority":"P2","component":"Catalog","assignees":["DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/497","labels":["testing","P2","quality"]},
+{"number":498,"title":"Identify functional scenarios and implement E2E tests for winml inspect","priority":"P2","component":"Inspect","assignees":["tezheng","DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/498","labels":["testing","P2","quality"]},
+{"number":499,"title":"Feature-owner self-check for winml inspect","priority":"P2","component":"Inspect","assignees":["tezheng","DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/499","labels":["testing","P2","quality"]},
+{"number":502,"title":"Identify functional scenarios and implement E2E tests for winml perf","priority":"P2","component":"Perf","assignees":["xieofxie"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/502","labels":["testing","P2","quality"]},
+{"number":503,"title":"Feature-owner self-check for winml perf","priority":"P2","component":"Perf","assignees":["xieofxie"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/503","labels":["testing","P2","quality"]},
+{"number":505,"title":"Feature-owner self-check for winml quantize","priority":"P2","component":"Quantize","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/505","labels":["testing","P2","quality"]},
+{"number":510,"title":"[winml] [P2] Multiple brand spellings in use (WML, WinML, winml, Windows ML, ModelKit)","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/510","labels":["dev experience","bug","P2","quality"]},
+{"number":511,"title":"[winml] [P2] Subcommand descriptions in winml --help are truncated mid-word","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/511","labels":["dev experience","bug","P2","quality"]},
+{"number":512,"title":"[winml] [P2] winml --version prints only winml, version 0.0.2; no provenance","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/512","labels":["dev experience","bug","P2","quality"]},
+{"number":518,"title":"[winml build] [P2] --device flag is shaped differently in every command that uses it","priority":"P2","component":"Build","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/518","labels":["dev experience","bug","P2","quality"]},
+{"number":519,"title":"[winml build] [P2] --config accepts a JSON file but --help documents no schema","priority":"P2","component":"Build","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/519","labels":["dev experience","bug","P2","quality"]},
+{"number":523,"title":"[winml compile] [P2] Leaves 51 MB *_qnn.bin sidecar files per run, undocumented","priority":"P2","component":"Compile","assignees":["tezheng","zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/523","labels":["bug","P2","quality"]},
+{"number":524,"title":"[winml compile] [P2] Input: line appears with default flags but disappears with explicit ones","priority":"P2","component":"Compile","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/524","labels":["dev experience","bug","P2","quality"]},
+{"number":532,"title":"[winml eval] [P2] Confusing dual -m/--model + --model-id; no mutual-exclusion check","priority":"P2","component":"Eval","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/532","labels":["dev experience","bug","P2","quality"]},
+{"number":540,"title":"[winml hub] [P2] Table truncates model and task names mid-word","priority":"P2","component":"Catalog","assignees":["ziyuanguo1998"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/540","labels":["dev experience","bug","P2","quality"]},
+{"number":541,"title":"[winml hub] [P2] -t short flag means --model-type here, but means --task in inspect/export/config","priority":"P2","component":"Catalog","assignees":["ziyuanguo1998"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/541","labels":["dev experience","bug","P2","quality"]},
+{"number":557,"title":"[winml quantize] [P2] Two near-duplicate ORT WARNING lines per run","priority":"P2","component":"Quantize","assignees":["zhenchaoni"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/557","labels":["bug","P2","quality"]},
+{"number":560,"title":"[winml sys] [P2] winml sys -v leaks DEBUG log lines inside Rich tables","priority":"P2","component":"Sys","assignees":["timenick"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/560","labels":["bug","P2","quality"]},
+{"number":564,"title":"[cross-cutting] [P2] -o/--output overloaded: file vs directory vs stdout vs CWD-clutter","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/564","labels":["dev experience","bug","P2","quality"]},
+{"number":565,"title":"[cross-cutting] [P2] -d short used only by compile --device; everyone else uses --device with no short","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/565","labels":["dev experience","bug","P2","quality"]},
+{"number":566,"title":"[cross-cutting] [P2] Verbosity is declared inconsistently; logger output mixes with UI","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/566","labels":["dev experience","bug","P2","quality"]},
+{"number":567,"title":"[cross-cutting] [P2] No --no-color flag (NO_COLOR works only via Rich's tty auto-detection)","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/567","labels":["dev experience","bug","P2","quality"]},
+{"number":568,"title":"[cross-cutting] [P2] No environment variables documented in any --help","priority":"P2","component":"Other","assignees":["zhenchaoni","hi-brenda"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/568","labels":["dev experience","bug","P2","quality"]},
+{"number":633,"title":"The max_size parameter is deprecated and will be removed in v4.26","priority":"P2","component":"Inspect","assignees":["tezheng","DingmaomaoBJTU"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/633","labels":["bug","P2"]},
+{"number":656,"title":"perf: mixed resolved device and input device (auto) are displayed","priority":"P2","component":"Perf","assignees":["tezheng","xieofxie"],"url":"https://github.com/microsoft/WinML-ModelKit/issues/656","labels":["bug","P2"]}
+];
+
+const COMP_KEY = {
+  "Load & Export": "LoadExport"
+};
+function compKey(c) { return COMP_KEY[c] || c.replace(/\s+/g,""); }
+
+const COMP_ORDER_BASE = ["Other","Analyzer","Build","Perf","Inspect","Eval","Quantize","Load & Export","Compile","Catalog","Config","Repository","Sys"];
+const PRIO_ORDER = {"P0":0,"P1":1,"P2":2};
+
+let grouping = "component";
+let activeFilter = "All";
+
+function getCompCounts() {
+  const c = {};
+  for (const i of ISSUES) c[i.component] = (c[i.component]||0)+1;
+  return c;
+}
+
+function buildBarChart() {
+  const counts = getCompCounts();
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const max = sorted[0][1];
+  document.getElementById("bar-chart").innerHTML = sorted.map(([comp,cnt])=>{
+    const k = compKey(comp);
+    return `<div class="bar-row" onclick="filterByComp('${comp.replace(/'/g,"\\'")}')">
+      <div class="bar-label">${comp}</div>
+      <div class="bar-track"><div class="bar-fill bar-${k}" style="width:${(cnt/max*100).toFixed(1)}%"></div></div>
+      <div class="bar-count">${cnt}</div>
+    </div>`;
+  }).join("");
+}
+
+function filterByComp(comp) {
+  grouping = "component";
+  activeFilter = comp;
+  document.getElementById("btn-grp-comp").classList.add("active");
+  document.getElementById("btn-grp-prio").classList.remove("active");
+  updateFilterButtons();
+  render();
+}
+
+function setGrouping(g) {
+  grouping = g;
+  activeFilter = "All";
+  document.getElementById("btn-grp-comp").classList.toggle("active", g==="component");
+  document.getElementById("btn-grp-prio").classList.toggle("active", g==="priority");
+  updateFilterButtons();
+  render();
+}
+
+function updateFilterButtons() {
+  let filters;
+  if (grouping === "priority") {
+    filters = ["All","P0","P1","P2"];
+  } else {
+    const counts = getCompCounts();
+    filters = ["All", ...Object.keys(counts).sort((a,b)=>counts[b]-counts[a])];
+  }
+  document.getElementById("filter-buttons").innerHTML = filters.map(f => {
+    const cnt = f==="All" ? "" : ` (${grouping==="priority"
+      ? ISSUES.filter(i=>i.priority===f).length
+      : ISSUES.filter(i=>i.component===f).length})`;
+    return `<button class="btn ${activeFilter===f?"active":""}" onclick="setFilter('${f.replace(/'/g,"\\'")}')">
+      ${f}${cnt}
+    </button>`;
+  }).join("");
+}
+
+function setFilter(f) {
+  activeFilter = f;
+  updateFilterButtons();
+  render();
+}
+
+function render() {
+  const search = document.getElementById("search").value.toLowerCase();
+  const filtered = ISSUES.filter(i => {
+    if (search && !i.title.toLowerCase().includes(search) && !String(i.number).includes(search)) return false;
+    if (activeFilter !== "All") {
+      if (grouping === "priority" && i.priority !== activeFilter) return false;
+      if (grouping === "component" && i.component !== activeFilter) return false;
+    }
+    return true;
+  });
+
+  const counts = getCompCounts();
+  let html = "";
+  let count = 0;
+
+  if (grouping === "component") {
+    const groups = {};
+    for (const i of filtered) (groups[i.component]=groups[i.component]||[]).push(i);
+    const sortedComps = Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).filter(c=>groups[c]);
+    for (const comp of sortedComps) {
+      const rows = groups[comp].sort((a,b)=>PRIO_ORDER[a.priority]-PRIO_ORDER[b.priority]);
+      const k = compKey(comp);
+      html += `<tr class="group-header"><td colspan="6">
+        <span class="group-dot" style="background:var(--c-${k})"></span>
+        ${comp} <span style="color:#8b949e;font-size:12px;font-weight:400;margin-left:6px">${rows.length} issue${rows.length!==1?"s":""}</span>
+      </td></tr>`;
+      for (const i of rows) { html += rowHtml(i); count++; }
+    }
+  } else {
+    for (const prio of ["P0","P1","P2"]) {
+      const rows = filtered.filter(i=>i.priority===prio).sort((a,b)=>a.number-b.number);
+      if (!rows.length) continue;
+      const color = prio==="P0"?"#f87171":prio==="P1"?"#fb923c":"#fbbf24";
+      html += `<tr class="group-header"><td colspan="6">
+        <span class="group-dot" style="background:${color}"></span>
+        ${prio} <span style="color:#8b949e;font-size:12px;font-weight:400;margin-left:6px">${rows.length} issue${rows.length!==1?"s":""}</span>
+      </td></tr>`;
+      for (const i of rows) { html += rowHtml(i); count++; }
+    }
+  }
+
+  if (!html) html = `<tr><td colspan="6" style="text-align:center;color:#8b949e;padding:32px">No issues match.</td></tr>`;
+  document.getElementById("tbody").innerHTML = html;
+  document.getElementById("visible-count").textContent = count + " of " + ISSUES.length + " issues";
+}
+
+function rowHtml(i) {
+  const k = compKey(i.component);
+  const p = i.priority;
+  const labels = i.labels.filter(l=>!["P0","P1","P2","bug"].includes(l))
+    .map(l=>`<span class="tag label-tag">${l}</span>`).join("");
+  const assignees = i.assignees.map(a=>`<span class="assignee">@${a}</span>`).join("");
+  return `<tr>
+    <td><a href="${i.url}" target="_blank">#${i.number}</a></td>
+    <td style="max-width:420px;word-break:break-word">${i.title}</td>
+    <td><span class="tag comp-${k}">${i.component}</span></td>
+    <td><span class="prio-badge ${p}">${p}</span></td>
+    <td>${labels}</td>
+    <td style="white-space:nowrap">${assignees}</td>
+  </tr>`;
+}
+
+// Inject CSS vars for component dot colors
+const s = document.createElement("style");
+s.textContent = `:root {
+  --c-Compile:#58a6ff; --c-Perf:#3fb950; --c-LoadExport:#56d3f5;
+  --c-Analyzer:#d4a017; --c-Build:#2ea043; --c-Quantize:#bc8cff;
+  --c-Sys:#f87171; --c-Config:#fb923c; --c-Eval:#e879f9;
+  --c-Inspect:#34d399; --c-Catalog:#63b3ed; --c-Repository:#ed8936; --c-Other:#a0aec0;
+}`;
+document.head.appendChild(s);
+
+document.getElementById("issue-count").textContent = ISSUES.length + " open issues";
+buildBarChart();
+updateFilterButtons();
+render();
+</script>
+</body>
+</html>
