@@ -231,9 +231,9 @@ class TestEpOverride:
         CPU is excluded from the compile_provider assertion: it resolves to
         device='cpu', which never needs EPContext compilation (compile_provider=None).
         """
-        from winml.modelkit.config.precision import _EP_TO_DEVICE
+        from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
 
-        for ep_name in _EP_TO_DEVICE:
+        for ep_name in EP_SUPPORTED_DEVICES:
             policy = resolve_precision(ep=ep_name)
             if ep_name == "CPUExecutionProvider":
                 assert policy.compile_provider is None

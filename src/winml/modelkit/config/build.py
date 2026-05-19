@@ -554,6 +554,10 @@ def generate_hf_build_config(
     _trust_remote_code = trust_remote_code or (
         override.loader.trust_remote_code if override and override.loader else False
     )
+    if _trust_remote_code:
+        from ..utils.cli import warn_trust_remote_code
+
+        warn_trust_remote_code()
     loader_config, hf_config, resolved_class = resolve_loader_config(
         model_id,
         task=task,

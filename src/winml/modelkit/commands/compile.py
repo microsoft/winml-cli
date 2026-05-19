@@ -28,7 +28,7 @@ from rich.console import Console
 from ..onnx import is_compiled_onnx
 from ..sysinfo import resolve_device, resolve_eps
 from ..utils import cli as cli_utils
-from ..utils.constants import normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
 if TYPE_CHECKING:
@@ -265,6 +265,21 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
         canonical = normalize_ep_name(ep)
         if canonical is None:
             raise click.UsageError(f"Unknown EP: {ep}")
+        supported = EP_SUPPORTED_DEVICES[canonical]
+        if resolved_device.lower() not in supported:
+            raise click.UsageError(
+                f"--ep {ep} cannot run on --device {resolved_device}. "
+                f"{canonical} supports: {', '.join(supported)}."
+            )
+        from ..session.ep_registry import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.get_instance()
+        if not registry.is_ep_available(canonical):
+            available = [e for e in EP_SUPPORTED_DEVICES if registry.is_ep_available(e)]
+            raise click.UsageError(
+                f"--ep {ep} ({canonical}) is not registered on this host. "
+                f"Available EPs: {', '.join(available) if available else 'none'}."
+            )
         return canonical
 
     eps = resolve_eps(resolved_device)

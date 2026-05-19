@@ -691,6 +691,7 @@ class ONNXStaticAnalyzer:
                 "QNNExecutionProvider",
                 "OpenVINOExecutionProvider",
                 "VitisAIExecutionProvider",
+                "NvTensorRTRTXExecutionProvider",
             ]
             logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
         else:
