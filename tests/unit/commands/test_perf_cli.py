@@ -279,14 +279,22 @@ class TestPerfUnifiedPipeline:
         override = mock_from_pretrained.call_args.kwargs["config"]
         assert override is None
 
-    def test_cli_onnx_goes_through_onnx_benchmark(self, runner: CliRunner, tmp_path: Path) -> None:
-        """CLI with .onnx file should route through _run_onnx_benchmark."""
+    def test_cli_onnx_routes_through_perf_benchmark(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """CLI with .onnx file should route through the same PerfBenchmark as HF.
+
+        Both paths must share the build+benchmark pipeline so latency numbers
+        from `winml perf -m hf/id` and `winml perf -m <built.onnx>` are
+        comparable (issue #596).
+        """
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake onnx")
 
         with (
-            patch(
-                "winml.modelkit.commands.perf._run_onnx_benchmark",
+            patch.object(
+                PerfBenchmark,
+                "run",
                 return_value=MagicMock(),
             ) as mock_run,
             patch(

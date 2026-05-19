@@ -4,16 +4,18 @@
 # --------------------------------------------------------------------------
 """E2E tests for the perf CLI command.
 
-Tests ONNX direct benchmark using a generated ONNX model fixture.
+Tests the perf CLI on a generated ONNX model fixture. ONNX inputs flow
+through the same PerfBenchmark pipeline as HF inputs (issue #596), so this
+exercises the optimize/[quantize]/[compile] path on a real artifact.
 The perf command uses @click.pass_context and requires obj={}.
 
-Note: HuggingFace model benchmarks are not tested here because they
-require the full build pipeline (WinMLAutoModel). We only test the
-ONNX direct path which creates a WinMLSession directly.
+Note: HuggingFace model benchmarks are not exercised here because they
+additionally require the export stage and HF model download.
 
 Markers:
     e2e: Full end-to-end test
 """
+
 from __future__ import annotations
 
 import json
@@ -33,14 +35,15 @@ pytestmark = [pytest.mark.e2e]
 
 
 # ===========================================================================
-# ONNX direct benchmark
+# ONNX benchmark (unified pipeline)
 # ===========================================================================
 
+
 class TestPerfONNXDirect:
-    """Benchmark a pre-exported ONNX file directly via WinMLSession."""
+    """Benchmark a pre-exported ONNX file through the unified PerfBenchmark path."""
 
     def test_onnx_benchmark_cpu(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark on CPU with minimal iterations.
+        """ONNX benchmark on CPU with minimal iterations.
 
         Uses --device cpu --iterations 3 --warmup 1 for speed.
         Verifies JSON output file is created with expected schema.
@@ -51,18 +54,21 @@ class TestPerfONNXDirect:
         result = runner.invoke(
             perf,
             [
-                "-m", str(onnx_model_path),
-                "--device", "cpu",
-                "--iterations", "3",
-                "--warmup", "1",
-                "-o", str(output_file),
+                "-m",
+                str(onnx_model_path),
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
             ],
             obj={},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"perf failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         # Verify JSON output file exists and has expected structure
         assert output_file.exists(), f"Output file not created: {output_file}"
@@ -105,18 +111,21 @@ class TestPerfONNXDirect:
         result = runner.invoke(
             perf,
             [
-                "-m", str(onnx_model_path),
-                "--device", "cpu",
-                "--iterations", "2",
-                "--warmup", "1",
-                "-o", str(output_file),
+                "-m",
+                str(onnx_model_path),
+                "--device",
+                "cpu",
+                "--iterations",
+                "2",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
                 "--verbose",
             ],
             obj={},
             catch_exceptions=False,
         )
-        assert result.exit_code == 0, (
-            f"perf failed (exit {result.exit_code}):\n{result.output}"
-        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
         assert output_file.exists()
         assert "Results saved to" in result.output
