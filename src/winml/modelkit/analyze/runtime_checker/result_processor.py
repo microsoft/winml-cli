@@ -846,6 +846,11 @@ if __name__ == "__main__":
         output_json = output_dir / json_file.name
         parquet_file = parquet_dir / f"{json_file.stem}.parquet"
 
+        if output_json.exists():
+            print(f"SKIPPED existing output: {output_json.name}")
+            skipped += 1
+            continue
+
         print(f"Processing {json_file.name} ...", end=" ")
 
         try:
