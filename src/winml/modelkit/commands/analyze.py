@@ -26,7 +26,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..utils import cli as cli_utils
-from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 from ..utils.logging import configure_logging
 
 
@@ -459,7 +459,9 @@ def _render_analysis_summary(
     required=False, optional_message="If not specified, analyzes all supported EPs"
 )
 @cli_utils.device_option(
-    required=False, optional_message="If not specified, uses NPU as default", default="NPU"
+    required=False,
+    optional_message="If not specified, derived from --ep (default: NPU when --ep is omitted)",
+    default=None,
 )
 @cli_utils.verbosity_options
 @cli_utils.build_config_option
@@ -587,10 +589,15 @@ def analyze(
             # else: device is valid for this EP but no rule data exists —
             # proceed; RuntimeChecker will return no_data results gracefully.
 
+        # Fill in --device default when omitted: derive from --ep when given,
+        # else fall back to NPU. ``ep`` is left as None when not given, so the
+        # analyzer scans all EPs.
+        if device is None:
+            device = EP_SUPPORTED_DEVICES[ep_normalized][0].upper() if ep_normalized else "NPU"
+
         ep_label = ep_normalized or "all EPs"
-        device_label = device or "NPU"
         logger.info("Analyzing model: %s", model)
-        logger.info("Target: %s on %s", ep_label, device_label)
+        logger.info("Target: %s on %s", ep_label, device)
 
         analyzer = ONNXStaticAnalyzer()
 
@@ -623,9 +630,7 @@ def analyze(
                     f"   📋 Operators: [cyan]{_total_ops}[/cyan] total, "
                     f"[cyan]{_unique_ops}[/cyan] unique types"
                 )
-                console.print(
-                    f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device_label}[/bold]"
-                )
+                console.print(f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device}[/bold]")
                 console.print()
                 del _proto  # free memory
             except Exception:
@@ -641,7 +646,7 @@ def analyze(
         _no_data_eps: set[str] = set()  # EPs with no op rule data
 
         run_unknown_op_for_ep = run_unknown_op
-        if ep == "VitisAIExecutionProvider":
+        if ep_normalized == "VitisAIExecutionProvider":
             run_unknown_op_for_ep = False
             logger.info(
                 "Disabling --run-unknown-op for VitisAIExecutionProvider: "
