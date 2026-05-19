@@ -928,19 +928,20 @@ class TestAnalyzeJsonOutput:
     def test_analyze_onnx_writes_json_to_disk(self, tmp_path: Path) -> None:
         """analyze_onnx with output_path writes a valid JSON file."""
         import onnx
-        from onnx import TensorProto, helper
 
         from winml.modelkit.analyze import analyze_onnx
 
         # Build a trivial ONNX model (single Relu node)
-        node = helper.make_node("Relu", inputs=["x"], outputs=["y"])
-        graph = helper.make_graph(
+        node = onnx.helper.make_node("Relu", inputs=["x"], outputs=["y"])
+        graph = onnx.helper.make_graph(
             [node],
             "test",
-            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
-            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+            [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1])],
+            [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1])],
         )
-        model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_proto = onnx.helper.make_model(
+            graph, opset_imports=[onnx.helper.make_opsetid("", 17)]
+        )
         model_path = tmp_path / "tiny.onnx"
         onnx.save(model_proto, str(model_path))
 
@@ -955,18 +956,19 @@ class TestAnalyzeJsonOutput:
     def test_analyze_onnx_no_output_path_writes_nothing(self, tmp_path: Path) -> None:
         """analyze_onnx without output_path writes no file (backward compat)."""
         import onnx
-        from onnx import TensorProto, helper
 
         from winml.modelkit.analyze import analyze_onnx
 
-        node = helper.make_node("Relu", inputs=["x"], outputs=["y"])
-        graph = helper.make_graph(
+        node = onnx.helper.make_node("Relu", inputs=["x"], outputs=["y"])
+        graph = onnx.helper.make_graph(
             [node],
             "test",
-            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])],
-            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])],
+            [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1])],
+            [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1])],
         )
-        model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_proto = onnx.helper.make_model(
+            graph, opset_imports=[onnx.helper.make_opsetid("", 17)]
+        )
         model_path = tmp_path / "tiny.onnx"
         onnx.save(model_proto, str(model_path))
 
