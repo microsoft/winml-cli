@@ -105,7 +105,9 @@ jobs:
           artifactFeeds: 'windows.ai.toolkit/Modelkit'
         displayName: 'Authenticate pip with Azure Artifacts'
 
-      - script: uv pip install -e .[dev]
+      - script: |
+          uv pip install -e .[dev]
+          uv pip install wasdk-microsoft-windows-ai-machinelearning==2.0.1 --no-deps
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Install dependencies'
 
