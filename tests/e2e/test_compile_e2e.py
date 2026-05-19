@@ -39,9 +39,11 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
-from tests.e2e.require_ep import require_ep
+from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
+from winml.modelkit.utils import normalize_ep_name
+from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES
 
 
 if TYPE_CHECKING:
@@ -130,6 +132,51 @@ def assert_epcontext_artifact(
         assert (out_path.parent / sidecar_name).is_file(), (
             f"Sidecar {sidecar_name!r} declared in EPContext but missing on disk"
         )
+
+
+def assert_banner_matches_artifact(result: Result, out_path: Path) -> None:
+    """Banner ``Provider:`` line must match the artifact's ``EPContext.source``.
+
+    Catches "lying success" where the CLI announces one EP but ORT silently
+    produced the artifact via a different EP.
+    """
+    banner_ep: str | None = None
+    for line in result.output.splitlines():
+        if line.strip().lower().startswith("provider:"):
+            banner_ep = line.split(":", 1)[1].strip()
+            break
+    assert banner_ep is not None, f"No 'Provider:' line in banner:\n{result.output}"
+
+    source = _epcontext_attrs(out_path).get("source", b"")
+    assert isinstance(source, bytes) and source, (
+        f"Artifact at {out_path} has no EPContext.source attribute"
+    )
+    artifact_ep = source.decode("utf-8")
+    assert banner_ep == artifact_ep, (
+        f"Banner provider={banner_ep!r} but artifact source={artifact_ep!r}. "
+        f"Lying success: ORT used a different EP than the resolver chose."
+    )
+
+
+def assert_by_run_inference(
+    out_path: Path,
+    *,
+    device: str,
+    ep: str,
+    sample_input: dict,
+) -> None:
+    """Bind ``ep`` + ``device`` and run one inference call on the compiled artifact.
+
+    Unlike the CLI's ``--validate`` step (which lets ORT pick any registered
+    EP), this asserts the artifact specifically loads and runs on the
+    requested ``(device, ep)`` pair. Catches the case where the compile
+    succeeded against a different EP/device than the user asked for.
+    """
+    from winml.modelkit.session import WinMLSession
+
+    session = WinMLSession(out_path, device=device, ep=ep)
+    outputs = session.run(sample_input)
+    assert outputs, "Inference produced no outputs"
 
 
 def _find_qairt_sdk_root() -> Path | None:
@@ -555,123 +602,6 @@ class TestConfigFile:
 
 
 # ===========================================================================
-# --device → provider resolution (no --ep): pins _resolve_compile_provider
-# ===========================================================================
-#
-# _DEVICE_TO_PROVIDER = {"npu": "qnn", "gpu": "dml", "cpu": None}
-# _resolve_compile_provider(device, ep=None):
-#   provider = _DEVICE_TO_PROVIDER.get(device)
-#   if provider is None: return "cpu" if device == "cpu" else "qnn"
-#   return provider
-#
-# Click restricts --device to {auto, npu, gpu, cpu}. Therefore:
-#   --device npu  -> "qnn"             (compiles on qnn host)
-#   --device gpu  -> "dml"             (rejected: dml not EPContext)
-#   --device cpu  -> None -> "cpu"     (rejected: cpu not EPContext)
-#   --device auto -> None -> "qnn"     (else-branch fall-through)
-
-
-@pytest.mark.e2e
-class TestDeviceResolution:
-    def test_device_npu_resolves_to_qnn(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
-        """``--device npu`` (no ``--ep``) → provider qnn → successful compile."""
-        require_ep("qnn")
-        out = tmp_path / "npu.onnx"
-        result = _invoke("-m", str(simple_matmul_onnx), "--device", "npu", "-o", str(out))
-        assert result.exit_code == 0, result.output
-        lower = result.output.lower()
-        assert "device:" in lower and "npu" in lower
-        assert "provider:" in lower and "qnn" in lower
-        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
-
-    def test_device_gpu_resolves_to_dml(self, simple_matmul_onnx: Path) -> None:
-        """``--device gpu`` (no ``--ep``) → provider dml → unsupported-EP error.
-
-        Pins the resolver behavior: gpu maps to dml via ``_DEVICE_TO_PROVIDER``,
-        not to qnn. dml does not support EPContext compilation, so the CLI
-        rejects with the standard message naming dml. The error is raised by
-        ``for_provider`` returning ``None`` *before* the banner is printed,
-        so the only externally observable signal is the error message.
-        """
-        result = _invoke("-m", str(simple_matmul_onnx), "--device", "gpu")
-        assert result.exit_code != 0, result.output
-        lower = result.output.lower()
-        assert "does not support epcontext compilation" in lower
-        assert "'dml'" in lower
-
-    def test_device_cpu_resolves_to_cpu(self, simple_matmul_onnx: Path) -> None:
-        """``--device cpu`` (no ``--ep``) → provider cpu → unsupported-EP error.
-
-        Same pre-banner rejection as ``test_device_gpu_resolves_to_dml``;
-        only the error message is observable.
-        """
-        result = _invoke("-m", str(simple_matmul_onnx), "--device", "cpu")
-        assert result.exit_code != 0, result.output
-        lower = result.output.lower()
-        assert "does not support epcontext compilation" in lower
-        assert "'cpu'" in lower
-
-    def test_device_auto_falls_through_to_qnn(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
-        """``--device auto`` (no ``--ep``) → resolver else-branch → qnn.
-
-        Pins the only path that exercises the ``else "qnn"`` fall-through in
-        ``_resolve_compile_provider`` (auto is in click's Choice but not in
-        ``_DEVICE_TO_PROVIDER``). Banner must announce qnn; the compile
-        itself only succeeds on a qnn host.
-        """
-        require_ep("qnn")
-        out = tmp_path / "auto.onnx"
-        result = _invoke("-m", str(simple_matmul_onnx), "--device", "auto", "-o", str(out))
-        assert result.exit_code == 0, result.output
-        lower = result.output.lower()
-        assert "device:" in lower and "auto" in lower
-        assert "provider:" in lower and "qnn" in lower
-        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
-
-
-# ===========================================================================
-# --ep overrides --device-derived provider
-# ===========================================================================
-
-
-@pytest.mark.e2e
-class TestEpOverridesDevice:
-    # Coverage scope: only the ``--device auto --ep qnn`` combination is
-    # exercised here. Other device/ep combinations (e.g. ``--device gpu --ep
-    # qnn``, ``--device cpu --ep qnn``) currently exhibit a bug where the
-    # ``--device`` value propagates into the EP factory as ``device_type``
-    # and the resulting compile reports success while producing a non-
-    # EPContext artifact. That bug will be fixed in a separate PR; tests
-    # for those combinations will be added there.
-
-    def test_ep_overrides_device_auto_with_qnn(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
-        """``--device auto --ep qnn`` → provider qnn → real EPContext artifact.
-
-        Documented contract on ``--ep`` help text: "Overrides
-        device-to-provider mapping." ``auto`` is not in ``_DEVICE_TO_PROVIDER``,
-        so this case also exercises the resolver's else-branch alongside the
-        ``--ep`` override.
-        """
-        require_ep("qnn")
-        out = tmp_path / "auto_qnn.onnx"
-        result = _invoke(
-            "-m", str(simple_matmul_onnx), "--device", "auto", "--ep", "qnn",
-            "-o", str(out),
-        )
-        assert result.exit_code == 0, result.output
-        lower = result.output.lower()
-        assert "device:" in lower and "auto" in lower
-        assert "provider:" in lower and "qnn" in lower
-        assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
-
-
-# ===========================================================================
 # Already-compiled rejection — real round-trip (compile then re-compile)
 # ===========================================================================
 
@@ -706,3 +636,186 @@ def test_reject_recompile_of_real_compiled_output(
         "already a compiled" in combined.lower()
         or "cannot be re-compiled" in combined.lower()
     ), combined
+
+
+# ===========================================================================
+# Device/EP good inputs
+# ===========================================================================
+
+
+# Per-EP set of valid concrete ``--device`` values, keyed by EP alias.
+# Derived from the canonical ``EP_SUPPORTED_DEVICES`` policy table (PR #641)
+# so this suite tracks the production source of truth instead of duplicating it.
+_EPCONTEXT_CAPABLE_EPS = ("qnn", "openvino", "vitisai", "nv_tensorrt_rtx")
+EP_DEVICE_SUPPORT: dict[str, tuple[str, ...]] = {
+    alias: EP_SUPPORTED_DEVICES[normalize_ep_name(alias)]
+    for alias in _EPCONTEXT_CAPABLE_EPS
+}
+
+
+def _expand_good_inputs(
+    support: dict[str, tuple[str, ...]],
+) -> list[tuple[str | None, str | None, str]]:
+    """Cartesian-expand ``EP_DEVICE_SUPPORT`` into ``(device, ep, require_ep)`` rows."""
+    rows: list[tuple[str | None, str | None, str]] = []
+    for require_ep_name, devices in support.items():
+        rows.extend(
+            (device, ep, require_ep_name)
+            for device in (*devices, "auto", None)
+            for ep in (require_ep_name, None)
+        )
+    return rows
+
+
+_GOOD_INPUT_PARAMS = _expand_good_inputs(EP_DEVICE_SUPPORT)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("device,ep,require_ep_name", _GOOD_INPUT_PARAMS)
+def test_good_input_compiles_and_runs(
+    device: str | None,
+    ep: str | None,
+    require_ep_name: str,
+    simple_matmul_onnx: Path,
+    sample_input: dict,
+    tmp_path: Path,
+) -> None:
+    """Supported ``(device, ep)`` compiles to a real EPContext that ORT
+    can load and run on the requested EP+device.
+    """
+    require_ep(require_ep_name)
+
+    out = tmp_path / f"{device or 'nodev'}_{ep or 'noep'}.onnx"
+    cmd = ["-m", str(simple_matmul_onnx), "-o", str(out)]
+    if device is not None:
+        cmd.extend(["--device", device])
+    if ep is not None:
+        cmd.extend(["--ep", ep])
+    result = _invoke(*cmd)
+
+    assert result.exit_code == 0, f"compile failed:\n{result.output}"
+    assert "Success! Model compiled" in result.output, result.output
+    assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
+    assert_banner_matches_artifact(result, out)
+    assert_by_run_inference(
+        out,
+        device=device if device is not None else "auto",
+        ep=require_ep_name,
+        sample_input=sample_input,
+    )
+
+
+# ===========================================================================
+# Device/EP bad inputs
+# ===========================================================================
+
+
+def _assert_rejected(result: Result, error_phrase: str, src_hash: str, src_path: Path) -> None:
+    assert result.exit_code != 0, f"Expected rejection but exit was 0:\n{result.output}"
+    # Some rejections raise an uncaught exception (e.g. ``sysinfo`` raises
+    # ``ValueError`` from device resolution) rather than emitting a Click
+    # ``UsageError`` whose text reaches ``result.output``. Search both.
+    haystack = result.output + ("" if result.exception is None else f"\n{result.exception}")
+    assert error_phrase in haystack, (
+        f"Expected {error_phrase!r} in error output, got:\n{haystack}"
+    )
+    assert _sha256(src_path) == src_hash, "Input ONNX was mutated despite rejection"
+
+
+def _expand_conflict_inputs(
+    support: dict[str, tuple[str, ...]],
+) -> list[tuple[str, str]]:
+    """Derive ``(device, ep)`` pairs where the EP does not support the device."""
+    return [
+        (device, ep)
+        for ep, devices in support.items()
+        for device in {"npu", "gpu", "cpu"} - set(devices)
+    ]
+
+
+_BAD_INPUT_CONFLICT_PARAMS = _expand_conflict_inputs(EP_DEVICE_SUPPORT)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("device,ep", _BAD_INPUT_CONFLICT_PARAMS)
+def test_bad_input_device_ep_conflict(
+    device: str, ep: str, simple_matmul_onnx: Path
+) -> None:
+    """``--device X --ep Y`` is rejected when Y does not support X.
+
+    Gated on ``ep`` being registered on this host so the ``sysinfo``
+    device-resolution preflight has a non-empty intersection to evaluate
+    and surfaces the device/EP incompatibility rather than the empty-
+    registry warning.
+    """
+    require_ep(ep)
+    src_hash = _sha256(simple_matmul_onnx)
+    result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
+    _assert_rejected(
+        result, "no compatible EP is available", src_hash, simple_matmul_onnx
+    )
+
+
+# EPs that are valid choices for ``--ep`` (registered on at least some hosts)
+# but whose provider has no EPContext compile path. ``cpu`` is omitted:
+# ``CPUExecutionProvider`` is not enumerated by ``WinMLEPRegistry`` so
+# ``require_ep("cpu")`` cannot meaningfully gate this path.
+_UNSUPPORTED_EPCONTEXT_EPS = ("dml", "cuda", "migraphx")
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("ep", _UNSUPPORTED_EPCONTEXT_EPS)
+def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
+    """``--ep X`` is rejected when X does not produce EPContext.
+
+    Requires the EP to be registered on this host so the earlier
+    registration check does not short-circuit the rejection we want to assert.
+    """
+    require_ep(ep)
+    src_hash = _sha256(simple_matmul_onnx)
+    result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
+    _assert_rejected(
+        result, "does not support EPContext compilation", src_hash, simple_matmul_onnx
+    )
+
+
+# Pair each EP with a device it supports so the policy check (which would
+# otherwise fire) is bypassed and the host-state rejection surfaces.
+_EP_NOT_REGISTERED_PARAMS = [
+    ("qnn", "npu"),
+    ("openvino", "gpu"),
+]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("ep,device", _EP_NOT_REGISTERED_PARAMS)
+def test_bad_input_ep_not_registered(
+    ep: str, device: str, simple_matmul_onnx: Path
+) -> None:
+    """``--ep X`` on a host without X is rejected.
+
+    With the EP unavailable on host, ``sysinfo``'s device-resolution
+    preflight finds no compatible EP for ``--device`` and raises before
+    reaching the EP-registration check in ``commands/compile.py``.
+    """
+    require_not_ep(ep)
+    src_hash = _sha256(simple_matmul_onnx)
+    result = _invoke(
+        "-m", str(simple_matmul_onnx), "--device", device, "--ep", ep
+    )
+    _assert_rejected(
+        result, "no compatible EP is available", src_hash, simple_matmul_onnx
+    )
+
+
+@pytest.mark.e2e
+def test_bad_input_no_ep_covers_device(simple_matmul_onnx: Path) -> None:
+    """``--device cpu`` (no ``--ep``) on a host whose only registered EP does
+    not support cpu is rejected by the ``sysinfo`` device-resolution preflight.
+    """
+    require_not_ep("openvino")
+    src_hash = _sha256(simple_matmul_onnx)
+    result = _invoke("-m", str(simple_matmul_onnx), "--device", "cpu")
+    _assert_rejected(
+        result, "no compatible EP is available", src_hash, simple_matmul_onnx
+    )
