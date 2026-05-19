@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ...utils.constants import EPName
     from ..models.onnx_model import ONNXModel
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ class RuntimeChecker:
 
     def __init__(
         self,
-        ep: str,
+        ep: EPName,
         device: str,
         model: ONNXModel | None = None,
         patterns: list[PatternMatchResult] | None = None,
@@ -96,16 +97,13 @@ class RuntimeChecker:
         if model is None and patterns is None:
             raise ValueError("At least one of 'model' or 'patterns' must be provided")
 
-        if not ep or not ep.strip():
-            raise ValueError("ep parameter cannot be empty")
-
         if not device or not device.strip():
             raise ValueError("device parameter cannot be empty")
 
         self._model = model
         self._patterns = patterns
 
-        self._ep = ep
+        self._ep: EPName = ep
         self._device = device
 
         # Pattern configuration for reading alternatives from JSON
