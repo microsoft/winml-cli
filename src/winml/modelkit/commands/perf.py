@@ -406,14 +406,11 @@ class PerfBenchmark:
         # GPU when --device gpu is specified, NPU when --device npu, etc.
         # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
         # metadata so we follow the adapter the session actually binds to.
-        from ..utils.constants import normalize_ep_name
-
         monitor_device = self._model.device or self.config.device or "auto"
-        ep_name = normalize_ep_name(self.config.ep) if self.config.ep else None
         hw_monitor = HWMonitor(
             poll_interval_ms=_HW_POLL_INTERVAL_MS,
             device=monitor_device,
-            ep_name=ep_name,
+            ep_name=session.ep_name,
         )
 
         # EP-specific proof-of-execution monitor.
@@ -630,7 +627,7 @@ def _perf_modules(
             cfg.quant = None
             cfg.compile = None
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             try:
                 build_result = build_hf_model(
                     config=cfg,
@@ -651,19 +648,21 @@ def _perf_modules(
                 io_cfg = session.io_config
                 inputs = generate_random_inputs(io_cfg, batch_size=batch_size)
 
+                # Compile session early so session.device is resolved for display
+                session.compile()
+
                 total_iters = warmup + iterations
                 hw_ctx = None
                 hw_metrics = None
 
                 if monitor:
                     from ..session.monitor.hw_monitor import HWMonitor
-                    from ..utils.constants import normalize_ep_name
 
                     if HWMonitor.is_available():
                         hw_ctx = HWMonitor(
                             poll_interval_ms=_HW_POLL_INTERVAL_MS,
                             device=resolved_device,
-                            ep_name=normalize_ep_name(ep) if ep else None,
+                            ep_name=session.ep_name,
                         )
 
                 if hw_ctx:
@@ -1019,13 +1018,12 @@ def _run_onnx_benchmark(
     # Determine if hardware monitoring is available
     if config.monitor:
         from ..session.monitor.hw_monitor import HWMonitor
-        from ..utils.constants import normalize_ep_name
 
         if HWMonitor.is_available():
             hw_ctx = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
                 device=session.device or device,
-                ep_name=normalize_ep_name(config.ep) if config.ep else None,
+                ep_name=session.ep_name,
             )
         else:
             Console(stderr=True).print(
