@@ -373,7 +373,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
 
     @pytest.fixture
-    def model_arg(self, onnx_model_path: Path) -> str:
+    def model_arg(self, onnx_model_path: Path | None = None) -> str:
+        if onnx_model_path is None:
+            raise RuntimeError("Expected pytest to inject fixture 'onnx_model_path'")
         return str(onnx_model_path)
 
 
