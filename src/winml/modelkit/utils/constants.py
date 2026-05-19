@@ -167,6 +167,26 @@ SUPPORTED_DEVICES = [
 # TODO: unify casing with SUPPORTED_DEVICES (uppercase) and DEVICE_TO_DEVICE_TYPE keys
 SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
 
+# EP -> ordered tuple of supported devices (lowercase). The FIRST element is
+# the canonical default device when only ``--ep`` is provided. Single source
+# of truth for both compatibility checks and default-device inference.
+# ``sysinfo.device._EP_DEVICE_MAP`` is derived from this table.
+#
+# Iteration order also feeds ``sysinfo.device._DEVICE_EP_MAP`` (and therefore
+# ``resolve_eps``): the per-device priority is **IHV-first, native-last**
+# (Nvidia -> AMD -> Qualcomm -> Intel -> Microsoft -> CPU), so the keys are
+# listed in that order rather than alphabetically.
+EP_SUPPORTED_DEVICES: dict[EPName, tuple[str, ...]] = {
+    "NvTensorRTRTXExecutionProvider": ("gpu",),
+    "CUDAExecutionProvider": ("gpu",),
+    "MIGraphXExecutionProvider": ("gpu",),
+    "VitisAIExecutionProvider": ("npu",),
+    "QNNExecutionProvider": ("npu", "gpu"),
+    "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
+    "DmlExecutionProvider": ("gpu",),
+    "CPUExecutionProvider": ("cpu",),
+}
+
 # Device string to ORT device type mapping
 DEVICE_TO_DEVICE_TYPE = {
     "CPU": ort.OrtHardwareDeviceType.CPU,
