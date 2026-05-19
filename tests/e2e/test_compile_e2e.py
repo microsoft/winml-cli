@@ -642,10 +642,6 @@ def test_reject_recompile_of_real_compiled_output(
 # Device/EP good inputs
 # ===========================================================================
 
-
-# Per-EP set of valid concrete ``--device`` values, keyed by EP alias.
-# Derived from the canonical ``EP_SUPPORTED_DEVICES`` policy table (PR #641)
-# so this suite tracks the production source of truth instead of duplicating it.
 _EPCONTEXT_CAPABLE_EPS = ("qnn", "openvino", "vitisai", "nv_tensorrt_rtx")
 EP_DEVICE_SUPPORT: dict[str, tuple[str, ...]] = {
     alias: EP_SUPPORTED_DEVICES[normalize_ep_name(alias)]
@@ -697,10 +693,22 @@ def test_good_input_compiles_and_runs(
     assert "Success! Model compiled" in result.output, result.output
     assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
     assert_banner_matches_artifact(result, out)
+    # When ``--ep`` is explicit, bind that EP. When it's omitted, the resolver
+    # picks an EP based on host registry order, which is not deterministic
+    # across hosts — read the actual EP back from the artifact's
+    # ``EPContext.source`` so the inference binding matches what was compiled.
+    if ep is not None:
+        runtime_ep = ep
+    else:
+        source = _epcontext_attrs(out)["source"]
+        assert isinstance(source, bytes) and source, (
+            f"Artifact at {out} has no EPContext.source attribute"
+        )
+        runtime_ep = source.decode("utf-8")
     assert_by_run_inference(
         out,
         device=device if device is not None else "auto",
-        ep=require_ep_name,
+        ep=runtime_ep,
         sample_input=sample_input,
     )
 
@@ -756,15 +764,8 @@ def test_bad_input_device_ep_conflict(
     )
 
 
-# EPs that are valid choices for ``--ep`` (registered on at least some hosts)
-# but whose provider has no EPContext compile path. ``cpu`` is omitted:
-# ``CPUExecutionProvider`` is not enumerated by ``WinMLEPRegistry`` so
-# ``require_ep("cpu")`` cannot meaningfully gate this path.
-_UNSUPPORTED_EPCONTEXT_EPS = ("dml", "cuda", "migraphx")
-
-
 @pytest.mark.e2e
-@pytest.mark.parametrize("ep", _UNSUPPORTED_EPCONTEXT_EPS)
+@pytest.mark.parametrize("ep", ("dml", "cuda", "migraphx"))
 def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
     """``--ep X`` is rejected when X does not produce EPContext.
 
@@ -779,11 +780,12 @@ def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
     )
 
 
-# Pair each EP with a device it supports so the policy check (which would
-# otherwise fire) is bypassed and the host-state rejection surfaces.
+# Pair each EP with a device it supports. With no ``--device``, ``sysinfo``
+# falls back to CPU when the requested EP isn't registered, which then
+# trips the policy check ("cannot run on --device cpu") instead of the
+# host-state rejection this test targets.
 _EP_NOT_REGISTERED_PARAMS = [
-    ("qnn", "npu"),
-    ("openvino", "gpu"),
+    (ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT_CAPABLE_EPS
 ]
 
 
@@ -810,12 +812,20 @@ def test_bad_input_ep_not_registered(
 
 @pytest.mark.e2e
 def test_bad_input_no_ep_covers_device(simple_matmul_onnx: Path) -> None:
-    """``--device cpu`` (no ``--ep``) on a host whose only registered EP does
-    not support cpu is rejected by the ``sysinfo`` device-resolution preflight.
+    """``--device cpu`` (no ``--ep``) on a host with no EPContext-capable EP
+    covering cpu is rejected.
+
+    ``CPUExecutionProvider`` is always implicitly available, so
+    ``sysinfo``'s preflight resolves to it rather than raising. The
+    rejection then comes from the capability check in
+    ``commands/compile.py``: CPU cannot produce EPContext models.
     """
     require_not_ep("openvino")
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", "cpu")
     _assert_rejected(
-        result, "no compatible EP is available", src_hash, simple_matmul_onnx
+        result,
+        "does not support EPContext compilation",
+        src_hash,
+        simple_matmul_onnx,
     )
