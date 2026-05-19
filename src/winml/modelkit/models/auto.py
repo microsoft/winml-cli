@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..cache import get_cache_dir, get_cache_key, get_model_dir
-from ..loader import load_hf_model
 from ..loader.task import get_task_abbrev
 
 # Import task mapping from winml/ subpackage
@@ -39,6 +38,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
     from .winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class WinMLAutoModel:
         config: WinMLBuildConfig | None = None,
         device: str = "auto",
         precision: str = "auto",
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -246,6 +246,7 @@ class WinMLAutoModel:
         force_rebuild: bool = False,
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
+        no_compile: bool = False,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel:
         """Load appropriate WinML model based on task detection.
@@ -361,30 +362,17 @@ class WinMLAutoModel:
             precision=precision,
             trust_remote_code=trust_remote_code,
             ep=kwargs.get("ep"),
+            no_compile=no_compile,
         )
 
         resolved_task = build_config.loader.task
         logger.debug("Generated config with task: %s", resolved_task)
 
-        # =====================================================================
-        # [2] LOAD PHASE - Load HF model with weights (Heavyweight, ~30-60s)
-        # =====================================================================
-        effective_trust = trust_remote_code or (
-            build_config.loader.trust_remote_code if build_config.loader else False
-        )
-        pytorch_model, hf_config, _ = load_hf_model(
-            model_name_or_path=model_id,
-            task=resolved_task,
-            trust_remote_code=effective_trust,
-        )
-        model_type = getattr(hf_config, "model_type", "unknown")
-        logger.debug("Model type: %s, task: %s", model_type, resolved_task)
-
         config = build_config
         task = resolved_task
 
         # =====================================================================
-        # [3] CACHE + BUILD PHASE -- delegate to build_hf_model()
+        # [2] CACHE SETUP - Compute paths before deciding whether to load
         # =====================================================================
         if use_cache:
             cache_dir_path = get_cache_dir(override=cache_dir)
@@ -396,10 +384,25 @@ class WinMLAutoModel:
             force_rebuild = True
             logger.info("Cache disabled -- using temp directory: %s", cache_dir_path)
 
-        # Compute cache_key and output_dir via shared cache module
         cache_key = get_cache_key(get_task_abbrev(task), config.generate_cache_key())
         output_dir = get_model_dir(model_id, cache_dir=cache_dir_path)
 
+        # =====================================================================
+        # [3] CONFIG PROBE - Lightweight AutoConfig fetch for model_type only.
+        #     Model weights are loaded inside build_hf_model() when needed.
+        # =====================================================================
+        effective_trust = trust_remote_code or (
+            build_config.loader.trust_remote_code if build_config.loader else False
+        )
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=effective_trust)
+        model_type = getattr(hf_config, "model_type", "unknown")
+        logger.debug("Model type: %s, task: %s", model_type, resolved_task)
+
+        # =====================================================================
+        # [4] BUILD PHASE -- delegate to build_hf_model()
+        # =====================================================================
         from ..build import build_hf_model
 
         # Pass resolved EP so the static analyzer targets only this EP
@@ -408,7 +411,7 @@ class WinMLAutoModel:
             config=config,
             output_dir=output_dir,
             model_id=model_id,
-            pytorch_model=pytorch_model,
+            pytorch_model=None,
             rebuild=force_rebuild,
             trust_remote_code=trust_remote_code,
             cache_key=cache_key,
@@ -418,7 +421,7 @@ class WinMLAutoModel:
         onnx_path = result.final_onnx_path
 
         # =====================================================================
-        # [4] RUNTIME PHASE - Return inference wrapper
+        # [5] RUNTIME PHASE - Return inference wrapper
         # =====================================================================
         winml_class = get_winml_class(model_type, task)
         logger.info("Creating inference wrapper: %s", winml_class.__name__)

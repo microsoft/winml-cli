@@ -23,6 +23,8 @@ from winml.modelkit.onnx import is_compiled_onnx, is_quantized_onnx
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from winml.modelkit.utils.constants import EPAlias
+
 
 def _make_simple_model(op_types: list[str]) -> onnx.ModelProto:
     """Build a minimal ONNX model with given op types."""
@@ -112,7 +114,7 @@ class TestTransformRegistry:
 
     def test_register_and_get(self) -> None:
         class QnnTransform:
-            def applies_to(self, ep: str) -> bool:
+            def applies_to(self, ep: EPAlias) -> bool:
                 return ep == "qnn"
 
             def transform(self, model: onnx.ModelProto) -> onnx.ModelProto:
@@ -124,7 +126,7 @@ class TestTransformRegistry:
 
     def test_clear_transforms(self) -> None:
         class AnyTransform:
-            def applies_to(self, ep: str) -> bool:
+            def applies_to(self, ep: EPAlias) -> bool:
                 return True
 
             def transform(self, model: onnx.ModelProto) -> onnx.ModelProto:
@@ -137,14 +139,14 @@ class TestTransformRegistry:
 
     def test_multiple_transforms(self) -> None:
         class T1:
-            def applies_to(self, ep: str) -> bool:
+            def applies_to(self, ep: EPAlias) -> bool:
                 return ep == "qnn"
 
             def transform(self, model: onnx.ModelProto) -> onnx.ModelProto:
                 return model
 
         class T2:
-            def applies_to(self, ep: str) -> bool:
+            def applies_to(self, ep: EPAlias) -> bool:
                 return ep == "qnn"
 
             def transform(self, model: onnx.ModelProto) -> onnx.ModelProto:

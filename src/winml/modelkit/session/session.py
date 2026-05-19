@@ -11,7 +11,7 @@ import os
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import onnxruntime as ort
@@ -28,31 +28,10 @@ if TYPE_CHECKING:
     import onnx
 
     from ..compiler.configs import EPConfig
+    from ..utils.constants import EPName, EPNameOrAlias
 
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def _suppress_native_output(log_path: str | Path | None = None):
-    """Redirect native stdout to a log file (or devnull).
-
-    QNN SDK compiler writes progress to stdout via native C++ code that
-    Python logging/warnings cannot intercept. Only redirects stdout —
-    stderr is left untouched so Rich displays and Python logging work.
-    """
-    if log_path is not None:
-        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-    else:
-        fd = os.open(os.devnull, os.O_WRONLY)
-    old_stdout = os.dup(1)
-    os.dup2(fd, 1)
-    os.close(fd)
-    try:
-        yield
-    finally:
-        os.dup2(old_stdout, 1)
-        os.close(old_stdout)
 
 
 class SessionState(Enum):
@@ -134,18 +113,6 @@ class WinMLSession:
     # Class-level flag for one-time EP initialization
     _eps_initialized: bool = False
 
-    # EP short name -> ORT full provider name (for add_provider_for_devices matching)
-    _EP_NAME_MAP: ClassVar[dict[str, str]] = {
-        "qnn": "QNNExecutionProvider",
-        "dml": "DmlExecutionProvider",
-        "migraphx": "MIGraphXExecutionProvider",
-        "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
-        "vitisai": "VitisAIExecutionProvider",
-        "openvino": "OpenVINOExecutionProvider",
-        "cuda": "CUDAExecutionProvider",
-        "cpu": "CPUExecutionProvider",
-    }
-
     @classmethod
     def _init_winml_eps_once(cls) -> None:
         """Initialize WinML EP registry once at class level."""
@@ -168,7 +135,7 @@ class WinMLSession:
         device: str = "auto",
         ep_config: EPConfig | None = None,
         *,
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         session_options: ort.SessionOptions | None = None,
     ) -> None:
         """Initialize WinMLSession.
@@ -196,7 +163,7 @@ class WinMLSession:
 
         # HF Pipeline may pass torch.device; coerce to string for downstream .lower() calls
         self._device = str(device) if not isinstance(device, str) else device
-        self._ep = ep.lower() if ep else None
+        self._ep = ep if ep else None
         self._persist_jit = ep_config.enable_ep_context if ep_config else False
         self._embed_context = ep_config.embed_context if ep_config else False
         self._provider_options = ep_config.provider_options if ep_config else {}
@@ -235,11 +202,6 @@ class WinMLSession:
 
         target_device = self._device
 
-        # Resolve auto device
-        if target_device == "auto":
-            target_device = self._detect_best_device()
-            self._device = target_device  # Update instance device
-
         if self._is_verbose():
             logger.info("Compiling for device: %s", target_device)
 
@@ -257,9 +219,6 @@ class WinMLSession:
             logger.info("Using cached EPContext: %s", ctx_path)
 
         # Compile if needed (persist_jit=True and no cache)
-        # Native QNN SDK compiler writes progress to stdout/stderr;
-        # redirect to log file to keep the console clean.
-        compile_log = self._onnx_path.parent / "compile.log"
 
         if self._persist_jit and model_path == self._onnx_path:
             # Skip ModelCompiler if input model is already compiled (EPContext)
@@ -268,14 +227,12 @@ class WinMLSession:
             else:
                 try:
                     sess_options = self._build_session_options(target_device)
-
                     model_compiler = ort.ModelCompiler(
                         sess_options,
                         str(self._onnx_path),
                         embed_compiled_data_into_model=self._embed_context,
                     )
-                    with _suppress_native_output(compile_log):
-                        model_compiler.compile_to_file(str(ctx_path))
+                    model_compiler.compile_to_file(str(ctx_path))
 
                     # Use compiled model if it was created
                     if ctx_path.exists():
@@ -292,32 +249,28 @@ class WinMLSession:
             # registry, e.g. QNN) or left to ORT's device policy (fallback).
             # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
-            with _suppress_native_output(compile_log):
-                session = ort.InferenceSession(
-                    str(model_path),
-                    sess_options=sess_options,
-                )
+            session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
-            # Log which providers were selected by ORT (based on policy)
-            actual_providers = session.get_providers()
-            logger.info(
-                "Session created with device %s, providers: %s",
-                target_device,
-                actual_providers,
-            )
-
-        except Exception as e:
+        except Exception as ep_err:
             self._state = SessionState.ERROR
-            self._last_error = e
+            self._last_error = ep_err
             raise CompilationError(
                 message=f"Failed to compile for {target_device}",
                 context={
                     "device": target_device,
                     "onnx_path": str(self._onnx_path),
-                    "error": str(e),
+                    "error": str(ep_err),
                 },
-                suggestion=self._get_compile_suggestion(target_device, e),
-            ) from e
+                suggestion=self._get_compile_suggestion(target_device, ep_err),
+            ) from ep_err
+
+        # Log which providers were selected by ORT (based on policy)
+        actual_providers = session.get_providers()
+        logger.info(
+            "Session created with device %s, providers: %s",
+            target_device,
+            actual_providers,
+        )
 
         # Store session
         self._session = session
@@ -421,23 +374,44 @@ class WinMLSession:
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
 
-        When ``self._ep`` is set (and not ``"cpu"``), uses
-        ``add_provider_for_devices`` to explicitly bind that EP.
-        ``"cpu"`` falls through to policy-based selection so ORT handles
-        CPU-only inference without any EP registration.
-        When ``self._ep`` is not set, queries ``get_ep_devices()`` to
-        discover an available EP for the target device type. Falls back to
-        policy-based selection only as a last resort.
+        When ``self._ep`` is set, uses ``add_provider_for_devices`` to
+        explicitly bind that EP — including ``"cpu"``, so the
+        CPUExecutionProvider isn't silently displaced by another CPU-capable
+        EP (e.g. OpenVINO) under PREFER_CPU policy.
+        When ``self._ep`` is not set, the path forks on device: ``"cpu"``
+        falls through to PREFER_CPU policy (skipping EP discovery so non-CPU
+        EPs aren't probed), while other devices query ``get_ep_devices()``
+        to discover an available EP. Policy-based selection is the
+        last-resort fallback.
 
         Note: Returns a **fresh** SessionOptions when using explicit EP to
         avoid "already registered" errors from repeated calls.
         """
+        # CPU never needs EP binding — skip device discovery entirely so that
+        # non-CPU EPs (e.g. OpenVINO) are not probed via get_ep_devices(),
+        # which would trigger their native shared-library load and emit
+        # version-mismatch warnings even when the model runs on CPU.
+        # Exception: when an explicit EP is set (e.g. --ep openvino --device cpu,
+        # or --ep cpu --device cpu), fall through so the EP binding logic
+        # below can honour it.
+        if device.lower() == "cpu" and not self._ep:
+            opts = self._session_options
+            opts.set_provider_selection_policy(DEVICE_POLICY_MAP["cpu"])
+            logger.info("Using PREFER_CPU policy for device cpu")
+            return opts
+
         # Explicit EP targeting: create fresh opts to avoid double-registration.
         # When device is also specified (non-"auto"), narrow by both EP name
         # and device type so e.g. `--ep qnn --device cpu` finds QNN-on-CPU
         # instead of the first QNN ep_device (which may report as NPU).
-        if self._ep and self._ep != "cpu":
-            target_name = self._EP_NAME_MAP.get(self._ep)
+        # `--ep cpu` is honoured here too so the CPUExecutionProvider gets
+        # bound explicitly; otherwise PREFER_CPU policy lets ORT prefer
+        # OV-on-CPU (or any other registered CPU-capable EP) over the basic
+        # CPU EP, silently ignoring the user's --ep choice.
+        if self._ep:
+            from ..utils.constants import normalize_ep_name
+
+            target_name = normalize_ep_name(self._ep)
             if target_name:
                 matched = self._find_ep_device(ep_name=target_name, device=device)
                 if matched:
@@ -483,23 +457,26 @@ class WinMLSession:
         return opts
 
     @staticmethod
-    def _find_ep_device(device: str, ep_name: str | None = None) -> Any:
+    def _find_ep_device(device: str, ep_name: EPName | None = None) -> Any:
         """Find the first OrtEpDevice matching the given filters.
 
         Behavior:
-            - ``ep_name`` set, ``device == "auto"`` → first ep_device
-              matching ``ep_name`` (or None).
-            - ``ep_name`` unset, ``device == "auto"`` → ``None`` (no
+            - ``ep_name`` set, ``device == "auto"`` → aggregate ep_devices
+              matching ``ep_name`` and pick the first one whose device type
+              appears earliest in that EP's preferred device list
+              (``get_ep_device_map()``).
+            - ``ep_name`` unset, ``device`` is a concrete type → aggregate
+              ep_devices matching that device type and pick the first one
+              whose EP name appears earliest in that device's EP priority
+              list (``get_device_ep_map()``).
+            - Both set (and ``device != "auto"``) → ep_device must satisfy
+              both filters (or None).
+            - ``ep_name`` unset and ``device == "auto"`` → ``None`` (no
               effective filter — refuse to pick an arbitrary ep_device).
-            - ``ep_name`` unset, ``device`` is a concrete type → first
-              ep_device matching that device type (or None).
-            - Both set → ep_device must satisfy both (or None).
 
-        Note: Selection order is determined by the ORT EP registry, which is
-        not part of any documented contract. On systems where multiple EPs
-        match the same device type (e.g., QNN and DML both appear as GPU),
-        a device-only query returns the first one in registry order. Pass
-        ``ep_name`` to disambiguate.
+        Note: When the ORT EP registry order disagrees with the priority
+        maps, the priority maps win — selection is deterministic and
+        independent of registry order.
 
         Args:
             device: Device policy ("cpu", "gpu", "npu", "auto"). ``"auto"``
@@ -510,6 +487,7 @@ class WinMLSession:
         Returns:
             The matching OrtEpDevice, or None if not found.
         """
+        from ..sysinfo import get_device_ep_map, get_ep_device_map
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type = DEVICE_TO_DEVICE_TYPE.get(device.upper())
@@ -518,13 +496,40 @@ class WinMLSession:
         if not ep_name and device_type is None:
             return None
 
+        all_ep_devices = []
         for ep_dev in ort.get_ep_devices():
             if ep_name and ep_dev.ep_name != ep_name:
                 continue
             if device_type is not None and ep_dev.device.type != device_type:
                 continue
-            return ep_dev
-        return None
+            all_ep_devices.append(ep_dev)
+
+        if not all_ep_devices:
+            return None
+
+        # Both filters set: any aggregated entry already satisfies both.
+        if ep_name and device_type is not None:
+            return all_ep_devices[0]
+
+        # ep_name set, device == "auto": pick by EP's preferred device order.
+        if ep_name:
+            preferred_devices = get_ep_device_map().get(ep_name, "").split("/")
+            for d in preferred_devices:
+                wanted = DEVICE_TO_DEVICE_TYPE.get(d.upper())
+                if wanted is None:
+                    continue
+                for ep_dev in all_ep_devices:
+                    if ep_dev.device.type == wanted:
+                        return ep_dev
+            return all_ep_devices[0]
+
+        # ep_name unset, device != "auto": pick by device's EP priority list.
+        ep_priority = get_device_ep_map().get(device.lower(), [])
+        for preferred_ep in ep_priority:
+            for ep_dev in all_ep_devices:
+                if ep_dev.ep_name == preferred_ep:
+                    return ep_dev
+        return all_ep_devices[0]
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
         """Validate inputs against model expectations.
@@ -584,19 +589,6 @@ class WinMLSession:
 
         return ort_inputs
 
-    def _detect_best_device(self) -> str:
-        """Auto-detect best available device.
-
-        Returns "auto" to let ORT select the best provider based on PREFER_NPU policy.
-        This avoids using any explicit EP provider names.
-        """
-        # With PREFER_NPU policy, ORT will automatically select:
-        # 1. NPU (QNN) if available
-        # 2. GPU (CUDA/DML) if no NPU
-        # 3. CPU as fallback
-        logger.info("Auto-detecting device (using PREFER_NPU policy)")
-        return "auto"
-
     def _get_compile_suggestion(self, device: str, error: Exception) -> str:
         """Get compile error suggestion based on device policy."""
         error_str = str(error).lower()
@@ -628,6 +620,19 @@ class WinMLSession:
     def device(self) -> str:
         """Target device for this session."""
         return self._device
+
+    @property
+    def ep_name(self) -> EPName | None:
+        """Primary EP ORT actually bound, or None before compile.
+
+        Returns ``session.get_providers()[0]`` — the EP that owns node
+        partitioning. ``CPUExecutionProvider`` may still appear later
+        in the list as ORT's automatic fallback for unsupported ops.
+        """
+        if self._session is None:
+            return None
+        providers = self._session.get_providers()
+        return cast("EPName", providers[0]) if providers else None
 
     @property
     def is_compiled(self) -> bool:

@@ -26,6 +26,7 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from ..export.config import WinMLExportConfig
+    from .constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ def print_setup(
     config: str,
     output: str,
     source: str = "HuggingFace",
+    auto: bool = True,
 ) -> None:
     """Print the 🔧 Setup section header."""
     console.print()
@@ -147,7 +149,10 @@ def print_setup(
     console.print(f"[bold]\U0001f527 Setup \u2014 {source}[/bold]")
     console.print(HEAVY_SEP)
     console.print(f"   \U0001f4e6 [bold]{'Model:':<10}[/bold] [cyan]{model}[/cyan]")
-    console.print(f"   \U0001f4c1 [bold]{'Config:':<10}[/bold] [cyan]{config}[/cyan]")
+    config_suffix = "  [dim](autoconf off)[/dim]" if not auto else "  [dim](autoconf on)[/dim]"
+    console.print(
+        f"   \U0001f4c1 [bold]{'Config:':<10}[/bold] [cyan]{config}[/cyan]{config_suffix}"
+    )
     console.print(f"   \U0001f4c2 [bold]{'Output:':<10}[/bold] [cyan]{output}[/cyan]")
     console.print()
 
@@ -164,11 +169,13 @@ def print_final(
     elapsed: float,
     artifact: str,
     stage_timings: list[tuple[str, float | None]] | None = None,
+    config: str | None = None,
 ) -> None:
     """Print the 📊 Summary section with stage timing breakdown.
 
     Args:
         stage_timings: list of (stage_name, elapsed_seconds | None for skipped)
+        config: path to the saved build config JSON, printed after the artifact
     """
     console.print()
     console.print(HEAVY_SEP)
@@ -182,6 +189,8 @@ def print_final(
             else:
                 console.print(f"   {name:<12} [dim]skipped[/dim]")
     console.print(f"\U0001f4e6 Final artifact: [bold]{artifact}[/bold]")
+    if config is not None:
+        console.print(f"\U0001f4c4 Build config:   [bold]{config}[/bold]")
     console.print()
 
 
@@ -399,7 +408,7 @@ class StageLive:
 
     # ── EP analyzer bar lines (for optimize stage) ────────────────
 
-    def ep_bar_add(self, ep_name: str, total: int = 0) -> int:
+    def ep_bar_add(self, ep_name: EPName, total: int = 0) -> int:
         """Add a placeholder EP bar line, return index."""
         idx = len(self._lines)
         line = Text()
@@ -414,7 +423,7 @@ class StageLive:
     def ep_bar_update(
         self,
         idx: int,
-        ep_name: str,
+        ep_name: EPName,
         s: int,
         p: int,
         u: int,

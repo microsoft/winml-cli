@@ -12,6 +12,7 @@ validation checks.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 
@@ -20,15 +21,18 @@ if TYPE_CHECKING:
 
     import onnx
 
+    from ...utils.constants import EPName
     from ..models.information import Action, Information
     from ..models.onnx_model import ONNXModel
     from ..models.runtime_checks import PatternRuntime
 
 from ..models.information import ActionLevel
 from ..models.support_level import SupportLevel
+from ..utils.timing_utils import make_timing_logger
 
 
 logger = logging.getLogger(__name__)
+_log_timing = make_timing_logger(logger)
 
 # Constants
 DOC_CHECKER_PREFIX = "Information from sdk:"
@@ -64,7 +68,7 @@ class InformationEngine:
         self,
         op_runtime_results: list[PatternRuntime],
         subgraph_runtime_results: list[PatternRuntime],
-        ep: str,
+        ep: EPName,
         model: ONNXModel,
         device: str,
         rules_dir: Path | None = None,
@@ -94,6 +98,7 @@ class InformationEngine:
             ValueError: If both op_runtime_results and subgraph_runtime_results are empty
                        AND model is not provided (at least one source of information needed)
         """
+        total_start = time.perf_counter()
         if not op_runtime_results and not subgraph_runtime_results and model is None:
             raise ValueError(
                 "At least one of op_runtime_results, "
@@ -103,7 +108,7 @@ class InformationEngine:
 
         self._op_runtime_results = op_runtime_results
         self._subgraph_runtime_results = subgraph_runtime_results
-        self._ep = ep
+        self._ep: EPName = ep
         self._model = model
         self._device = device
 
@@ -114,14 +119,18 @@ class InformationEngine:
         self._rule_loader = RuleLoader(rules_dir=rules_dir)
 
         # Infer IHV from EP name for per-IHV rule loading
+        infer_ihv_start = time.perf_counter()
         try:
-            ihv_type = infer_ihv_from_ep_name(ep)
-            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, ep)
+            ihv_type = infer_ihv_from_ep_name(self._ep)
+            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, self._ep)
         except ValueError as e:
-            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", ep, e)
+            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", self._ep, e)
             ihv_type = None
+        infer_ihv_ms = int((time.perf_counter() - infer_ihv_start) * 1000)
 
+        load_predefined_start = time.perf_counter()
         self._predefined_info = self._rule_loader.load_information_rules(ihv_type=ihv_type)
+        load_predefined_ms = int((time.perf_counter() - load_predefined_start) * 1000)
 
         # Build pattern_id -> Information lookup for quick matching
         self._info_by_pattern: dict[str, Information] = {
@@ -130,6 +139,8 @@ class InformationEngine:
 
         # Initialize Doc Constraint Checker
         self._doc_checker = None
+        init_doc_checker_ms = 0
+        doc_checker_initialized = False
         try:
             from .doc_constraint_checker import DocConstraintChecker
 
@@ -141,9 +152,16 @@ class InformationEngine:
                 model_proto = self._model.get_model()
                 skip_inference = False
 
+            init_doc_checker_start = time.perf_counter()
             self._doc_checker = DocConstraintChecker(
-                model_proto, ep, self._device, skip_shape_inference=skip_inference
+                model_proto,
+                self._ep,
+                self._device,
+                skip_shape_inference=skip_inference,
+                node_key_by_node_id=self._model.get_node_key_map(),
             )
+            init_doc_checker_ms = int((time.perf_counter() - init_doc_checker_start) * 1000)
+            doc_checker_initialized = True
             logger.info(
                 "Initialized Doc Constraint Checker with %d operators",
                 len(self._doc_checker.get_operators_with_constraints()),
@@ -157,6 +175,19 @@ class InformationEngine:
             len(subgraph_runtime_results),
         )
         logger.info("Loaded %d predefined information rules", len(self._predefined_info))
+        _log_timing(
+            "information_engine.init",
+            ep=self._ep,
+            device=self._device,
+            op_runtime_results=len(op_runtime_results),
+            subgraph_runtime_results=len(subgraph_runtime_results),
+            predefined_rules=len(self._predefined_info),
+            doc_checker_initialized=doc_checker_initialized,
+            infer_ihv_ms=infer_ihv_ms,
+            load_predefined_rules_ms=load_predefined_ms,
+            init_doc_checker_ms=init_doc_checker_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
+        )
 
     @property
     def op_runtime_results(self) -> list[PatternRuntime]:
@@ -183,20 +214,45 @@ class InformationEngine:
             5. Return complete list of Information
         """
         logger.info("Generating information summary")
+        total_start = time.perf_counter()
 
         # Run model-level validation checks
+        check_model_start = time.perf_counter()
         model_info = self._check_model()
+        check_model_ms = int((time.perf_counter() - check_model_start) * 1000)
 
         # Process operator-level patterns without alternatives
+        check_single_ops_start = time.perf_counter()
         ops_info = self._check_single_ops()
+        check_single_ops_ms = int((time.perf_counter() - check_single_ops_start) * 1000)
 
         # Process patterns with alternatives (includes predefined information matching)
+        check_patterns_start = time.perf_counter()
         pattern_info = self._check_patterns()
+        check_patterns_ms = int((time.perf_counter() - check_patterns_start) * 1000)
 
         # Combine results
+        combine_start = time.perf_counter()
         all_info = ops_info + pattern_info + model_info
+        combine_ms = int((time.perf_counter() - combine_start) * 1000)
 
         logger.info("Generated %d information items", len(all_info))
+        _log_timing(
+            "information_engine.summary",
+            ep=self._ep,
+            device=self._device,
+            op_runtime_results=len(self._op_runtime_results),
+            subgraph_runtime_results=len(self._subgraph_runtime_results),
+            model_info=len(model_info),
+            single_ops_info=len(ops_info),
+            pattern_info=len(pattern_info),
+            total_info=len(all_info),
+            check_model_ms=check_model_ms,
+            check_single_ops_ms=check_single_ops_ms,
+            check_patterns_ms=check_patterns_ms,
+            combine_ms=combine_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
+        )
 
         return all_info
 
@@ -215,25 +271,49 @@ class InformationEngine:
             Exception: Validation errors are caught and logged, not raised
         """
         logger.debug("Running model-level validation checks")
+        total_start = time.perf_counter()
 
         # Skip if model is not provided
         if self._model is None:
             logger.debug("Skipping model validation: model is None")
+            _log_timing(
+                "information_engine.check_model",
+                ep=self._ep,
+                device=self._device,
+                skipped=True,
+                total_ms=int((time.perf_counter() - total_start) * 1000),
+            )
             return []
 
         try:
             from .model_validators import ModelValidatorManager
 
+            manager_init_start = time.perf_counter()
             validator_manager = ModelValidatorManager(
                 self._model,
                 op_runtime_results=self._op_runtime_results,
                 device=self._device,
             )
+            manager_init_ms = int((time.perf_counter() - manager_init_start) * 1000)
+
+            run_validators_start = time.perf_counter()
             model_info = validator_manager.run_all_validators()
+            run_validators_ms = int((time.perf_counter() - run_validators_start) * 1000)
 
             logger.info(
                 "Model validation complete: %d issue(s) detected",
                 len(model_info),
+            )
+
+            _log_timing(
+                "information_engine.check_model",
+                ep=self._ep,
+                device=self._device,
+                validators=len(getattr(validator_manager, "validators", [])),
+                issues=len(model_info),
+                manager_init_ms=manager_init_ms,
+                run_validators_ms=run_validators_ms,
+                total_ms=int((time.perf_counter() - total_start) * 1000),
             )
 
             return model_info
@@ -242,6 +322,14 @@ class InformationEngine:
             logger.exception(
                 "Model validation failed (%s). Continuing with pattern-level analysis...",
                 type(e).__name__,
+            )
+            _log_timing(
+                "information_engine.check_model",
+                ep=self._ep,
+                device=self._device,
+                failed=True,
+                error_type=type(e).__name__,
+                total_ms=int((time.perf_counter() - total_start) * 1000),
             )
             return []
 
@@ -266,12 +354,20 @@ class InformationEngine:
         from ..models.information import Action, Information
 
         logger.debug("Checking single operator patterns")
+        total_start = time.perf_counter()
 
         # Group runtime results by (pattern_id, classification, reason)
         # Different reasons should create separate issues
         grouped_results: dict[tuple[str, SupportLevel, str | None], list[PatternRuntime]] = (
             defaultdict(list)
         )
+
+        group_loop_start = time.perf_counter()
+        doc_query_count = 0
+        doc_query_total_ms = 0
+        doc_query_slow_count = 0
+        max_doc_query_ms = 0
+        max_doc_query_pattern: str | None = None
 
         for runtime_result in self._op_runtime_results:
             if not self._validate_runtime_result(runtime_result):
@@ -292,7 +388,16 @@ class InformationEngine:
                 SupportLevel.PARTIAL,
                 SupportLevel.UNKNOWN,
             ]:
+                doc_query_start = time.perf_counter()
                 doc_check_reason = self._query_doc_constraints(runtime_result, pattern_id)
+                doc_query_ms = int((time.perf_counter() - doc_query_start) * 1000)
+                doc_query_count += 1
+                doc_query_total_ms += doc_query_ms
+                if doc_query_ms >= 20:
+                    doc_query_slow_count += 1
+                if doc_query_ms > max_doc_query_ms:
+                    max_doc_query_ms = doc_query_ms
+                    max_doc_query_pattern = pattern_id
                 # Append doc checker reason to original reason
                 if doc_check_reason:
                     reason = f"{reason}; {doc_check_reason}" if reason else doc_check_reason
@@ -303,8 +408,11 @@ class InformationEngine:
             key = (pattern_id, classification, reason)
             grouped_results[key].append(runtime_result)
 
+        group_loop_ms = int((time.perf_counter() - group_loop_start) * 1000)
+
         # Generate Information for each group
         info_list: list[Information] = []
+        build_info_start = time.perf_counter()
 
         for (pattern_id, classification, reason), runtime_results in grouped_results.items():
             # Use the reason from the group key
@@ -438,10 +546,29 @@ class InformationEngine:
             )
             info_list.append(info)
 
+        build_info_ms = int((time.perf_counter() - build_info_start) * 1000)
+
         logger.debug(
             "Generated %d single operator information items from %d operators",
             len(info_list),
             sum(len(results) for results in grouped_results.values()),
+        )
+
+        _log_timing(
+            "information_engine.check_single_ops",
+            ep=self._ep,
+            device=self._device,
+            runtime_results=len(self._op_runtime_results),
+            grouped_items=len(grouped_results),
+            generated_info=len(info_list),
+            doc_queries=doc_query_count,
+            doc_query_total_ms=doc_query_total_ms,
+            doc_query_slow_count=doc_query_slow_count,
+            max_doc_query_ms=max_doc_query_ms,
+            max_doc_query_pattern=max_doc_query_pattern,
+            group_loop_ms=group_loop_ms,
+            build_info_ms=build_info_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
         return info_list
@@ -463,6 +590,7 @@ class InformationEngine:
             4. Format as human-readable reason
         """
         try:
+            total_start = time.perf_counter()
             logger.debug("Querying doc constraints for pattern: %s", pattern_id)
 
             # Extract ONNX node from pattern match
@@ -480,31 +608,41 @@ class InformationEngine:
                 logger.debug("No matched_node_names found in pattern_match for %s", pattern_id)
                 return None
 
-            # Get the first matched node name (for single-op patterns)
+            # Get the first matched stable node key (for single-op patterns)
             onnx_op = pattern_match.matched_node_names[0]
-            node_name = onnx_op.node_name
+            node_key = onnx_op.node_name
             logger.debug(
-                "Extracted node name for %s: %s (op_type=%s)",
+                "Extracted node key for %s: %s (op_type=%s)",
                 pattern_id,
-                node_name,
+                node_key,
                 onnx_op.op_type,
             )
 
-            # Find the actual ONNX NodeProto from model
-            model_proto = self._model.get_model()
-            node = None
-            for graph_node in model_proto.graph.node:
-                if graph_node.name == node_name:
-                    node = graph_node
-                    break
+            # Resolve ONNX NodeProto from stable sidecar key
+            node_lookup_start = time.perf_counter()
+            node = self._model.get_node_by_key(node_key)
+            if node is None:
+                node = self._model.get_node_by_name(node_key)
+            node_lookup_ms = int((time.perf_counter() - node_lookup_start) * 1000)
 
             if node is None:
-                logger.debug("Could not find node %s in model graph", node_name)
+                logger.debug("Could not find node %s in model graph", node_key)
+                _log_timing(
+                    "information_engine.doc_constraints",
+                    ep=self._ep,
+                    pattern_id=pattern_id,
+                    node=node_key,
+                    found_node=False,
+                    node_lookup_ms=node_lookup_ms,
+                    total_ms=int((time.perf_counter() - total_start) * 1000),
+                )
                 return None
 
             # Query doc checker
             logger.debug("Running doc checker for node: %s", node.name)
+            checker_start = time.perf_counter()
             doc_result = self._doc_checker.run_for_node(node)
+            checker_ms = int((time.perf_counter() - checker_start) * 1000)
 
             logger.debug(
                 "Doc checker result for %s: compile=%s, run=%s, no_data=%s, reason=%s",
@@ -523,10 +661,35 @@ class InformationEngine:
                     logger.debug(
                         "Returning doc constraint reason for %s: %s", pattern_id, result_msg
                     )
+                    total_ms = int((time.perf_counter() - total_start) * 1000)
+                    if total_ms >= 50:
+                        _log_timing(
+                            "information_engine.doc_constraints.slow_query",
+                            ep=self._ep,
+                            pattern_id=pattern_id,
+                            node=node_key,
+                            node_lookup_ms=node_lookup_ms,
+                            checker_ms=checker_ms,
+                            total_ms=total_ms,
+                            hit_reason=True,
+                        )
                     return result_msg
                 logger.debug("Doc checker failed but no detailed reason for %s", pattern_id)
             else:
                 logger.debug("Doc checker passed for %s, no constraint violations", pattern_id)
+
+            total_ms = int((time.perf_counter() - total_start) * 1000)
+            if total_ms >= 50:
+                _log_timing(
+                    "information_engine.doc_constraints.slow_query",
+                    ep=self._ep,
+                    pattern_id=pattern_id,
+                    node=node_key,
+                    node_lookup_ms=node_lookup_ms,
+                    checker_ms=checker_ms,
+                    total_ms=total_ms,
+                    hit_reason=False,
+                )
 
             return None
 
@@ -730,6 +893,7 @@ class InformationEngine:
             4. Deduplicate information by Information_id
         """
         logger.debug("Checking patterns with alternatives")
+        total_start = time.perf_counter()
 
         info_list: list[Information] = []
         matched_pattern_ids: set[str] = set()
@@ -741,11 +905,14 @@ class InformationEngine:
         pattern_to_runtime_results: dict[str, list[PatternRuntime]] = defaultdict(list)
 
         # Collect all runtime results for potential predefined information matching
+        collect_runtime_start = time.perf_counter()
         for runtime_result in self._op_runtime_results + self._subgraph_runtime_results:
             pattern_id = runtime_result.pattern_id
             pattern_to_runtime_results[pattern_id].append(runtime_result)
+        collect_runtime_ms = int((time.perf_counter() - collect_runtime_start) * 1000)
 
         # First pass: Match predefined information rules with aggregated runtime results
+        predefined_start = time.perf_counter()
         for pattern_id, runtime_results in pattern_to_runtime_results.items():
             if pattern_id in self._info_by_pattern:
                 predefined_info = self._info_by_pattern[pattern_id]
@@ -770,9 +937,12 @@ class InformationEngine:
                         pattern_id,
                         predefined_info.Information_id,
                     )
+        predefined_ms = int((time.perf_counter() - predefined_start) * 1000)
 
         # Second pass: Generate information dynamically for unmatched patterns
         # Process operator patterns with alternatives
+        op_alternatives_start = time.perf_counter()
+        generated_op_alt_info = 0
         for runtime_result in self._op_runtime_results:
             if runtime_result.pattern_id in matched_pattern_ids:
                 continue
@@ -782,6 +952,8 @@ class InformationEngine:
             info = self._process_pattern_with_alternatives(runtime_result)
             if info:
                 info_list.append(info)
+                generated_op_alt_info += 1
+        op_alternatives_ms = int((time.perf_counter() - op_alternatives_start) * 1000)
 
         # Process subgraph patterns with aggregation
         from collections import defaultdict
@@ -792,6 +964,7 @@ class InformationEngine:
             tuple[str, SupportLevel, str | None], list[PatternRuntime]
         ] = defaultdict(list)
 
+        group_subgraph_start = time.perf_counter()
         for runtime_result in self._subgraph_runtime_results:
             if runtime_result.pattern_id in matched_pattern_ids:
                 continue
@@ -803,8 +976,11 @@ class InformationEngine:
             # Group by (pattern_id, classification, reason)
             key = (pattern_id, classification, reason)
             grouped_subgraph_results[key].append(runtime_result)
+        group_subgraph_ms = int((time.perf_counter() - group_subgraph_start) * 1000)
 
         # Generate Information for each aggregated subgraph group
+        process_subgraph_start = time.perf_counter()
+        generated_subgraph_info = 0
         for (
             pattern_id,
             classification,
@@ -865,6 +1041,8 @@ class InformationEngine:
                 pattern_list=runtime_results,  # All aggregated runtime results
             )
             info_list.append(info)
+            generated_subgraph_info += 1
+        process_subgraph_ms = int((time.perf_counter() - process_subgraph_start) * 1000)
 
         logger.debug(
             "Generated %d pattern information items "
@@ -874,6 +1052,24 @@ class InformationEngine:
             len(matched_pattern_ids),
             len(info_list) - len(seen_info_ids) - len(grouped_subgraph_results),
             len(grouped_subgraph_results),
+        )
+
+        _log_timing(
+            "information_engine.check_patterns",
+            ep=self._ep,
+            device=self._device,
+            unique_patterns=len(pattern_to_runtime_results),
+            matched_predefined_patterns=len(matched_pattern_ids),
+            predefined_info_ids=len(seen_info_ids),
+            generated_op_alt_info=generated_op_alt_info,
+            grouped_subgraph_keys=len(grouped_subgraph_results),
+            generated_subgraph_info=generated_subgraph_info,
+            collect_runtime_ms=collect_runtime_ms,
+            predefined_ms=predefined_ms,
+            op_alternatives_ms=op_alternatives_ms,
+            group_subgraph_ms=group_subgraph_ms,
+            process_subgraph_ms=process_subgraph_ms,
+            total_ms=int((time.perf_counter() - total_start) * 1000),
         )
 
         return info_list

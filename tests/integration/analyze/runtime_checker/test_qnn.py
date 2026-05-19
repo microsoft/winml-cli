@@ -13,7 +13,7 @@ from tests.integration.analyze.runtime_checker.test_helper import (
     should_run_ep_test,
 )
 from winml.modelkit import winml
-from winml.modelkit.analyze.runtime_checker.ep_checker import EPChecker
+from winml.modelkit.analyze.runtime_checker import EPChecker
 
 
 winml.register_execution_providers(ort=True)

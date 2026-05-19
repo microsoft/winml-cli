@@ -49,9 +49,8 @@ def extract_input_specs(model_path: Path) -> list[dict]:
     import numpy as np
     import onnx
 
-    from ...onnx import load_onnx
-
-    model = load_onnx(model_path, validate=False)
+    # This script runs inside the QAIRT SDK's venv; use vanilla onnx.load.
+    model = onnx.load(str(model_path))
 
     dtype_map = {
         onnx.TensorProto.FLOAT: np.float32,

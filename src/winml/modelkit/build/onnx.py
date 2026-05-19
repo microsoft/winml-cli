@@ -29,6 +29,7 @@ from .hf import BuildResult
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def build_onnx_model(
     config: WinMLBuildConfig,
     output_dir: Path | str,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
@@ -122,6 +123,9 @@ def build_onnx_model(
         for old in output_dir.glob("*.onnx"):
             old.unlink()
             logger.debug("Removed old artifact: %s", old.name)
+        for old in output_dir.glob("*.onnx.data"):
+            old.unlink()
+            logger.debug("Removed old external data sidecar: %s", old.name)
 
     stages_completed: list[str] = []
     stages_skipped: list[str] = []

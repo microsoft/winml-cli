@@ -16,6 +16,7 @@ import numpy as np
 
 from ...onnx import load_onnx, save_onnx
 from ...session import WinMLQairtSession, WinMLSession
+from ...utils.constants import normalize_ep_name
 from ..configs import WinMLCompileConfig
 from .base import BaseStage
 
@@ -62,18 +63,28 @@ class CompileStage(BaseStage):
             context.log(f"Model path: {model_path}")
 
             ep_config = WinMLCompileConfig.from_dict(context.config).ep_config
-            # Create WinMLSession
-            context.log(f"Creating {session_cls.__name__} for device: {context.execution_provider}")
+            # Derive the target device from the runtime session so the compile
+            # stage stays aligned with the actual EPContext filename produced by
+            # WinMLSession instead of carrying device metadata in provider_options.
+            device = context.config.get("device", "auto")
+            explicit_ep = normalize_ep_name(ep_config.provider)
+            session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
+            context.log(f"Creating {session_cls_name} for device: {device}")
             winml_session = session_cls(
                 onnx_path=model_path,
-                device=context.execution_provider,
+                device=device,
                 ep_config=ep_config,
+                ep=explicit_ep,
             )
             winml_session.compile()
 
             # Get the underlying session for validation and info collection
             session = winml_session._session
             context.session = session
+
+            resolved_device = getattr(winml_session, "_device", device)
+            if isinstance(resolved_device, str) and resolved_device:
+                device = resolved_device.lower()
 
             # Log actual providers used
             if session is not None:
@@ -89,7 +100,7 @@ class CompileStage(BaseStage):
 
             # Find and relocate EPContext files to output directory
             if ep_config.enable_ep_context:
-                self._finalize_output(context, model_path, output_dir)
+                self._finalize_output(context, model_path, output_dir, device=device)
 
         except Exception as e:
             context.add_error(f"Compilation failed: {e}")
@@ -199,19 +210,26 @@ class CompileStage(BaseStage):
 
         return inputs
 
-    def _finalize_output(self, context: CompileContext, model_path: Path, output_dir: Path) -> None:
+    def _finalize_output(
+        self,
+        context: CompileContext,
+        model_path: Path,
+        output_dir: Path,
+        *,
+        device: str | None = None,
+    ) -> None:
         """Find EPContext files and copy to output directory.
 
         WinMLSession saves to work_dir. This method copies the output
         to the final output directory (default: same as input model).
         """
-        device = context.execution_provider.lower()
-
-        # Find EPContext in work_dir (where WinMLSession saved it)
-        ctx_patterns = [
-            model_path.parent / f"{model_path.stem}_{device}_ctx.onnx",
-            model_path.parent / f"{model_path.stem}_ctx.onnx",
-        ]
+        # Find EPContext in work_dir (where WinMLSession saved it).
+        # Prefer the runtime-resolved device, then fall back to generic and globbed matches.
+        ctx_patterns = []
+        if device:
+            ctx_patterns.append(model_path.parent / f"{model_path.stem}_{device}_ctx.onnx")
+        ctx_patterns.append(model_path.parent / f"{model_path.stem}_ctx.onnx")
+        ctx_patterns.extend(sorted(model_path.parent.glob(f"{model_path.stem}_*_ctx.onnx")))
 
         src_ctx_path = None
         for pattern in ctx_patterns:
@@ -229,9 +247,7 @@ class CompileStage(BaseStage):
         if user_output and Path(user_output).suffix:
             final_ctx_path = Path(user_output)
         else:
-            original_stem = context.model_path.stem
-            final_ctx_name = f"{original_stem}_{device}_ctx.onnx"
-            final_ctx_path = output_dir / final_ctx_name
+            final_ctx_path = output_dir / src_ctx_path.name
 
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)

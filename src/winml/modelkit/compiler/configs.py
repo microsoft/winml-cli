@@ -9,17 +9,19 @@ Design follows the automodel pattern:
 - Explicit over implicit
 - Factory methods for common configurations
 - No capability registry - just dataclasses
-
-Quantization concerns (QDQ, calibration) have been moved to
-WinMLQuantizationConfig in modelkit.quant.config (#241).
 """
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from ..utils.constants import EPAlias, EPName
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 @dataclass
@@ -35,14 +37,16 @@ class EPConfig:
         embed_context: Embed context in ONNX (True) or external .bin file (False)
         compiler: Compiler backend ("ort" or "qairt")
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
+        device: Target device ("npu", "gpu", "cpu", "auto")
     """
 
-    provider: str = "qnn"
+    provider: EPAlias = "qnn"
     provider_options: dict[str, str] = field(default_factory=dict)
     enable_ep_context: bool = True
     embed_context: bool = False
     compiler: str = "ort"
     qnn_sdk_root: Path | None = None
+    device: str = "auto"
 
 
 @dataclass
@@ -88,151 +92,137 @@ class WinMLCompileConfig:
         return self.ep_config.provider
 
     @classmethod
-    def for_provider(cls, provider: str | None) -> WinMLCompileConfig | None:
+    def for_provider(
+        cls, provider: EPNameOrAlias | None, device: str | None = None
+    ) -> WinMLCompileConfig | None:
         """Factory that dispatches to a known for_* method or creates a generic config.
 
         Args:
-            provider: Provider name (e.g., "qnn", "dml", "openvino") or None.
+            provider: Canonical EP name (e.g., "QNNExecutionProvider") or alias
+                (e.g., "qnn"). Aliases are normalized to canonical form before
+                dispatch. ``None`` short-circuits to ``None``.
+            device: Target device ("cpu", "gpu", "npu"). Used by EPs like OpenVINO
+                that compile device-specific EPContext blobs and need device_type
+                in provider_options so CPU and GPU builds get different cache keys.
 
         Returns:
             WinMLCompileConfig for the provider, or None if provider is None.
         """
+        from ..utils.constants import normalize_ep_name
+
         if provider is None:
             return None
-        factories: dict[str, Any] = {
-            "qnn": cls.for_qnn,
-            "dml": cls.for_dml,
-            "cuda": cls.for_cuda,
-            "nv_tensorrt_rtx": cls.for_nv_tensorrt_rtx,
-            "openvino": cls.for_openvino,
-            "vitisai": cls.for_vitisai,
-            "migraphx": cls.for_migraphx,
-            "cpu": cls.for_cpu,
+        canonical = normalize_ep_name(provider)
+        if canonical is None:
+            return None
+        factories: dict[EPName, Any] = {
+            "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
+            "DmlExecutionProvider": cls.for_dml,
+            "CUDAExecutionProvider": cls.for_cuda,
+            "NvTensorRTRTXExecutionProvider": lambda: cls.for_nv_tensorrt_rtx(device=device),
+            "OpenVINOExecutionProvider": lambda: cls.for_openvino(device=device),
+            "VitisAIExecutionProvider": lambda: cls.for_vitisai(device=device),
+            "MIGraphXExecutionProvider": cls.for_migraphx,
+            "CPUExecutionProvider": cls.for_cpu,
         }
-        factory = factories.get(provider)
-        if factory:
-            config = factory()
-            # EPs that don't produce EPContext have no offline compile step
-            if not config.ep_config.enable_ep_context:
-                return None
-            return config
-        # Generic fallback for unknown/custom providers
-        return cls(ep_config=EPConfig(provider=provider, enable_ep_context=False))
+        factory = factories.get(canonical)
+        if factory is None:
+            # Not a known EP — no typed EPConfig possible.
+            return None
+        config = factory()
+        # EPs that don't produce EPContext have no offline compile step
+        if not config.ep_config.enable_ep_context:
+            return None
+        return config
 
     @classmethod
-    def for_qnn(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_qnn(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for QNN compilation.
 
         Args:
-            quantize: Deprecated. Quantization is now handled by
-                WinMLQuantizationConfig. This parameter is ignored.
+            device: Target device ("npu", "gpu"). Sets device_type in
+                provider_options so NPU and GPU builds get different cache keys.
+                Also stored in ep_config so compile stage can align EPContext
+                filenames with the actual runtime-resolved device.
 
         Returns:
             WinMLCompileConfig configured for QNN EP.
         """
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        return cls(ep_config=EPConfig(provider="qnn"))
+        provider_options: dict[str, str] = {}
+        if device:
+            provider_options["device_type"] = device.upper()
+        ep_cfg = EPConfig(
+            provider="qnn",
+            provider_options=provider_options,
+            device=device or "auto",
+        )
+        return cls(ep_config=ep_cfg)
 
     @classmethod
-    def for_cpu(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_cpu(cls) -> WinMLCompileConfig:
         """Factory for CPU compilation (no EPContext)."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="cpu", enable_ep_context=False),
         )
 
     @classmethod
-    def for_cuda(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_cuda(cls) -> WinMLCompileConfig:
         """Factory for CUDA compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="cuda", enable_ep_context=False),
         )
 
     @classmethod
-    def for_dml(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_dml(cls) -> WinMLCompileConfig:
         """Factory for DirectML compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="dml", enable_ep_context=False),
         )
 
     @classmethod
-    def for_nv_tensorrt_rtx(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_nv_tensorrt_rtx(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for NvTensorRTRTX compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        return cls(
-            ep_config=EPConfig(provider="nv_tensorrt_rtx", enable_ep_context=False),
+        ep_cfg = EPConfig(
+            provider="nv_tensorrt_rtx",
+            enable_ep_context=True,
+            device=device or "auto",
         )
+        return cls(ep_config=ep_cfg)
 
     @classmethod
-    def for_openvino(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_openvino(cls, device: str | None = None) -> WinMLCompileConfig:
         """Factory for OpenVINO compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        return cls(
-            ep_config=EPConfig(provider="openvino", enable_ep_context=True),
+        provider_options: dict[str, str] = {}
+        if device:
+            # OV EPContext blobs are device-specific (CPU vs GPU).
+            # Embedding device_type ensures CPU and GPU builds get different
+            # cache keys and don't accidentally share the wrong EPContext.
+            provider_options["device_type"] = device.upper()
+        ep_cfg = EPConfig(
+            provider="openvino",
+            enable_ep_context=True,
+            provider_options=provider_options,
+            device=device or "auto",
         )
+        return cls(ep_config=ep_cfg)
 
     @classmethod
-    def for_vitisai(cls, quantize: bool | None = None) -> WinMLCompileConfig:
-        """Factory for Vitis AI (AMD/Xilinx NPU) compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        return cls(
-            ep_config=EPConfig(provider="vitisai", enable_ep_context=False),
+    def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:
+        """Factory for Vitis AI (AMD NPU) compilation."""
+        provider_options: dict[str, str] = {}
+        if device:
+            provider_options["device_type"] = device.upper()
+        ep_cfg = EPConfig(
+            provider="vitisai",
+            enable_ep_context=True,
+            provider_options=provider_options,
+            device=device or "auto",
         )
+        return cls(ep_config=ep_cfg)
 
     @classmethod
-    def for_migraphx(cls, quantize: bool | None = None) -> WinMLCompileConfig:
+    def for_migraphx(cls) -> WinMLCompileConfig:
         """Factory for MIGraphX (AMD ROCm GPU) compilation."""
-        if quantize is not None:
-            warnings.warn(
-                "The 'quantize' parameter is deprecated and ignored. "
-                "Use WinMLQuantizationConfig for quantization settings.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return cls(
             ep_config=EPConfig(provider="migraphx", enable_ep_context=False),
         )
@@ -252,23 +242,13 @@ class WinMLCompileConfig:
             "qnn_sdk_root": (
                 str(self.ep_config.qnn_sdk_root) if self.ep_config.qnn_sdk_root else None
             ),
+            "device": self.ep_config.device,
             "validate": self.validate,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WinMLCompileConfig:
-        """Create from dictionary, ignoring unknown and legacy quant fields.
-
-        Legacy quantization fields (quantize, weight_type, activation_type,
-        per_channel, calibration_method, calibration_samples, etc.) are
-        silently ignored for backward compatibility.
-
-        Args:
-            data: Configuration dictionary.
-
-        Returns:
-            WinMLCompileConfig instance.
-        """
+        """Create from dictionary. Unknown keys are ignored."""
         ep_config = EPConfig(
             provider=data.get("execution_provider", "qnn"),
             provider_options=data.get("provider_options", {}),
@@ -276,6 +256,7 @@ class WinMLCompileConfig:
             embed_context=data.get("embed_context", False),
             compiler=data.get("compiler", "ort"),
             qnn_sdk_root=(Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None),
+            device=data.get("device", "auto"),
         )
 
         return cls(

@@ -11,6 +11,7 @@ FR-016-020 (Support classification).
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import tqdm
@@ -22,6 +23,7 @@ from ..models.runtime_checks import (
     PatternRuntime,
     RuntimeTestResult,
 )
+from ..utils.timing_utils import make_timing_logger
 from .runtime_checker_query import RuntimeCheckerQuery
 
 
@@ -32,9 +34,11 @@ if TYPE_CHECKING:
 
     from winml.modelkit.pattern.match import PatternMatchResult
 
+    from ...utils.constants import EPName
     from ..models.onnx_model import ONNXModel
 
 logger = logging.getLogger(__name__)
+_log_timing = make_timing_logger(logger)
 
 # Runtime check result status constants
 RESULT_SUCCESS = "success"
@@ -67,7 +71,7 @@ class RuntimeChecker:
 
     def __init__(
         self,
-        ep: str,
+        ep: EPName,
         device: str,
         model: ONNXModel | None = None,
         patterns: list[PatternMatchResult] | None = None,
@@ -93,16 +97,13 @@ class RuntimeChecker:
         if model is None and patterns is None:
             raise ValueError("At least one of 'model' or 'patterns' must be provided")
 
-        if not ep or not ep.strip():
-            raise ValueError("ep parameter cannot be empty")
-
         if not device or not device.strip():
             raise ValueError("device parameter cannot be empty")
 
         self._model = model
         self._patterns = patterns
 
-        self._ep = ep
+        self._ep: EPName = ep
         self._device = device
 
         # Pattern configuration for reading alternatives from JSON
@@ -111,6 +112,14 @@ class RuntimeChecker:
 
         # Lazy-initialized RuntimeCheckerQuery (cached for reuse)
         self._query: RuntimeCheckerQuery | None = None
+
+        # Pre-compute rule-data availability once at construction time so that
+        # op_support() and subgraph_support() can read the cached result without
+        # repeated filesystem probes.
+        from ..utils.ep_utils import has_any_rule_data, has_rule_data_for_ep
+
+        self._has_rule_data: bool = has_rule_data_for_ep(ep, device)
+        self._has_any_rule_data: bool = has_any_rule_data() if not self._has_rule_data else True
 
         logger.info(
             "Initialized RuntimeChecker for EP=%s, driver=%s",
@@ -141,13 +150,14 @@ class RuntimeChecker:
                 device_type=self._device,
                 model_path=self._model.model_path,
                 dynamic_axis_strict_mode=self._dynamic_axis_strict_mode,
+                node_key_by_node_id=self._model.get_node_key_map(),
             )
 
         return self._query
 
     def op_support(
         self,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
     ) -> list[PatternRuntime]:
@@ -188,7 +198,26 @@ class RuntimeChecker:
 
         logger.info("Checking operator-level runtime support")
 
+        # Emit a diagnostic once if rule data is absent for this EP+device.
+        # Uses the pre-computed flags from __init__ (no repeated filesystem probes).
+        if not self._has_rule_data:
+            if not self._has_any_rule_data:
+                logger.warning(
+                    "No runtime check data found. Follow "
+                    "https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md "
+                    "to set up runtime check files."
+                )
+            else:
+                logger.info(
+                    "No runtime check data for %s on %s — op analysis will return no_data.",
+                    self._ep,
+                    self._device,
+                )
+
+        total_start = time.perf_counter()
         results: list[PatternRuntime] = []
+        run_for_node_total_ms = 0
+        callback_total_ms = 0
 
         # Get all nodes from model
         model_proto = self._model.get_model()
@@ -198,26 +227,42 @@ class RuntimeChecker:
         nodes = model_proto.graph.node
         iterator = nodes if on_node_result else tqdm.tqdm(nodes)
         for node in iterator:
+            node_start = time.perf_counter()
             result = query.run_for_node(
                 node,
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
             )
+            run_for_node_total_ms += int((time.perf_counter() - node_start) * 1000)
             results.append(result)
             if on_node_result:
+                callback_start = time.perf_counter()
                 try:
                     on_node_result(result)
                 except Exception:
                     logger.debug("on_node_result callback failed", exc_info=True)
+                callback_total_ms += int((time.perf_counter() - callback_start) * 1000)
 
         logger.info("Checked %d operators", len(results))
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        _log_timing(
+            "runtime_checker.op_support",
+            ep=self._ep,
+            device=self._device,
+            nodes=len(results),
+            total_ms=total_ms,
+            run_for_node_ms=run_for_node_total_ms,
+            callback_ms=callback_total_ms,
+            overhead_ms=total_ms - run_for_node_total_ms - callback_total_ms,
+            avg_run_for_node_ms=(run_for_node_total_ms // len(results) if results else 0),
+        )
 
         return results
 
     def subgraph_support(
         self,
         patterns: list[PatternMatchResult] | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> list[PatternRuntime]:
         """Check subgraph-level runtime support.
 
@@ -243,19 +288,38 @@ class RuntimeChecker:
                 )
             patterns = self._patterns
 
-        logger.info("Checking subgraph-level runtime support for %d patterns", len(patterns))
+        logger.info(
+            "Checking subgraph pattern support via per-node operator aggregation for %d patterns",
+            len(patterns),
+        )
 
+        total_start = time.perf_counter()
+        query_pattern_total_ms = 0
         results: list[PatternRuntime] = []
         for pattern in patterns:
+            pattern_start = time.perf_counter()
             pattern_runtime = self.query_pattern_support(pattern, run_unknown_op=run_unknown_op)
+            query_pattern_total_ms += int((time.perf_counter() - pattern_start) * 1000)
             results.append(pattern_runtime)
+
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        _log_timing(
+            "runtime_checker.subgraph_support",
+            ep=self._ep,
+            device=self._device,
+            patterns=len(results),
+            total_ms=total_ms,
+            query_pattern_ms=query_pattern_total_ms,
+            overhead_ms=total_ms - query_pattern_total_ms,
+            avg_query_pattern_ms=(query_pattern_total_ms // len(results) if results else 0),
+        )
 
         return results
 
     def query_pattern_support(
         self,
         pattern: PatternMatchResult,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
     ) -> PatternRuntime:
         """Evaluate a single pattern's runtime support + replacements.
 
@@ -323,7 +387,7 @@ class RuntimeChecker:
     def summary(
         self,
         patterns: list[PatternMatchResult] | None = None,
-        run_unknown_op: bool = True,
+        run_unknown_op: bool = False,
         save_node_types: set[str] | None = None,
         on_node_result: Callable | None = None,
     ) -> dict[str, list[PatternRuntime]]:
@@ -342,22 +406,31 @@ class RuntimeChecker:
         """
         logger.info("Generating runtime support summary")
 
+        total_start = time.perf_counter()
         summary_dict: dict[str, list[PatternRuntime]] = {}
+        op_support_ms = 0
+        subgraph_support_ms = 0
+        merge_ms = 0
 
         # Get operator-level support (only if model is available)
         if self._model is not None:
+            op_start = time.perf_counter()
             op_results = self.op_support(
                 run_unknown_op=run_unknown_op,
                 save_node_types=save_node_types,
                 on_node_result=on_node_result,
             )
+            op_support_ms = int((time.perf_counter() - op_start) * 1000)
             summary_dict["op_runtime_check_result"] = op_results
 
         # Get subgraph-level support
+        subgraph_start = time.perf_counter()
         pattern_results = self.subgraph_support(patterns, run_unknown_op=run_unknown_op)
+        subgraph_support_ms = int((time.perf_counter() - subgraph_start) * 1000)
         summary_dict["subgraph_runtime_check_result"] = pattern_results
 
-        # Build node_name -> PatternRuntime from pattern_results
+        merge_start = time.perf_counter()
+        # Build stable node key -> PatternRuntime from pattern_results
         node_to_pattern_runtime: dict[str, PatternRuntime] = {}
         for pr in pattern_results:
             if (
@@ -366,17 +439,17 @@ class RuntimeChecker:
                 and hasattr(pr.pattern_match, "skeleton_match_result")
             ):
                 smr = pr.pattern_match.skeleton_match_result
-                if smr and smr.matched_nodes:
-                    for node in smr.matched_nodes:
-                        node_to_pattern_runtime[node.name] = pr
+                if smr and smr.matched_node_keys:
+                    for node_key in smr.matched_node_keys:
+                        node_to_pattern_runtime[node_key] = pr
 
         # Override matching op_results
         merged = []
         for op_r in summary_dict["op_runtime_check_result"]:
-            node_name = self._get_node_name(op_r)
-            if node_name in node_to_pattern_runtime:
+            node_key = self._get_node_key(op_r)
+            if node_key in node_to_pattern_runtime:
                 # Replace with pattern-level result, keeping original pattern_match for traceability
-                pr = node_to_pattern_runtime[node_name]
+                pr = node_to_pattern_runtime[node_key]
                 merged.append(
                     PatternRuntime(
                         pattern_id=op_r.pattern_id,  # keep original op pattern_id
@@ -389,16 +462,31 @@ class RuntimeChecker:
                 merged.append(op_r)
 
         summary_dict["op_runtime_check_result"] = merged
+        merge_ms = int((time.perf_counter() - merge_start) * 1000)
+
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        _log_timing(
+            "runtime_checker.summary",
+            ep=self._ep,
+            device=self._device,
+            op_results=len(summary_dict.get("op_runtime_check_result", [])),
+            subgraph_results=len(summary_dict.get("subgraph_runtime_check_result", [])),
+            total_ms=total_ms,
+            op_support_ms=op_support_ms,
+            subgraph_support_ms=subgraph_support_ms,
+            merge_ms=merge_ms,
+            overhead_ms=total_ms - op_support_ms - subgraph_support_ms - merge_ms,
+        )
 
         return summary_dict
 
-    def _get_node_name(self, op_runtime: PatternRuntime) -> str:
-        """Extract the original node name from an op-level PatternRuntime."""
+    def _get_node_key(self, op_runtime: PatternRuntime) -> str:
+        """Extract stable node key from an op-level PatternRuntime."""
         pm = op_runtime.pattern_match
         if pm and hasattr(pm, "skeleton_match_result"):
-            nodes = pm.skeleton_match_result.matched_nodes
-            if nodes:
-                return nodes[0].name
+            node_keys = pm.skeleton_match_result.matched_node_keys
+            if node_keys:
+                return node_keys[0]
         return ""
 
     def _make_op_key(self, node: onnx.NodeProto) -> str:

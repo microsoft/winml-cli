@@ -76,6 +76,35 @@ class TestWinMLSessionInstantiation:
                 device="auto",
             )
 
+    def test_ep_name_is_none_before_compile(self, simple_matmul_onnx: Path):
+        """ep_name returns None before compile() since no providers are bound yet."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        assert session.ep_name is None
+
+    def test_ep_name_after_compile(self, simple_matmul_onnx: Path):
+        """ep_name returns the primary provider name once the session is built."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu")
+        session.compile()
+        assert isinstance(session.ep_name, str)
+        assert session.ep_name.endswith("ExecutionProvider")
+
+    def test_explicit_ep_cpu_binds_cpu_execution_provider(self, simple_matmul_onnx: Path):
+        """`--ep cpu` must bind CPUExecutionProvider explicitly.
+
+        Regression: previously the explicit-EP branch carried a
+        `self._ep != "cpu"` exception, so `ep="cpu"` fell through to
+        PREFER_CPU policy. On systems with OpenVINO (or any other
+        CPU-capable EP) registered, ORT then chose OV-on-CPU as the primary
+        and silently ignored the user's `--ep cpu` choice. The fix routes
+        `ep="cpu"` through `add_provider_for_devices` like any other EP, so
+        the resulting session has CPUExecutionProvider as the primary
+        provider regardless of what else is registered.
+        """
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="cpu", ep="cpu")
+        session.compile()
+        assert session.ep_name == "CPUExecutionProvider"
+        assert session._session.get_providers()[0] == "CPUExecutionProvider"
+
 
 class TestWinMLSessionCompilation:
     """Test WinMLSession compilation (EPContext creation)."""
@@ -773,3 +802,44 @@ class TestFindEpDevice:
         with self._patch_devices(devs):
             assert WinMLSession._find_ep_device(device="auto") is None
             assert WinMLSession._find_ep_device(device="auto", ep_name=None) is None
+
+
+@pytest.mark.ep("openvino")
+@pytest.mark.e2e
+class TestOpenVINODeviceRouting:
+    """Integration guard: ep=openvino with device=cpu must compile without error.
+
+    Requires a machine with OpenVINO EP available.  Skipped when OpenVINO is
+    absent.  On NPU-capable machines where the bug manifests this test FAILs
+    until the fix is applied.
+    """
+
+    def test_compile_openvino_cpu_device_succeeds(self, simple_matmul_onnx: Path) -> None:
+        """WinMLSession with ep=openvino and device=cpu must compile successfully."""
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep="openvino",
+        )
+        session.compile()
+        assert session.state == SessionState.COMPILED
+
+    def test_compile_openvino_cpu_provider_not_npu(self, simple_matmul_onnx: Path) -> None:
+        """Session compiled with ep=openvino + device=cpu must not run on NPU.
+
+        If OpenVINO-CPU is unavailable and the code falls back to
+        CPUExecutionProvider, that is acceptable.  What must NOT happen is
+        routing to NPU (QNN/OpenVINO-NPU) when cpu was explicitly requested.
+        """
+        session = WinMLSession(
+            onnx_path=simple_matmul_onnx,
+            device="cpu",
+            ep="openvino",
+        )
+        session.compile()
+
+        providers = session._session.get_providers()
+        npu_providers = {"QNNExecutionProvider", "NvTensorRTRTXExecutionProvider"}
+        assert not npu_providers.intersection(providers), (
+            f"ep=openvino + device=cpu must not select an NPU provider, got: {providers}"
+        )

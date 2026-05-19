@@ -365,7 +365,7 @@ def create_minimal_model(
     # NotWhereFusion requires opset <= 15
     model = helper.make_model(
         graph,
-        producer_name="modelkit_test",
+        producer_name="winmlcli_test",
         opset_imports=[helper.make_opsetid("", builder_config.opset_version)],
     )
     model.ir_version = 8

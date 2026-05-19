@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Build command for ModelKit CLI.
+"""Build command for WinML CLI.
 
 Thin CLI wrapper around build_hf_model() and build_onnx_model() APIs.
 The build module owns the pipeline. This command parses flags, loads config,
@@ -11,7 +11,7 @@ auto-detects ONNX vs HF input, calls the appropriate API, and reports results.
 Usage:
     winml build -c config.json -m microsoft/resnet-50 -o output/
     winml build -c config.json -m model.onnx -o output/
-    winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
+    winml build -c config.json -m bert-base-uncased -o output/ --no-quant
     winml build -c config.json -o output/ --use-cache
     winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild -v
 """
@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPName, EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -60,7 +61,7 @@ def _load_config(
     config_file: str,
     *,
     no_quant: bool = False,
-    no_compile: bool = False,
+    no_compile: bool | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Load WinMLBuildConfig from JSON file with CLI overrides.
 
@@ -69,13 +70,18 @@ def _load_config(
     Args:
         config_file: Path to JSON config file.
         no_quant: If True, set config.quant = None (skip quantization).
-        no_compile: If True, set config.compile = None (skip compilation).
+        no_compile: ``bool | None`` compile override.
+            ``True``  → ``--no-compile``: force skip compilation.
+            ``False`` → ``--compile``: force enable compilation; raises UsageError if
+                        config has no compile section.
+            ``None``  → neither flag passed: inherit compile settings from config file.
 
     Returns:
         Single WinMLBuildConfig for normal mode, or list for module mode.
 
     Raises:
-        click.UsageError: If config file is invalid.
+        click.UsageError: If config file is invalid or --compile is forced
+            without a compile section in the config.
     """
     from ..config import WinMLBuildConfig
 
@@ -91,8 +97,13 @@ def _load_config(
     def _apply_overrides(cfg: WinMLBuildConfig) -> WinMLBuildConfig:
         if no_quant:
             cfg.quant = None
-        if no_compile:
+        if no_compile is True:
             cfg.compile = None
+        elif no_compile is False and cfg.compile is None:
+            raise click.UsageError(
+                "Cannot enable compilation: no compile section found in the config file. "
+                "Re-run `winml config --compile` to generate a compile-enabled config."
+            )
         return cfg
 
     if isinstance(data, dict):
@@ -149,7 +160,7 @@ def _build_modules(
     output_dir: Path,
     *,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
 ) -> list[BuildResult]:
     """Build each module config using init-weight parent for submodule extraction.
@@ -224,8 +235,9 @@ def _build_modules(
     "--config",
     "config_file",
     type=click.Path(exists=True),
-    required=True,
-    help="WinMLBuildConfig JSON file (from winml config)",
+    required=False,
+    default=None,
+    help="WinMLBuildConfig JSON file. If omitted, config is auto-generated from -m.",
 )
 @click.option(
     "-m",
@@ -246,7 +258,7 @@ def _build_modules(
     "--use-cache",
     is_flag=True,
     default=False,
-    help="Use ModelKit global cache (~/.cache/winml/). Mutually exclusive with -o.",
+    help="Use WinML CLI global cache (~/.cache/winml/). Mutually exclusive with -o.",
 )
 @click.option(
     "--rebuild",
@@ -263,19 +275,19 @@ def _build_modules(
 @click.option(
     "--no-compile/--compile",
     "no_compile",
-    default=True,
-    help="Skip compilation (overrides config). Default: skip.",
-)
-@click.option(
-    "--ep",
     default=None,
-    help="Target execution provider for analyzer (e.g., 'qnn'). "
-    "Falls back to compile config EP if not set.",
+    help="Override compilation. --compile forces enable (config must have a compile section). "
+    "--no-compile forces skip. Default: inherit from config; when auto-generating "
+    "config (no -c), compilation is off unless --compile is passed.",
+)
+@cli_utils.ep_option(
+    required=False,
+    optional_message="Falls back to compile config EP if not set.",
 )
 @click.option(
     "--device",
-    default=None,
-    help="Target device for analyzer (e.g., 'NPU', 'GPU'). Default: NPU.",
+    default="auto",
+    help="Target device ('auto', 'npu', 'gpu', 'cpu'). Default: auto-detect.",
 )
 @click.option(
     "--no-analyze",
@@ -309,16 +321,16 @@ def _build_modules(
 @click.pass_context
 def build(
     ctx: click.Context,
-    config_file: str,
+    config_file: str | None,
     model_id: str | None,
     output_dir: str | None,
     use_cache: bool,
     rebuild: bool,
     no_quant: bool,
-    no_compile: bool,
+    no_compile: bool | None,
     no_optimize: bool,
-    ep: str | None,
-    device: str | None,
+    ep: EPNameOrAlias | None,
+    device: str,
     no_analyze: bool,
     max_optim_iterations: int | None,
     trust_remote_code: bool,
@@ -326,8 +338,7 @@ def build(
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
-    Requires a config file generated by 'winml config'. The config file already
-    contains device/precision settings (applied during 'winml config' generation).
+    If -c is omitted, config is auto-generated from the model ID (-m required).
     Specify either --output-dir or --use-cache for artifact destination.
 
     If -m points to an existing .onnx file, the build skips export and runs
@@ -335,20 +346,20 @@ def build(
 
     \b
     Examples:
-        # Full pipeline with pretrained weights
+        # Auto-generate config (no -c needed)
+        winml build -m microsoft/resnet-50 -o output/
+
+        # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
 
         # Build from pre-exported ONNX file
         winml build -c config.json -m model.onnx -o output/
 
-        # Export + optimize only
+        # Export + optimize only (config must have compile=null, or pass --no-compile to force skip)
         winml build -c config.json -m bert-base-uncased -o output/ --no-quant --no-compile
 
-        # Random-weight build (no download)
-        winml build -c config.json -o output/
-
         # Use global cache
-        winml build -c config.json -m microsoft/resnet-50 --use-cache
+        winml build -m microsoft/resnet-50 --use-cache
 
         # Force rebuild
         winml build -c config.json -m microsoft/resnet-50 -o output/ --rebuild
@@ -371,7 +382,7 @@ def build(
         from ..session import WinMLEPRegistry
 
         registry = WinMLEPRegistry.get_instance()
-        candidate_eps = [
+        candidate_eps: list[EPName] = [
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
@@ -387,13 +398,55 @@ def build(
         )
 
     try:
-        # Load config first (needed for both output modes)
-        config_or_configs = _load_config(
-            config_file,
-            no_quant=no_quant,
-            no_compile=no_compile,
-        )
+        # Load or auto-generate config
+        if config_file is not None:
+            config_or_configs = _load_config(
+                config_file,
+                no_quant=no_quant,
+                no_compile=no_compile,
+            )
+        else:
+            if not model_id:
+                raise click.UsageError("-m/--model is required when -c is not provided.")
+            from ..config import generate_build_config
+
+            config_or_configs = generate_build_config(
+                model_id,
+                trust_remote_code=trust_remote_code,
+                device=device,
+            )
+            if no_quant:
+                config_or_configs.quant = None
+            # Auto-generated configs: compile disabled by default unless
+            # --compile was explicitly passed (no_compile=False).
+            if no_compile is None:
+                no_compile = True
+            if no_compile:
+                config_or_configs.compile = None
+
         is_module_mode = isinstance(config_or_configs, list)
+
+        # If --device was explicitly provided, patch compile config and clear
+        # quant for CPU/GPU (neither device uses quantization by default).
+        if cli_utils.is_cli_provided(ctx, "device") and device:
+            from ..compiler.configs import WinMLCompileConfig
+
+            def _patch_device(cfg: WinMLBuildConfig) -> None:
+                from ..config import resolve_quant_compile_config
+
+                resolved_quant, _ = resolve_quant_compile_config(device=device)
+                cfg.quant = resolved_quant
+                if cfg.compile is not None and cfg.compile.ep_config is not None:
+                    provider = cfg.compile.ep_config.provider
+                    patched = WinMLCompileConfig.for_provider(provider, device=device)
+                    if patched is not None:
+                        cfg.compile = patched
+
+            if is_module_mode:
+                for _cfg in config_or_configs:
+                    _patch_device(_cfg)
+            else:
+                _patch_device(config_or_configs)
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
@@ -550,12 +603,12 @@ def build(
 def _run_single_build(
     *,
     config: WinMLBuildConfig,
-    config_file: str,
+    config_file: str | None,
     model_id: str | None,
     resolved_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> None:
@@ -581,9 +634,10 @@ def _run_single_build(
     print_setup(
         console,
         model=model_label,
-        config=Path(config_file).name,
+        config=Path(config_file).name if config_file else "(auto)",
         output=str(resolved_dir),
         source=source,
+        auto=config.auto,
     )
     print_stages_header(console)
 
@@ -631,11 +685,15 @@ def _run_single_build(
         elapsed = time.monotonic() - start_time
         final_path = resolved_dir / "model.onnx"
         if final_path.exists() and stage_timings:
+            config_json = resolved_dir / (
+                f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
+            )
             print_final(
                 console,
                 elapsed,
                 str(final_path),
                 stage_timings=stage_timings,
+                config=str(config_json) if config_json.exists() else None,
             )
     finally:
         logging.captureWarnings(False)
@@ -693,7 +751,7 @@ def _run_optimize_stage(
     config: WinMLBuildConfig,
     model_path: Path,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
@@ -743,7 +801,14 @@ def _run_optimize_stage(
             _current_iter[1] = max_iter
             _header_shown[0] = False
 
-        def _on_ep_start(ep_name: str, operator_counts: dict) -> None:
+        # Resolve "auto" to a concrete device once so that has_rule_data_for_ep
+        # doesn't search for non-existent "*_AUTO_*.parquet" files.
+        from ..analyze.utils.ep_utils import has_rule_data_for_ep
+        from ..sysinfo import resolve_device as _resolve_device
+
+        _resolved_device, _ = _resolve_device(device=device or "auto", ep=ep)
+
+        def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             _current_ep[0] = ep_name
             _ep_counts[ep_name] = {}
             total = sum(operator_counts.values())
@@ -755,7 +820,9 @@ def _run_optimize_stage(
                     f"[bold]Analyzing[/bold] [cyan]{total}[/cyan] nodes  "
                     f"[dim](iter {_current_iter[0]}/{_current_iter[1]})[/dim]"
                 )
-            _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
+            # Skip bar for EPs with no rule data — all results would be 0/0/0
+            if has_rule_data_for_ep(ep_name, _resolved_device or ""):
+                _ep_bars[ep_name] = sl.ep_bar_add(ep_name, total=total)
 
         def _on_node_result(pattern_runtime: Any) -> None:
             ep_name = _current_ep[0]
@@ -801,6 +868,8 @@ def _run_optimize_stage(
             on_reoptimize=_on_reoptimize,
             use_external_data=True,
         )
+        # Mark config as resolved so CI/CD reruns skip the analyzer.
+        config.auto = False
         opt_elapsed = time.monotonic() - t0
 
         if analyze_iters > 0:
@@ -996,7 +1065,7 @@ def _build_hf_pipeline(
     output_dir: Path,
     rebuild: bool,
     cache_key: str | None,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:
@@ -1119,7 +1188,7 @@ def _build_onnx_pipeline(
     onnx_path: Path,
     output_dir: Path,
     rebuild: bool,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
 ) -> list[tuple[str, float | None]] | None:
@@ -1158,6 +1227,8 @@ def _build_onnx_pipeline(
 
     if rebuild:
         for old in output_dir.glob("*.onnx"):
+            old.unlink()
+        for old in output_dir.glob("*.onnx.data"):
             old.unlink()
 
     # Copy input ONNX to output dir

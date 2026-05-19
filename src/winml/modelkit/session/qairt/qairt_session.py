@@ -60,7 +60,10 @@ class WinMLQairtSession(WinMLSession):
         # QAIRT-specific paths
         self._bin_path = self._onnx_path.parent / f"{self._onnx_path.stem}_qnn_ctx_qnn.bin"
         self._bin_info_path = self._onnx_path.parent / f"{self._onnx_path.stem}_cache_info.json"
-        self._ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_qnn_ctx.onnx"
+        # Use the generic `<stem>_ctx.onnx` name so the shared CompileStage
+        # post-processor (compiler/stages/compile.py:_finalize_output) can
+        # locate it without a backend-specific pattern.
+        self._ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_ctx.onnx"
 
         self._qnn_sdk_root = (
             ep_config.qnn_sdk_root if ep_config else None

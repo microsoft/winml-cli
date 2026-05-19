@@ -29,7 +29,11 @@ import ctypes.wintypes as wintypes
 import logging
 import sys
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPName
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +121,7 @@ def enumerate_adapters() -> dict[str, AdapterInfo]:
         0,
     )
     if (status & 0xFFFFFFFF) not in (0, _PDH_MORE_DATA):
-        raise RuntimeError(
-            f"PdhEnumObjectItemsW sizing failed: 0x{status & 0xFFFFFFFF:08X}"
-        )
+        raise RuntimeError(f"PdhEnumObjectItemsW sizing failed: 0x{status & 0xFFFFFFFF:08X}")
 
     counter_buf = ctypes.create_unicode_buffer(counter_size.value)
     instance_buf = ctypes.create_unicode_buffer(instance_size.value)
@@ -135,9 +137,7 @@ def enumerate_adapters() -> dict[str, AdapterInfo]:
         0,
     )
     if not _pdh_ok(status):
-        raise RuntimeError(
-            f"PdhEnumObjectItemsW failed: 0x{status & 0xFFFFFFFF:08X}"
-        )
+        raise RuntimeError(f"PdhEnumObjectItemsW failed: 0x{status & 0xFFFFFFFF:08X}")
 
     instances = _parse_multi_sz(instance_buf, instance_size.value)
 
@@ -201,6 +201,147 @@ def discover_gpu_luids() -> list[str]:
         return []
 
     return [
-        luid for luid, info in adapters.items()
-        if "3D" in info.engine_types and not info.is_npu
+        luid for luid, info in adapters.items() if "3D" in info.engine_types and not info.is_npu
     ]
+
+
+def discover_gpu_luid() -> str | None:
+    """Auto-discover a GPU LUID (adapter with a 3D engine type).
+
+    On hosts with multiple GPUs, returns the first LUID :func:`discover_gpu_luids`
+    yields. Callers that need a specific adapter (e.g. the discrete one on a
+    hybrid laptop) should pair ``--device gpu`` with ``--ep`` so that
+    :func:`resolve_adapter_luid` consults ORT's autoEP metadata instead.
+
+    Returns:
+        GPU LUID string (e.g. ``"0x00000000_0x00015A33"``), or None if no
+        GPU adapter is found.
+    """
+    luids = discover_gpu_luids()
+    if not luids:
+        logger.debug("No GPU adapter found")
+        return None
+    if len(luids) > 1:
+        logger.debug("Multiple GPU adapters found; using %s", luids[0])
+    return luids[0]
+
+
+def _format_pdh_luid(decimal_luid: str) -> str:
+    """Format a decimal LUID string as PDH ``"0xHHHHHHHH_0xHHHHHHHH"``.
+
+    ORT's autoEP exposes ``OrtHardwareDevice.metadata["LUID"]`` as a base-10
+    integer string covering the full 64 bits. PDH counter paths split that
+    into high/low 32-bit halves rendered in upper-case hex. This helper does
+    that conversion (and only that — callers must ensure the input parses
+    as an integer).
+    """
+    v = int(decimal_luid)
+    return f"0x{(v >> 32) & 0xFFFFFFFF:08X}_0x{v & 0xFFFFFFFF:08X}"
+
+
+def resolve_adapter_luid(
+    device_kind: str,
+    ep_name: EPName | None = None,
+) -> str | None:
+    """Resolve the adapter LUID that ORT will bind an EP to.
+
+    Asks ``onnxruntime.get_ep_devices()`` first: ORT's autoEP API publishes
+    ``OrtHardwareDevice.metadata["LUID"]`` for every EP-device pair, which is
+    authoritative for *which* GPU/NPU the inference session ends up using.
+    Falls back to the PDH-only heuristic helpers when ORT can't be imported,
+    when no matching ep_device is registered, or when the matched device has
+    no LUID metadata (some EPs / older ORT builds).
+
+    Args:
+        device_kind: ``"npu"`` or ``"gpu"`` (case-insensitive).
+        ep_name: Full ORT EP name (e.g. ``"QNNExecutionProvider"``) to
+            disambiguate when several EPs cover the same device type. Pass
+            ``None`` to match the first ep_device of the requested type.
+
+    Returns:
+        PDH-formatted LUID (``"0xHHHHHHHH_0xHHHHHHHH"``) or None if neither
+        ORT nor the PDH fallback found a matching adapter.
+    """
+    kind = (device_kind or "").lower()
+    if kind not in ("npu", "gpu"):
+        return None
+
+    luid = _resolve_via_ort(kind, ep_name)
+    if luid is not None:
+        return luid
+
+    # Fallback: PDH-only heuristic discovery.
+    if kind == "npu":
+        return discover_npu_luid()
+    return discover_gpu_luid()
+
+
+def _resolve_via_ort(kind: str, ep_name: EPName | None) -> str | None:
+    r"""Look up the adapter LUID through ORT's autoEP registry.
+
+    Returns None silently on any failure so callers can fall back. ORT-resolved
+    LUIDs are sanity-checked against :func:`enumerate_adapters` because some
+    EPs publish LUIDs that PDH doesn't expose under ``\GPU Engine`` (e.g.
+    drivers that register the adapter only for autoEP); using such a LUID
+    would later raise inside :func:`build_adapter_query`.
+    """
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        return None
+
+    try:
+        ep_devices = ort.get_ep_devices()
+    except Exception:
+        logger.debug("ort.get_ep_devices() failed", exc_info=True)
+        return None
+
+    target_type = getattr(ort.OrtHardwareDeviceType, "NPU" if kind == "npu" else "GPU", None)
+    if target_type is None:
+        return None
+
+    # Lazy PDH enumeration: only probe once, only if ORT yields a candidate.
+    # None = not yet probed; {} = enumeration failed (skip validation).
+    pdh_known: dict[str, AdapterInfo] | None = None
+
+    for ep_dev in ep_devices:
+        try:
+            if ep_name and ep_dev.ep_name != ep_name:
+                continue
+            if ep_dev.device.type != target_type:
+                continue
+            metadata = ep_dev.device.metadata
+            decimal_luid = dict(metadata).get("LUID") if metadata is not None else None
+        except Exception:
+            logger.debug("Skipping malformed ep_device", exc_info=True)
+            continue
+        if not decimal_luid:
+            continue
+        try:
+            formatted = _format_pdh_luid(decimal_luid)
+        except (TypeError, ValueError):
+            logger.debug("Unparseable LUID metadata: %r", decimal_luid)
+            continue
+        if pdh_known is None:
+            try:
+                pdh_known = enumerate_adapters()
+            except Exception:
+                logger.debug("enumerate_adapters() failed; skipping LUID validation", exc_info=True)
+                pdh_known = {}
+        if pdh_known and formatted not in pdh_known:
+            logger.debug(
+                "ORT-resolved %s LUID %s not in PDH enumeration; skipping",
+                kind.upper(),
+                formatted,
+            )
+            continue
+        logger.debug(
+            "Resolved %s LUID via ORT (ep=%s, ep_name=%s): %s",
+            kind.upper(),
+            ep_dev.ep_name,
+            ep_name,
+            formatted,
+        )
+        return formatted
+
+    return None

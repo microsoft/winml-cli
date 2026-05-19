@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Precision resolution for ModelKit.
+"""Precision resolution for WinML CLI.
 
 Pure decision logic: given a device, precision, and available devices,
 produce a PrecisionPolicy. No I/O, no config mutation, no sysinfo dependency.
@@ -13,6 +13,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+
+from ..sysinfo import resolve_eps
+from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
@@ -61,40 +64,21 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     16: "uint16",
 }
 
-# Device -> compile provider mapping (default when no --ep override)
-_DEVICE_TO_PROVIDER: dict[str, str | None] = {
-    "npu": "qnn",
-    "gpu": "dml",
-    "cpu": None,
+
+# EP -> device inference (when --ep is given without --device).
+# Keys are canonical EP names; callers must normalize aliases via
+# `normalize_ep_name()` before lookup. Source of valid EPs is the `EPName`
+# Literal in utils.constants (this dict is the policy layer).
+_EP_TO_DEVICE: dict[EPName, str] = {
+    "QNNExecutionProvider": "npu",
+    "VitisAIExecutionProvider": "npu",
+    "DmlExecutionProvider": "gpu",
+    "MIGraphXExecutionProvider": "gpu",
+    "NvTensorRTRTXExecutionProvider": "gpu",
+    "CUDAExecutionProvider": "gpu",
+    "OpenVINOExecutionProvider": "gpu",
+    "CPUExecutionProvider": "cpu",
 }
-
-
-def get_provider_for_device(device: str) -> str | None:
-    """Get the default compile provider for a resolved device.
-
-    Args:
-        device: Resolved device name ("npu", "gpu", "cpu").
-
-    Returns:
-        Provider name (e.g., "qnn", "dml") or None for CPU.
-    """
-    return _DEVICE_TO_PROVIDER.get(device)
-
-
-# EP -> device inference (when --ep is given without --device)
-_EP_TO_DEVICE: dict[str, str] = {
-    "qnn": "npu",
-    "vitisai": "npu",
-    "dml": "gpu",
-    "migraphx": "gpu",
-    "nv_tensorrt_rtx": "gpu",
-    "cuda": "gpu",
-    "openvino": "gpu",
-    "cpu": "cpu",
-}
-
-# Valid EP names (matches WinMLCompileConfig.for_provider() factories)
-VALID_EPS = frozenset(_EP_TO_DEVICE.keys())
 
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
@@ -189,21 +173,21 @@ class PrecisionPolicy:
         precision: Resolved precision string (e.g., "int8", "w8a16", "fp16").
         weight_type: Quantization weight type, or None for fp32/fp16.
         activation_type: Quantization activation type, or None for fp32/fp16.
-        compile_provider: "qnn", "dml", or None.
+        compile_provider: Canonical EP name (e.g., "QNNExecutionProvider"), or None.
     """
 
     device: str
     precision: str
     weight_type: str | None
     activation_type: str | None
-    compile_provider: str | None
+    compile_provider: EPName | None
 
 
 def resolve_precision(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     available_devices: list[str] | None = None,
     task: str | None = None,
 ) -> PrecisionPolicy:
@@ -245,15 +229,16 @@ def resolve_precision(
             f"Expected one of {sorted(_NAMED_PRECISIONS)} or w{{x}}a{{y}} format (e.g., w8a16)."
         )
 
-    # Validate EP override
+    # Validate EP override (normalize aliases → canonical name before lookup).
+    ep_canonical: EPName | None = None
     if ep is not None:
-        ep = ep.lower()
-        if ep not in VALID_EPS:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(VALID_EPS)}")
+        ep_canonical = normalize_ep_name(ep)
+        if ep_canonical not in _EP_TO_DEVICE:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_TO_DEVICE)}")
         # Infer device from EP when device is "auto"
         if device == "auto":
-            device = _EP_TO_DEVICE[ep]
-            logger.info("Inferred device '%s' from EP '%s'", device, ep)
+            device = _EP_TO_DEVICE[ep_canonical]
+            logger.info("Inferred device '%s' from EP '%s'", device, ep_canonical)
 
     # --- Both auto: no-op, keep config defaults ---
     if device == "auto" and resolved_precision == "auto":
@@ -292,8 +277,14 @@ def resolve_precision(
                 task,
             )
 
-    # EP override takes precedence over device→provider mapping
-    compile_provider = ep if ep else _DEVICE_TO_PROVIDER.get(resolved_device)
+    # ep=CPUExecutionProvider means no EPContext compilation needed.
+    # For all other explicit EPs (canonical names), use ep as the provider.
+    compile_provider: EPName | None =  ep_canonical
+    if not compile_provider:
+        eps = resolve_eps(resolved_device)
+        compile_provider = eps[0] if eps else None
+    if compile_provider == "CPUExecutionProvider":
+        compile_provider = None
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}
     if is_quantized_precision(resolved_precision):

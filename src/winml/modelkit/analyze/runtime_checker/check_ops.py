@@ -15,8 +15,10 @@ Usage:
         python -m winml.modelkit.analyze.runtime_checker.check_ops --all_ops
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import onnxruntime as ort
 from onnx.defs import SchemaError
@@ -28,10 +30,14 @@ from ...pattern.op_input_gen import (
     get_registered_operators,
     get_runtime_checker_op,
 )
+
+
+if TYPE_CHECKING:
+    from ...utils.constants import EPName
 from ...pattern.op_input_gen.qdq_gen import QDQGenerator
 from ...sysinfo import SysInfo
 from ...utils import constants
-from ..utils import CheckResultWriter
+from ..utils import CheckResultWriter, load_case_indices_from_conflict_file
 from ..utils.model_utils import get_op_since_version
 from .ep_checker import EPChecker
 
@@ -60,6 +66,7 @@ def check_ops(
     dynamic_axis_mode: str = "none",
     not_run_start_id: int = 1,
     case_index: str | list[str] | None = None,
+    conflict_file: str | Path | None = None,
 ):
     """Run operators on execution provider.
 
@@ -80,7 +87,15 @@ def check_ops(
         dynamic_axis_mode: Dynamic axis testing mode for input generators.
         not_run_start_id: Initial id used for not_run placeholder reasons (not_run_<id>).
         case_index: Optional hashed signature(s) to filter to specific test cases.
+        conflict_file: Optional absolute path to conflict CSV. When provided,
+            case_index values are loaded from the second CSV column.
     """
+    if conflict_file is not None:
+        if case_index is not None:
+            raise ValueError("--case_index and --conflict_file cannot be used together")
+        case_index = load_case_indices_from_conflict_file(conflict_file)
+        print(f"Loaded {len(case_index)} case_index values from conflict file: {conflict_file}")
+
     sys_info = SysInfo().to_dict()
     domain = ONNXDomain.from_str(opset_domain)
 
@@ -268,7 +283,7 @@ class RTXChecker(EPChecker):
         )
 
 
-def get_ep_checker(ep_name: str, device: str) -> EPChecker:
+def get_ep_checker(ep_name: EPName, device: str) -> EPChecker:
     """Get EPChecker for given execution provider name.
 
     Args:
@@ -395,7 +410,7 @@ def build_parser():
         action="store_true",
         help=(
             "Rerun only failed cases (compile failed or run failed). "
-            "Mutually exclusive with --delta_only and --case_index."
+            "Mutually exclusive with --delta_only, --case_index, and --conflict_file."
         ),
     )
     mode_group.add_argument(
@@ -403,7 +418,7 @@ def build_parser():
         action="store_true",
         help=(
             "Only run new test cases that do not exist in the existing results file. "
-            "Mutually exclusive with --rerun_failed and --case_index."
+            "Mutually exclusive with --rerun_failed, --case_index, and --conflict_file."
         ),
     )
     mode_group.add_argument(
@@ -413,7 +428,17 @@ def build_parser():
         default=None,
         help=(
             "Only process cases matching these case_index hashes. "
-            "Mutually exclusive with --rerun_failed and --delta_only."
+            "Mutually exclusive with --rerun_failed, --delta_only, and --conflict_file."
+        ),
+    )
+    mode_group.add_argument(
+        "--conflict_file",
+        type=str,
+        default=None,
+        help=(
+            "Absolute path to conflict CSV. case_index values are read from "
+            "the second column. Mutually exclusive with --case_index, "
+            "--rerun_failed, and --delta_only."
         ),
     )
     parser.add_argument(
@@ -474,6 +499,7 @@ def run_from_args(args: Any) -> None:
         dynamic_axis_mode="first_axis_dynamic" if args.with_dynamic else "none",
         not_run_start_id=args.not_run_start_id,
         case_index=args.case_index,
+        conflict_file=args.conflict_file,
     )
 
 

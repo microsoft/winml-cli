@@ -24,13 +24,14 @@ Example:
 
 from ..utils.config_utils import merge_config
 from .build import (
+    SubmoduleClassNotFoundError,
     WinMLBuildConfig,
     generate_build_config,
     generate_hf_build_config,
     generate_onnx_build_config,
+    resolve_quant_compile_config,
 )
 from .precision import (
-    VALID_EPS,
     PrecisionPolicy,
     is_quantized_precision,
     resolve_precision,
@@ -39,8 +40,8 @@ from .precision import (
 
 
 __all__ = [
-    "VALID_EPS",
     "PrecisionPolicy",
+    "SubmoduleClassNotFoundError",
     "WinMLBuildConfig",
     "generate_build_config",
     "generate_hf_build_config",
@@ -48,5 +49,6 @@ __all__ = [
     "is_quantized_precision",
     "merge_config",
     "resolve_precision",
+    "resolve_quant_compile_config",
     "resolve_quant_types",
 ]
