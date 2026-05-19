@@ -1,0 +1,21 @@
+return WinMLAutoModel.from_pretrained(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\models\auto.py", line 355, in from_pretrained
+    build_config = generate_hf_build_config(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\config\build.py", line 524, in generate_hf_build_config
+    loader_config, hf_config, resolved_class = resolve_loader_config(
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\loader\config.py", line 176, in resolve_loader_config
+    hf_config = AutoConfig.from_pretrained(
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\models\auto\configuration_auto.py", line 1332, in from_pretrained
+    config_dict, unused_kwargs = PretrainedConfig.get_config_dict(pretrained_model_name_or_path, **kwargs)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\configuration_utils.py", line 662, in get_config_dict
+    config_dict, kwargs = cls._get_config_dict(pretrained_model_name_or_path, **kwargs)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\configuration_utils.py", line 721, in _get_config_dict
+    resolved_config_file = cached_file(
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\utils\hub.py", line 322, in cached_file
+    file = cached_files(path_or_repo_id=path_or_repo_id, filenames=[filename], **kwargs)
+  File "C:\repo\WinML-ModelKit\.venv\lib\site-packages\transformers\utils\hub.py", line 553, in cached_files
+    raise OSError(
+OSError: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files.
+Check your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/transformers/installation#offline-mode'.
+Error: Evaluation failed: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files.
+Check your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/transformers/installation#offline-mode'.

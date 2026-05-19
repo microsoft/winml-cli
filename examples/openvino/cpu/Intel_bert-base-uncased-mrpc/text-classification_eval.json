@@ -1,0 +1,24 @@
+{
+  "model_id": "Intel/bert-base-uncased-mrpc",
+  "task": "text-classification",
+  "device": "cpu",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "nyu-mll/glue",
+    "name": "mrpc",
+    "columns_mapping": {
+      "input_column": "sentence1",
+      "second_input_column": "sentence2"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\cpu\\Intel_bert-base-uncased-mrpc\\text-classification_eval.json",
+  "metrics": {
+    "accuracy": 0.82,
+    "total_time_in_seconds": 44.01962119998643,
+    "samples_per_second": 2.2717142327438027,
+    "latency_in_seconds": 0.4401962119998643
+  }
+}

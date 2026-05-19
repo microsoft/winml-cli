@@ -184,8 +184,22 @@ def main() -> None:
             continue
 
         eval_output = cfg_path.parent / f"{stem}_eval.json"
+        perf_output = cfg_path.parent / f"{stem}_perf.json"
 
-        # Skip if already done
+        # Clean caches between different models
+        if model_slug != prev_model and prev_model is not None:
+            clean_caches()
+        prev_model = model_slug
+
+        trust = needs_trust_remote_code(cfg_path)
+
+        # Run perf first if missing, even when eval was already generated.
+        if not args.eval_only and not perf_output.exists():
+            print(f"[{i}/{len(configs)}] {hf_id} / {stem} perf ...", end=" ", flush=True)
+            perf_status = run_perf(hf_id, cfg_path, perf_output, args.device, args.timeout)
+            print(perf_status)
+
+        # Skip eval if already done or already failed/timed out.
         if eval_output.exists():
             results["SKIP"] += 1
             continue
@@ -195,20 +209,6 @@ def main() -> None:
         if eval_output.with_suffix(".timeout").exists():
             results["SKIP"] += 1
             continue
-
-        # Clean caches between different models
-        if model_slug != prev_model and prev_model is not None:
-            clean_caches()
-        prev_model = model_slug
-
-        trust = needs_trust_remote_code(cfg_path)
-
-        # Run perf (unless --eval-only)
-        perf_output = cfg_path.parent / f"{stem}_perf.json"
-        if not args.eval_only and not perf_output.exists():
-            print(f"[{i}/{len(configs)}] {hf_id} / {stem} perf ...", end=" ", flush=True)
-            perf_status = run_perf(hf_id, cfg_path, perf_output, args.device, args.timeout)
-            print(perf_status)
 
         # Run eval
         print(f"[{i}/{len(configs)}] {hf_id} / {stem} eval ...", end=" ", flush=True)
