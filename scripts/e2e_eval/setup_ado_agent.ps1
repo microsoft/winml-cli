@@ -4,7 +4,7 @@
     with a visible console window.
 
 .DESCRIPTION
-    Creates a scheduled task that runs C:\agents\run.cmd when the current
+    Creates a scheduled task that runs C:\agent\run.cmd when the current
     user logs in. The agent runs interactively so its console window is
     visible on the desktop. The script will self-elevate to admin if needed
     (a UAC prompt will appear).
@@ -57,7 +57,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 
 $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-$Action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$AgentCmd`"" -WorkingDirectory "C:\agents"
+$Action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$AgentCmd`"" -WorkingDirectory "C:\agent"
 $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -76,7 +76,7 @@ Register-ScheduledTask `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Starts the ADO agent (C:\agents\run.cmd) at user logon with visible console" | Out-Null
+    -Description "Starts the ADO agent (C:\agent\run.cmd) at user logon with visible console" | Out-Null
 
 Write-Host "Scheduled task '$TaskName' registered successfully." -ForegroundColor Green
 Write-Host "  Trigger  : At logon of $CurrentUser (console window visible)" -ForegroundColor Cyan
