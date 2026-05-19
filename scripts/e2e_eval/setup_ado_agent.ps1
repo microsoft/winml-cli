@@ -30,7 +30,7 @@ if (-not $isAdmin) {
 }
 
 $TaskName = "ADO_Agent_AutoStart"
-$AgentCmd = "C:\agents\run.cmd"
+$AgentCmd = "C:\agent\run.cmd"
 
 if ($Unregister) {
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
