@@ -646,7 +646,7 @@ def analyze(
         _no_data_eps: set[str] = set()  # EPs with no op rule data
 
         run_unknown_op_for_ep = run_unknown_op
-        if ep == "VitisAIExecutionProvider":
+        if ep_normalized == "VitisAIExecutionProvider":
             run_unknown_op_for_ep = False
             logger.info(
                 "Disabling --run-unknown-op for VitisAIExecutionProvider: "
