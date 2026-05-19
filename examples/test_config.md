@@ -1,5 +1,8 @@
 # How to Test Generated Configs
 
+Before running tests, follow environment setup in the project README.
+
+
 ## Run All Tests
 
 Run perf + eval for all configs under a given EP and hardware:
@@ -16,9 +19,12 @@ The script:
    - `winml perf -m <hf_id> --device <device> -c <config> -o <perf_output>`
    - `winml eval -m <hf_id> --device <device> -c <config> -o <eval_output>`
 3. Adds `--trust-remote-code` automatically when config has `dataset_script`
-4. Skips configs that already have `_perf.json`/`_eval.json`, `_error.txt`, or `.timeout` results
+4. Skips configs that already have `_perf_result.json`/`_eval_result.json`, `_error.txt`, or `.timeout` results
 5. Cleans HF/winml caches between different models to save disk space
 6. Safe to re-run — picks up where it left off
+
+Result files intentionally use `_perf_result.json` and `_eval_result.json` because
+`*_perf.json` is often covered by gitignore patterns and easy to miss in commits.
 
 Options:
 - `--timeout` — Per-model timeout in seconds (default: 1200)
@@ -30,19 +36,19 @@ targets have a single precision-less config:
 ```
 examples/qnn/npu/microsoft_resnet-50/
 ├── image-classification_w8a8_config.json
-├── image-classification_w8a8_perf.json     # perf results
-├── image-classification_w8a8_eval.json     # eval results
+├── image-classification_w8a8_perf_result.json     # perf results
+├── image-classification_w8a8_eval_result.json     # eval results
 ├── image-classification_w8a16_config.json
-├── image-classification_w8a16_perf.json
-├── image-classification_w8a16_eval.json
+├── image-classification_w8a16_perf_result.json
+├── image-classification_w8a16_eval_result.json
 ├── image-classification_fp16_config.json
-├── image-classification_fp16_eval.error.txt  # failure
+├── image-classification_fp16_eval_result.error.txt  # failure
 └── ...
 
 examples/mlas/cpu/microsoft_resnet-50/
 ├── image-classification_config.json
-├── image-classification_perf.json
-└── image-classification_eval.json
+├── image-classification_perf_result.json
+└── image-classification_eval_result.json
 ```
 
 ---
@@ -57,17 +63,17 @@ For each config, it runs the equivalent of:
 # 1. Perf (builds model if needed, then measures latency)
 winml perf -m microsoft/resnet-50 --device npu \
   -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
-  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_perf.json
+  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_perf_result.json
 
 # 2. Eval (uses cached build artifacts from perf)
 winml eval -m microsoft/resnet-50 --device npu \
   -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
-  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_eval.json
+  -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_eval_result.json
 
 # Model with dataset_script (adds --trust-remote-code to eval)
 winml eval -m w11wo/indonesian-roberta-base-posp-tagger --device npu \
   -c examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json \
-  -o examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval.json \
+  -o examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval_result.json \
   --trust-remote-code
 ```
 
@@ -82,17 +88,17 @@ You can also run build/perf/eval separately:
 winml build -m <hf_id> --device npu -c <config_path> -o <output_dir>
 
 # Perf only
-winml perf -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_perf.json
+winml perf -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_perf_result.json
 
 # Eval only
-winml eval -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_eval.json
+winml eval -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_eval_result.json
 ```
 
 ### Result status
 
-- **PASS**: `_eval.json` exists with metrics
-- **FAIL**: `_eval.error.txt` exists with error details
-- **TIMEOUT**: `_eval.timeout` exists (exceeded timeout)
+- **PASS**: `_eval_result.json` exists with metrics
+- **FAIL**: `_eval_result.error.txt` exists with error details
+- **TIMEOUT**: `_eval_result.timeout` exists (exceeded timeout)
 
 ### Eval JSON structure
 
