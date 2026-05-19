@@ -167,6 +167,12 @@ SUPPORTED_DEVICES = [
     "GPU",
     "CPU",
 ]
+
+# Lowercase CLI-facing choices (Click returns the canonical choice string).
+# Keep this separate from ``SUPPORTED_DEVICES`` because runtime internals
+# use uppercase device tokens.
+SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
+
 DEVICE_PRIORITY: dict[str, int] = {
     device_name: idx for idx, device_name in enumerate(SUPPORTED_DEVICES)
 }

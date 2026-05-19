@@ -46,6 +46,19 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _mock_runtime_rule_parquet_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide deterministic non-empty parquet discovery for CLI tests.
+
+    Most tests validate EP/device selection logic and should not depend on
+    machine/environment-specific parquet assets being present on disk.
+    """
+    monkeypatch.setattr(
+        "winml.modelkit.commands.analyze._discover_runtime_rule_parquet_files",
+        lambda: ([Path("runtime_check_rules")], [Path("runtime_check_rules/dummy.parquet")]),
+    )
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
