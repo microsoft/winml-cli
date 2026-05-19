@@ -20,9 +20,9 @@ Coverage layout
   intersection produces an empty list.
 * ``TestCatalogOutputFile`` — ``--output`` / ``-o``: writes valid JSON,
   content matches filtered model list, parent directory is created.
-* ``TestCatalogEpColumnXor`` — Extra column logic: only ``--ep`` shows
-  "Devices" column; only ``--device`` shows "EPs" column; both given →
-  no extra column; neither → no extra column.
+* ``TestCatalogEpAndDeviceCombination`` — Combined EP+device filter
+  behaviour: independent constraints, subset relationships, and the
+  no-filter full-catalog baseline.
 
 All data assertions go through the ``--output`` JSON file rather than
 parsing Rich console output (which is not captured by ``CliRunner`` when
@@ -80,50 +80,7 @@ def _invoke_json(out_path: Path, *args: str) -> list[dict]:
     return data
 
 
-# ---------------------------------------------------------------------------
-# CLI surface
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.e2e
-class TestCatalogCliSurface:
-    """Parser-level behaviours — no model or EP runtime required."""
-
-    def test_help_lists_every_documented_option(self) -> None:
-        result = _invoke("--help")
-        assert result.exit_code == 0
-        for opt in ("--model-type", "--task", "--ep", "--device", "--output"):
-            assert opt in result.output, f"--help missing option {opt!r}"
-
-    def test_no_args_exits_zero_and_returns_all_models(self, tmp_path: Path) -> None:
-        """``winml catalog`` with no filters returns the full catalog."""
-        models = _invoke_json(tmp_path / "all.json")
-        assert len(models) > 0, "Catalog must not be empty"
-
-    def test_invalid_ep_choice_exits_two(self) -> None:
-        result = _invoke("--ep", "totally_unknown_ep_xyz")
-        assert result.exit_code == 2
-        assert "Invalid value for '--ep'" in result.output
-
-    def test_invalid_device_choice_exits_two(self) -> None:
-        result = _invoke("--device", "TPU")
-        assert result.exit_code == 2
-        assert "Invalid value for '--device'" in result.output
-
-    def test_short_flags_accepted(self, tmp_path: Path) -> None:
-        """-t and -k short aliases are accepted by the parser."""
-        models = _invoke_json(tmp_path / "out.json", "-t", "bert", "-k", "text-classification")
-        assert result_is_subset_of_full_catalog(
-            models, model_type="bert", task="text-classification"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Helpers for content assertions
-# ---------------------------------------------------------------------------
-
-
-def result_is_subset_of_full_catalog(
+def _result_is_subset_of_full_catalog(
     models: list[dict],
     *,
     model_type: str | None = None,
@@ -151,11 +108,48 @@ def _all_tasks(models: list[dict]) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# CLI surface
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogCliSurface:
+    """Parser-level behaviours — no model or EP runtime required."""
+
+    def test_help_lists_every_documented_option(self) -> None:
+        result = _invoke("--help")
+        assert result.exit_code == 0
+        for opt in ("--model-type", "--task", "--ep", "--device", "--output"):
+            assert opt in result.output, f"--help missing option {opt!r}"
+
+    def test_no_args_exits_zero_and_returns_all_models(self, tmp_path: Path) -> None:
+        """``winml catalog`` with no filters returns the full catalog."""
+        models = _invoke_json(tmp_path / "all.json")
+        assert len(models) > 0, "Catalog must not be empty"
+
+    def test_invalid_ep_choice_exits_two(self) -> None:
+        result = _invoke("--ep", "totally_unknown_ep_xyz")
+        assert result.exit_code == 2
+        assert "Invalid value for '--ep'" in result.output
+
+    def test_invalid_device_choice_exits_two(self) -> None:
+        result = _invoke("--device", "TPU")
+        assert result.exit_code == 2
+        assert "Invalid value for '--device'" in result.output
+
+    def test_short_flags_accepted(self, tmp_path: Path) -> None:
+        """-t and -k short aliases are accepted by the parser."""
+        models = _invoke_json(tmp_path / "out.json", "-t", "bert", "-k", "text-classification")
+        assert len(models) > 0, "Expected at least one bert/text-classification model"
+        assert _result_is_subset_of_full_catalog(
+            models, model_type="bert", task="text-classification"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Filter by model-type
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
 class TestCatalogFilterModelType:
     def test_known_model_type_returns_only_matching_entries(self, tmp_path: Path) -> None:
         models = _invoke_json(tmp_path / "bert.json", "--model-type", "bert")
@@ -188,6 +182,8 @@ class TestCatalogFilterModelType:
     def test_different_model_types_return_disjoint_sets(self, tmp_path: Path) -> None:
         bert = _invoke_json(tmp_path / "bert.json", "--model-type", "bert")
         vit = _invoke_json(tmp_path / "vit.json", "--model-type", "vit")
+        assert len(bert) > 0, "Expected at least one bert model — add 'bert' to hub_models.json"
+        assert len(vit) > 0, "Expected at least one vit model — add 'vit' to hub_models.json"
         assert _all_model_ids(bert).isdisjoint(_all_model_ids(vit)), (
             "bert and vit filters must not overlap"
         )
@@ -198,7 +194,6 @@ class TestCatalogFilterModelType:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
 class TestCatalogFilterTask:
     def test_known_task_returns_only_matching_entries(self, tmp_path: Path) -> None:
         models = _invoke_json(tmp_path / "textcls.json", "--task", "text-classification")
@@ -225,6 +220,12 @@ class TestCatalogFilterTask:
         """Two distinct tasks that no model can simultaneously satisfy."""
         text_cls = _invoke_json(tmp_path / "text.json", "--task", "text-classification")
         img_cls = _invoke_json(tmp_path / "img.json", "--task", "image-classification")
+        assert len(text_cls) > 0, (
+            "Expected text-classification models — add them to hub_models.json"
+        )
+        assert len(img_cls) > 0, (
+            "Expected image-classification models — add them to hub_models.json"
+        )
         assert _all_model_ids(text_cls).isdisjoint(_all_model_ids(img_cls))
 
 
@@ -238,7 +239,6 @@ def _ep_keys(model: dict) -> set[str]:
     return set((model.get("supported_eps") or {}).keys())
 
 
-@pytest.mark.e2e
 class TestCatalogFilterEp:
     def test_ep_alias_qnn_returns_only_qnn_models(self, tmp_path: Path) -> None:
         models = _invoke_json(tmp_path / "qnn.json", "--ep", "qnn")
@@ -288,7 +288,6 @@ def _supports_device(model: dict, device: str) -> bool:
     return any(device_upper in devs for devs in (model.get("supported_eps") or {}).values())
 
 
-@pytest.mark.e2e
 class TestCatalogFilterDevice:
     def test_device_npu_returns_only_npu_models(self, tmp_path: Path) -> None:
         models = _invoke_json(tmp_path / "npu.json", "--device", "NPU")
@@ -323,7 +322,6 @@ class TestCatalogFilterDevice:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
 class TestCatalogCombinedFilters:
     def test_model_type_and_task_intersection(self, tmp_path: Path) -> None:
         """``--model-type bert --task text-classification`` returns only BERT text-cls models."""
@@ -363,6 +361,7 @@ class TestCatalogCombinedFilters:
             "--model-type",
             "bert",
         )
+        assert len(models) > 0, "Expected at least one bert model with vitisai support"
         for m in models:
             assert m["model_type"].lower() == "bert"
             assert "vitisai" in _ep_keys(m)
@@ -419,7 +418,6 @@ class TestCatalogCombinedFilters:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
 class TestCatalogOutputFile:
     def test_output_flag_writes_valid_json_list(self, tmp_path: Path) -> None:
         out = tmp_path / "catalog.json"
@@ -474,16 +472,16 @@ class TestCatalogOutputFile:
 
 
 # ---------------------------------------------------------------------------
-# EP column XOR logic
+# EP + device combination
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
-class TestCatalogEpColumnXor:
-    """The fifth column ("Devices" or "EPs") only appears when exactly one
-    of --ep / --device is given.  Verified by combining the ``--output``
-    JSON to confirm the underlying data and verifying that the correct
-    EP-centric information is derivable from the filtered results.
+class TestCatalogEpAndDeviceCombination:
+    """Combined EP+device filter behaviour.
+
+    Verifies the underlying filtered model sets rather than Rich column
+    headers (which are not captured by CliRunner when Console is
+    module-level).
     """
 
     def test_only_ep_given_all_models_contain_ep(self, tmp_path: Path) -> None:
