@@ -1,0 +1,22 @@
+{
+  "model_id": "microsoft/trocr-large-printed",
+  "task": "image-to-text",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 200,
+    "shuffle": true,
+    "seed": 42,
+    "path": "priyank-m/SROIE_2019_text_recognition",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\gpu\\microsoft_trocr-large-printed\\image-to-text_eval.json",
+  "metrics": {
+    "cer": 0.0037,
+    "cider": 4.532,
+    "n_samples": 200
+  }
+}
