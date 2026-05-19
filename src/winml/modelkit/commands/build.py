@@ -284,10 +284,11 @@ def _build_modules(
     required=False,
     optional_message="Falls back to compile config EP if not set.",
 )
-@click.option(
-    "--device",
+@cli_utils.device_option(
+    required=False,
     default="auto",
-    help="Target device ('auto', 'npu', 'gpu', 'cpu'). Default: auto-detect.",
+    include_auto=True,
+    optional_message="Default: auto-detect.",
 )
 @click.option(
     "--no-analyze",
@@ -377,25 +378,25 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
-    # If ep unspecified, attempt to auto-select a suitable EP from the registry
+    # If ep unspecified, resolve the target device and pick the highest-priority
+    # EP compatible with it. Avoids selecting an EP that does not match the host
+    # hardware -- analyzing for the wrong EP leaves black nodes that block a
+    # later build targeting the actual device (#663).
+    #
+    # resolve_device() either returns a device with >=1 available EP (auto-mode
+    # walks the priority list, falls back to cpu which is always valid), or
+    # raises ValueError for an explicit device with no compatible EP. So the
+    # following resolve_eps()[0] is safe whenever resolve_device returns.
     if ep is None:
-        from ..session import WinMLEPRegistry
+        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_eps as _resolve_eps
 
-        registry = WinMLEPRegistry.get_instance()
-        candidate_eps: list[EPName] = [
-            "QNNExecutionProvider",
-            "OpenVINOExecutionProvider",
-            "VitisAIExecutionProvider",
-        ]
-        for candidate_ep in candidate_eps:
-            if registry.is_ep_available(candidate_ep):
-                ep = candidate_ep
-                logger.info("EP unspecified for build, auto-selecting: %s", ep)
-                break
-    if ep is None:
-        logger.warning(
-            "EP unspecified for build, and auto-selection failed. Proceeding without EP hints."
-        )
+        try:
+            resolved_device, _ = _resolve_device(device=device)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+        ep = _resolve_eps(resolved_device)[0]
+        logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
         # Load or auto-generate config
