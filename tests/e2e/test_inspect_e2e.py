@@ -5,11 +5,12 @@
 """E2E tests for the inspect CLI command.
 
 Offline tests (no network) use --model-type or --model-class flags and
-cover CLI surface (help, no-args errors, format validation), --list-tasks,
-and JSON structure invariants.
+validate JSON structure invariants without downloading any model weights.
 
 Network tests use real HuggingFace model IDs (-m flag) and validate
 auto-detected task, model_type, and full JSON structure.
+
+CLI surface and --list-tasks tests live in tests/cli/test_inspect_cli.py.
 
 Markers:
     e2e: Full end-to-end test (required to run any test in this file)
@@ -104,129 +105,6 @@ def _assert_common_structure(data: dict, model_id: str, expected_task: str) -> N
     winml = data["winml"]
     assert "winml_class" in winml
     assert "support_level" in winml
-
-
-# ===========================================================================
-# CLI surface — no network required
-# ===========================================================================
-
-
-class TestInspectCliSurface:
-    """CLI surface: help text, no-args errors, format validation."""
-
-    def test_no_args_exits_usage_error(self):
-        """Invoked with no arguments inspect must exit 2 with a UsageError."""
-        result = _run()
-        assert result.exit_code == 2
-        assert "At least one of" in result.output
-
-    def test_help_exits_zero(self):
-        """--help must exit 0."""
-        result = _run("--help")
-        assert result.exit_code == 0
-
-    def test_help_documents_model_flag(self):
-        """-m / --model appears in help text."""
-        result = _run("--help")
-        assert "-m" in result.output
-        assert "--model" in result.output
-
-    def test_help_documents_format_flag(self):
-        """-f / --format appears in help text."""
-        result = _run("--help")
-        assert "-f" in result.output
-        assert "--format" in result.output
-
-    def test_help_documents_model_type_flag(self):
-        """--model-type appears in help text."""
-        result = _run("--help")
-        assert "--model-type" in result.output
-
-    def test_help_documents_model_class_flag(self):
-        """--model-class appears in help text."""
-        result = _run("--help")
-        assert "--model-class" in result.output
-
-    def test_help_documents_list_tasks_flag(self):
-        """--list-tasks appears in help text."""
-        result = _run("--help")
-        assert "--list-tasks" in result.output
-
-    def test_help_documents_verbose_flag(self):
-        """-v / --verbose appears in help text."""
-        result = _run("--help")
-        assert "-v" in result.output
-        assert "--verbose" in result.output
-
-    def test_help_documents_hierarchy_flag(self):
-        """-H / --hierarchy appears in help text."""
-        result = _run("--help")
-        assert "-H" in result.output
-        assert "--hierarchy" in result.output
-
-    def test_invalid_format_exits_nonzero(self):
-        """An unrecognised --format value must exit non-zero."""
-        result = _run("--model-type", "bert", "--format", "xml")
-        assert result.exit_code != 0
-
-    def test_invalid_format_names_bad_choice(self):
-        """Error output mentions the bad format value or 'choice'."""
-        result = _run("--model-type", "bert", "--format", "xml")
-        output_lower = result.output.lower()
-        assert "xml" in output_lower or "choice" in output_lower or "invalid" in output_lower
-
-
-# ===========================================================================
-# --list-tasks — no network required
-# ===========================================================================
-
-
-class TestInspectListTasks:
-    """--list-tasks must exit 0 and print one task per line."""
-
-    def test_list_tasks_exits_zero(self):
-        """--list-tasks should not require a model and must exit 0."""
-        result = _run("--list-tasks")
-        assert result.exit_code == 0, f"--list-tasks exited {result.exit_code}:\n{result.output}"
-
-    def test_list_tasks_output_is_nonempty(self):
-        """--list-tasks must print at least one task."""
-        result = _run("--list-tasks")
-        assert result.exit_code == 0
-        lines = [line.strip() for line in result.output.splitlines() if line.strip()]
-        assert len(lines) > 0, "Expected at least one task line"
-
-    def test_list_tasks_all_lines_are_strings(self):
-        """Every line printed by --list-tasks must be a non-empty string."""
-        result = _run("--list-tasks")
-        assert result.exit_code == 0
-        for line in result.output.splitlines():
-            if line.strip():
-                assert isinstance(line.strip(), str)
-                assert len(line.strip()) > 0
-
-    def test_list_tasks_includes_known_tasks(self):
-        """Output must include ModelKit-registered tasks."""
-        result = _run("--list-tasks")
-        assert result.exit_code == 0
-        tasks = {line.strip() for line in result.output.splitlines() if line.strip()}
-        assert "feature-extraction" in tasks
-        assert "mask-generation" in tasks
-
-    def test_list_tasks_no_model_flag_needed(self):
-        """--list-tasks works without -m, --model-type, or --model-class."""
-        result = _run("--list-tasks")
-        # exit 0 means no UsageError was raised about missing model
-        assert result.exit_code == 0
-
-    def test_list_tasks_overrides_missing_model_requirement(self):
-        """--list-tasks must not require any model argument."""
-        # Confirm that without --list-tasks we'd get exit 2
-        no_model_result = _run()
-        assert no_model_result.exit_code == 2
-        # With --list-tasks we must get exit 0
-        result = _run("--list-tasks")
-        assert result.exit_code == 0
 
 
 # ===========================================================================
