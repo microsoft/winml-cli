@@ -23,8 +23,7 @@ _DEVICE_TO_EPS = {
 
 @pytest.fixture(autouse=True)
 def mock_functions():
-    """Mock resolve_eps to avoid hardware detection.
-    """
+    """Mock resolve_eps to avoid hardware detection."""
     with (
         patch(
             "winml.modelkit.commands.compile.resolve_eps",
@@ -219,6 +218,12 @@ class TestCompileDeviceDisplayLabel:
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             patch("winml.modelkit.compiler.WinMLCompileConfig"),
+            # Make resolve_device succeed under the test runner's empty EP env
+            # (it's the display label we're testing here, not EP resolution).
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset({"QNNExecutionProvider"}),
+            ),
         ):
             result = CliRunner().invoke(
                 compile, ["-m", str(model_file), "--device", "gpu", "--ep", "qnn"]
