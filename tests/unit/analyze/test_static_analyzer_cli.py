@@ -550,6 +550,120 @@ class TestAnalyzeCommandOutput:
         assert result.exit_code == 2
         assert not output_file.exists()
 
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_output_creates_parent_dirs(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Test that --output creates missing parent directories."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+        output_file = tmp_path / "nested" / "dir" / "results.json"
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        assert not output_file.parent.exists()
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--output",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert output_file.exists()
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_optim_config_to_file(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Test that --optim-config saves optimization config to file."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+        config_file = tmp_path / "optim.json"
+
+        mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
+            "ep": "QNNExecutionProvider"
+        }
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--optim-config",
+                str(config_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert config_file.exists()
+        content = json.loads(config_file.read_text())
+        assert "ep" in content
+
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_optim_config_creates_parent_dirs(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """Test that --optim-config creates missing parent directories."""
+        model_file = tmp_path / "test.onnx"
+        model_file.write_bytes(b"dummy")
+        config_file = tmp_path / "nested" / "dir" / "optim.json"
+
+        mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
+            "ep": "QNNExecutionProvider"
+        }
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
+
+        assert not config_file.parent.exists()
+
+        result = runner.invoke(
+            analyze,
+            [
+                "--model",
+                str(model_file),
+                "--ep",
+                "QNNExecutionProvider",
+                "--device",
+                "NPU",
+                "--optim-config",
+                str(config_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert config_file.exists()
+
 
 class TestAnalyzeCommandIntegration:
     """Integration tests for analyze command."""
