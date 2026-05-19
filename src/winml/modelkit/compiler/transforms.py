@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     import onnx
 
+    from ..utils.constants import EPAlias
+
 
 class TransformError(Exception):
     """Raised when a graph transform fails."""
@@ -27,7 +29,7 @@ class GraphTransform(Protocol):
     - Should be idempotent (applying twice = applying once)
     """
 
-    def applies_to(self, ep: str) -> bool:
+    def applies_to(self, ep: EPAlias) -> bool:
         """Check if this transform applies to the given EP."""
         ...
 
@@ -44,7 +46,7 @@ def register_transform(transform: GraphTransform) -> None:
     _TRANSFORMS.append(transform)
 
 
-def get_transforms_for_ep(ep: str) -> list[GraphTransform]:
+def get_transforms_for_ep(ep: EPAlias) -> list[GraphTransform]:
     """Return all registered transforms that apply to the given EP."""
     return [t for t in _TRANSFORMS if t.applies_to(ep)]
 

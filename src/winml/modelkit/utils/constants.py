@@ -87,7 +87,7 @@ EP_ALIAS_NAMES: tuple[EPAlias, ...] = get_args(EPAlias)
 ALL_EP_NAMES = list(SUPPORTED_EPS) + list(EP_ALIASES.keys())
 
 
-def normalize_ep_name(ep: EPNameOrAlias | str | None) -> EPName | None:
+def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     """Normalize EP name from shorthand to full name.
 
     Converts EP aliases to their full names (case-insensitive).
