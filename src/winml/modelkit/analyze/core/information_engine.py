@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     import onnx
 
+    from ...utils.constants import EPName
     from ..models.information import Action, Information
     from ..models.onnx_model import ONNXModel
     from ..models.runtime_checks import PatternRuntime
@@ -67,7 +68,7 @@ class InformationEngine:
         self,
         op_runtime_results: list[PatternRuntime],
         subgraph_runtime_results: list[PatternRuntime],
-        ep: str,
+        ep: EPName,
         model: ONNXModel,
         device: str,
         rules_dir: Path | None = None,
@@ -107,7 +108,7 @@ class InformationEngine:
 
         self._op_runtime_results = op_runtime_results
         self._subgraph_runtime_results = subgraph_runtime_results
-        self._ep = ep
+        self._ep: EPName = ep
         self._model = model
         self._device = device
 
@@ -120,10 +121,10 @@ class InformationEngine:
         # Infer IHV from EP name for per-IHV rule loading
         infer_ihv_start = time.perf_counter()
         try:
-            ihv_type = infer_ihv_from_ep_name(ep)
-            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, ep)
+            ihv_type = infer_ihv_from_ep_name(self._ep)
+            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, self._ep)
         except ValueError as e:
-            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", ep, e)
+            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", self._ep, e)
             ihv_type = None
         infer_ihv_ms = int((time.perf_counter() - infer_ihv_start) * 1000)
 
@@ -154,7 +155,7 @@ class InformationEngine:
             init_doc_checker_start = time.perf_counter()
             self._doc_checker = DocConstraintChecker(
                 model_proto,
-                ep,
+                self._ep,
                 self._device,
                 skip_shape_inference=skip_inference,
                 node_key_by_node_id=self._model.get_node_key_map(),

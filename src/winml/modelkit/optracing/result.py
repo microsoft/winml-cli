@@ -3,12 +3,15 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 """Op-tracing result dataclasses for structured profiling output."""
+
 from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
+
+from ..utils.constants import EPName
 
 
 @dataclass
@@ -60,11 +63,9 @@ class OpTraceResult:
     operators: list[OperatorMetrics] = field(default_factory=list)
 
     # Optional metadata
-    ep: str = ""
+    ep: EPName | Literal[""] = ""
     tracing_backend: str = ""
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     num_samples: int = 0
 
     # Summary (model-level aggregates)
