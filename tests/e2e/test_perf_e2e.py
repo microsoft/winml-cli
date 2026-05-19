@@ -4,12 +4,10 @@
 # --------------------------------------------------------------------------
 """E2E tests for the perf CLI command.
 
-Tests ONNX direct benchmark using a generated ONNX model fixture.
-The perf command uses @click.pass_context and requires obj={}.
-
-Note: HuggingFace model benchmarks are not tested here because they
-require the full build pipeline (WinMLAutoModel). We only test the
-ONNX direct path which creates a WinMLSession directly.
+A single ``_PerfBenchmarkSuite`` base class defines every test; each concrete
+subclass overrides the ``model_arg`` fixture to point at a different model
+source (a generated ONNX file or a HuggingFace model id). The perf command
+uses @click.pass_context and requires obj={}.
 
 Markers:
     e2e: Full end-to-end test
@@ -23,7 +21,7 @@ Running these tests:
     uv run pytest -m e2e tests/e2e/test_perf_e2e.py
 
     # Run a single test
-    uv run pytest -m e2e tests/e2e/test_perf_e2e.py::TestPerfONNXDirect::test_onnx_benchmark_cpu
+    uv run pytest -m e2e tests/e2e/test_perf_e2e.py::TestPerfONNXDirect::test_benchmark_cpu
 
     # Verbose output (per-test pass/skip lines)
     uv run pytest -m e2e -v tests/e2e/test_perf_e2e.py
@@ -75,15 +73,19 @@ def _require_npu() -> None:
 
 
 # ===========================================================================
-# ONNX direct benchmark
+# Shared test suite
 # ===========================================================================
 
 
-class TestPerfONNXDirect:
-    """Benchmark a pre-exported ONNX file directly via WinMLSession."""
+class _PerfBenchmarkSuite:
+    """Shared perf-CLI tests. Subclasses override ``model_arg`` fixture."""
 
-    def test_onnx_benchmark_cpu(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark on CPU with minimal iterations.
+    @pytest.fixture
+    def model_arg(self) -> str:
+        raise NotImplementedError("Subclasses must override model_arg fixture")
+
+    def test_benchmark_cpu(self, tmp_path: Path, model_arg: str):
+        """Benchmark on CPU with minimal iterations.
 
         Uses --device cpu --iterations 3 --warmup 1 for speed.
         Verifies JSON output file is created with expected schema.
@@ -95,7 +97,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--device",
                 "cpu",
                 "--iterations",
@@ -143,7 +145,7 @@ class TestPerfONNXDirect:
         # Verify raw samples count matches iterations
         assert len(data["raw_samples_ms"]) == 3
 
-    def test_onnx_benchmark_verbose(self, tmp_path: Path, onnx_model_path: Path):
+    def test_benchmark_verbose(self, tmp_path: Path, model_arg: str):
         """Benchmark with --verbose should succeed and show debug output."""
         output_file = tmp_path / "verbose_result.json"
 
@@ -152,7 +154,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--device",
                 "cpu",
                 "--iterations",
@@ -170,8 +172,8 @@ class TestPerfONNXDirect:
         assert output_file.exists()
         assert "Results saved to" in result.output
 
-    def test_onnx_benchmark_gpu_monitor(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark on GPU with --monitor.
+    def test_benchmark_gpu_monitor(self, tmp_path: Path, model_arg: str):
+        """Benchmark on GPU with --monitor.
 
         Requires a real GPU discoverable via PDH. Verifies the JSON output
         contains the hw_monitor section produced by HWMonitor.
@@ -185,7 +187,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--device",
                 "gpu",
                 "--iterations",
@@ -211,8 +213,8 @@ class TestPerfONNXDirect:
         assert data["hw_monitor"]["adapter_luid"] is not None
         assert data["hw_monitor"]["gpu"]["mean_pct"] > 0
 
-    def test_onnx_benchmark_npu_monitor(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark on NPU with --monitor.
+    def test_benchmark_npu_monitor(self, tmp_path: Path, model_arg: str):
+        """Benchmark on NPU with --monitor.
 
         Requires a real NPU discoverable via PDH. Verifies the JSON output
         contains the hw_monitor section produced by HWMonitor.
@@ -226,7 +228,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--device",
                 "npu",
                 "--iterations",
@@ -252,8 +254,8 @@ class TestPerfONNXDirect:
         assert data["hw_monitor"]["adapter_luid"] is not None
         assert data["hw_monitor"]["npu"]["mean_pct"] > 0
 
-    def test_onnx_benchmark_auto(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark with --device auto.
+    def test_benchmark_auto(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --device auto.
 
         Auto resolves to whatever is available on the host and should always
         succeed (CPU is the universal fallback).
@@ -265,7 +267,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--device",
                 "auto",
                 "--iterations",
@@ -287,8 +289,8 @@ class TestPerfONNXDirect:
         assert data["benchmark_info"]["ep"] != "CPUExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
 
-    def test_onnx_benchmark_ep_qnn(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark with --ep qnn.
+    def test_benchmark_ep_qnn(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep qnn.
 
         Skipped if QNNExecutionProvider is not available on the host.
         """
@@ -301,7 +303,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--ep",
                 "qnn",
                 "--iterations",
@@ -321,8 +323,8 @@ class TestPerfONNXDirect:
         assert data["benchmark_info"]["ep"] == "QNNExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
 
-    def test_onnx_benchmark_ep_qnn_device_gpu(self, tmp_path: Path, onnx_model_path: Path):
-        """ONNX direct benchmark with --ep qnn and --device gpu.
+    def test_benchmark_ep_qnn_device_gpu(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep qnn and --device gpu.
 
         --ep overrides the device-to-provider mapping, so the session should
         bind to QNN even though the requested device is GPU. Skipped if QNN
@@ -338,7 +340,7 @@ class TestPerfONNXDirect:
             perf,
             [
                 "-m",
-                str(onnx_model_path),
+                model_arg,
                 "--device",
                 "gpu",
                 "--ep",
@@ -360,3 +362,69 @@ class TestPerfONNXDirect:
         assert data["benchmark_info"]["device"] == "gpu"
         assert data["benchmark_info"]["ep"] == "QNNExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
+
+
+# ===========================================================================
+# Concrete suites
+# ===========================================================================
+
+
+class TestPerfONNXDirect(_PerfBenchmarkSuite):
+    """Benchmark a pre-exported ONNX file directly via WinMLSession."""
+
+    @pytest.fixture
+    def model_arg(self, onnx_model_path: Path) -> str:
+        return str(onnx_model_path)
+
+
+class TestPerfHuggingFace(_PerfBenchmarkSuite):
+    """Benchmark a HuggingFace model via the full WinMLAutoModel pipeline."""
+
+    @pytest.fixture
+    def model_arg(self) -> str:
+        return "microsoft/resnet-50"
+
+
+# ===========================================================================
+# Per-module benchmark
+# ===========================================================================
+
+
+class TestPerfModule:
+    """Per-module benchmark via --module on a HuggingFace model."""
+
+    def test_module_benchmark_cpu(self, tmp_path: Path):
+        """Per-module benchmark on CPU for ResNetStage submodules of resnet-50."""
+        output_file = tmp_path / "perf_module.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--module",
+                "ResNetStage",
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists(), f"Output file not created: {output_file}"
+        data = json.loads(output_file.read_text())
+
+        assert data["model_id"] == "microsoft/resnet-50"
+        assert data["module_class"] == "ResNetStage"
+        assert data["iterations"] == 3
+        assert data["warmup"] == 1
+        assert data["instance_count"] >= 1
+        assert len(data["instances"]) == data["instance_count"]
