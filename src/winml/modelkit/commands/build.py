@@ -120,6 +120,49 @@ def _load_config(
     raise click.UsageError(f"Config must be a JSON object or array, got {type(data).__name__}")
 
 
+def _validate_loader_task_for_model(
+    config_or_configs: WinMLBuildConfig | list[WinMLBuildConfig],
+    model_id: str | None,
+    *,
+    trust_remote_code: bool = False,
+) -> None:
+    """Validate ``config.loader.task`` against ``--model`` upfront.
+
+    Runs after config load but before any banner prints or model download.
+    Skips silently when:
+        - ``model_id`` is not provided (config-only flows),
+        - ``model_id`` points to an ``.onnx`` file (ONNX build path),
+        - the config has no ``loader.task`` set (will be flagged later if
+          required, or auto-detected),
+        - the architecture/task lookup degrades gracefully inside
+          ``validate_task_for_model``.
+
+    Raises:
+        click.UsageError: If any config's ``loader.task`` is not supported
+            by the model architecture. Exits 2 before the Setup banner.
+    """
+    if not model_id:
+        return
+    if Path(model_id).suffix == ".onnx":
+        return
+
+    from ..loader import validate_task_for_model
+
+    configs = config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
+    for cfg in configs:
+        task = cfg.loader.task if cfg.loader else None
+        if not task:
+            continue
+        try:
+            validate_task_for_model(
+                task,
+                model_id,
+                trust_remote_code=trust_remote_code,
+            )
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+
+
 def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Module:
     """Instantiate parent model with init weights for submodule extraction.
 
@@ -404,6 +447,17 @@ def build(
                 config_file,
                 no_quant=no_quant,
                 no_compile=no_compile,
+            )
+            # Validate that ``config.loader.task`` is compatible with --model
+            # BEFORE the Setup banner prints and BEFORE any model download.
+            # Catches the "text-generation task on a vision model" class of
+            # misuse with a one-line actionable error instead of a cryptic
+            # ``AutoModelForCausalLM`` traceback from inside the build
+            # pipeline.
+            _validate_loader_task_for_model(
+                config_or_configs,
+                model_id,
+                trust_remote_code=trust_remote_code,
             )
         else:
             if not model_id:

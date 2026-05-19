@@ -11,6 +11,7 @@ Public API:
     normalize_task               - Map task aliases to canonical names
     get_task_abbrev              - Abbreviated task name for cache keys
     get_supported_tasks          - List ONNX-exportable tasks for a model type
+    validate_task_for_model      - Verify task ↔ model architecture compatibility
 
 Internal:
     _resolve_model_class_from_config  - Extract + import class from config.architectures
@@ -559,3 +560,84 @@ def get_supported_tasks(
         return list(tasks.keys()) if isinstance(tasks, dict) else list(tasks)
     except Exception:
         return []
+
+
+def validate_task_for_model(
+    task: str,
+    model_id: str,
+    *,
+    trust_remote_code: bool = False,
+    library_name: str = "transformers",
+) -> None:
+    """Validate that *task* is supported for *model_id*'s architecture.
+
+    Loads only the HuggingFace ``config.json`` (no model weights), resolves
+    the architecture's ``model_type``, and checks that *task* (or its
+    normalized synonym) is in the list of tasks supported by
+    ``TasksManager`` for that model type.
+
+    Designed to be called from command-entry layers (e.g. ``winml build``,
+    ``winml export``) so that an incompatible ``loader.task`` /
+    ``--model`` combination fails fast with a one-line, actionable error
+    instead of crashing mid-pipeline with a cryptic upstream
+    ``AutoModelForCausalLM`` traceback.
+
+    If the model_type cannot be determined or ``TasksManager`` does not
+    advertise any supported tasks for it (e.g. brand-new architectures
+    or non-transformers libraries), validation is skipped to avoid false
+    positives — downstream errors will still surface if the combination
+    is truly unsupported.
+
+    Args:
+        task: User-provided task name (e.g. from ``config.loader.task``
+            or ``--task``).
+        model_id: HuggingFace model ID or local path.
+        trust_remote_code: Whether to trust remote/custom code when
+            loading the HF config.
+        library_name: Source library for TasksManager lookup
+            (default: ``"transformers"``).
+
+    Raises:
+        ValueError: If *task* is not in the supported-task list for the
+            model's architecture. The message includes the offending
+            task, the model id, the resolved architecture, and the list
+            of supported tasks.
+    """
+    if not task or not model_id:
+        return
+
+    try:
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+    except Exception:
+        # Config load failed (network, auth, malformed config, ...).
+        # Don't mask the real error with a validation false-positive;
+        # let the build pipeline surface the underlying issue.
+        return
+
+    model_type = getattr(hf_config, "model_type", None)
+    if not model_type:
+        return
+
+    supported = get_supported_tasks(model_type, library_name=library_name)
+    if not supported:
+        # TasksManager doesn't advertise tasks for this architecture
+        # (custom / very new / non-transformers). Skip rather than
+        # block a legitimate build.
+        return
+
+    if task in supported:
+        return
+    normalized = normalize_task(task)
+    if normalized in supported:
+        return
+
+    raise ValueError(
+        f"config.loader.task={task!r} is not supported for --model {model_id} "
+        f"(architecture: {model_type}).\n"
+        f"Supported tasks: {', '.join(supported)}."
+    )

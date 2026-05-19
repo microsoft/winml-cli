@@ -32,6 +32,7 @@ from .task import (
     get_task_abbrev,
     normalize_task,
     resolve_task_and_model_class,
+    validate_task_for_model,
 )
 
 
@@ -45,6 +46,7 @@ __all__ = [
     "resolve_hf_model_class",
     "resolve_loader_config",
     "resolve_task_and_model_class",
+    "validate_task_for_model",
 ]
 
 

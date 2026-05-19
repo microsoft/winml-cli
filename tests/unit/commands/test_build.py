@@ -338,6 +338,83 @@ class TestBuildArgValidation:
         assert result.exit_code != 0
         assert "object" in result.output.lower()
 
+    def test_incompatible_loader_task_for_model(self, tmp_path: Path):
+        """``config.loader.task`` incompatible with --model must fail upfront.
+
+        Verifies the upfront task↔architecture validator: a config with
+        ``loader.task='text-generation'`` paired with a vision model
+        like ``microsoft/resnet-50`` must surface a one-line UsageError
+        that names the offending task, the model id, the resolved
+        architecture, and the supported task list — BEFORE any download
+        or Setup banner. See issue: "Config loader.task is not validated
+        against --model".
+        """
+        cfg = _make_minimal_config_file(tmp_path, task="text-generation")
+
+        mock_cfg = MagicMock()
+        mock_cfg.model_type = "resnet"
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_cfg),
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["image-classification", "image-feature-extraction"],
+            ),
+            patch(
+                "winml.modelkit.loader.task.normalize_task",
+                side_effect=lambda t: t,
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-c",
+                    cfg,
+                    "-m",
+                    "microsoft/resnet-50",
+                    "-o",
+                    str(tmp_path / "out"),
+                ]
+            )
+        assert result.exit_code != 0
+        # One-line actionable error naming all relevant pieces:
+        assert "text-generation" in result.output
+        assert "microsoft/resnet-50" in result.output
+        assert "resnet" in result.output
+        assert "image-classification" in result.output
+
+    def test_compatible_loader_task_passes_validation(
+        self,
+        tmp_path: Path,
+        mock_build_api: MagicMock,
+    ):
+        """A ``loader.task`` supported by the model architecture must NOT block the build.
+
+        Regression guard: the upfront validator must never reject a
+        legitimate task/model pair.
+        """
+        cfg = _make_minimal_config_file(tmp_path, task="image-classification")
+
+        mock_cfg = MagicMock()
+        mock_cfg.model_type = "resnet"
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_cfg),
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["image-classification", "image-feature-extraction"],
+            ),
+        ):
+            result = _invoke(
+                [
+                    "-c",
+                    cfg,
+                    "-m",
+                    "microsoft/resnet-50",
+                    "-o",
+                    str(tmp_path / "out"),
+                ]
+            )
+        assert result.exit_code == 0, f"Build failed: {result.output}"
+        assert mock_build_api.called
+
     def test_help_lists_all_options(self):
         """``--help`` must surface every behavior-bearing option."""
         result = _invoke(["--help"])
