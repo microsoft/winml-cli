@@ -271,6 +271,15 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
                 f"--ep {ep} cannot run on --device {resolved_device}. "
                 f"{canonical} supports: {', '.join(supported)}."
             )
+        from ..session.ep_registry import WinMLEPRegistry
+
+        registry = WinMLEPRegistry.get_instance()
+        if not registry.is_ep_available(canonical):
+            available = [e for e in EP_SUPPORTED_DEVICES if registry.is_ep_available(e)]
+            raise click.UsageError(
+                f"--ep {ep} ({canonical}) is not registered on this host. "
+                f"Available EPs: {', '.join(available) if available else 'none'}."
+            )
         return canonical
 
     eps = resolve_eps(resolved_device)

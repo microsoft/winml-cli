@@ -15,11 +15,30 @@ ordered tuple per EP whose first element is the canonical default device.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import click
 import pytest
 from click.testing import CliRunner
+
+
+@pytest.fixture(autouse=True)
+def _mock_ep_registry_available():
+    """Default: ``WinMLEPRegistry`` reports every EP as available.
+
+    The compile CLI's ``_resolve_compile_provider`` consults the registry to
+    reject EPs not registered on the host. Stub it to ``True`` so the policy
+    tests in this file don't need to fabricate a registry; the negative-path
+    tests in ``TestCompileEpAvailability`` patch the singleton locally to
+    override this default.
+    """
+    mock_registry = MagicMock()
+    mock_registry.is_ep_available.return_value = True
+    with patch(
+        "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+        return_value=mock_registry,
+    ):
+        yield
 
 
 # =============================================================================
@@ -113,6 +132,74 @@ class TestCompileIncompatiblePair:
         from winml.modelkit.commands.compile import _resolve_compile_provider
 
         assert _resolve_compile_provider(device, ep) == expected
+
+
+# =============================================================================
+# Compile resolver -- EP host-availability check
+# =============================================================================
+
+
+@pytest.fixture
+def mock_registry_qnn_only():
+    """``WinMLEPRegistry`` mock: only QNN is advertised by the host.
+
+    Overrides the module-level ``_mock_ep_registry_available`` autouse fixture
+    so we can exercise the negative path of the resolver's availability check.
+    """
+    mock_registry = MagicMock()
+    mock_registry.is_ep_available.side_effect = lambda ep: ep == "QNNExecutionProvider"
+    with patch(
+        "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+        return_value=mock_registry,
+    ):
+        yield mock_registry
+
+
+class TestCompileEpAvailability:
+    """``_resolve_compile_provider`` must reject EPs not registered on the
+    current host (regression for the review on PR #641: silent fallback to
+    QNN/CPU when the requested EP isn't installed)."""
+
+    def test_unavailable_ep_rejected(self, mock_registry_qnn_only) -> None:
+        from winml.modelkit.commands.compile import _resolve_compile_provider
+
+        with pytest.raises(click.UsageError) as exc:
+            _resolve_compile_provider("gpu", "openvino")
+        msg = str(exc.value)
+        assert "is not registered on this host" in msg
+        # Lists what IS available so the user sees the recovery path.
+        assert "QNNExecutionProvider" in msg
+
+    def test_no_eps_available_lists_none(self) -> None:
+        """When the host advertises no compile EP, the error lists ``none``."""
+        from winml.modelkit.commands.compile import _resolve_compile_provider
+
+        mock_registry = MagicMock()
+        mock_registry.is_ep_available.return_value = False
+        with (
+            patch(
+                "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+                return_value=mock_registry,
+            ),
+            pytest.raises(click.UsageError) as exc,
+        ):
+            _resolve_compile_provider("npu", "qnn")
+        assert "is not registered on this host" in str(exc.value)
+        assert "none" in str(exc.value)
+
+    def test_available_ep_returns_canonical(self, mock_registry_qnn_only) -> None:
+        from winml.modelkit.commands.compile import _resolve_compile_provider
+
+        assert _resolve_compile_provider("npu", "qnn") == "QNNExecutionProvider"
+
+    def test_device_conflict_wins_over_availability(self, mock_registry_qnn_only) -> None:
+        """Incompatible ``(device, ep)`` is reported before host availability —
+        fixing host availability alone wouldn't make the pair valid."""
+        from winml.modelkit.commands.compile import _resolve_compile_provider
+
+        with pytest.raises(click.UsageError) as exc:
+            _resolve_compile_provider("cpu", "qnn")
+        assert "cannot run on" in str(exc.value)
 
 
 # =============================================================================

@@ -23,11 +23,24 @@ _DEVICE_TO_EPS = {
 
 @pytest.fixture(autouse=True)
 def mock_functions():
-    """Mock resolve_eps to avoid hardware detection."""
+    """Mock ``resolve_eps`` + ``WinMLEPRegistry`` to avoid hardware detection.
+
+    The compile CLI's ``_resolve_compile_provider`` calls
+    ``WinMLEPRegistry.get_instance().is_ep_available`` to reject EPs not
+    registered on the host — for unit tests we stub it to ``True``. Tests
+    that exercise the negative path patch the singleton locally.
+    """
+    mock_registry = MagicMock()
+    mock_registry.is_ep_available.return_value = True
+
     with (
         patch(
             "winml.modelkit.commands.compile.resolve_eps",
             side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+        ),
+        patch(
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            return_value=mock_registry,
         ),
     ):
         yield
