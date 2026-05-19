@@ -195,7 +195,9 @@ def resolve_device(
         (chosen_device, available_devices_list)
 
     Raises:
-        ValueError: If device or ep is not recognized.
+        ValueError: If ``device`` or ``ep`` is not recognized, or if an
+            explicit ``device`` (non-``auto``) is requested but no EP
+            compatible with it is currently available.
     """
     device = device.lower()
 
@@ -235,15 +237,15 @@ def resolve_device(
         # Fallback: CPU is always valid
         return "cpu", available_devices
 
-    # Explicit device requested -- warn if no compatible EP
+    # Explicit device requested -- raise if no compatible EP is available.
+    # Falling through with a warning would write an unusable config that fails
+    # later at compile/inference time. (issue #431)
     compatible_eps = _DEVICE_EP_MAP.get(device, [])
     if not any(ep_name in available_eps for ep_name in compatible_eps):
-        logger.warning(
-            "Device '%s' requested but no compatible EP found. "
-            "Compatible EPs: %s. Available EPs: %s",
-            device,
-            compatible_eps,
-            sorted(available_eps),
+        raise ValueError(
+            f"Device '{device}' requested but no compatible EP is available. "
+            f"Compatible EPs: {compatible_eps}. "
+            f"Available EPs: {sorted(available_eps)}."
         )
     return device, available_devices
 
@@ -261,8 +263,4 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
         advertised by ORT/WinML, in ``_DEVICE_EP_MAP`` priority order.
     """
     available_eps = _get_available_eps()
-    return [
-        ep
-        for ep in _DEVICE_EP_MAP.get(resolved_device.lower(), [])
-        if ep in available_eps
-    ]
+    return [ep for ep in _DEVICE_EP_MAP.get(resolved_device.lower(), []) if ep in available_eps]
