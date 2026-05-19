@@ -1,2 +1,0 @@
-[2026-05-17T14:08:46] ERROR: ✗ ort_fusion failed: Failed to apply fusion optimizations | Pipe: ort_fusion | Model info: {'model_type': 'clip'} | Caused by: [Errno 28] No space left on device
-Error: Benchmark failed: Failed to apply fusion optimizations | Pipe: ort_fusion | Model info: {'model_type': 'clip'} | Caused by: [Errno 28] No space left on device

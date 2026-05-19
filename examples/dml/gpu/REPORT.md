@@ -2,11 +2,11 @@
 
 ## Summary
 
-- **Models tested**: 63
+- **Models tested**: 55
 - **Configs tested**: 63
-- **Perf pass rate**: 18/63 (29%)
-- **Eval pass rate**: 13/63 (21%)
-- **Non-pass results**: 22 errors, 1 timeouts
+- **Perf pass rate**: 34/63 (53%)
+- **Eval pass rate**: 28/63 (44%)
+- **Non-pass results**: 4 timeouts
 
 ## Results
 
@@ -24,28 +24,28 @@
 | deepset/roberta-base-squad2 | question-answering | [config](deepset_roberta-base-squad2/question-answering_config.json) | [7.26ms, 137.7sps](deepset_roberta-base-squad2/question-answering_perf.json) | [exact=79.0000 f1=82.3008 total=100 HasAns_exact=79.1667 HasAns_f1=86.0433 HasAns_total=48 NoAns_exact=78.8462 NoAns_f1=78.8462 NoAns_total=52 best_exact=79.0000 best_exact_thresh=0.9872 best_f1=82.3008 best_f1_thresh=0.9872](deepset_roberta-base-squad2/question-answering_eval.json) |
 | deepset/tinyroberta-squad2 | question-answering | [config](deepset_tinyroberta-squad2/question-answering_config.json) | [4.81ms, 207.9sps](deepset_tinyroberta-squad2/question-answering_perf.json) | [exact=80.0000 f1=82.2500 total=100 HasAns_exact=79.1667 HasAns_f1=83.8542 HasAns_total=48 NoAns_exact=80.7692 NoAns_f1=80.7692 NoAns_total=52 best_exact=80.0000 best_exact_thresh=0.9948 best_f1=82.2500 best_f1_thresh=0.9948](deepset_tinyroberta-squad2/question-answering_eval.json) |
 | dslim/bert-base-NER | token-classification | [config](dslim_bert-base-NER/token-classification_config.json) | [7.21ms, 138.7sps](dslim_bert-base-NER/token-classification_perf.json) | [overall_precision=0.9773 overall_recall=0.9718 overall_f1=0.9745 overall_accuracy=0.9967](dslim_bert-base-NER/token-classification_eval.json) |
-| facebook/convnext-tiny-224 | image-classification | [config](facebook_convnext-tiny-224/image-classification_config.json) | [3.37ms, 296.4sps](facebook_convnext-tiny-224/image-classification_perf.json) | FAIL |
-| facebook/dino-vitb16 | image-feature-extraction | [config](facebook_dino-vitb16/image-feature-extraction_config.json) | FAIL | FAIL |
-| facebook/dino-vits16 | image-feature-extraction | [config](facebook_dino-vits16/image-feature-extraction_config.json) | [3.33ms, 300.1sps](facebook_dino-vits16/image-feature-extraction_perf.json) | FAIL |
-| facebook/dinov2-base | image-feature-extraction | [config](facebook_dinov2-base/image-feature-extraction_config.json) | [5.90ms, 169.4sps](facebook_dinov2-base/image-feature-extraction_perf.json) | FAIL |
-| facebook/dinov2-large | image-feature-extraction | [config](facebook_dinov2-large/image-feature-extraction_config.json) | [12.79ms, 78.2sps](facebook_dinov2-large/image-feature-extraction_perf.json) | FAIL |
-| facebook/dinov2-small | image-feature-extraction | [config](facebook_dinov2-small/image-feature-extraction_config.json) | [3.57ms, 279.8sps](facebook_dinov2-small/image-feature-extraction_perf.json) | FAIL |
+| facebook/convnext-tiny-224 | image-classification | [config](facebook_convnext-tiny-224/image-classification_config.json) | [3.37ms, 296.4sps](facebook_convnext-tiny-224/image-classification_perf.json) | [accuracy=0.2800](facebook_convnext-tiny-224/image-classification_eval.json) |
+| facebook/dino-vitb16 | image-feature-extraction | [config](facebook_dino-vitb16/image-feature-extraction_config.json) | [44.55ms, 22.4sps](facebook_dino-vitb16/image-feature-extraction_perf.json) | [knn_top1_accuracy=83.2000 knn_top5_accuracy=95.5000](facebook_dino-vitb16/image-feature-extraction_eval.json) |
+| facebook/dino-vits16 | image-feature-extraction | [config](facebook_dino-vits16/image-feature-extraction_config.json) | [3.33ms, 300.1sps](facebook_dino-vits16/image-feature-extraction_perf.json) | [knn_top1_accuracy=79.7000 knn_top5_accuracy=94.5000](facebook_dino-vits16/image-feature-extraction_eval.json) |
+| facebook/dinov2-base | image-feature-extraction | [config](facebook_dinov2-base/image-feature-extraction_config.json) | [5.90ms, 169.4sps](facebook_dinov2-base/image-feature-extraction_perf.json) | [knn_top1_accuracy=89.1000 knn_top5_accuracy=97.8000](facebook_dinov2-base/image-feature-extraction_eval.json) |
+| facebook/dinov2-large | image-feature-extraction | [config](facebook_dinov2-large/image-feature-extraction_config.json) | [12.79ms, 78.2sps](facebook_dinov2-large/image-feature-extraction_perf.json) | [knn_top1_accuracy=91.0000 knn_top5_accuracy=97.7000](facebook_dinov2-large/image-feature-extraction_eval.json) |
+| facebook/dinov2-small | image-feature-extraction | [config](facebook_dinov2-small/image-feature-extraction_config.json) | [3.57ms, 279.8sps](facebook_dinov2-small/image-feature-extraction_perf.json) | [knn_top1_accuracy=85.5000 knn_top5_accuracy=96.7000](facebook_dinov2-small/image-feature-extraction_eval.json) |
 | FacebookAI/roberta-base | fill-mask | [config](FacebookAI_roberta-base/fill-mask_config.json) | [165.18ms, 6.0sps](FacebookAI_roberta-base/fill-mask_perf.json) | [pseudo_perplexity=5.2706 nll=1.6621](FacebookAI_roberta-base/fill-mask_eval.json) |
-| FacebookAI/roberta-large | fill-mask | [config](FacebookAI_roberta-large/fill-mask_config.json) | FAIL | FAIL |
-| FacebookAI/xlm-roberta-base | fill-mask | [config](FacebookAI_xlm-roberta-base/fill-mask_config.json) | FAIL | FAIL |
-| FacebookAI/xlm-roberta-large | fill-mask | [config](FacebookAI_xlm-roberta-large/fill-mask_config.json) | FAIL | FAIL |
-| google-bert/bert-base-multilingual-cased | feature-extraction | [config](google-bert_bert-base-multilingual-cased/feature-extraction_config.json) | FAIL | FAIL |
-| google-bert/bert-base-multilingual-uncased | fill-mask | [config](google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | FAIL | FAIL |
-| google-bert/bert-base-uncased | fill-mask | [config](google-bert_bert-base-uncased/fill-mask_config.json) | FAIL | FAIL |
-| google-bert/bert-large-uncased-whole-word-masking-finetuned-squad | question-answering | [config](google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_config.json) | FAIL | FAIL |
-| google/vit-base-patch16-224 | image-classification | [config](google_vit-base-patch16-224/image-classification_config.json) | FAIL | FAIL |
-| google/vit-base-patch16-224-in21k | image-feature-extraction | [config](google_vit-base-patch16-224-in21k/image-feature-extraction_config.json) | FAIL | FAIL |
-| Intel/bert-base-uncased-mrpc | feature-extraction | [config](Intel_bert-base-uncased-mrpc/feature-extraction_config.json) | FAIL | FAIL |
-|  | text-classification | [config](Intel_bert-base-uncased-mrpc/text-classification_config.json) | FAIL | FAIL |
-| joeddav/xlm-roberta-large-xnli | zero-shot-classification | [config](joeddav_xlm-roberta-large-xnli/zero-shot-classification_config.json) | FAIL | FAIL |
-| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | [config](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_config.json) | FAIL | FAIL |
-|  | zero-shot-image-classification | [config](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_config.json) | FAIL | FAIL |
-| laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification | [config](laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_config.json) | FAIL | FAIL |
+| FacebookAI/roberta-large | fill-mask | [config](FacebookAI_roberta-large/fill-mask_config.json) | [414.04ms, 2.4sps](FacebookAI_roberta-large/fill-mask_perf.json) | TIMEOUT |
+| FacebookAI/xlm-roberta-base | fill-mask | [config](FacebookAI_xlm-roberta-base/fill-mask_config.json) | [619.58ms, 1.6sps](FacebookAI_xlm-roberta-base/fill-mask_perf.json) | TIMEOUT |
+| FacebookAI/xlm-roberta-large | fill-mask | [config](FacebookAI_xlm-roberta-large/fill-mask_config.json) | [729.86ms, 1.4sps](FacebookAI_xlm-roberta-large/fill-mask_perf.json) | TIMEOUT |
+| google-bert/bert-base-multilingual-cased | feature-extraction | [config](google-bert_bert-base-multilingual-cased/feature-extraction_config.json) | [103.02ms, 9.7sps](google-bert_bert-base-multilingual-cased/feature-extraction_perf.json) | [cosine_spearman=41.1344](google-bert_bert-base-multilingual-cased/feature-extraction_eval.json) |
+| google-bert/bert-base-multilingual-uncased | fill-mask | [config](google-bert_bert-base-multilingual-uncased/fill-mask_config.json) | [330.95ms, 3.0sps](google-bert_bert-base-multilingual-uncased/fill-mask_perf.json) | TIMEOUT |
+| google-bert/bert-base-uncased | fill-mask | [config](google-bert_bert-base-uncased/fill-mask_config.json) | [146.63ms, 6.8sps](google-bert_bert-base-uncased/fill-mask_perf.json) | [pseudo_perplexity=10.8022 nll=2.3798](google-bert_bert-base-uncased/fill-mask_eval.json) |
+| google-bert/bert-large-uncased-whole-word-masking-finetuned-squad | question-answering | [config](google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_config.json) | [330.61ms, 3.0sps](google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_perf.json) | [exact_match=76.0000 f1=85.8724](google-bert_bert-large-uncased-whole-word-masking-finetuned-squad/question-answering_eval.json) |
+| google/vit-base-patch16-224 | image-classification | [config](google_vit-base-patch16-224/image-classification_config.json) | [44.75ms, 22.4sps](google_vit-base-patch16-224/image-classification_perf.json) | [accuracy=0.7000](google_vit-base-patch16-224/image-classification_eval.json) |
+| google/vit-base-patch16-224-in21k | image-feature-extraction | [config](google_vit-base-patch16-224-in21k/image-feature-extraction_config.json) | [44.72ms, 22.4sps](google_vit-base-patch16-224-in21k/image-feature-extraction_perf.json) | [knn_top1_accuracy=91.9000 knn_top5_accuracy=97.0000](google_vit-base-patch16-224-in21k/image-feature-extraction_eval.json) |
+| Intel/bert-base-uncased-mrpc | feature-extraction | [config](Intel_bert-base-uncased-mrpc/feature-extraction_config.json) | [102.92ms, 9.7sps](Intel_bert-base-uncased-mrpc/feature-extraction_perf.json) | [cosine_spearman=52.7031](Intel_bert-base-uncased-mrpc/feature-extraction_eval.json) |
+|  | text-classification | [config](Intel_bert-base-uncased-mrpc/text-classification_config.json) | [102.53ms, 9.8sps](Intel_bert-base-uncased-mrpc/text-classification_perf.json) | [accuracy=0.7100](Intel_bert-base-uncased-mrpc/text-classification_eval.json) |
+| joeddav/xlm-roberta-large-xnli | zero-shot-classification | [config](joeddav_xlm-roberta-large-xnli/zero-shot-classification_config.json) | [329.28ms, 3.0sps](joeddav_xlm-roberta-large-xnli/zero-shot-classification_perf.json) | [accuracy=0.3400 f1=0.3189](joeddav_xlm-roberta-large-xnli/zero-shot-classification_eval.json) |
+| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | [config](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_config.json) | [11.39ms, 87.8sps](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_perf.json) | [cosine_spearman=75.4619](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_eval.json) |
+|  | zero-shot-image-classification | [config](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_config.json) | [11.49ms, 87.0sps](laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_perf.json) | — |
+| laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification | [config](laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_config.json) | [67.73ms, 14.8sps](laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_perf.json) | — |
 | mattmdjaga/segformer_b2_clothes | image-segmentation | [config](mattmdjaga_segformer_b2_clothes/image-segmentation_config.json) | — | — |
 | microsoft/rad-dino | image-feature-extraction | [config](microsoft_rad-dino/image-feature-extraction_config.json) | — | — |
 | microsoft/resnet-50 | image-classification | [config](microsoft_resnet-50/image-classification_config.json) | — | — |

@@ -1,2 +1,0 @@
-[2026-05-17T13:51:09] WARNING: Output names count mismatch: config has 1 ['last_hidden_state'], model trace inferred 2 ['last_hidden_state', 'pooler_output']. Keeping config names (from Optimum OnnxConfig).
-Error: Benchmark failed: [Errno 28] No space left on device
