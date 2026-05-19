@@ -377,14 +377,6 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         return str(onnx_model_path)
 
 
-class TestPerfHuggingFace(_PerfBenchmarkSuite):
-    """Benchmark a HuggingFace model via the full WinMLAutoModel pipeline."""
-
-    @pytest.fixture
-    def model_arg(self) -> str:
-        return "microsoft/resnet-50"
-
-
 # ===========================================================================
 # Per-module benchmark
 # ===========================================================================
@@ -426,5 +418,39 @@ class TestPerfModule:
         assert data["module_class"] == "ResNetStage"
         assert data["iterations"] == 3
         assert data["warmup"] == 1
-        assert data["instance_count"] >= 1
+        assert data["instance_count"] == 4
         assert len(data["instances"]) == data["instance_count"]
+        for instance in data["instances"]:
+            assert instance["mean_ms"] > 0
+
+    def test_module_invalid_lists_available(self, tmp_path: Path):
+        """Invalid --module should fail and list available module classes."""
+        output_file = tmp_path / "perf_module_invalid.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "microsoft/resnet-50",
+                "--module",
+                "NotAValidModuleXyz",
+                "--device",
+                "cpu",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code != 0, "perf should fail for an invalid --module"
+        assert "No modules matching 'NotAValidModuleXyz' found" in result.output
+        assert "Available module class names in this model:" in result.output
+        # The real ResNetStage class should appear in the available list.
+        assert "ResNetStage" in result.output
+        assert not output_file.exists(), "Output file should not be written on failure"
