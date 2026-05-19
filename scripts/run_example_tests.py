@@ -183,8 +183,8 @@ def main() -> None:
             results["SKIP"] += 1
             continue
 
-        eval_output = cfg_path.parent / f"{stem}_eval.json"
-        perf_output = cfg_path.parent / f"{stem}_perf.json"
+        eval_output = cfg_path.parent / f"{stem}_eval_result.json"
+        perf_output = cfg_path.parent / f"{stem}_perf_result.json"
 
         # Clean caches between different models
         if model_slug != prev_model and prev_model is not None:

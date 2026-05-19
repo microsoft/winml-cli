@@ -1,1 +1,0 @@
-Error: Benchmark failed: blip doesn't support task image-text-to-text for the onnx backend. Supported tasks are: feature-extraction, text2text-generation.
