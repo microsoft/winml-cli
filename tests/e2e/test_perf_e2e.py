@@ -189,7 +189,7 @@ class TestPerfONNXDirect:
                 "--device",
                 "gpu",
                 "--iterations",
-                "3",
+                "100",
                 "--warmup",
                 "1",
                 "-o",
@@ -207,6 +207,9 @@ class TestPerfONNXDirect:
         assert data["benchmark_info"]["device"] == "gpu"
         assert data["latency_ms"]["mean"] > 0
         assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
+        assert data["hw_monitor"]["device_kind"] == "gpu"
+        assert data["hw_monitor"]["adapter_luid"] is not None
+        assert data["hw_monitor"]["gpu"]["mean_pct"] > 0
 
     def test_onnx_benchmark_npu_monitor(self, tmp_path: Path, onnx_model_path: Path):
         """ONNX direct benchmark on NPU with --monitor.
@@ -227,7 +230,7 @@ class TestPerfONNXDirect:
                 "--device",
                 "npu",
                 "--iterations",
-                "3",
+                "100",
                 "--warmup",
                 "1",
                 "-o",
@@ -245,6 +248,9 @@ class TestPerfONNXDirect:
         assert data["benchmark_info"]["device"] == "npu"
         assert data["latency_ms"]["mean"] > 0
         assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
+        assert data["hw_monitor"]["device_kind"] == "npu"
+        assert data["hw_monitor"]["adapter_luid"] is not None
+        assert data["hw_monitor"]["npu"]["mean_pct"] > 0
 
     def test_onnx_benchmark_auto(self, tmp_path: Path, onnx_model_path: Path):
         """ONNX direct benchmark with --device auto.
@@ -277,6 +283,8 @@ class TestPerfONNXDirect:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["device"] == "auto"
+        # At leat a non-cpu should exist and picked up
+        assert data["benchmark_info"]["ep"] != "CPUExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
 
     def test_onnx_benchmark_ep_qnn(self, tmp_path: Path, onnx_model_path: Path):
