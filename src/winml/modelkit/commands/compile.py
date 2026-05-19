@@ -265,8 +265,8 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
         canonical = normalize_ep_name(ep)
         if canonical is None:
             raise click.UsageError(f"Unknown EP: {ep}")
-        supported = EP_SUPPORTED_DEVICES.get(canonical)
-        if supported is not None and resolved_device.lower() not in supported:
+        supported = EP_SUPPORTED_DEVICES[canonical]
+        if resolved_device.lower() not in supported:
             raise click.UsageError(
                 f"--ep {ep} cannot run on --device {resolved_device}. "
                 f"{canonical} supports: {', '.join(supported)}."
