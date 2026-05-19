@@ -285,7 +285,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["device"] == "auto"
-        # At leat a non-cpu should exist and picked up
+        # At least a non-cpu should exist and picked up
         assert data["benchmark_info"]["ep"] != "CPUExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
 
@@ -373,9 +373,7 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
 
     @pytest.fixture
-    def model_arg(self, onnx_model_path: Path | None = None) -> str:
-        if onnx_model_path is None:
-            raise RuntimeError("Expected pytest to inject fixture 'onnx_model_path'")
+    def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)
 
 
