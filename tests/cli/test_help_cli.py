@@ -2,13 +2,13 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""E2E tests for ``winml`` (no args) and ``winml --help``.
+"""CLI surface tests for ``winml`` (no args) and ``winml --help``.
 
 Both invocations follow the same contract: exit 0 and render the full
 help page, which consists of the gradient banner on stderr and the Click
 help text (Usage / Options / Commands) on stdout.  The tests here pin the
-*observable output contract* of these two entry points end-to-end — no
-mocks, no subcommand execution.
+*observable output contract* of these two entry points — no mocks, no
+subcommand execution.
 
 Coverage
 --------
@@ -22,30 +22,24 @@ Coverage
 ``TestCommandList``
     The Commands section lists exactly the right commands: every enabled
     command appears with non-empty AST-extracted help text; disabled
-    commands (``run``, ``serve``) do not appear.
+    commands (``run``, ``serve``) do not appear and are also rejected at
+    invocation time.
 
 ``TestOptionsSection``
-    Every documented top-level option is present in the help output.
+    Every documented top-level option is present in the help output,
+    including ``--version`` which is also verified to execute correctly.
 
-Marker
-------
-``e2e`` — auto-skipped unless ``-m e2e`` is passed (see conftest.py).
-
-Usage::
-
-    uv run pytest tests/e2e/ -m e2e -k top_level
+These tests run under the default CI filter (no special marker required).
 """
 
 from __future__ import annotations
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from winml.modelkit import __version__
-from winml.modelkit.cli import _COMMANDS_DIR, _DISABLED_COMMANDS, main
+from winml.modelkit.cli import COMMANDS_DIR, DISABLED_COMMANDS, main
 
-
-pytestmark = [pytest.mark.e2e]
 
 # ---------------------------------------------------------------------------
 # Expected command sets — derived from production code, stay in sync
@@ -53,11 +47,11 @@ pytestmark = [pytest.mark.e2e]
 
 ENABLED_COMMANDS: list[str] = sorted(
     p.stem
-    for p in _COMMANDS_DIR.glob("*.py")
-    if not p.name.startswith("_") and p.stem not in _DISABLED_COMMANDS
+    for p in COMMANDS_DIR.glob("*.py")
+    if not p.name.startswith("_") and p.stem not in DISABLED_COMMANDS
 )
 
-DISABLED_COMMANDS: list[str] = sorted(_DISABLED_COMMANDS)
+_DISABLED_LIST: list[str] = sorted(DISABLED_COMMANDS)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +59,7 @@ DISABLED_COMMANDS: list[str] = sorted(_DISABLED_COMMANDS)
 # ---------------------------------------------------------------------------
 
 
-def _invoke(*args: str):
+def _invoke(*args: str) -> Result:
     return CliRunner().invoke(main, list(args), obj={})
 
 
@@ -74,7 +68,6 @@ def _invoke(*args: str):
 # ===========================================================================
 
 
-@pytest.mark.e2e
 class TestWinmlNoArgs:
     """``winml`` invoked with no arguments."""
 
@@ -91,11 +84,11 @@ class TestWinmlNoArgs:
         assert "Options" in _invoke().output
 
     def test_banner_present(self) -> None:
-        """The 'Windows ML' footer line of the gradient banner must appear."""
-        assert "Windows ML" in _invoke().output
+        """The 'Windows ML' footer line of the gradient banner must appear on stderr."""
+        assert "Windows ML" in _invoke().stderr
 
     def test_banner_shows_current_version(self) -> None:
-        assert __version__ in _invoke().output
+        assert __version__ in _invoke().stderr
 
     def test_description_present(self) -> None:
         assert "WinML CLI" in _invoke().output
@@ -106,7 +99,6 @@ class TestWinmlNoArgs:
 # ===========================================================================
 
 
-@pytest.mark.e2e
 class TestWinmlHelp:
     """``winml --help`` and its ``-h`` short alias."""
 
@@ -127,7 +119,7 @@ class TestWinmlHelp:
         assert "Usage:" in _invoke("--help").output
 
     def test_banner_present(self) -> None:
-        assert "Windows ML" in _invoke("--help").output
+        assert "Windows ML" in _invoke("--help").stderr
 
     def test_description_present(self) -> None:
         assert "WinML CLI" in _invoke("--help").output
@@ -138,7 +130,6 @@ class TestWinmlHelp:
 # ===========================================================================
 
 
-@pytest.mark.e2e
 class TestCommandList:
     """The Commands section of ``winml --help`` lists exactly the right set."""
 
@@ -147,12 +138,21 @@ class TestCommandList:
         """Every enabled command must appear by name in the Commands section."""
         assert cmd in _invoke("--help").output
 
-    @pytest.mark.parametrize("cmd", DISABLED_COMMANDS)
+    @pytest.mark.parametrize("cmd", _DISABLED_LIST)
     def test_disabled_command_not_listed(self, cmd: str) -> None:
         """Disabled commands must not appear in the Commands section."""
         out = _invoke("--help").output
         commands_block = out.split("Commands")[-1] if "Commands" in out else ""
-        assert cmd not in commands_block.split()
+        assert not any(
+            line.strip().startswith((cmd + " ", cmd + "\t")) for line in commands_block.splitlines()
+        ), f"Disabled command '{cmd}' appears as a row in the Commands section"
+
+    @pytest.mark.parametrize("cmd", _DISABLED_LIST)
+    def test_disabled_command_invocation_fails(self, cmd: str) -> None:
+        """Invoking a disabled command must exit non-zero with a 'disabled' message."""
+        result = _invoke(cmd)
+        assert result.exit_code != 0
+        assert "disabled" in result.output.lower()
 
     @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
     def test_enabled_command_has_help_text(self, cmd: str) -> None:
@@ -161,6 +161,9 @@ class TestCommandList:
         ``LazyGroup.format_commands`` parses each module's docstring via
         AST without importing it.  A blank column means the docstring is
         missing or the parse failed.
+
+        Note: relies on Click's HelpFormatter rendering each command as
+        ``<name>  <help>`` on a single line.
         """
         out = _invoke("--help").output
         commands_start = out.find("Commands")
@@ -172,6 +175,11 @@ class TestCommandList:
                 tail = stripped[len(cmd) :].strip()
                 assert tail, f"'{cmd}' has no help text in winml --help"
                 break
+        else:
+            pytest.fail(
+                f"Command '{cmd}' row not found in Commands section — "
+                "docstring missing or AST extraction failed"
+            )
 
 
 # ===========================================================================
@@ -179,7 +187,6 @@ class TestCommandList:
 # ===========================================================================
 
 
-@pytest.mark.e2e
 class TestOptionsSection:
     """Every documented top-level option appears in ``winml --help``."""
 
@@ -189,3 +196,9 @@ class TestOptionsSection:
     )
     def test_option_present(self, opt: str) -> None:
         assert opt in _invoke("--help").output
+
+    def test_version_flag_executes(self) -> None:
+        """``winml --version`` must exit 0 and print the current version string."""
+        result = _invoke("--version")
+        assert result.exit_code == 0
+        assert __version__ in result.output
