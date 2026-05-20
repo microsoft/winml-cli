@@ -291,6 +291,11 @@ class WinMLAutoModel:
         model_id = str(model_id_or_path)  # Ensure string for Path inputs
         logger.info("Loading WinML model from: %s", model_id)
 
+        if trust_remote_code:
+            from ..utils.cli import warn_trust_remote_code
+
+            warn_trust_remote_code()
+
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file
         # =====================================================================
@@ -405,8 +410,17 @@ class WinMLAutoModel:
         # =====================================================================
         from ..build import build_hf_model
 
-        # Pass resolved EP so the static analyzer targets only this EP
-        resolved_ep = config.compile.ep_config.provider if config.compile is not None else None
+        # Pass resolved EP so the static analyzer targets only this EP.
+        # Prefer the user-supplied EP; fall back to the compile-derived EP
+        # (compile is None on compile-less paths like CPU, so deriving from
+        # it alone would drop an explicit --ep cpu and analyze aggregates
+        # across all EPs).
+        user_ep = kwargs.get("ep")
+        resolved_ep = (
+            user_ep
+            if user_ep is not None
+            else (config.compile.ep_config.provider if config.compile is not None else None)
+        )
         result = build_hf_model(
             config=config,
             output_dir=output_dir,

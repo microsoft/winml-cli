@@ -11,7 +11,6 @@ Windows Machine Learning API (WinML).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 
@@ -55,15 +54,13 @@ class WinMLEPRegistry:
         self._ep_paths: dict[EPName, str] = {}
         self._registered_eps: list[EPName] = []
         self._winml_available = False
-        self._win_app_sdk_handle = None
+        self._catalog = None
 
         self._discover_eps()
 
     def _discover_eps(self) -> None:
         """Discover execution providers via WinML."""
         try:
-            self._fix_winrt_runtime()
-            self._init_windows_app_sdk()
             self._load_ep_catalog()
             self._winml_available = True
             logger.debug("WinML EP discovery successful: %s", list(self._ep_paths.keys()))
@@ -74,38 +71,15 @@ class WinMLEPRegistry:
             logger.warning("WinML EP discovery failed: %s", e)
             self._winml_available = False
 
-    def _fix_winrt_runtime(self) -> None:
-        """Fix msvcp140.dll conflict in winrt-runtime package."""
-        try:
-            from importlib import metadata
-
-            site_packages_path = Path(str(metadata.distribution("winrt-runtime").locate_file("")))
-            dll_path = site_packages_path / "winrt" / "msvcp140.dll"
-            if dll_path.exists():
-                dll_path.unlink()
-                logger.debug("Removed conflicting msvcp140.dll from winrt-runtime")
-        except Exception as e:
-            logger.debug("Could not fix winrt-runtime: %s", e)
-
-    def _init_windows_app_sdk(self) -> None:
-        """Initialize Windows App SDK."""
-        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-            InitializeOptions,
-            initialize,
-        )
-
-        self._win_app_sdk_handle = initialize(options=InitializeOptions.ON_NO_MATCH_SHOW_UI)
-        self._win_app_sdk_handle.__enter__()
-
     def _load_ep_catalog(self) -> None:
         """Load EP catalog from WinML."""
-        import winui3.microsoft.windows.ai.machinelearning as winml
+        from windowsml import EpCatalog
 
-        catalog = winml.ExecutionProviderCatalog.get_default()
-        providers = catalog.find_all_providers()
+        self._catalog = EpCatalog()
+        providers = self._catalog.find_all_providers()
 
         for provider in providers:
-            provider.ensure_ready_async().get()
+            provider.ensure_ready()
             if provider.library_path == "":
                 continue
             self._ep_paths[cast("EPName", provider.name)] = provider.library_path
@@ -159,12 +133,14 @@ class WinMLEPRegistry:
         return self._winml_available
 
     def __del__(self) -> None:
-        """Cleanup Windows App SDK handle."""
-        if self._win_app_sdk_handle is not None:
+        """Cleanup EP catalog."""
+        catalog = getattr(self, "_catalog", None)
+        if catalog is not None:
             try:
-                self._win_app_sdk_handle.__exit__(None, None, None)
+                catalog.close()
             except Exception as e:
-                logger.debug("Error cleaning up Windows App SDK: %s", e)
+                logger.debug("Error cleaning up EP catalog: %s", e)
+            self._catalog = None
 
     @classmethod
     def get_instance(cls) -> WinMLEPRegistry:

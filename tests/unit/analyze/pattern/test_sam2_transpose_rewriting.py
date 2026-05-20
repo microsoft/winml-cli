@@ -310,7 +310,7 @@ class TestPatternOverlapAssertion:
         # Collect all matched nodes
         all_nodes = set()
         for result in results:
-            matched_nodes = set(result.skeleton_match_result.matched_node_names)
+            matched_nodes = set(result.skeleton_match_result.matched_node_keys)
             overlap = all_nodes & matched_nodes
             assert not overlap, f"Found overlapping nodes in pattern matches: {overlap}"
             all_nodes.update(matched_nodes)

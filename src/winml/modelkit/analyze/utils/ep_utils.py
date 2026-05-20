@@ -140,7 +140,7 @@ def has_rule_data_for_ep(ep_name: EPName, device: str) -> bool:
     """
     from .rule_loader import get_runtime_rules_search_dirs
 
-    def _has_parquet_in_search_dir(search_dir: Path, ep: str, device_upper: str) -> bool:
+    def _has_parquet_in_search_dir(search_dir: Path, ep: EPName, device_upper: str) -> bool:
         provider_dir = search_dir / f"{ep}_{device_upper}"
         if provider_dir.is_dir() and any(provider_dir.glob("*.parquet")):
             return True
