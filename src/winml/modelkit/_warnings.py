@@ -94,6 +94,48 @@ def _configure() -> None:
         "ignore", message=r".*CUDA.*", category=UserWarning, module=r"diffusers.*"
     )
 
+    # =========================================================================
+    # py.warnings logger filters (for warnings routed via logging.captureWarnings)
+    # =========================================================================
+
+    class _HFSymlinksInfoFilter(logging.Filter):
+        r"""Downgrade the huggingface_hub symlinks UserWarning from WARNING to INFO.
+
+        On Windows without Developer Mode, huggingface_hub warns that symlinks
+        are unsupported and the cache will use copies instead. This is cosmetic —
+        the cache still works, just without deduplication. WARNING is misleading
+        here; INFO is the appropriate level.
+
+        When warnings are routed via logging.captureWarnings(True), Python's
+        warnings.formatwarning() embeds the source filename in the log message
+        body ("path/to/huggingface_hub/file_download.py:1: UserWarning: ..."),
+        so we match against getMessage() rather than record.pathname (which
+        is always warnings.py in that path).
+
+        Before (WARNING level, always visible):
+            [09:12:34] WARNING  C:\\...\\huggingface_hub\\file_download.py:1:
+                                UserWarning: `huggingface_hub` cache-system uses
+                                symlinks by default to efficiently store
+                                duplicated files but your machine does not
+                                support them
+
+        After (INFO level, only visible with -v / --verbose):
+            [09:12:34] INFO     C:\\...\\huggingface_hub\\file_download.py:1:
+                                UserWarning: `huggingface_hub` cache-system uses
+                                symlinks by default to efficiently store
+                                duplicated files but your machine does not
+                                support them
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            if "symlinks" in msg and "huggingface_hub" in msg:
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+            return True
+
+    logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
+
 
 # Auto-configure on import
 _configure()
