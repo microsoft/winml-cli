@@ -26,13 +26,13 @@ parameters:
     type: boolean
     default: true
   - name: qnnPairs
-    displayName: 'NPU-QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
+    displayName: 'QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
     type: object
     default:
       - qnn_npu
       - qnn_gpu
   - name: ovPairs
-    displayName: 'NPU-OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
+    displayName: 'OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
     type: object
     default:
       - dml_gpu
@@ -41,14 +41,14 @@ parameters:
       - ov_gpu
       - ov_npu
   - name: amdPairs
-    displayName: 'NPU-AMD: EP/device pairs (any of: vitisai_npu)'
+    displayName: 'AMD: EP/device pairs (any of: vitisai_npu)'
     type: object
     default:
       - vitisai_npu
 
 stages:
   - stage: NPU_QNN
-    displayName: 'E2E Eval — NPU-QNN'
+    displayName: 'E2E Eval — QNN'
     jobs:
       - template: templates/e2e-eval-jobs.yml
         parameters:
@@ -59,19 +59,19 @@ stages:
           pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
-    displayName: 'E2E Eval — NPU-OV'
+    displayName: 'E2E Eval — OV'
     dependsOn: []
     jobs:
       - template: templates/e2e-eval-jobs.yml
         parameters:
-          agentName: NPU-OV
+          agentName: NPU-OV2
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
           pairNames: ${{ parameters.ovPairs }}
 
   - stage: NPU_AMD
-    displayName: 'E2E Eval — NPU-AMD'
+    displayName: 'E2E Eval — AMD'
     dependsOn: []
     jobs:
       - template: templates/e2e-eval-jobs.yml
