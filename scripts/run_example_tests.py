@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Run eval tests for all example configs under a given EP.
 
 Usage:
@@ -32,24 +37,40 @@ def run_eval(
 ) -> str:
     """Run winml eval and return 'PASS', 'FAIL', or 'TIMEOUT'."""
     cmd = [
-        sys.executable, "-m", "winml.modelkit", "eval",
-        "-m", hf_id,
-        "--device", device,
-        "-c", str(config_path),
-        "-o", str(output_path),
+        sys.executable,
+        "-m",
+        "winml.modelkit",
+        "eval",
+        "-m",
+        hf_id,
+        "--device",
+        device,
+        "-c",
+        str(config_path),
+        "-o",
+        str(output_path),
     ]
     if trust_remote_code:
         cmd.append("--trust-remote-code")
 
     try:
         result = subprocess.run(  # noqa: S603
-            cmd, capture_output=True, text=True, timeout=timeout, cwd=str(REPO_ROOT)
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            cwd=str(REPO_ROOT),
         )
         if result.returncode == 0 and output_path.exists():
             return "PASS"
         # Save error
         err_path = output_path.with_suffix(".error.txt")
-        err_path.write_text(result.stderr[-2000:] if result.stderr else "Unknown error")
+        err_path.write_text(
+            result.stderr[-2000:] if result.stderr else "Unknown error",
+            encoding="utf-8",
+        )
         return "FAIL"
     except subprocess.TimeoutExpired:
         timeout_path = output_path.with_suffix(".timeout")
@@ -66,21 +87,37 @@ def run_perf(
 ) -> str:
     """Run winml perf and return 'PASS', 'FAIL', or 'TIMEOUT'."""
     cmd = [
-        sys.executable, "-m", "winml.modelkit", "perf",
-        "-m", hf_id,
-        "--device", device,
-        "-c", str(config_path),
-        "-o", str(output_path),
+        sys.executable,
+        "-m",
+        "winml.modelkit",
+        "perf",
+        "-m",
+        hf_id,
+        "--device",
+        device,
+        "-c",
+        str(config_path),
+        "-o",
+        str(output_path),
     ]
 
     try:
         result = subprocess.run(  # noqa: S603
-            cmd, capture_output=True, text=True, timeout=timeout, cwd=str(REPO_ROOT)
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            cwd=str(REPO_ROOT),
         )
         if result.returncode == 0 and output_path.exists():
             return "PASS"
         err_path = output_path.with_suffix(".error.txt")
-        err_path.write_text(result.stderr[-2000:] if result.stderr else "Unknown error")
+        err_path.write_text(
+            result.stderr[-2000:] if result.stderr else "Unknown error",
+            encoding="utf-8",
+        )
         return "FAIL"
     except subprocess.TimeoutExpired:
         timeout_path = output_path.with_suffix(".timeout")
@@ -162,9 +199,7 @@ def main() -> None:
 
     # Collect all configs
     configs = sorted(
-        cfg_file
-        for model_dir in model_dirs
-        for cfg_file in model_dir.glob("*_config.json")
+        cfg_file for model_dir in model_dirs for cfg_file in model_dir.glob("*_config.json")
     )
 
     print(f"EP: {args.ep}, Hardware: {args.hardware}, Device: {args.device}")
