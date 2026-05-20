@@ -102,12 +102,12 @@ def export_pytorch(
             **kwargs,
         )
 
-    if normalize:
-        stats["model_normalization_status"] = (
-            "succeeded" if _normalize_exported_model(output_path) else "failed"
-        )
-    else:
-        stats["model_normalization_status"] = "not_run"
+        if normalize:
+            stats["model_normalization_status"] = (
+                "succeeded" if _normalize_exported_model(output_path) else "failed"
+            )
+        else:
+            stats["model_normalization_status"] = "not_run"
 
     return stats
 
