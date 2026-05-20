@@ -124,10 +124,7 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     if canonical is not None:
         return canonical
 
-    # Return as-is if not found (let validation catch invalid names).
-    # The value isn't in ``EPName`` at runtime; the annotation is a best-effort
-    # promise for downstream consumers, who handle the unknown case explicitly.
-    return ep  # type: ignore[return-value]
+    raise ValueError(f"Unsupported execution provider name: {ep}")
 
 
 def extract_ep_options(kwargs: dict) -> dict[str, str]:
