@@ -50,6 +50,10 @@ ENABLED_COMMANDS: list[str] = sorted(
     for p in _COMMANDS_DIR.glob("*.py")
     if not p.name.startswith("_") and p.stem not in _DISABLED_COMMANDS
 )
+assert ENABLED_COMMANDS, (
+    f"No enabled commands discovered under {_COMMANDS_DIR}; "
+    "refusing to silently turn parametrized tests into zero cases."
+)
 
 _DISABLED_LIST: list[str] = sorted(_DISABLED_COMMANDS)
 
