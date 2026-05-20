@@ -285,20 +285,20 @@ class TestExportPytorch:
             pass
 
     def test_normalization_succeeds_and_shape_inferences(self, tmp_path) -> None:
-        """After export, stats reports normalization succeeded and value_info is fully shaped."""
+        """After export, status reports succeeded and value_info is fully shaped."""
         model = TwoLayerNet()
         config = WinMLExportConfig(
             input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
         )
         result = export_pytorch(model, tmp_path / "model.onnx", config)
 
-        assert result["model_normalization_succeeded"] is True
+        assert result["model_normalization_status"] == "succeeded"
 
         onnx_model = onnx.load(str(tmp_path / "model.onnx"))
         assert _all_value_info_have_shape(onnx_model)
 
     def test_failed_normalization_skips_shape_inference(self, tmp_path) -> None:
-        """When normalization is mocked to return False, no shape inference runs."""
+        """When normalization is mocked to return False, status is failed."""
         model = TwoLayerNet()
         config = WinMLExportConfig(
             input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
@@ -309,7 +309,24 @@ class TestExportPytorch:
         ):
             result = export_pytorch(model, tmp_path / "model.onnx", config)
 
-        assert result["model_normalization_succeeded"] is False
+        assert result["model_normalization_status"] == "failed"
+
+        onnx_model = onnx.load(str(tmp_path / "model.onnx"))
+        assert not _all_value_info_have_shape(onnx_model)
+
+    def test_normalize_false_skips_normalization(self, tmp_path) -> None:
+        """When normalize=False, the helper isn't called and status is not_run."""
+        model = TwoLayerNet()
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
+        )
+        with patch(
+            "winml.modelkit.export.pytorch._normalize_exported_model",
+        ) as mock_normalize:
+            result = export_pytorch(model, tmp_path / "model.onnx", config, normalize=False)
+
+        mock_normalize.assert_not_called()
+        assert result["model_normalization_status"] == "not_run"
 
         onnx_model = onnx.load(str(tmp_path / "model.onnx"))
         assert not _all_value_info_have_shape(onnx_model)
