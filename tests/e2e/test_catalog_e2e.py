@@ -40,6 +40,7 @@ Usage::
 from __future__ import annotations
 
 import json
+from collections import Counter, defaultdict
 from typing import TYPE_CHECKING
 
 import pytest
@@ -58,13 +59,15 @@ pytestmark = [pytest.mark.e2e]
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers — backed by a shared runner to avoid per-call CliRunner() creation
 # ---------------------------------------------------------------------------
+
+_RUNNER = CliRunner()
 
 
 def _invoke(*args: str) -> Result:
-    """Run ``winml catalog <args>`` through a fresh CliRunner."""
-    return CliRunner().invoke(catalog, list(args), obj={})
+    """Run ``winml catalog <args>`` via the shared module-level runner."""
+    return _RUNNER.invoke(catalog, list(args), obj={})
 
 
 def _invoke_json(out_path: Path, *args: str) -> list[dict]:
@@ -108,6 +111,89 @@ def _all_tasks(models: list[dict]) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Fixtures — backed by conftest ``runner``; module-scoped ones derive live
+# catalog content once and share it across the test session.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def invoke_catalog(runner: CliRunner) -> object:
+    """Catalog invoker backed by the shared conftest ``runner`` fixture."""
+
+    def _call(*args: str) -> Result:
+        return runner.invoke(catalog, list(args), obj={})
+
+    return _call
+
+
+@pytest.fixture(scope="module")
+def catalog_data(tmp_path_factory: pytest.TempPathFactory) -> list[dict]:
+    """Full catalog fetched once per module via the CLI (source of truth for filter tests)."""
+    return _invoke_json(tmp_path_factory.mktemp("catalog") / "all.json")
+
+
+@pytest.fixture(scope="module")
+def two_model_types(catalog_data: list[dict]) -> tuple[str, str]:
+    """Two distinct model_type values, chosen by frequency from the live catalog."""
+    counts = Counter(m["model_type"] for m in catalog_data if m.get("model_type"))
+    distinct = [t for t, _ in counts.most_common() if t]
+    if len(distinct) < 2:
+        pytest.skip("catalog needs ≥2 distinct model_types for this test")
+    return distinct[0], distinct[1]
+
+
+@pytest.fixture(scope="module")
+def two_tasks(catalog_data: list[dict]) -> tuple[str, str]:
+    """Two distinct task values, chosen by frequency from the live catalog."""
+    counts = Counter(m["task"] for m in catalog_data if m.get("task"))
+    distinct = [t for t, _ in counts.most_common() if t]
+    if len(distinct) < 2:
+        pytest.skip("catalog needs ≥2 distinct tasks for this test")
+    return distinct[0], distinct[1]
+
+
+@pytest.fixture(scope="module")
+def type_task_pair(catalog_data: list[dict]) -> tuple[str, str]:
+    """A (model_type, task) pair known to exist in the live catalog."""
+    for m in catalog_data:
+        if m.get("model_type") and m.get("task"):
+            return m["model_type"], m["task"]
+    pytest.skip("catalog has no models with both model_type and task set")
+
+
+@pytest.fixture(scope="module")
+def ep_model_type_pair(catalog_data: list[dict]) -> tuple[str, str]:
+    """An (ep_key, model_type) pair known to exist in the live catalog."""
+    for m in catalog_data:
+        eps = sorted((m.get("supported_eps") or {}).keys())
+        if eps and m.get("model_type"):
+            return eps[0], m["model_type"]
+    pytest.skip("catalog has no models with both supported_eps and model_type set")
+
+
+@pytest.fixture(scope="module")
+def disjoint_type_task(catalog_data: list[dict]) -> tuple[str, str]:
+    """A (model_type, task) pair guaranteed to return no models from the catalog.
+
+    Finds a task that appears in the catalog but not for the chosen model_type,
+    so ``--model-type <type> --task <task>`` must return an empty list.
+    """
+    type_tasks: dict[str, set[str]] = defaultdict(set)
+    all_tasks: set[str] = set()
+    for m in catalog_data:
+        mtype = m.get("model_type", "")
+        task = m.get("task", "")
+        if mtype and task:
+            type_tasks[mtype].add(task)
+            all_tasks.add(task)
+    for mtype in sorted(type_tasks):
+        missing = all_tasks - type_tasks[mtype]
+        if missing:
+            return mtype, sorted(missing)[0]
+    pytest.skip("catalog has no type/task combination guaranteed to produce an empty result")
+
+
+# ---------------------------------------------------------------------------
 # CLI surface
 # ---------------------------------------------------------------------------
 
@@ -121,8 +207,8 @@ class TestCatalogCliSurface:
         for opt in ("--model-type", "--task", "--ep", "--device", "--output"):
             assert opt in result.output, f"--help missing option {opt!r}"
 
-    def test_no_args_exits_zero_and_returns_all_models(self, tmp_path: Path) -> None:
-        """``winml catalog`` with no filters returns the full catalog."""
+    def test_no_filter_args_returns_all_models(self, tmp_path: Path) -> None:
+        """``winml catalog`` with no filter flags returns the full catalog."""
         models = _invoke_json(tmp_path / "all.json")
         assert len(models) > 0, "Catalog must not be empty"
 
@@ -136,13 +222,12 @@ class TestCatalogCliSurface:
         assert result.exit_code == 2
         assert "Invalid value for '--device'" in result.output
 
-    def test_short_flags_accepted(self, tmp_path: Path) -> None:
+    def test_short_flags_accepted(self, tmp_path: Path, type_task_pair: tuple[str, str]) -> None:
         """-t and -k short aliases are accepted by the parser."""
-        models = _invoke_json(tmp_path / "out.json", "-t", "bert", "-k", "text-classification")
-        assert len(models) > 0, "Expected at least one bert/text-classification model"
-        assert _result_is_subset_of_full_catalog(
-            models, model_type="bert", task="text-classification"
-        )
+        model_type, task = type_task_pair
+        models = _invoke_json(tmp_path / "out.json", "-t", model_type, "-k", task)
+        assert len(models) > 0, f"Expected at least one {model_type}/{task} model"
+        assert _result_is_subset_of_full_catalog(models, model_type=model_type, task=task)
 
 
 # ---------------------------------------------------------------------------
@@ -151,26 +236,35 @@ class TestCatalogCliSurface:
 
 
 class TestCatalogFilterModelType:
-    def test_known_model_type_returns_only_matching_entries(self, tmp_path: Path) -> None:
-        models = _invoke_json(tmp_path / "bert.json", "--model-type", "bert")
-        assert len(models) > 0, "Expected at least one bert model"
-        assert _all_model_types(models) == {"bert"}, (
-            "All returned models must have model_type='bert'"
+    def test_known_model_type_returns_only_matching_entries(
+        self, tmp_path: Path, two_model_types: tuple[str, str]
+    ) -> None:
+        model_type = two_model_types[0]
+        models = _invoke_json(tmp_path / "mtype.json", "--model-type", model_type)
+        assert len(models) > 0, f"Expected at least one {model_type} model"
+        assert _all_model_types(models) == {model_type}, (
+            f"All returned models must have model_type='{model_type}'"
         )
 
-    def test_model_type_filter_is_case_insensitive(self, tmp_path: Path) -> None:
-        lower = _invoke_json(tmp_path / "bert_lower.json", "--model-type", "bert")
-        upper = _invoke_json(tmp_path / "bert_upper.json", "--model-type", "BERT")
-        mixed = _invoke_json(tmp_path / "bert_mixed.json", "--model-type", "BeRt")
+    def test_model_type_filter_is_case_insensitive(
+        self, tmp_path: Path, two_model_types: tuple[str, str]
+    ) -> None:
+        model_type = two_model_types[0]
+        lower = _invoke_json(tmp_path / "lower.json", "--model-type", model_type.lower())
+        upper = _invoke_json(tmp_path / "upper.json", "--model-type", model_type.upper())
+        mixed = _invoke_json(tmp_path / "mixed.json", "--model-type", model_type.swapcase())
         # All three invocations must return the same set of models.
         assert _all_model_ids(lower) == _all_model_ids(upper) == _all_model_ids(mixed), (
             "--model-type filtering must be case-insensitive"
         )
 
-    def test_model_type_produces_strict_subset_of_full_catalog(self, tmp_path: Path) -> None:
+    def test_model_type_produces_strict_subset_of_full_catalog(
+        self, tmp_path: Path, two_model_types: tuple[str, str]
+    ) -> None:
+        model_type = two_model_types[0]
         all_models = _invoke_json(tmp_path / "all.json")
-        bert_models = _invoke_json(tmp_path / "bert.json", "--model-type", "bert")
-        assert 0 < len(bert_models) < len(all_models)
+        mtype_models = _invoke_json(tmp_path / "mtype.json", "--model-type", model_type)
+        assert 0 < len(mtype_models) < len(all_models)
 
     def test_unknown_model_type_returns_empty_list(self, tmp_path: Path) -> None:
         out = tmp_path / "empty.json"
@@ -179,13 +273,16 @@ class TestCatalogFilterModelType:
         assert out.is_file()
         assert json.loads(out.read_text()) == []
 
-    def test_different_model_types_return_disjoint_sets(self, tmp_path: Path) -> None:
-        bert = _invoke_json(tmp_path / "bert.json", "--model-type", "bert")
-        vit = _invoke_json(tmp_path / "vit.json", "--model-type", "vit")
-        assert len(bert) > 0, "Expected at least one bert model — add 'bert' to hub_models.json"
-        assert len(vit) > 0, "Expected at least one vit model — add 'vit' to hub_models.json"
-        assert _all_model_ids(bert).isdisjoint(_all_model_ids(vit)), (
-            "bert and vit filters must not overlap"
+    def test_different_model_types_return_disjoint_sets(
+        self, tmp_path: Path, two_model_types: tuple[str, str]
+    ) -> None:
+        type_a, type_b = two_model_types
+        a_models = _invoke_json(tmp_path / "type_a.json", "--model-type", type_a)
+        b_models = _invoke_json(tmp_path / "type_b.json", "--model-type", type_b)
+        assert len(a_models) > 0, f"Expected at least one {type_a} model"
+        assert len(b_models) > 0, f"Expected at least one {type_b} model"
+        assert _all_model_ids(a_models).isdisjoint(_all_model_ids(b_models)), (
+            f"{type_a} and {type_b} filters must not overlap"
         )
 
 
@@ -195,19 +292,28 @@ class TestCatalogFilterModelType:
 
 
 class TestCatalogFilterTask:
-    def test_known_task_returns_only_matching_entries(self, tmp_path: Path) -> None:
-        models = _invoke_json(tmp_path / "textcls.json", "--task", "text-classification")
+    def test_known_task_returns_only_matching_entries(
+        self, tmp_path: Path, two_tasks: tuple[str, str]
+    ) -> None:
+        task = two_tasks[0]
+        models = _invoke_json(tmp_path / "task.json", "--task", task)
         assert len(models) > 0
-        assert _all_tasks(models) == {"text-classification"}
+        assert _all_tasks(models) == {task}
 
-    def test_task_filter_is_case_insensitive(self, tmp_path: Path) -> None:
-        lower = _invoke_json(tmp_path / "lower.json", "--task", "text-classification")
-        upper = _invoke_json(tmp_path / "upper.json", "--task", "TEXT-CLASSIFICATION")
+    def test_task_filter_is_case_insensitive(
+        self, tmp_path: Path, two_tasks: tuple[str, str]
+    ) -> None:
+        task = two_tasks[0]
+        lower = _invoke_json(tmp_path / "lower.json", "--task", task.lower())
+        upper = _invoke_json(tmp_path / "upper.json", "--task", task.upper())
         assert _all_model_ids(lower) == _all_model_ids(upper)
 
-    def test_task_produces_strict_subset_of_full_catalog(self, tmp_path: Path) -> None:
+    def test_task_produces_strict_subset_of_full_catalog(
+        self, tmp_path: Path, two_tasks: tuple[str, str]
+    ) -> None:
+        task = two_tasks[0]
         all_models = _invoke_json(tmp_path / "all.json")
-        task_models = _invoke_json(tmp_path / "task.json", "--task", "image-classification")
+        task_models = _invoke_json(tmp_path / "task.json", "--task", task)
         assert 0 < len(task_models) < len(all_models)
 
     def test_unknown_task_returns_empty_list(self, tmp_path: Path) -> None:
@@ -216,17 +322,16 @@ class TestCatalogFilterTask:
         assert result.exit_code == 0
         assert json.loads(out.read_text()) == []
 
-    def test_different_tasks_return_disjoint_sets(self, tmp_path: Path) -> None:
+    def test_different_tasks_return_disjoint_sets(
+        self, tmp_path: Path, two_tasks: tuple[str, str]
+    ) -> None:
         """Two distinct tasks that no model can simultaneously satisfy."""
-        text_cls = _invoke_json(tmp_path / "text.json", "--task", "text-classification")
-        img_cls = _invoke_json(tmp_path / "img.json", "--task", "image-classification")
-        assert len(text_cls) > 0, (
-            "Expected text-classification models — add them to hub_models.json"
-        )
-        assert len(img_cls) > 0, (
-            "Expected image-classification models — add them to hub_models.json"
-        )
-        assert _all_model_ids(text_cls).isdisjoint(_all_model_ids(img_cls))
+        task_a, task_b = two_tasks
+        a_models = _invoke_json(tmp_path / "task_a.json", "--task", task_a)
+        b_models = _invoke_json(tmp_path / "task_b.json", "--task", task_b)
+        assert len(a_models) > 0, f"Expected {task_a} models in catalog"
+        assert len(b_models) > 0, f"Expected {task_b} models in catalog"
+        assert _all_model_ids(a_models).isdisjoint(_all_model_ids(b_models))
 
 
 # ---------------------------------------------------------------------------
@@ -323,48 +428,55 @@ class TestCatalogFilterDevice:
 
 
 class TestCatalogCombinedFilters:
-    def test_model_type_and_task_intersection(self, tmp_path: Path) -> None:
-        """``--model-type bert --task text-classification`` returns only BERT text-cls models."""
+    def test_model_type_and_task_intersection(
+        self, tmp_path: Path, type_task_pair: tuple[str, str]
+    ) -> None:
+        """``--model-type <type> --task <task>`` returns only matching models."""
+        model_type, task = type_task_pair
         models = _invoke_json(
-            tmp_path / "bert_textcls.json",
+            tmp_path / "mtype_task.json",
             "--model-type",
-            "bert",
+            model_type,
             "--task",
-            "text-classification",
+            task,
         )
         assert len(models) > 0
         for m in models:
-            assert m["model_type"].lower() == "bert"
-            assert m["task"].lower() == "text-classification"
+            assert m["model_type"].lower() == model_type.lower()
+            assert m["task"].lower() == task.lower()
 
     def test_model_type_and_task_intersection_is_smaller_than_either_alone(
-        self, tmp_path: Path
+        self, tmp_path: Path, type_task_pair: tuple[str, str]
     ) -> None:
-        bert_all = _invoke_json(tmp_path / "bert.json", "--model-type", "bert")
-        textcls_all = _invoke_json(tmp_path / "textcls.json", "--task", "text-classification")
+        model_type, task = type_task_pair
+        mtype_all = _invoke_json(tmp_path / "mtype.json", "--model-type", model_type)
+        task_all = _invoke_json(tmp_path / "task.json", "--task", task)
         combined = _invoke_json(
             tmp_path / "combined.json",
             "--model-type",
-            "bert",
+            model_type,
             "--task",
-            "text-classification",
+            task,
         )
-        assert len(combined) <= len(bert_all)
-        assert len(combined) <= len(textcls_all)
+        assert len(combined) <= len(mtype_all)
+        assert len(combined) <= len(task_all)
 
-    def test_ep_and_model_type_intersection(self, tmp_path: Path) -> None:
-        """``--ep vitisai --model-type bert`` returns only vitisai-capable bert models."""
+    def test_ep_and_model_type_intersection(
+        self, tmp_path: Path, ep_model_type_pair: tuple[str, str]
+    ) -> None:
+        """``--ep <ep> --model-type <type>`` returns only matching models."""
+        ep, model_type = ep_model_type_pair
         models = _invoke_json(
-            tmp_path / "vitisai_bert.json",
+            tmp_path / "ep_mtype.json",
             "--ep",
-            "vitisai",
+            ep,
             "--model-type",
-            "bert",
+            model_type,
         )
-        assert len(models) > 0, "Expected at least one bert model with vitisai support"
+        assert len(models) > 0, f"Expected at least one {model_type} model supporting {ep}"
         for m in models:
-            assert m["model_type"].lower() == "bert"
-            assert "vitisai" in _ep_keys(m)
+            assert m["model_type"].lower() == model_type.lower()
+            assert ep in _ep_keys(m)
 
     def test_ep_and_device_both_given(self, tmp_path: Path) -> None:
         """``--ep qnn --device NPU`` returns models that have QNN AND support NPU.
@@ -387,30 +499,36 @@ class TestCatalogCombinedFilters:
             assert "qnn" in eps, f"{m['model_id']} missing qnn in supported_eps"
             assert _supports_device(m, "NPU"), f"{m['model_id']} does not support NPU on any EP"
 
-    def test_model_type_and_task_with_no_overlap_returns_empty(self, tmp_path: Path) -> None:
-        """A type+task pair that exists for no model returns an empty list."""
+    def test_model_type_and_task_with_no_overlap_returns_empty(
+        self, tmp_path: Path, disjoint_type_task: tuple[str, str]
+    ) -> None:
+        """A type+task pair with no matching models returns an empty list."""
+        model_type, task = disjoint_type_task
         out = tmp_path / "empty.json"
         result = _invoke(
             "--model-type",
-            "resnet",  # resnet has no text tasks
+            model_type,
             "--task",
-            "text-classification",
+            task,
             "--output",
             str(out),
         )
         assert result.exit_code == 0
         assert json.loads(out.read_text()) == []
 
-    def test_ep_and_task_intersection_subset_of_ep_alone(self, tmp_path: Path) -> None:
+    def test_ep_and_task_intersection_subset_of_ep_alone(
+        self, tmp_path: Path, two_tasks: tuple[str, str]
+    ) -> None:
+        task = two_tasks[0]
         vitisai_all = _invoke_json(tmp_path / "vitisai.json", "--ep", "vitisai")
-        vitisai_imgcls = _invoke_json(
-            tmp_path / "vitisai_imgcls.json",
+        vitisai_task = _invoke_json(
+            tmp_path / "vitisai_task.json",
             "--ep",
             "vitisai",
             "--task",
-            "image-classification",
+            task,
         )
-        assert len(vitisai_imgcls) <= len(vitisai_all)
+        assert len(vitisai_task) <= len(vitisai_all)
 
 
 # ---------------------------------------------------------------------------
@@ -435,13 +553,16 @@ class TestCatalogOutputFile:
             missing = required_keys - m.keys()
             assert not missing, f"Model entry missing keys {missing}: {m}"
 
-    def test_output_with_filter_writes_only_matching_models(self, tmp_path: Path) -> None:
+    def test_output_with_filter_writes_only_matching_models(
+        self, tmp_path: Path, two_model_types: tuple[str, str]
+    ) -> None:
         """``--output`` combined with ``--model-type`` writes the filtered subset."""
-        out = tmp_path / "bert.json"
-        result = _invoke("--model-type", "bert", "--output", str(out))
+        model_type = two_model_types[0]
+        out = tmp_path / "filtered.json"
+        result = _invoke("--model-type", model_type, "--output", str(out))
         assert result.exit_code == 0
         models = json.loads(out.read_text())
-        assert all(m["model_type"].lower() == "bert" for m in models)
+        assert all(m["model_type"].lower() == model_type.lower() for m in models)
 
     def test_output_empty_filter_writes_empty_list(self, tmp_path: Path) -> None:
         out = tmp_path / "empty.json"
