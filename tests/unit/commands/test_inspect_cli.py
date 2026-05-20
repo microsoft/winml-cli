@@ -299,3 +299,9 @@ class TestInspectErrors:
             assert result.exit_code != 0
             assert "Model not found" in result.output
             assert "Network error" not in result.output
+
+    def test_hf_id_with_dot_not_treated_as_missing_local_path(self) -> None:
+        """A valid-looking HF ID with '.' should not be pre-classified as local."""
+        from winml.modelkit.commands.inspect import _looks_like_local_path
+
+        assert _looks_like_local_path("org/model.onnx") is False

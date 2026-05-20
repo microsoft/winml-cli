@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
+def _looks_like_local_path(model_id: str) -> bool:
+    """Return True when model_id is explicitly a local path."""
+    from pathlib import Path
+
+    _p = Path(model_id).expanduser()
+    return _p.exists() or _p.is_absolute() or "\\" in model_id or model_id.startswith((".", "~"))
+
+
 @click.command("inspect")
 @click.option(
     "-m",
@@ -138,17 +146,13 @@ def inspect(
             "Use --list-tasks to see available tasks."
         )
 
-    # Classify the input before hitting HF Hub: local paths must exist.
-    # HF IDs (org/model) have no file extension and no path separators other
-    # than a single forward slash, so the heuristics below have no false-positives
-    # for normal HF model identifiers.
-    from pathlib import Path
-
+    # Classify the input before hitting HF Hub: explicitly-local paths must exist.
+    # Keep this conservative to avoid misclassifying valid HF IDs as local paths.
     if model_id:
-        _p = Path(model_id)
-        _is_local = (
-            _p.is_absolute() or "\\" in model_id or model_id.startswith(".") or bool(_p.suffix)
-        )
+        from pathlib import Path
+
+        _p = Path(model_id).expanduser()
+        _is_local = _looks_like_local_path(model_id)
         if _is_local:
             if _p.suffix == ".onnx" and _p.is_file():
                 raise click.ClickException(
