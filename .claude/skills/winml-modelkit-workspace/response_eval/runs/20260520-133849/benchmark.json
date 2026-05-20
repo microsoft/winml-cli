@@ -1,0 +1,132 @@
+{
+  "run": "20260520-133849",
+  "with_skill": {
+    "passed": 56,
+    "total": 56,
+    "pass_rate": 1.0
+  },
+  "without_skill": {
+    "passed": 29,
+    "total": 56,
+    "pass_rate": 0.5179
+  },
+  "cases": [
+    {
+      "id": "eval-config-build-for-ci",
+      "with_skill": {
+        "passed": 6,
+        "total": 6,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 3,
+        "total": 6,
+        "pass_rate": 0.5
+      }
+    },
+    {
+      "id": "eval-install-setup",
+      "with_skill": {
+        "passed": 5,
+        "total": 5,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 1,
+        "total": 5,
+        "pass_rate": 0.2
+      }
+    },
+    {
+      "id": "eval-is-model-supported",
+      "with_skill": {
+        "passed": 6,
+        "total": 6,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 2,
+        "total": 6,
+        "pass_rate": 0.3333
+      }
+    },
+    {
+      "id": "eval-local-onnx-file",
+      "with_skill": {
+        "passed": 5,
+        "total": 5,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 4,
+        "total": 5,
+        "pass_rate": 0.8
+      }
+    },
+    {
+      "id": "eval-npu-vs-cpu-comparison",
+      "with_skill": {
+        "passed": 8,
+        "total": 8,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 3,
+        "total": 8,
+        "pass_rate": 0.375
+      }
+    },
+    {
+      "id": "eval-optimize-failure-recovery",
+      "with_skill": {
+        "passed": 6,
+        "total": 6,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 4,
+        "total": 6,
+        "pass_rate": 0.6667
+      }
+    },
+    {
+      "id": "eval-ryzen-ai-quick-benchmark",
+      "with_skill": {
+        "passed": 7,
+        "total": 7,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 3,
+        "total": 7,
+        "pass_rate": 0.4286
+      }
+    },
+    {
+      "id": "eval-seq2seq-out-of-scope",
+      "with_skill": {
+        "passed": 5,
+        "total": 5,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 3,
+        "total": 5,
+        "pass_rate": 0.6
+      }
+    },
+    {
+      "id": "eval-snapdragon-resnet-build",
+      "with_skill": {
+        "passed": 8,
+        "total": 8,
+        "pass_rate": 1.0
+      },
+      "without_skill": {
+        "passed": 6,
+        "total": 8,
+        "pass_rate": 0.75
+      }
+    }
+  ]
+}

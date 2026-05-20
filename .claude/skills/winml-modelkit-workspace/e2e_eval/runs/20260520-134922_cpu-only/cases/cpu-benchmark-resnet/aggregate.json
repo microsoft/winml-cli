@@ -1,0 +1,36 @@
+{
+  "case_id": "cpu-benchmark-resnet",
+  "trials": [
+    {
+      "trial": "trial-1",
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "all_pass": true,
+      "tool_uses": 5,
+      "duration_ms": 160892
+    },
+    {
+      "trial": "trial-2",
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "all_pass": true,
+      "tool_uses": 4,
+      "duration_ms": 132876
+    },
+    {
+      "trial": "trial-3",
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "all_pass": true,
+      "tool_uses": 5,
+      "duration_ms": 142470
+    }
+  ],
+  "k": 3,
+  "pass_at_k": 3,
+  "pass_at_k_rate": 1.0,
+  "avg_assertion_pass_rate": 1.0
+}

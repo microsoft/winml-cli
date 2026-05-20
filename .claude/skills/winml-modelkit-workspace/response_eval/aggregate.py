@@ -1,19 +1,19 @@
-"""Aggregate one response-eval iteration into a benchmark + per-case comparisons.
+"""Aggregate one response-eval run into a benchmark + per-case comparisons.
 
 Reads each `eval-<case>/{with_skill,without_skill}/run-1/grading.json` + the matching
 response.md, plus the canonical case prompts from `response_eval/cases.json`. Produces:
 
-  <iter>/benchmark.md            iteration-level summary table (human-readable)
-  <iter>/benchmark.json          machine-readable shadow of the same
-  <iter>/eval-<case>/comparison.md   per-case side-by-side: prompt + both responses +
-                                     inline assertion table with evidence
+  <run>/benchmark.md            run-level summary table (human-readable)
+  <run>/benchmark.json          machine-readable shadow of the same
+  <run>/eval-<case>/comparison.md   per-case side-by-side: prompt + both responses +
+                                    inline assertion table with evidence
 
-No external tool dependencies. Run after `grade.py` and `run_full_verify.py` for the
-iteration. Idempotent — re-running overwrites generated files.
+No external tool dependencies. Run after `grade.py` for the run. Idempotent —
+re-running overwrites generated files.
 
 Usage:
-    python aggregate.py                    # latest iter
-    python aggregate.py <UTC-datetime>     # specific iter
+    python aggregate.py                    # latest run
+    python aggregate.py <UTC-datetime>     # specific run
 """
 from __future__ import annotations
 
@@ -23,16 +23,16 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent      # response_eval/
-ITER_ROOT = HERE / "iterations"
+RUNS_ROOT = HERE / "runs"
 CASES_PATH = HERE / "cases.json"
 DATETIME_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
-def latest_iter() -> Path | None:
-    if not ITER_ROOT.exists():
+def latest_run() -> Path | None:
+    if not RUNS_ROOT.exists():
         return None
     candidates = sorted(
-        c for c in ITER_ROOT.iterdir()
+        c for c in RUNS_ROOT.iterdir()
         if c.is_dir() and DATETIME_RE.match(c.name)
     )
     return candidates[-1] if candidates else None
@@ -90,9 +90,9 @@ def render_comparison(case_dir: Path, case_def: dict) -> str:
     return "\n".join(lines)
 
 
-def render_benchmark(iter_dir: Path, summary: dict) -> str:
+def render_benchmark(run_dir: Path, summary: dict) -> str:
     lines: list[str] = []
-    lines.append(f"# Response eval — {iter_dir.name}\n")
+    lines.append(f"# Response eval — {run_dir.name}\n")
 
     ws = summary["with_skill"]
     bs = summary["without_skill"]
@@ -129,7 +129,7 @@ def render_benchmark(iter_dir: Path, summary: dict) -> str:
     return "\n".join(lines)
 
 
-def aggregate(iter_dir: Path) -> dict:
+def aggregate(run_dir: Path) -> dict:
     cases_doc = json.loads(CASES_PATH.read_text(encoding="utf-8"))
     case_defs = {f"eval-{c['name']}": c for c in cases_doc.get("evals", [])}
 
@@ -139,7 +139,7 @@ def aggregate(iter_dir: Path) -> dict:
         "without_skill": {"passed": 0, "total": 0},
     }
 
-    for case_dir in sorted(iter_dir.glob("eval-*")):
+    for case_dir in sorted(run_dir.glob("eval-*")):
         case_id = case_dir.name
         case_def = case_defs.get(case_id, {})
 
@@ -167,35 +167,35 @@ def aggregate(iter_dir: Path) -> dict:
         totals[config]["pass_rate"] = round(totals[config]["passed"] / t, 4) if t else 0.0
 
     summary = {
-        "iteration": iter_dir.name,
+        "run": run_dir.name,
         "with_skill": totals["with_skill"],
         "without_skill": totals["without_skill"],
         "cases": case_results,
     }
-    (iter_dir / "benchmark.md").write_text(render_benchmark(iter_dir, summary), encoding="utf-8")
-    (iter_dir / "benchmark.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (run_dir / "benchmark.md").write_text(render_benchmark(run_dir, summary), encoding="utf-8")
+    (run_dir / "benchmark.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
 
 
 def main(argv: list[str]) -> int:
     if argv:
-        iter_dir = ITER_ROOT / argv[0]
-        if not iter_dir.exists():
-            raise SystemExit(f"Iteration not found: {iter_dir}")
+        run_dir = RUNS_ROOT / argv[0]
+        if not run_dir.exists():
+            raise SystemExit(f"Run not found: {run_dir}")
     else:
-        iter_dir = latest_iter()
-        if not iter_dir:
-            raise SystemExit("No iteration directories found.")
+        run_dir = latest_run()
+        if not run_dir:
+            raise SystemExit("No run directories found.")
 
-    summary = aggregate(iter_dir)
+    summary = aggregate(run_dir)
     ws = summary["with_skill"]
     bs = summary["without_skill"]
     delta = (ws["pass_rate"] - bs["pass_rate"]) * 100
-    print(f"Aggregated {iter_dir.name}:")
+    print(f"Aggregated {run_dir.name}:")
     print(f"  with_skill: {ws['passed']}/{ws['total']} ({ws['pass_rate']*100:.1f}%)")
     print(f"  baseline:   {bs['passed']}/{bs['total']} ({bs['pass_rate']*100:.1f}%)")
     print(f"  delta:      {delta:+.1f}pp")
-    print(f"  Output:     {iter_dir}/benchmark.md + per-case comparison.md")
+    print(f"  Output:     {run_dir}/benchmark.md + per-case comparison.md")
     return 0
 
 

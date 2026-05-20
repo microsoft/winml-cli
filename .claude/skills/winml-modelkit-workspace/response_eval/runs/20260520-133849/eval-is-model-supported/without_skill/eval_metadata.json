@@ -1,0 +1,32 @@
+{
+  "eval_id": 5,
+  "eval_name": "is-model-supported",
+  "prompt": "Before I commit to building `nvidia/segformer-b1-finetuned-ade-512-512` end-to-end on my Intel NPU, is there a way to know if it's going to make it through the full pipeline? Burned half a day last time on a model that exported fine but then died at the optimize stage.",
+  "assertions": [
+    {
+      "id": "recommends-inspect",
+      "text": "Recommends `winml inspect` as the first, cheapest check (config-only, no weights download).",
+      "rationale": ""
+    },
+    {
+      "id": "recommends-analyze",
+      "text": "Recommends `winml analyze` after inspect \u2014 explicitly to find op patterns that won't survive optimize/quantize for the target EP.",
+      "rationale": ""
+    },
+    {
+      "id": "identifies-openvino",
+      "text": "Identifies OpenVINO as the EP for Intel NPU.",
+      "rationale": ""
+    },
+    {
+      "id": "explains-analyze-role",
+      "text": "Explains analyze's role: a linter that classifies operators as supported / partial / unsupported per EP (so the user knows WHY this answers their question).",
+      "rationale": ""
+    },
+    {
+      "id": "no-just-try-it",
+      "text": "Does NOT just say \"build the full pipeline and see what happens\" \u2014 that's exactly the workflow the user already said burned them.",
+      "rationale": ""
+    }
+  ]
+}

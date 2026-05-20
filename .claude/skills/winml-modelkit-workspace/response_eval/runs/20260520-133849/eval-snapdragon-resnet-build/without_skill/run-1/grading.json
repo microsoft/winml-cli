@@ -1,0 +1,53 @@
+{
+  "eval_id": 1,
+  "eval_name": "snapdragon-resnet-build",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` (or equivalent inspection step) before kicking off the rest of the pipeline.",
+      "passed": false,
+      "evidence": "Baseline doesn't use the winml CLI at all -- goes straight to optimum-cli / onnxruntime."
+    },
+    {
+      "text": "Identifies QNN as the correct EP for Snapdragon X Elite.",
+      "passed": true,
+      "evidence": "General knowledge: baseline identifies QNN / Hexagon NPU as the Snapdragon path."
+    },
+    {
+      "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path.",
+      "passed": true,
+      "evidence": "Only QNN mentioned."
+    },
+    {
+      "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build).",
+      "passed": true,
+      "evidence": "Baseline walks env setup -> optimum-cli export -> quantize -> perf via onnxruntime_perf_test."
+    },
+    {
+      "text": "Includes a benchmark step (winml perf or equivalent) that produces latency numbers.",
+      "passed": true,
+      "evidence": "Baseline uses onnxruntime_perf_test as benchmark step."
+    },
+    {
+      "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Real onnxruntime_perf_test / Quark flags."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user said \"just got a dev box\" so they likely don't have winml installed yet.",
+      "passed": false,
+      "evidence": "Baseline never references the winml CLI; installs onnxruntime-qnn / optimum instead. Misses the winml-cli prereq entirely."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.75,
+    "passed": 6,
+    "failed": 2,
+    "total": 8
+  }
+}

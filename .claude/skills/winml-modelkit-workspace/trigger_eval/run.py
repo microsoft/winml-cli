@@ -1,22 +1,22 @@
 """Trigger eval runner — Pillar 1.
 
-Each "round" is a snapshot of (description, queries, judge responses, results) at a
-moment in time, stored as `rounds/<UTC-datetime>/`. Top-level files (`queries.json`,
-`run.py`, `RUNBOOK.md`) are the canonical source; rounds/ is the history.
+Each "run" is a snapshot of (description, queries, judge responses, results) at a
+moment in time, stored as `runs/<UTC-datetime>/`. Top-level files (`queries.json`,
+`run.py`, `RUNBOOK.md`) are the canonical source; runs/ is the history.
 
 Workflow:
-  1. `python run.py --new-round`
-        creates a new `rounds/<now>/` directory, snapshots the current description
+  1. `python run.py --new-run`
+        creates a new `runs/<now>/` directory, snapshots the current description
         from SKILL.md + the current queries.json, and renders judge_prompt.txt into it.
   2. The parent agent spawns a judge subagent with the rendered prompt and saves the
-     JSON output to `rounds/<that-datetime>/judge_responses.json`.
+     JSON output to `runs/<that-datetime>/judge_responses.json`.
   3. `python run.py --grade`
-        finds the latest round, reads judge_responses.json, compares to queries.json
-        labels, writes results.json into the round directory.
+        finds the latest run, reads judge_responses.json, compares to queries.json
+        labels, writes results.json into the run directory.
 
-Round directory contents:
-  description.md            snapshot of SKILL.md description at this round
-  queries.json              snapshot of queries.json at this round
+Run directory contents:
+  description.md            snapshot of SKILL.md description at this run
+  queries.json              snapshot of queries.json at this run
   judge_prompt.txt          rendered prompt (gitignored — derived)
   judge_responses.json      judge subagent output
   results.json              grading output
@@ -34,7 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 SKILL = Path(r"C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit/SKILL.md")
 QUERIES = HERE / "queries.json"
-ROUNDS_DIR = HERE / "rounds"
+RUNS_DIR = HERE / "runs"
 DATETIME_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
@@ -50,11 +50,11 @@ def extract_description(skill_path: Path) -> str:
     return dm.group(1).strip()
 
 
-def latest_round() -> Path | None:
-    if not ROUNDS_DIR.exists():
+def latest_run() -> Path | None:
+    if not RUNS_DIR.exists():
         return None
     candidates = sorted(
-        c for c in ROUNDS_DIR.iterdir()
+        c for c in RUNS_DIR.iterdir()
         if c.is_dir() and DATETIME_RE.match(c.name)
     )
     return candidates[-1] if candidates else None
@@ -84,26 +84,26 @@ def render_judge_prompt(description: str, queries: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def new_round() -> Path:
-    """Create a new round directory with snapshots of description + queries + prompt."""
+def new_run() -> Path:
+    """Create a new run directory with snapshots of description + queries + prompt."""
     now = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    round_dir = ROUNDS_DIR / now
-    round_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = RUNS_DIR / now
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     description = extract_description(SKILL)
     queries = json.loads(QUERIES.read_text(encoding="utf-8"))
 
-    (round_dir / "description.md").write_text(description + "\n", encoding="utf-8")
-    shutil.copy2(QUERIES, round_dir / "queries.json")
-    (round_dir / "judge_prompt.txt").write_text(
+    (run_dir / "description.md").write_text(description + "\n", encoding="utf-8")
+    shutil.copy2(QUERIES, run_dir / "queries.json")
+    (run_dir / "judge_prompt.txt").write_text(
         render_judge_prompt(description, queries), encoding="utf-8"
     )
-    return round_dir
+    return run_dir
 
 
-def grade(round_dir: Path) -> dict:
-    queries = json.loads((round_dir / "queries.json").read_text(encoding="utf-8"))
-    responses_path = round_dir / "judge_responses.json"
+def grade(run_dir: Path) -> dict:
+    queries = json.loads((run_dir / "queries.json").read_text(encoding="utf-8"))
+    responses_path = run_dir / "judge_responses.json"
     if not responses_path.exists():
         raise FileNotFoundError(f"{responses_path} not found — spawn the judge subagent first")
     responses = json.loads(responses_path.read_text(encoding="utf-8"))
@@ -142,7 +142,7 @@ def grade(round_dir: Path) -> dict:
     specificity = (n_neg - false_pos) / n_neg if n_neg else 0.0
 
     return {
-        "round": round_dir.name,
+        "run": run_dir.name,
         "total": n, "correct": correct, "accuracy": round(accuracy, 4),
         "false_positives_over_trigger": false_pos,
         "false_negatives_under_trigger": false_neg,
@@ -153,27 +153,27 @@ def grade(round_dir: Path) -> dict:
 
 
 def main(argv: list[str]) -> int:
-    if "--new-round" in argv:
-        round_dir = new_round()
-        print(f"New round: {round_dir.name}")
-        print(f"  description.md, queries.json, judge_prompt.txt written to {round_dir}")
-        print(f"  Next: spawn judge subagent with judge_prompt.txt, save JSON to {round_dir / 'judge_responses.json'}")
+    if "--new-run" in argv:
+        run_dir = new_run()
+        print(f"New run: {run_dir.name}")
+        print(f"  description.md, queries.json, judge_prompt.txt written to {run_dir}")
+        print(f"  Next: spawn judge subagent with judge_prompt.txt, save JSON to {run_dir / 'judge_responses.json'}")
         return 0
     if "--grade" in argv:
-        # Allow override: --grade <round-name>
-        round_name = None
+        # Allow override: --grade <run-name>
+        run_name = None
         for i, a in enumerate(argv):
             if a == "--grade" and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-                round_name = argv[i + 1]
-        if round_name:
-            round_dir = ROUNDS_DIR / round_name
+                run_name = argv[i + 1]
+        if run_name:
+            run_dir = RUNS_DIR / run_name
         else:
-            round_dir = latest_round()
-            if not round_dir:
-                raise SystemExit("No rounds found. Run `--new-round` first.")
-        report = grade(round_dir)
-        (round_dir / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-        print(f"Trigger eval results [{round_dir.name}]:")
+            run_dir = latest_run()
+            if not run_dir:
+                raise SystemExit("No runs found. Run `--new-run` first.")
+        report = grade(run_dir)
+        (run_dir / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"Trigger eval results [{run_dir.name}]:")
         print(f"  Accuracy: {report['correct']}/{report['total']} = {report['accuracy']:.0%}")
         print(f"  Over-trigger (false positives):  {report['false_positives_over_trigger']}")
         print(f"  Under-trigger (false negatives): {report['false_negatives_under_trigger']}")

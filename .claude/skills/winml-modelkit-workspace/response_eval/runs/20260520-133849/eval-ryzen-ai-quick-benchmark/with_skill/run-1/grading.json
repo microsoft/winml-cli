@@ -1,0 +1,48 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "passed": true,
+      "evidence": "Skill body's hardware table specifies VitisAI for Ryzen AI; response uses --ep vitisai / VitisAIExecutionProvider verification."
+    },
+    {
+      "text": "Recommends a single `winml perf` invocation as the primary action.",
+      "passed": true,
+      "evidence": "Single one-shot `winml perf -m facebook/convnext-tiny-224 --device npu --ignore-cache` shown as the 'one command' step."
+    },
+    {
+      "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate steps.",
+      "passed": true,
+      "evidence": "Response explicitly notes 'winml perf builds artifacts on the fly' and avoids manual chaining."
+    },
+    {
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "passed": true,
+      "evidence": "Inspect step included as the golden-rule preflight before perf."
+    },
+    {
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "All flags real; references `winml <cmd> --help` for fallback diagnostic."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user said \"I have a Ryzen AI laptop\" with no signal of prior winml usage, so the default-include-install rule applies.",
+      "passed": true,
+      "evidence": "Prereq install block included with uv venv + AITK wheel + verify."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 7,
+    "failed": 0,
+    "total": 7
+  }
+}

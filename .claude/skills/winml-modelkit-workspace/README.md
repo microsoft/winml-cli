@@ -10,17 +10,17 @@ Dev-only infrastructure for iterating + validating the skill. Three pillars, eac
 
 ## History naming
 
-All three pillars use **UTC datetime** (`YYYYMMDD-HHMMSS`) for archived snapshots so they're sortable, unambiguous across timezones, and never collide:
+All three pillars use **UTC datetime** (`YYYYMMDD-HHMMSS`) for archived snapshots so they're sortable, unambiguous across timezones, and never collide. The history directory is named `runs/` consistently across all three pillars:
 
 | Pillar | Archive path | Tracks |
 |---|---|---|
-| Trigger | `trigger_eval/rounds/<UTC-datetime>/` | One snapshot per description change + judge run |
-| Response | `response_eval/iterations/<UTC-datetime>/` | One snapshot per body iteration |
+| Trigger | `trigger_eval/runs/<UTC-datetime>/` | One snapshot per description change + judge run |
+| Response | `response_eval/runs/<UTC-datetime>/` | One snapshot per body iteration |
 | E2E | `e2e_eval/runs/<UTC-datetime>_<hardware>/` | One snapshot per `/run-e2e` invocation (includes hardware tag) |
 
 Cross-pillar snapshots (rare, combine all three at a point in time) live at `reports/<UTC-datetime>.md`.
 
-The counters across pillars do **not** correspond — `trigger_eval/rounds/...` and `response_eval/iterations/...` evolve independently because they edit different parts of SKILL.md (description vs. body).
+The counters across pillars do **not** correspond — `trigger_eval/runs/...` and `response_eval/runs/...` evolve independently because they edit different parts of SKILL.md (description vs. body).
 
 For design rationale (why three pillars, what's out of scope), see [`winml-cli-skill-design.md`](../../../winml-cli-skill-design.md) at repo root.
 

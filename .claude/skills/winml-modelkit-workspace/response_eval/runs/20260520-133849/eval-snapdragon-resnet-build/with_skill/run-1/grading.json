@@ -1,0 +1,53 @@
+{
+  "eval_id": 1,
+  "eval_name": "snapdragon-resnet-build",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` (or equivalent inspection step) before kicking off the rest of the pipeline.",
+      "passed": true,
+      "evidence": "Section 1 'Inspect \u2014 confirm ModelKit knows the model' runs `winml inspect -m microsoft/resnet-50` before config/build."
+    },
+    {
+      "text": "Identifies QNN as the correct EP for Snapdragon X Elite.",
+      "passed": true,
+      "evidence": "Quote: 'ResNet-50 on QNN is the textbook BYOM path for ModelKit ... Snapdragon X Elite NPU.'"
+    },
+    {
+      "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path.",
+      "passed": true,
+      "evidence": "Only QNN mentioned."
+    },
+    {
+      "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build).",
+      "passed": true,
+      "evidence": "Section 2 config; section 3 build runs export -> optimize -> quantize -> compile."
+    },
+    {
+      "text": "Includes a benchmark step (winml perf or equivalent) that produces latency numbers.",
+      "passed": true,
+      "evidence": "Section 4 `winml perf -m ... --device npu --ep qnn --iterations 500 --warmup 20 -c resnet50-qnn.json --monitor`."
+    },
+    {
+      "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "All flags real; recommends `winml analyze --help` for diagnostics path."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user said \"just got a dev box\" so they likely don't have winml installed yet.",
+      "passed": true,
+      "evidence": "Section 0 'Prereqs \u2014 install winml' with full uv venv + AITK wheel + verify."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 8,
+    "failed": 0,
+    "total": 8
+  }
+}

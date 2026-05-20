@@ -1,0 +1,43 @@
+{
+  "eval_id": 5,
+  "eval_name": "is-model-supported",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` as the first, cheapest check (config-only, no weights download).",
+      "passed": true,
+      "evidence": "Inspect framed as the cheapest preflight ('reads HF config without downloading weights')."
+    },
+    {
+      "text": "Recommends `winml analyze` after inspect -- explicitly to find op patterns that won't survive optimize/quantize for the target EP.",
+      "passed": true,
+      "evidence": "Analyze step explicitly framed as 'the step that would have saved you half a day' \u2014 per-EP op-coverage check."
+    },
+    {
+      "text": "Identifies OpenVINO as the EP for Intel NPU.",
+      "passed": true,
+      "evidence": "Uses --ep openvino --device NPU; mentions OpenVINOExecutionProvider in the EP-registration check."
+    },
+    {
+      "text": "Explains analyze's role: a linter that classifies operators as supported / partial / unsupported per EP (so the user knows WHY this answers their question).",
+      "passed": true,
+      "evidence": "Linter behavior explained (classifies operators per EP) plus exit code 0/1/2 mapping."
+    },
+    {
+      "text": "Does NOT just say \"build the full pipeline and see what happens\" -- that's exactly the workflow the user already said burned them.",
+      "passed": true,
+      "evidence": "Whole response framed as pre-flight before committing to the build."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}

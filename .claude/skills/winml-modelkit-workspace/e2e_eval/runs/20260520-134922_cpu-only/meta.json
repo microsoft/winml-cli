@@ -1,0 +1,142 @@
+{
+  "host": "CPC-shzhe-JK9DU",
+  "skill_commit": "5820645fd751ae08fcfbcbcb8602e7c7122c652a",
+  "winml_version": "winml, version 0.0.2",
+  "registered_eps": [
+    "CPUExecutionProvider",
+    "DmlExecutionProvider",
+    "OpenVINOExecutionProvider"
+  ],
+  "started_at_utc": "2026-05-20T13:38:49Z",
+  "run_id": "20260520-134922_cpu-only",
+  "completed_at_utc": "2026-05-20T13:49:23+00:00",
+  "cases_eligible": [
+    "cpu-benchmark-resnet",
+    "llm-refusal-phi3",
+    "cpu-full-build-resnet"
+  ],
+  "cases_skipped": [
+    {
+      "case_id": "qnn-benchmark-resnet",
+      "reason": "QNNExecutionProvider not registered"
+    },
+    {
+      "case_id": "qnn-full-build-resnet",
+      "reason": "QNNExecutionProvider not registered"
+    },
+    {
+      "case_id": "vitisai-benchmark-resnet",
+      "reason": "VitisAIExecutionProvider not registered"
+    }
+  ],
+  "case_summaries": [
+    {
+      "case_id": "cpu-benchmark-resnet",
+      "trials": [
+        {
+          "trial": "trial-1",
+          "passed": 5,
+          "total": 5,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 5,
+          "duration_ms": 160892
+        },
+        {
+          "trial": "trial-2",
+          "passed": 5,
+          "total": 5,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 4,
+          "duration_ms": 132876
+        },
+        {
+          "trial": "trial-3",
+          "passed": 5,
+          "total": 5,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 5,
+          "duration_ms": 142470
+        }
+      ],
+      "k": 3,
+      "pass_at_k": 3,
+      "pass_at_k_rate": 1.0,
+      "avg_assertion_pass_rate": 1.0
+    },
+    {
+      "case_id": "llm-refusal-phi3",
+      "trials": [
+        {
+          "trial": "trial-1",
+          "passed": 5,
+          "total": 5,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 1,
+          "duration_ms": 25406
+        },
+        {
+          "trial": "trial-2",
+          "passed": 5,
+          "total": 5,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 1,
+          "duration_ms": 23568
+        },
+        {
+          "trial": "trial-3",
+          "passed": 5,
+          "total": 5,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 1,
+          "duration_ms": 22977
+        }
+      ],
+      "k": 3,
+      "pass_at_k": 3,
+      "pass_at_k_rate": 1.0,
+      "avg_assertion_pass_rate": 1.0
+    },
+    {
+      "case_id": "cpu-full-build-resnet",
+      "trials": [
+        {
+          "trial": "trial-1",
+          "passed": 4,
+          "total": 4,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 8,
+          "duration_ms": 152553
+        },
+        {
+          "trial": "trial-2",
+          "passed": 4,
+          "total": 4,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 8,
+          "duration_ms": 141545
+        },
+        {
+          "trial": "trial-3",
+          "passed": 4,
+          "total": 4,
+          "pass_rate": 1.0,
+          "all_pass": true,
+          "tool_uses": 8,
+          "duration_ms": 131635
+        }
+      ],
+      "k": 3,
+      "pass_at_k": 3,
+      "pass_at_k_rate": 1.0,
+      "avg_assertion_pass_rate": 1.0
+    }
+  ]
+}

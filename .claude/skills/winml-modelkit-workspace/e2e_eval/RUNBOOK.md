@@ -77,7 +77,7 @@ A case with 2/3 trials passing is a real signal — agent-mode behavior is non-d
 
 Pillar 3 is a **gate**, not a trajectory. Each run is evidence — "skill version X, on hardware Y, on date Z, passed/failed". We don't number them in sequence because they're not comparable across machines (a run on CPU-only is fundamentally a different gate than a run on Snapdragon). Per-run directories live under `runs/<datetime>_<hardware>/` and stay side-by-side rather than being rolled into one trajectory.
 
-If you want the trajectory view (Pillar 2 pass rate over skill iterations), look at the workspace-root `iteration-<N>-report.md` instead. That report pulls in the latest E2E gate evidence at the time of writing.
+If you want the trajectory view (Pillar 2 pass rate over time), look at the workspace-root `reports/<UTC-datetime>.md` cross-pillar snapshots instead. Those pull in the latest E2E gate evidence at the time of writing.
 
 ## Adding new cases
 

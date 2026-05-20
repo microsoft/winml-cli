@@ -1,0 +1,27 @@
+{
+  "eval_id": 7,
+  "eval_name": "install-setup",
+  "prompt": "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.11 is already on the system. give me the actual install commands i should run to get going before i can do anything else.",
+  "assertions": [
+    {
+      "id": "python-3-10-required",
+      "text": "Recommends Python 3.10 specifically, and calls out that the user's existing 3.11 will NOT work (winml-cli wheel pins >=3.10,<3.11).",
+      "rationale": ""
+    },
+    {
+      "id": "uses-uv-venv",
+      "text": "Uses `uv venv --python 3.10` (or an equivalent isolated venv command) rather than installing into system Python or a 3.11 environment.",
+      "rationale": ""
+    },
+    {
+      "id": "points-to-correct-source",
+      "text": "Points to the AITK cache as the wheel source today (e.g., `$env:USERPROFILE\\.aitk\\bin\\model_lab_runtime\\cache\\winml_cli-*.whl`) and acknowledges PyPI is the planned/future path. Does NOT fabricate a generic `pip install winml` URL as if it works today.",
+      "rationale": ""
+    },
+    {
+      "id": "verifies-after-install",
+      "text": "Includes a post-install verification step (e.g., `winml --help` or `winml sys --list-ep`) so the user can confirm the install worked before moving on.",
+      "rationale": ""
+    }
+  ]
+}

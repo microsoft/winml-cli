@@ -1,0 +1,27 @@
+{
+  "eval_id": 10,
+  "eval_name": "seq2seq-out-of-scope",
+  "prompt": "i want to deploy salesforce/codet5p-220m on my snapdragon x elite NPU for offline code summarization in a VSCode extension. the model takes a code snippet and outputs a natural-language summary. walk me through the winml pipeline?",
+  "assertions": [
+    {
+      "id": "identifies-generative-architecture",
+      "text": "Identifies CodeT5+ as a generative / seq2seq / encoder-decoder architecture (or otherwise invokes the body's scope rule about generative models). Must invoke a generalizable architectural property \u2014 not just say \"we don't support codet5p specifically.\" Note: codet5p is NOT named in the description's exclusion list, so this tests whether the body's scope rule generalizes.",
+      "rationale": ""
+    },
+    {
+      "id": "out-of-scope-clearly",
+      "text": "States clearly that this model is out of scope for the winml pipeline today, not hedged with \"might work\" or \"try and see.\"",
+      "rationale": ""
+    },
+    {
+      "id": "does-not-walk-pipeline",
+      "text": "Does NOT walk the user through `winml export/optimize/quantize/compile/build/perf` for this model.",
+      "rationale": ""
+    },
+    {
+      "id": "alternative-or-roadmap",
+      "text": "Suggests a legitimate alternative for running this kind of model on Windows/NPU (e.g., onnxruntime-genai, Olive, ORT directly) OR mentions roadmap for generative support.",
+      "rationale": ""
+    }
+  ]
+}

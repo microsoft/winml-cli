@@ -11,7 +11,8 @@
         {"id": "no-wrong-ep", "text": "Does NOT recommend OpenVINO, VitisAI, or other non-Qualcomm EPs as the primary path."},
         {"id": "covers-pipeline-stages", "text": "Walks through the build pipeline (export/optimize/quantize/compile or config+build)."},
         {"id": "ends-with-benchmark", "text": "Includes a benchmark step (winml perf or equivalent) that produces latency numbers."},
-        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns."}
+        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help` for current flags, OR uses only common/plausible flag patterns."},
+        {"id": "includes-install-prereq", "text": "Includes an install/prereq block (or a clear pointer back to install steps) — the user said \"just got a dev box\" so they likely don't have winml installed yet."}
       ]
     },
     {
@@ -23,18 +24,8 @@
         {"id": "single-perf-command", "text": "Recommends a single `winml perf` invocation as the primary action."},
         {"id": "no-full-pipeline", "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate steps."},
         {"id": "inspect-as-sanity-check", "text": "Mentions running `winml inspect` first as a sanity check."},
-        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns."}
-      ]
-    },
-    {
-      "id": 3,
-      "name": "llm-out-of-scope",
-      "prompt": "Can you help me convert microsoft/Phi-3-mini-4k-instruct to run on my Intel NPU? I want to use winml or whatever the windows ml toolkit is.",
-      "assertions": [
-        {"id": "identifies-as-llm", "text": "Identifies Phi-3 as a decoder-only LLM / generative model."},
-        {"id": "out-of-scope-clearly", "text": "Clearly states this model is NOT supported / out of scope for the winml pipeline today (not hedged)."},
-        {"id": "no-build-pipeline", "text": "Does NOT walk the user through export/optimize/quantize/compile/build."},
-        {"id": "mentions-roadmap-or-alternative", "text": "Mentions LLM support is on the roadmap OR suggests a legitimate alternative."}
+        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns."},
+        {"id": "includes-install-prereq", "text": "Includes an install/prereq block (or a clear pointer back to install steps) — the user said \"I have a Ryzen AI laptop\" with no signal of prior winml usage, so the default-include-install rule applies."}
       ]
     },
     {
@@ -47,7 +38,8 @@
         {"id": "build-once-perf-twice", "text": "Recommends building the model once and then running `winml perf` twice — once on NPU, once on CPU — rather than building two separate pipelines."},
         {"id": "cpu-uses-pre-compile", "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact."},
         {"id": "ep-locked-warning", "text": "Warns that EP-compiled artifacts are EP-locked / can't be run on a different EP and produce nonsense numbers."},
-        {"id": "no-fabricated-flags", "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns."}
+        {"id": "no-fabricated-flags", "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns."},
+        {"id": "includes-install-prereq", "text": "Includes an install/prereq block (or a clear pointer back to install steps) — the user's prompt does not signal prior winml usage, so the default-include-install rule applies."}
       ]
     },
     {
@@ -72,6 +64,51 @@
         {"id": "no-hand-edit-onnx", "text": "Does NOT recommend hand-editing the ONNX graph."},
         {"id": "try-different-config-or-escalate", "text": "Suggests either trying a different optim/quant config to dodge the unsupported pattern OR escalating to \"this model isn't a fit for this EP\". Avoids dead-ending."},
         {"id": "reads-error-message", "text": "Encourages reading the actual error message (which names op/EP/stage) before guessing — doesn't jump to generic advice."}
+      ]
+    },
+    {
+      "id": 7,
+      "name": "install-setup",
+      "prompt": "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.11 is already on the system. give me the actual install commands i should run to get going before i can do anything else.",
+      "assertions": [
+        {"id": "python-3-10-required", "text": "Recommends Python 3.10 specifically, and calls out that the user's existing 3.11 will NOT work (winml-cli wheel pins >=3.10,<3.11)."},
+        {"id": "uses-uv-venv", "text": "Uses `uv venv --python 3.10` (or an equivalent isolated venv command) rather than installing into system Python or a 3.11 environment."},
+        {"id": "points-to-correct-source", "text": "Points to the AITK cache as the wheel source today (e.g., `$env:USERPROFILE\\.aitk\\bin\\model_lab_runtime\\cache\\winml_cli-*.whl`) and acknowledges PyPI is the planned/future path. Does NOT fabricate a generic `pip install winml` URL as if it works today."},
+        {"id": "verifies-after-install", "text": "Includes a post-install verification step (e.g., `winml --help` or `winml sys --list-ep`) so the user can confirm the install worked before moving on."}
+      ]
+    },
+    {
+      "id": 8,
+      "name": "local-onnx-file",
+      "prompt": "i already have a resnet50.onnx file on disk from a previous export — about 100MB. how do i get it benchmarked on my intel core ultra NPU without re-downloading anything from huggingface?",
+      "assertions": [
+        {"id": "identifies-openvino", "text": "Identifies OpenVINO as the correct EP for Intel Core Ultra NPU."},
+        {"id": "accepts-local-onnx-input", "text": "Recognizes that winml commands accept local `.onnx` files directly via `-m` / `--model` — no re-export needed."},
+        {"id": "skips-export", "text": "Does NOT walk the user through `winml export` or any HuggingFace download — the model is already on disk."},
+        {"id": "no-fabricated-flags", "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns."}
+      ]
+    },
+    {
+      "id": 9,
+      "name": "config-build-for-ci",
+      "prompt": "we want to add a CI job that rebuilds an optimized resnet50 (targeting qnn) every time the model config changes. i want one json config that lives in the repo and a reproducible build step. how should i set this up?",
+      "assertions": [
+        {"id": "recommends-config-plus-build", "text": "Recommends the `winml config` → `winml build` two-step (the shortcut/pipeline path), not chained primitives (export/optimize/quantize/compile)."},
+        {"id": "config-committed-to-git", "text": "States or strongly implies the JSON output of `winml config` is the artifact to commit / version-control — it's the single source of truth for the build."},
+        {"id": "cli-precedence-not-reversed", "text": "If precedence is mentioned at all, correctly states that explicit CLI flags override config-file defaults (per every primitive's --help: \"Provides defaults; explicit CLI options take precedence\"). Does NOT claim the config overrides CLI."},
+        {"id": "reproducibility-or-rebuild", "text": "Addresses how to make the build repeatable in CI — either by mentioning that re-running `winml build -c config.json` against the same config produces the same artifact, OR by pointing at the `--rebuild` / `--use-cache` flags."},
+        {"id": "ci-includes-install-step", "text": "The CI workflow / runbook includes a winml-cli install step (pinned wheel today, PyPI later) — not just the build invocation. A fresh CI runner won't have winml; the workflow must install it."}
+      ]
+    },
+    {
+      "id": 10,
+      "name": "seq2seq-out-of-scope",
+      "prompt": "i want to deploy salesforce/codet5p-220m on my snapdragon x elite NPU for offline code summarization in a VSCode extension. the model takes a code snippet and outputs a natural-language summary. walk me through the winml pipeline?",
+      "assertions": [
+        {"id": "identifies-generative-architecture", "text": "Identifies CodeT5+ as a generative / seq2seq / encoder-decoder architecture (or otherwise invokes the body's scope rule about generative models). Must invoke a generalizable architectural property — not just say \"we don't support codet5p specifically.\" Note: codet5p is NOT named in the description's exclusion list, so this tests whether the body's scope rule generalizes."},
+        {"id": "out-of-scope-clearly", "text": "States clearly that this model is out of scope for the winml pipeline today, not hedged with \"might work\" or \"try and see.\""},
+        {"id": "does-not-walk-pipeline", "text": "Does NOT walk the user through `winml export/optimize/quantize/compile/build/perf` for this model."},
+        {"id": "alternative-or-roadmap", "text": "Suggests a legitimate alternative for running this kind of model on Windows/NPU (e.g., onnxruntime-genai, Olive, ORT directly) OR mentions roadmap for generative support."}
       ]
     }
   ]

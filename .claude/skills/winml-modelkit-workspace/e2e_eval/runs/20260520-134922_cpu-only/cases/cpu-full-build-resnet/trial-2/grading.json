@@ -1,0 +1,39 @@
+{
+  "case_id": "cpu-full-build-resnet",
+  "trial_dir": "e2e_eval/scratch/cpu-full-build-resnet/trial-2",
+  "telemetry": {
+    "tool_uses": 8,
+    "duration_ms": 141545
+  },
+  "expectations": [
+    {
+      "id": "artifact-exists",
+      "text": "At least one file matching `**/*.onnx` exists in trial directory.",
+      "passed": true,
+      "evidence": "matched 3 file(s): ['export.onnx', 'model.onnx', 'optimized.onnx']"
+    },
+    {
+      "id": "summary-matches",
+      "text": "Final message matches `(build|completed|saved|success)`",
+      "passed": true,
+      "evidence": "match: build"
+    },
+    {
+      "id": "efficient-tool-use",
+      "text": "Tool calls <= 20",
+      "passed": true,
+      "evidence": "tool_uses = 8"
+    },
+    {
+      "id": "duration-budget",
+      "text": "Wall time <= 900s",
+      "passed": true,
+      "evidence": "duration = 141.5s"
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "total": 4,
+    "pass_rate": 1.0
+  }
+}
