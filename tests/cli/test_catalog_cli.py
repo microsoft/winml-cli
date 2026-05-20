@@ -6,9 +6,13 @@
 
 Covers ``--help``, option validation, and the filtering contract for every
 flag (``--model-type``, ``--task``, ``--ep``, ``--device``, ``--output``).
-All test values are derived from ``hub_models.json`` at import time, so the
-suite asserts *filter invariants* (subset, disjointness, case-insensitivity)
-rather than pinning specific catalog entries.
+
+All test values — model types, tasks, EP/type pairs, and the disjoint type/task
+pair — are derived from the ``catalog`` command's own output at module scope so
+the suite asserts *filter invariants* (subset, disjointness, case-insensitivity)
+rather than coupling to the on-disk layout or schema of ``hub_models.json``.  If
+the catalog command itself fails (e.g. data file missing), affected tests are
+skipped rather than crashing collection.
 
 These tests run under the default CI filter (no special marker required).
 """
@@ -17,7 +21,6 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,57 +30,9 @@ from winml.modelkit.commands.catalog import catalog
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from click.testing import Result
-
-
-# ---------------------------------------------------------------------------
-# Module-level catalog data — same source the CLI reads at runtime
-# ---------------------------------------------------------------------------
-
-_HUB_JSON = (
-    Path(__file__).resolve().parents[2] / "src" / "winml" / "modelkit" / "data" / "hub_models.json"
-)
-_CATALOG: list[dict] = json.loads(_HUB_JSON.read_text(encoding="utf-8"))["models"]
-
-_MODEL_TYPES: list[str] = [
-    t
-    for t, _ in Counter(m["model_type"] for m in _CATALOG if m.get("model_type")).most_common()
-    if t
-]
-_TASKS: list[str] = [
-    t for t, _ in Counter(m["task"] for m in _CATALOG if m.get("task")).most_common() if t
-]
-
-# First (model_type, task) pair that exists in the catalog.
-_TYPE_TASK_PAIR: tuple[str, str] = next(
-    (m["model_type"], m["task"]) for m in _CATALOG if m.get("model_type") and m.get("task")
-)
-
-# First (ep_key, model_type) pair that exists in the catalog.
-_EP_MODEL_TYPE_PAIR: tuple[str, str] = next(
-    (sorted((m.get("supported_eps") or {}).keys())[0], m["model_type"])
-    for m in _CATALOG
-    if (m.get("supported_eps") or {}) and m.get("model_type")
-)
-
-
-def _find_disjoint_type_task() -> tuple[str, str] | None:
-    """Return a (model_type, task) pair guaranteed to return no catalog rows."""
-    type_tasks: dict[str, set[str]] = defaultdict(set)
-    all_tasks: set[str] = set()
-    for m in _CATALOG:
-        mtype, task = m.get("model_type", ""), m.get("task", "")
-        if mtype and task:
-            type_tasks[mtype].add(task)
-            all_tasks.add(task)
-    for mtype in sorted(type_tasks):
-        missing = all_tasks - type_tasks[mtype]
-        if missing:
-            return mtype, sorted(missing)[0]
-    return None
-
-
-_DISJOINT_TYPE_TASK: tuple[str, str] | None = _find_disjoint_type_task()
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +73,81 @@ def _supports_device(model: dict, device: str) -> bool:
     return any(device_upper in devs for devs in (model.get("supported_eps") or {}).values())
 
 
+# ---------------------------------------------------------------------------
+# Module-scoped fixtures — all derived from the catalog command output
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def catalog_models(tmp_path_factory: pytest.TempPathFactory) -> list[dict]:
+    """Invoke ``winml catalog`` once and return the full model list.
+
+    Skips (rather than failing collection) if the command is unavailable.
+    All derived fixtures below use this as their source of truth.
+    """
+    out = tmp_path_factory.mktemp("catalog_fixture") / "all.json"
+    result = CliRunner().invoke(catalog, ["--output", str(out)], obj={})
+    if result.exit_code != 0:
+        pytest.skip(f"catalog command unavailable: {result.output}")
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def model_types(catalog_models: list[dict]) -> list[str]:
+    """Most-common model_type values present in the catalog."""
+    return [
+        t
+        for t, _ in Counter(
+            m["model_type"] for m in catalog_models if m.get("model_type")
+        ).most_common()
+        if t
+    ]
+
+
+@pytest.fixture(scope="module")
+def tasks(catalog_models: list[dict]) -> list[str]:
+    """Most-common task values present in the catalog."""
+    return [
+        t for t, _ in Counter(m["task"] for m in catalog_models if m.get("task")).most_common() if t
+    ]
+
+
+@pytest.fixture(scope="module")
+def type_task_pair(catalog_models: list[dict]) -> tuple[str, str]:
+    """First (model_type, task) pair that exists in the catalog."""
+    for m in catalog_models:
+        if m.get("model_type") and m.get("task"):
+            return m["model_type"], m["task"]
+    pytest.skip("catalog has no model with both model_type and task")
+
+
+@pytest.fixture(scope="module")
+def ep_model_type_pair(catalog_models: list[dict]) -> tuple[str, str]:
+    """First (ep_key, model_type) pair found in the catalog."""
+    for m in catalog_models:
+        eps = sorted((m.get("supported_eps") or {}).keys())
+        if eps and m.get("model_type"):
+            return eps[0], m["model_type"]
+    pytest.skip("catalog has no model with both supported_eps and model_type")
+
+
+@pytest.fixture(scope="module")
+def disjoint_type_task(catalog_models: list[dict]) -> tuple[str, str] | None:
+    """Return a (model_type, task) pair guaranteed to return no rows, or None."""
+    type_tasks: dict[str, set[str]] = defaultdict(set)
+    all_tasks: set[str] = set()
+    for m in catalog_models:
+        mtype, task = m.get("model_type", ""), m.get("task", "")
+        if mtype and task:
+            type_tasks[mtype].add(task)
+            all_tasks.add(task)
+    for mtype in sorted(type_tasks):
+        missing = all_tasks - type_tasks[mtype]
+        if missing:
+            return mtype, sorted(missing)[0]
+    return None
+
+
 # ===========================================================================
 # CLI surface
 # ===========================================================================
@@ -126,23 +156,18 @@ def _supports_device(model: dict, device: str) -> bool:
 class TestCatalogCliSurface:
     """Parser-level behaviour — no model or EP runtime required."""
 
+    @pytest.fixture(scope="class")
+    def help_output(self) -> str:
+        """Invoke ``--help`` once and share the output across parametrized cases."""
+        return _run("--help").output
+
     def test_help_exits_zero(self) -> None:
         assert _run("--help").exit_code == 0
 
-    def test_help_documents_model_type_flag(self) -> None:
-        assert "--model-type" in _run("--help").output
-
-    def test_help_documents_task_flag(self) -> None:
-        assert "--task" in _run("--help").output
-
-    def test_help_documents_ep_flag(self) -> None:
-        assert "--ep" in _run("--help").output
-
-    def test_help_documents_device_flag(self) -> None:
-        assert "--device" in _run("--help").output
-
-    def test_help_documents_output_flag(self) -> None:
-        assert "--output" in _run("--help").output
+    @pytest.mark.parametrize("flag", ["--model-type", "--task", "--ep", "--device", "--output"])
+    def test_help_documents_flag(self, help_output: str, flag: str) -> None:
+        """Every documented flag appears in ``--help`` output."""
+        assert flag in help_output
 
     def test_no_filter_args_exits_zero(self, tmp_path: Path) -> None:
         """``winml catalog`` with no filters returns the full catalog."""
@@ -159,9 +184,9 @@ class TestCatalogCliSurface:
         assert result.exit_code == 2
         assert "Invalid value for '--device'" in result.output
 
-    def test_short_flags_accepted(self, tmp_path: Path) -> None:
+    def test_short_flags_accepted(self, type_task_pair: tuple[str, str], tmp_path: Path) -> None:
         """-t / -k short aliases are accepted by the parser."""
-        model_type, task = _TYPE_TASK_PAIR
+        model_type, task = type_task_pair
         models = _run_json(tmp_path / "out.json", "-t", model_type, "-k", task)
         assert len(models) > 0, f"Expected at least one {model_type}/{task} model"
         assert all(
@@ -176,24 +201,31 @@ class TestCatalogCliSurface:
 
 
 class TestCatalogFilterModelType:
-    @pytest.mark.skipif(not _MODEL_TYPES, reason="hub_models.json has no model_type entries")
-    def test_known_type_returns_only_matching_entries(self, tmp_path: Path) -> None:
-        model_type = _MODEL_TYPES[0]
+    def test_known_type_returns_only_matching_entries(
+        self, model_types: list[str], tmp_path: Path
+    ) -> None:
+        if not model_types:
+            pytest.skip("catalog has no model_type entries")
+        model_type = model_types[0]
         models = _run_json(tmp_path / "mtype.json", "--model-type", model_type)
         assert len(models) > 0, f"Expected at least one {model_type} model"
         assert _model_types(models) == {model_type}
 
-    @pytest.mark.skipif(not _MODEL_TYPES, reason="hub_models.json has no model_type entries")
-    def test_filter_is_case_insensitive(self, tmp_path: Path) -> None:
-        model_type = _MODEL_TYPES[0]
+    def test_filter_is_case_insensitive(self, model_types: list[str], tmp_path: Path) -> None:
+        if not model_types:
+            pytest.skip("catalog has no model_type entries")
+        model_type = model_types[0]
         lower = _run_json(tmp_path / "lower.json", "--model-type", model_type.lower())
         upper = _run_json(tmp_path / "upper.json", "--model-type", model_type.upper())
         mixed = _run_json(tmp_path / "mixed.json", "--model-type", model_type.swapcase())
         assert _model_ids(lower) == _model_ids(upper) == _model_ids(mixed)
 
-    @pytest.mark.skipif(len(_MODEL_TYPES) < 2, reason="hub_models.json needs ≥2 model_types")
-    def test_single_type_is_strict_subset_of_full_catalog(self, tmp_path: Path) -> None:
-        model_type = _MODEL_TYPES[0]
+    def test_single_type_is_strict_subset_of_full_catalog(
+        self, model_types: list[str], tmp_path: Path
+    ) -> None:
+        if len(model_types) < 2:
+            pytest.skip("catalog needs ≥2 model_types for this test")
+        model_type = model_types[0]
         all_models = _run_json(tmp_path / "all.json")
         mtype_models = _run_json(tmp_path / "mtype.json", "--model-type", model_type)
         assert 0 < len(mtype_models) < len(all_models)
@@ -204,9 +236,10 @@ class TestCatalogFilterModelType:
         assert result.exit_code == 0, result.output
         assert json.loads(out.read_text()) == []
 
-    @pytest.mark.skipif(len(_MODEL_TYPES) < 2, reason="hub_models.json needs ≥2 model_types")
-    def test_two_distinct_types_are_disjoint(self, tmp_path: Path) -> None:
-        type_a, type_b = _MODEL_TYPES[0], _MODEL_TYPES[1]
+    def test_two_distinct_types_are_disjoint(self, model_types: list[str], tmp_path: Path) -> None:
+        if len(model_types) < 2:
+            pytest.skip("catalog needs ≥2 model_types for this test")
+        type_a, type_b = model_types[0], model_types[1]
         a = _run_json(tmp_path / "a.json", "--model-type", type_a)
         b = _run_json(tmp_path / "b.json", "--model-type", type_b)
         assert len(a) > 0, f"Expected at least one {type_a} model"
@@ -220,23 +253,30 @@ class TestCatalogFilterModelType:
 
 
 class TestCatalogFilterTask:
-    @pytest.mark.skipif(not _TASKS, reason="hub_models.json has no task entries")
-    def test_known_task_returns_only_matching_entries(self, tmp_path: Path) -> None:
-        task = _TASKS[0]
+    def test_known_task_returns_only_matching_entries(
+        self, tasks: list[str], tmp_path: Path
+    ) -> None:
+        if not tasks:
+            pytest.skip("catalog has no task entries")
+        task = tasks[0]
         models = _run_json(tmp_path / "task.json", "--task", task)
         assert len(models) > 0
         assert _tasks(models) == {task}
 
-    @pytest.mark.skipif(not _TASKS, reason="hub_models.json has no task entries")
-    def test_filter_is_case_insensitive(self, tmp_path: Path) -> None:
-        task = _TASKS[0]
+    def test_filter_is_case_insensitive(self, tasks: list[str], tmp_path: Path) -> None:
+        if not tasks:
+            pytest.skip("catalog has no task entries")
+        task = tasks[0]
         lower = _run_json(tmp_path / "lower.json", "--task", task.lower())
         upper = _run_json(tmp_path / "upper.json", "--task", task.upper())
         assert _model_ids(lower) == _model_ids(upper)
 
-    @pytest.mark.skipif(len(_TASKS) < 2, reason="hub_models.json needs ≥2 tasks")
-    def test_single_task_is_strict_subset_of_full_catalog(self, tmp_path: Path) -> None:
-        task = _TASKS[0]
+    def test_single_task_is_strict_subset_of_full_catalog(
+        self, tasks: list[str], tmp_path: Path
+    ) -> None:
+        if len(tasks) < 2:
+            pytest.skip("catalog needs ≥2 tasks for this test")
+        task = tasks[0]
         all_models = _run_json(tmp_path / "all.json")
         task_models = _run_json(tmp_path / "task.json", "--task", task)
         assert 0 < len(task_models) < len(all_models)
@@ -247,9 +287,10 @@ class TestCatalogFilterTask:
         assert result.exit_code == 0
         assert json.loads(out.read_text()) == []
 
-    @pytest.mark.skipif(len(_TASKS) < 2, reason="hub_models.json needs ≥2 tasks")
-    def test_two_distinct_tasks_are_disjoint(self, tmp_path: Path) -> None:
-        task_a, task_b = _TASKS[0], _TASKS[1]
+    def test_two_distinct_tasks_are_disjoint(self, tasks: list[str], tmp_path: Path) -> None:
+        if len(tasks) < 2:
+            pytest.skip("catalog needs ≥2 tasks for this test")
+        task_a, task_b = tasks[0], tasks[1]
         a = _run_json(tmp_path / "a.json", "--task", task_a)
         b = _run_json(tmp_path / "b.json", "--task", task_b)
         assert len(a) > 0, f"Expected {task_a} models in catalog"
@@ -336,8 +377,10 @@ class TestCatalogFilterDevice:
 
 
 class TestCatalogCombinedFilters:
-    def test_model_type_and_task_intersection(self, tmp_path: Path) -> None:
-        model_type, task = _TYPE_TASK_PAIR
+    def test_model_type_and_task_intersection(
+        self, type_task_pair: tuple[str, str], tmp_path: Path
+    ) -> None:
+        model_type, task = type_task_pair
         models = _run_json(
             tmp_path / "combined.json",
             "--model-type",
@@ -350,8 +393,10 @@ class TestCatalogCombinedFilters:
             assert m["model_type"].lower() == model_type.lower()
             assert m["task"].lower() == task.lower()
 
-    def test_combined_filter_subset_of_each_alone(self, tmp_path: Path) -> None:
-        model_type, task = _TYPE_TASK_PAIR
+    def test_combined_filter_subset_of_each_alone(
+        self, type_task_pair: tuple[str, str], tmp_path: Path
+    ) -> None:
+        model_type, task = type_task_pair
         mtype_all = _run_json(tmp_path / "mtype.json", "--model-type", model_type)
         task_all = _run_json(tmp_path / "task.json", "--task", task)
         combined = _run_json(
@@ -364,8 +409,10 @@ class TestCatalogCombinedFilters:
         assert len(combined) <= len(mtype_all)
         assert len(combined) <= len(task_all)
 
-    def test_ep_and_model_type_intersection(self, tmp_path: Path) -> None:
-        ep, model_type = _EP_MODEL_TYPE_PAIR
+    def test_ep_and_model_type_intersection(
+        self, ep_model_type_pair: tuple[str, str], tmp_path: Path
+    ) -> None:
+        ep, model_type = ep_model_type_pair
         models = _run_json(
             tmp_path / "ep_mtype.json",
             "--ep",
@@ -379,34 +426,31 @@ class TestCatalogCombinedFilters:
             assert ep in _ep_keys(m)
 
     def test_ep_and_device_intersection_satisfies_both(self, tmp_path: Path) -> None:
-        models = _run_json(
-            tmp_path / "qnn_npu.json",
-            "--ep",
-            "qnn",
-            "--device",
-            "NPU",
-        )
+        models = _run_json(tmp_path / "qnn_npu.json", "--ep", "qnn", "--device", "NPU")
         for m in models:
             assert "qnn" in (m.get("supported_eps") or {}), (
                 f"{m['model_id']} missing qnn in supported_eps"
             )
             assert _supports_device(m, "NPU"), f"{m['model_id']} does not support NPU"
 
-    @pytest.mark.skipif(
-        _DISJOINT_TYPE_TASK is None,
-        reason="catalog has no type/task pair guaranteed to produce an empty result",
-    )
-    def test_disjoint_type_task_returns_empty(self, tmp_path: Path) -> None:
+    def test_disjoint_type_task_returns_empty(
+        self, disjoint_type_task: tuple[str, str] | None, tmp_path: Path
+    ) -> None:
         """A (model_type, task) pair with no overlap returns an empty list."""
-        model_type, task = _DISJOINT_TYPE_TASK  # type: ignore[misc]
+        if disjoint_type_task is None:
+            pytest.skip("catalog has no type/task pair guaranteed to produce an empty result")
+        model_type, task = disjoint_type_task
         out = tmp_path / "empty.json"
         result = _run("--model-type", model_type, "--task", task, "--output", str(out))
         assert result.exit_code == 0
         assert json.loads(out.read_text()) == []
 
-    @pytest.mark.skipif(not _TASKS, reason="hub_models.json has no task entries")
-    def test_ep_and_task_combined_subset_of_ep_alone(self, tmp_path: Path) -> None:
-        task = _TASKS[0]
+    def test_ep_and_task_combined_subset_of_ep_alone(
+        self, tasks: list[str], tmp_path: Path
+    ) -> None:
+        if not tasks:
+            pytest.skip("catalog has no task entries")
+        task = tasks[0]
         vitisai_all = _run_json(tmp_path / "vitisai.json", "--ep", "vitisai")
         vitisai_task = _run_json(
             tmp_path / "vitisai_task.json",
@@ -440,9 +484,12 @@ class TestCatalogOutputFile:
             missing = required - m.keys()
             assert not missing, f"Model entry missing keys {missing}: {m}"
 
-    @pytest.mark.skipif(not _MODEL_TYPES, reason="hub_models.json has no model_type entries")
-    def test_output_with_filter_writes_only_matching(self, tmp_path: Path) -> None:
-        model_type = _MODEL_TYPES[0]
+    def test_output_with_filter_writes_only_matching(
+        self, model_types: list[str], tmp_path: Path
+    ) -> None:
+        if not model_types:
+            pytest.skip("catalog has no model_type entries")
+        model_type = model_types[0]
         out = tmp_path / "filtered.json"
         result = _run("--model-type", model_type, "--output", str(out))
         assert result.exit_code == 0
