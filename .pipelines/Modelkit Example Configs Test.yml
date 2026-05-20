@@ -1,0 +1,100 @@
+trigger: none
+
+# Manual-only pipeline that drives scripts/run_example_tests.py across every
+# EP/hardware pair under examples/. See examples/test_config.md for the
+# underlying workflow this pipeline mechanizes.
+
+parameters:
+  - name: qnnAgentName
+    displayName: 'NPU-QNN agent name (override to switch hosts)'
+    type: string
+    default: 'NPU-QNN'
+  - name: ovAgentName
+    displayName: 'NPU-OV agent name (e.g. NPU-OV, NPU-OV2)'
+    type: string
+    default: 'NPU-OV2'
+  - name: amdAgentName
+    displayName: 'NPU-AMD agent name (override to switch hosts)'
+    type: string
+    default: 'NPU-AMD'
+
+  - name: qnnPairs
+    displayName: 'QNN: EP/hardware pairs (any of: qnn_npu, qnn_gpu)'
+    type: object
+    default:
+      - qnn_npu
+      - qnn_gpu
+  - name: ovPairs
+    displayName: 'OV stage: EP/hardware pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
+    type: object
+    default:
+      - dml_gpu
+      - mlas_cpu
+      - ov_cpu
+      - ov_gpu
+      - ov_npu
+  - name: amdPairs
+    displayName: 'AMD: EP/hardware pairs (any of: vitisai_npu)'
+    type: object
+    default:
+      - vitisai_npu
+
+  - name: runDate
+    displayName: 'Run date (auto = today, e.g. 2026-04-01)'
+    type: string
+    default: 'auto'
+  - name: modelTimeout
+    displayName: 'Per-model timeout in seconds (default 1200, matches script default)'
+    type: number
+    default: 1200
+  - name: evalOnly
+    displayName: 'Skip perf, only run eval (--eval-only)'
+    type: boolean
+    default: false
+  - name: cleanResultsFirst
+    displayName: 'Delete stale *_result*/*.error.txt/*.timeout files before sweep (uncheck to resume)'
+    type: boolean
+    default: true
+
+stages:
+  - stage: Example_QNN
+    displayName: 'Example Configs - QNN'
+    dependsOn: []
+    jobs:
+      - template: templates/example-configs-eval-jobs.yml
+        parameters:
+          agentName: ${{ parameters.qnnAgentName }}
+          agentSuffix: qnn
+          pairNames: ${{ parameters.qnnPairs }}
+          runDate: ${{ parameters.runDate }}
+          modelTimeout: ${{ parameters.modelTimeout }}
+          evalOnly: ${{ parameters.evalOnly }}
+          cleanResultsFirst: ${{ parameters.cleanResultsFirst }}
+
+  - stage: Example_OV
+    displayName: 'Example Configs - OV / DML / MLAS'
+    dependsOn: []
+    jobs:
+      - template: templates/example-configs-eval-jobs.yml
+        parameters:
+          agentName: ${{ parameters.ovAgentName }}
+          agentSuffix: ov
+          pairNames: ${{ parameters.ovPairs }}
+          runDate: ${{ parameters.runDate }}
+          modelTimeout: ${{ parameters.modelTimeout }}
+          evalOnly: ${{ parameters.evalOnly }}
+          cleanResultsFirst: ${{ parameters.cleanResultsFirst }}
+
+  - stage: Example_AMD
+    displayName: 'Example Configs - AMD / VitisAI'
+    dependsOn: []
+    jobs:
+      - template: templates/example-configs-eval-jobs.yml
+        parameters:
+          agentName: ${{ parameters.amdAgentName }}
+          agentSuffix: amd
+          pairNames: ${{ parameters.amdPairs }}
+          runDate: ${{ parameters.runDate }}
+          modelTimeout: ${{ parameters.modelTimeout }}
+          evalOnly: ${{ parameters.evalOnly }}
+          cleanResultsFirst: ${{ parameters.cleanResultsFirst }}
