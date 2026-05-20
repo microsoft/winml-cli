@@ -501,6 +501,29 @@ def _render_analysis_summary(
         console.print()
 
 
+def _resolve_run_unknown_op(ep: str, run_unknown_op: bool) -> bool:
+    """Resolve whether to run unknown operators for a given EP.
+
+    Some execution providers (e.g., VitisAI) do not have sufficient runtime
+    data to support unknown operator checks, so --run-unknown-op is disabled
+    for them regardless of the user's flag.
+
+    Args:
+        ep: Execution provider name (e.g., "VitisAIExecutionProvider")
+        run_unknown_op: User-requested flag value
+
+    Returns:
+        Effective run_unknown_op value for this EP
+    """
+    if run_unknown_op and ep == "VitisAIExecutionProvider":
+        logger.info(
+            "Disabling --run-unknown-op for VitisAIExecutionProvider: "
+            "AMD op runtime results are not available yet"
+        )
+        return False
+    return run_unknown_op
+
+
 def _get_local_ep_device_pairs() -> list[tuple[EPName, str]]:
     """Return locally available (EP, device) pairs from ORT autoEP API.
 
@@ -1146,13 +1169,7 @@ def analyze(
                     current_device = target_device
                     current_ep_device_pair = None
 
-                    run_unknown_op_for_ep = run_unknown_op
-                    if target_ep == "VitisAIExecutionProvider":
-                        run_unknown_op_for_ep = False
-                        logger.info(
-                            "Disabling --run-unknown-op for VitisAIExecutionProvider: "
-                            "AMD op runtime results are not available yet"
-                        )
+                    run_unknown_op_for_ep = _resolve_run_unknown_op(target_ep, run_unknown_op)
 
                     current_run_unknown_op = run_unknown_op_for_ep
 
@@ -1215,13 +1232,7 @@ def analyze(
         else:
             # Quiet mode — no live display
             for target_ep, target_device in execution_pairs:
-                run_unknown_op_for_ep = run_unknown_op
-                if target_ep == "VitisAIExecutionProvider":
-                    run_unknown_op_for_ep = False
-                    logger.info(
-                        "Disabling --run-unknown-op for VitisAIExecutionProvider: "
-                        "AMD op runtime results are not available yet"
-                    )
+                run_unknown_op_for_ep = _resolve_run_unknown_op(target_ep, run_unknown_op)
 
                 result = analyzer.analyze(
                     model_path=str(model),
