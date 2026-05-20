@@ -531,7 +531,6 @@ class TestResolveEps:
             return_value=frozenset(
                 {
                     "NvTensorRTRTXExecutionProvider",
-                    "CUDAExecutionProvider",
                     "MIGraphXExecutionProvider",
                     "QNNExecutionProvider",
                     "OpenVINOExecutionProvider",
@@ -541,7 +540,6 @@ class TestResolveEps:
         ):
             assert resolve_eps("gpu") == [
                 "NvTensorRTRTXExecutionProvider",
-                "CUDAExecutionProvider",
                 "MIGraphXExecutionProvider",
                 "QNNExecutionProvider",
                 "OpenVINOExecutionProvider",

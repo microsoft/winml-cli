@@ -75,7 +75,6 @@ class TestEpSupportedDevices:
             ("QNNExecutionProvider", "npu"),
             ("VitisAIExecutionProvider", "npu"),
             ("DmlExecutionProvider", "gpu"),
-            ("CUDAExecutionProvider", "gpu"),
             ("NvTensorRTRTXExecutionProvider", "gpu"),
             ("MIGraphXExecutionProvider", "gpu"),
             # OpenVINO defaults to NPU (first entry in the supported tuple).

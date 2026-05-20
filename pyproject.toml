@@ -379,7 +379,6 @@ markers = [
   "ep(name): marks tests requiring a specific execution provider",
   "qnn: marks tests for QNN backend",
   "openvino: marks tests for OpenVINO backend",
-  "cuda: marks tests requiring CUDA runtime",
   "dml: marks tests for Dml backend",
   "nv_tensorrt_rtx: marks tests for NvTensorRTRTX backend",
   "vitisai: marks tests for AMD Vitis AI backend",

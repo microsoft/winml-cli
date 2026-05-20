@@ -118,7 +118,6 @@ class WinMLCompileConfig:
         factories: dict[EPName, Any] = {
             "QNNExecutionProvider": lambda: cls.for_qnn(device=device),
             "DmlExecutionProvider": cls.for_dml,
-            "CUDAExecutionProvider": cls.for_cuda,
             "NvTensorRTRTXExecutionProvider": lambda: cls.for_nv_tensorrt_rtx(device=device),
             "OpenVINOExecutionProvider": lambda: cls.for_openvino(device=device),
             "VitisAIExecutionProvider": lambda: cls.for_vitisai(device=device),
@@ -164,14 +163,6 @@ class WinMLCompileConfig:
         return cls(
             ep_config=EPConfig(provider="cpu", enable_ep_context=False),
         )
-
-    # @classmethod
-    # def for_cuda(cls) -> WinMLCompileConfig:
-    #     """Factory for CUDA compilation."""
-    #     # CUDA support disabled — re-enable when needed.
-    #     return cls(
-    #         ep_config=EPConfig(provider="cuda", enable_ep_context=False),
-    #     )
 
     @classmethod
     def for_dml(cls) -> WinMLCompileConfig:

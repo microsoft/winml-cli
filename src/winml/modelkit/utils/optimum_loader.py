@@ -62,12 +62,10 @@ class OptimumONNXModel:
             # Copy ONNX model
             shutil.copy(onnx_path, temp_path / "model.onnx")
 
-            # Load with Optimum. CUDA support disabled — only CPUExecutionProvider
-            # is selected here (was: "CUDAExecutionProvider" when device != "cpu").
-            # Re-enable CUDA when needed.
+            # Load with Optimum
             model = ort_model_class.from_pretrained(
                 temp_path,
-                provider="CPUExecutionProvider",
+                provider="CPUExecutionProvider" if device == "cpu" else "CUDAExecutionProvider",
                 **kwargs,
             )
 
@@ -148,7 +146,7 @@ def load_optimum_model(
     Args:
         onnx_path: Path to ONNX model exported with ModelExport
         task: Task type (auto-detected if not specified)
-        device: Device to run on ('cpu'; CUDA support disabled)
+        device: Device to run on ('cpu' or 'cuda')
         **kwargs: Additional arguments for ORTModel
 
     Returns:

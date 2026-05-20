@@ -16,7 +16,7 @@ EP categories
 -------------
 * **EP-context EPs** (``qnn``, ``openvino``): emit a new compiled ``*.onnx``
   containing an ``EPContext`` node.
-* **Passthrough EPs** (``cpu``, ``dml``; full set also includes ``cuda``,
+* **Passthrough EPs** (``cpu``, ``dml``; full set also includes
   ``nv_tensorrt_rtx``, ``vitisai``, ``migraphx``): currently the
   ``winml compile`` CLI rejects these with a "does not support EPContext
   compilation" error rather than no-op passthrough. The CLI gate sits in
@@ -180,8 +180,7 @@ def assert_by_run_inference(
 
 
 def _find_qairt_sdk_root() -> Path | None:
-    """Locate an installed QAIRT SDK on this host, or None.
-    """
+    """Locate an installed QAIRT SDK on this host, or None."""
     for env_var in ("QNN_SDK_ROOT", "QAIRT_SDK_ROOT"):
         value = os.environ.get(env_var)
         if value:
@@ -217,9 +216,18 @@ class TestCliSurface:
         result = _invoke("--help")
         assert result.exit_code == 0
         for opt in (
-            "--model", "--output", "--output-dir", "--device", "--ep",
-            "--validate", "--no-validate", "--verbose", "--compiler",
-            "--qnn-sdk-root", "--embed", "--list",
+            "--model",
+            "--output",
+            "--output-dir",
+            "--device",
+            "--ep",
+            "--validate",
+            "--no-validate",
+            "--verbose",
+            "--compiler",
+            "--qnn-sdk-root",
+            "--embed",
+            "--list",
         ):
             assert opt in result.output, f"--help missing {opt}"
 
@@ -240,9 +248,7 @@ class TestCliSurface:
         out = result.output.lower()
         assert "ort" in out and "qairt" in out
 
-    def test_reject_already_compiled_model(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
+    def test_reject_already_compiled_model(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         # Build an EPContext-looking ONNX by hand (no real compile needed).
         x = onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 4])
         y = onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 4])
@@ -255,10 +261,13 @@ class TestCliSurface:
             domain="com.microsoft",
         )
         graph = onnx.helper.make_graph([node], "fake_ctx", [x], [y])
-        model = onnx.helper.make_model(graph, opset_imports=[
-            onnx.helper.make_opsetid("", 17),
-            onnx.helper.make_opsetid("com.microsoft", 1),
-        ])
+        model = onnx.helper.make_model(
+            graph,
+            opset_imports=[
+                onnx.helper.make_opsetid("", 17),
+                onnx.helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
         model.ir_version = 8
         ctx_path = tmp_path / "fake_ctx.onnx"
         onnx.save(model, str(ctx_path))
@@ -268,8 +277,7 @@ class TestCliSurface:
         assert result.exit_code != 0
         combined = (result.output or "") + (str(result.exception) if result.exception else "")
         assert (
-            "already a compiled" in combined.lower()
-            or "cannot be re-compiled" in combined.lower()
+            "already a compiled" in combined.lower() or "cannot be re-compiled" in combined.lower()
         )
 
 
@@ -307,9 +315,7 @@ def test_unsupported_ep_returns_error(ep: str, simple_matmul_onnx: Path) -> None
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
 
-    assert result.exit_code != 0, (
-        f"--ep {ep} should be rejected but exit was 0.\n{result.output}"
-    )
+    assert result.exit_code != 0, f"--ep {ep} should be rejected but exit was 0.\n{result.output}"
     combined = result.output.lower()
     assert "does not support epcontext compilation" in combined, (
         f"Expected unsupported-EP error message for {ep}.\n{result.output}"
@@ -326,9 +332,7 @@ def test_unsupported_ep_returns_error(ep: str, simple_matmul_onnx: Path) -> None
 @pytest.mark.e2e
 class TestOutputPaths:
     @pytest.mark.parametrize("ep", EPCONTEXT_EPS)
-    def test_explicit_output_file(
-        self, ep: str, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
+    def test_explicit_output_file(self, ep: str, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         require_ep(ep)
         out = tmp_path / "custom_name.onnx"
         result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "-o", str(out))
@@ -340,9 +344,7 @@ class TestOutputPaths:
         require_ep(ep)
         out_dir = tmp_path / "out"
         out_dir.mkdir()
-        result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", ep, "--output-dir", str(out_dir)
-        )
+        result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep, "--output-dir", str(out_dir))
         assert result.exit_code == 0, result.output
         produced = [p for p in out_dir.glob("*.onnx") if is_compiled_onnx(p)]
         assert len(produced) == 1, f"Expected exactly one EPContext .onnx, got {produced}"
@@ -402,8 +404,14 @@ class TestValidate:
         require_ep(ep)
         out = tmp_path / "no_validate.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", ep, "--no-validate", "--verbose",
-            "-o", str(out),
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            ep,
+            "--no-validate",
+            "--verbose",
+            "-o",
+            str(out),
         )
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
@@ -419,7 +427,13 @@ class TestValidate:
         require_ep(ep)
         out = tmp_path / "validated.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", ep, "--verbose", "-o", str(out),
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            ep,
+            "--verbose",
+            "-o",
+            str(out),
         )
         assert result.exit_code == 0, result.output
         assert out.is_file() and is_compiled_onnx(out)
@@ -458,9 +472,17 @@ class TestQairtBackend:
 
         out = tmp_path / "qairt.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", "qnn",
-            "--compiler", "qairt", "--qnn-sdk-root", str(sdk),
-            "-o", str(out), "--verbose",
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            "qnn",
+            "--compiler",
+            "qairt",
+            "--qnn-sdk-root",
+            str(sdk),
+            "-o",
+            str(out),
+            "--verbose",
         )
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
@@ -475,9 +497,7 @@ class TestQairtBackend:
         assert bin_path.is_file(), f"QAIRT intermediate .bin missing: {bin_path}"
         assert info_path.is_file(), f"QAIRT cache_info.json missing: {info_path}"
 
-    def test_qairt_backend_with_embed(
-        self, simple_matmul_onnx: Path, tmp_path: Path
-    ) -> None:
+    def test_qairt_backend_with_embed(self, simple_matmul_onnx: Path, tmp_path: Path) -> None:
         """``--compiler qairt --embed`` produces an inlined EPContext artifact.
 
         Strict: any failure here is either a QAIRT bug or a missing
@@ -489,9 +509,18 @@ class TestQairtBackend:
 
         out = tmp_path / "qairt_embed.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "--ep", "qnn",
-            "--compiler", "qairt", "--qnn-sdk-root", str(sdk),
-            "--embed", "-o", str(out), "--verbose",
+            "-m",
+            str(simple_matmul_onnx),
+            "--ep",
+            "qnn",
+            "--compiler",
+            "qairt",
+            "--qnn-sdk-root",
+            str(sdk),
+            "--embed",
+            "-o",
+            str(out),
+            "--verbose",
         )
         assert result.exit_code == 0, result.output
         assert_epcontext_artifact(out, simple_matmul_onnx, embed=True)
@@ -570,11 +599,15 @@ class TestConfigFile:
         out_dir.mkdir()
         out = out_dir / "cli_wins.onnx"
         result = _invoke(
-            "-m", str(simple_matmul_onnx), "-c", str(cfg),
-            "--embed",       # overrides config embed_context=false
-            "--validate",    # overrides config validate=false
-            "--verbose",     # so we can observe the validation log line
-            "-o", str(out),
+            "-m",
+            str(simple_matmul_onnx),
+            "-c",
+            str(cfg),
+            "--embed",  # overrides config embed_context=false
+            "--validate",  # overrides config validate=false
+            "--verbose",  # so we can observe the validation log line
+            "-o",
+            str(out),
         )
         assert result.exit_code == 0, result.output
         lower = result.output.lower()
@@ -629,12 +662,9 @@ def test_reject_recompile_of_real_compiled_output(
     # Second compile on that artifact must be rejected.
     second = _invoke("-m", str(out), "--ep", ep)
     assert second.exit_code != 0, second.output
-    combined = (second.output or "") + (
-        str(second.exception) if second.exception else ""
-    )
+    combined = (second.output or "") + (str(second.exception) if second.exception else "")
     assert (
-        "already a compiled" in combined.lower()
-        or "cannot be re-compiled" in combined.lower()
+        "already a compiled" in combined.lower() or "cannot be re-compiled" in combined.lower()
     ), combined
 
 
@@ -644,8 +674,7 @@ def test_reject_recompile_of_real_compiled_output(
 
 _EPCONTEXT_CAPABLE_EPS = ("qnn", "openvino", "vitisai", "nv_tensorrt_rtx")
 EP_DEVICE_SUPPORT: dict[str, tuple[str, ...]] = {
-    alias: EP_SUPPORTED_DEVICES[normalize_ep_name(alias)]
-    for alias in _EPCONTEXT_CAPABLE_EPS
+    alias: EP_SUPPORTED_DEVICES[normalize_ep_name(alias)] for alias in _EPCONTEXT_CAPABLE_EPS
 }
 
 
@@ -724,9 +753,7 @@ def _assert_rejected(result: Result, error_phrase: str, src_hash: str, src_path:
     # ``ValueError`` from device resolution) rather than emitting a Click
     # ``UsageError`` whose text reaches ``result.output``. Search both.
     haystack = result.output + ("" if result.exception is None else f"\n{result.exception}")
-    assert error_phrase in haystack, (
-        f"Expected {error_phrase!r} in error output, got:\n{haystack}"
-    )
+    assert error_phrase in haystack, f"Expected {error_phrase!r} in error output, got:\n{haystack}"
     assert _sha256(src_path) == src_hash, "Input ONNX was mutated despite rejection"
 
 
@@ -746,9 +773,7 @@ _BAD_INPUT_CONFLICT_PARAMS = _expand_conflict_inputs(EP_DEVICE_SUPPORT)
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("device,ep", _BAD_INPUT_CONFLICT_PARAMS)
-def test_bad_input_device_ep_conflict(
-    device: str, ep: str, simple_matmul_onnx: Path
-) -> None:
+def test_bad_input_device_ep_conflict(device: str, ep: str, simple_matmul_onnx: Path) -> None:
     """``--device X --ep Y`` is rejected when Y does not support X.
 
     Gated on ``ep`` being registered on this host so the ``sysinfo``
@@ -759,13 +784,11 @@ def test_bad_input_device_ep_conflict(
     require_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
-    _assert_rejected(
-        result, "no compatible EP is available", src_hash, simple_matmul_onnx
-    )
+    _assert_rejected(result, "no compatible EP is available", src_hash, simple_matmul_onnx)
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("ep", ("dml", "cuda", "migraphx"))
+@pytest.mark.parametrize("ep", ("dml", "migraphx"))
 def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
     """``--ep X`` is rejected when X does not produce EPContext.
 
@@ -775,25 +798,19 @@ def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
     require_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
-    _assert_rejected(
-        result, "does not support EPContext compilation", src_hash, simple_matmul_onnx
-    )
+    _assert_rejected(result, "does not support EPContext compilation", src_hash, simple_matmul_onnx)
 
 
 # Pair each EP with a device it supports. With no ``--device``, ``sysinfo``
 # falls back to CPU when the requested EP isn't registered, which then
 # trips the policy check ("cannot run on --device cpu") instead of the
 # host-state rejection this test targets.
-_EP_NOT_REGISTERED_PARAMS = [
-    (ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT_CAPABLE_EPS
-]
+_EP_NOT_REGISTERED_PARAMS = [(ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT_CAPABLE_EPS]
 
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep,device", _EP_NOT_REGISTERED_PARAMS)
-def test_bad_input_ep_not_registered(
-    ep: str, device: str, simple_matmul_onnx: Path
-) -> None:
+def test_bad_input_ep_not_registered(ep: str, device: str, simple_matmul_onnx: Path) -> None:
     """``--ep X`` on a host without X is rejected.
 
     With the EP unavailable on host, ``sysinfo``'s device-resolution
@@ -802,12 +819,8 @@ def test_bad_input_ep_not_registered(
     """
     require_not_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
-    result = _invoke(
-        "-m", str(simple_matmul_onnx), "--device", device, "--ep", ep
-    )
-    _assert_rejected(
-        result, "no compatible EP is available", src_hash, simple_matmul_onnx
-    )
+    result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
+    _assert_rejected(result, "no compatible EP is available", src_hash, simple_matmul_onnx)
 
 
 @pytest.mark.e2e

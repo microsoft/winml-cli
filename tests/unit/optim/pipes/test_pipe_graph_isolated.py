@@ -65,7 +65,6 @@ Status Legend:
 - OK: Works on CPU
 - DML: Dml-only (marked with pytest.mark.dml)
 - SKIP: Pattern correct but cannot trigger in isolation (see SKIP_ISOLATED_ORT_NAMES)
-- CUDA: CUDA-only (marked with pytest.mark.cuda)
 - OK**: Requires specific opset version (opset_version=15 in BuilderConfig)
 - OK***: Requires extra_disabled to prevent interference (extra_disabled in BuilderConfig)
 """

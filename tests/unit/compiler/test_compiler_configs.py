@@ -76,13 +76,6 @@ class TestCompileConfig:
         assert config.ep_config.provider == "cpu"
         assert config.ep_config.enable_ep_context is False
 
-    # CUDA support disabled — re-enable when needed.
-    # def test_for_cuda(self):
-    #     """Test CUDA factory method."""
-    #     config = WinMLCompileConfig.for_cuda()
-    #     assert config.ep_config.provider == "cuda"
-    #     assert config.ep_config.enable_ep_context is False
-
     def test_for_dml(self):
         """Test DirectML factory method."""
         config = WinMLCompileConfig.for_dml()
@@ -208,7 +201,6 @@ class TestForProvider:
             # EPs with enable_ep_context=False → no offline compile step → None
             ("dml", None),
             ("cpu", None),
-            ("cuda", None),
             ("migraphx", None),
             # Unknown/custom EPs: no EPContext support → None (same as known non-EPContext EPs)
             ("custom_ep", None),
@@ -229,7 +221,7 @@ class TestForProvider:
 
     @pytest.mark.parametrize(
         "factory_name",
-        ["for_dml", "for_cpu", "for_cuda", "for_migraphx"],
+        ["for_dml", "for_cpu", "for_migraphx"],
     )
     def test_direct_factory_still_works(self, factory_name: str) -> None:
         """Low-level for_* factories are still callable directly even though

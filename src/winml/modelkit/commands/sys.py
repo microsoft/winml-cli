@@ -144,10 +144,8 @@ def _get_torch_info(verbose: bool = False) -> dict[str, Any]:
 
     Reads the installed version via ``importlib.metadata`` so the default
     path does not ``import torch`` — importing torch costs ~1.5 s warm and
-    used to dominate ``winml sys`` latency (issue #558).
-
-    CUDA details collection is disabled (CUDA EP is not supported); re-enable
-    when needed.
+    used to dominate ``winml sys`` latency (issue #558). CUDA details
+    require the torch module and are only gathered when ``verbose`` is set.
     """
     info: dict[str, Any] = {"available": False}
 
@@ -161,20 +159,19 @@ def _get_torch_info(verbose: bool = False) -> dict[str, Any]:
     if not verbose:
         return info
 
-    # CUDA support disabled — re-enable when needed.
-    # try:
-    #     import torch
-    # except ImportError:
-    #     return info
-    #
-    # info["cuda_available"] = torch.cuda.is_available()
-    # if torch.cuda.is_available():
-    #     info["cuda_version"] = torch.version.cuda
-    #     info["cudnn_version"] = str(torch.backends.cudnn.version())
-    #     info["gpu_count"] = torch.cuda.device_count()
-    #     info["gpu_devices"] = [
-    #         torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
-    #     ]
+    try:
+        import torch
+    except ImportError:
+        return info
+
+    info["cuda_available"] = torch.cuda.is_available()
+    if torch.cuda.is_available():
+        info["cuda_version"] = torch.version.cuda
+        info["cudnn_version"] = str(torch.backends.cudnn.version())
+        info["gpu_count"] = torch.cuda.device_count()
+        info["gpu_devices"] = [
+            torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+        ]
     return info
 
 
@@ -296,23 +293,22 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     console.print("\n[bold blue]ML Libraries[/bold blue]")
     console.print(lib_table)
 
-    # PyTorch details (CUDA fields only populated with --verbose).
-    # CUDA support disabled — re-enable when needed.
-    # torch_info = info["torch"]
-    # if torch_info["available"] and "cuda_available" in torch_info:
-    #     console.print("\n[bold blue]PyTorch Details[/bold blue]")
-    #     torch_table = Table(show_header=False, box=None, padding=(0, 2))
-    #     torch_table.add_column("Key", style="bold")
-    #     torch_table.add_column("Value")
-    #
-    #     torch_table.add_row("CUDA Available", str(torch_info["cuda_available"]))
-    #     if torch_info["cuda_available"]:
-    #         torch_table.add_row("CUDA Version", torch_info.get("cuda_version", "N/A"))
-    #         torch_table.add_row("GPU Count", str(torch_info.get("gpu_count", 0)))
-    #         for i, gpu in enumerate(torch_info.get("gpu_devices", [])):
-    #             torch_table.add_row(f"GPU {i}", gpu)
-    #
-    #     console.print(torch_table)
+    # PyTorch details (CUDA fields only populated with --verbose)
+    torch_info = info["torch"]
+    if torch_info["available"] and "cuda_available" in torch_info:
+        console.print("\n[bold blue]PyTorch Details[/bold blue]")
+        torch_table = Table(show_header=False, box=None, padding=(0, 2))
+        torch_table.add_column("Key", style="bold")
+        torch_table.add_column("Value")
+
+        torch_table.add_row("CUDA Available", str(torch_info["cuda_available"]))
+        if torch_info["cuda_available"]:
+            torch_table.add_row("CUDA Version", torch_info.get("cuda_version", "N/A"))
+            torch_table.add_row("GPU Count", str(torch_info.get("gpu_count", 0)))
+            for i, gpu in enumerate(torch_info.get("gpu_devices", [])):
+                torch_table.add_row(f"GPU {i}", gpu)
+
+        console.print(torch_table)
 
     # Backend SDKs
     console.print("\n[bold blue]Backend SDKs[/bold blue]")
@@ -365,7 +361,7 @@ def _output_compact(info: dict[str, Any]) -> None:
     py = info["python"]
     plat = info["platform"]
     libs = info["libraries"]
-    # torch_info = info["torch"]  # CUDA support disabled — re-enable when needed.
+    torch_info = info["torch"]
     readiness = info["export_readiness"]
 
     lines = [
@@ -375,12 +371,11 @@ def _output_compact(info: dict[str, Any]) -> None:
         f"onnx: {libs.get('onnx', 'N/A')}",
     ]
 
-    # CUDA support disabled — re-enable when needed.
-    # if torch_info["available"] and torch_info.get("cuda_available"):
-    #     lines.append(
-    #         f"CUDA: {torch_info.get('cuda_version', 'N/A')} | "
-    #         f"GPU: {torch_info.get('gpu_count', 0)} device(s)"
-    #     )
+    if torch_info["available"] and torch_info.get("cuda_available"):
+        lines.append(
+            f"CUDA: {torch_info.get('cuda_version', 'N/A')} | "
+            f"GPU: {torch_info.get('gpu_count', 0)} device(s)"
+        )
 
     qnn = info["backends"]["qnn"]
     ov = info["backends"]["openvino"]

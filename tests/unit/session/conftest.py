@@ -39,11 +39,8 @@ EP_NAME_MAP = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
     "dml": "DmlExecutionProvider",
-    # "cuda": "CUDAExecutionProvider",  # CUDA support disabled — re-enable when needed.
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
-    "coreml": "CoreMLExecutionProvider",
-    "rocm": "ROCMExecutionProvider",
 }
 
 
@@ -52,7 +49,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "ep(name): mark test to run only when specific EP is available "
-        "(qnn, openvino, dml, nv_tensorrt_rtx, vitisai, coreml, rocm; cuda disabled)",
+        "(qnn, openvino, dml, nv_tensorrt_rtx, vitisai)",
     )
 
 

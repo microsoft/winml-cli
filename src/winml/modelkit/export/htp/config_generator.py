@@ -9,7 +9,7 @@
 Automatically generates optimal ONNX export configurations based on:
 - Model type/architecture
 - Task type (classification, generation, etc.)
-- Target deployment (QNN, CPU, etc.)  # CUDA support disabled — re-enable when needed.
+- Target deployment (QNN, CPU, etc.)
 - Input specifications
 
 Universal design - no hardcoded model-specific logic, uses pattern matching.
@@ -46,7 +46,6 @@ class ExportConfigTemplate:
     input_specs: dict[str, dict[str, Any]] | None = None
 
     # Target deployment
-    # "cuda" is commented out — CUDA support disabled, re-enable when needed.
     target_deployment: Literal["qnn", "cpu", "universal"] = "qnn"
 
     # Model-specific hints
@@ -75,7 +74,6 @@ class ExportConfigGenerator:
     @staticmethod
     def generate(
         model_name_or_path: str,
-        # "cuda" is commented out — CUDA support disabled, re-enable when needed.
         target_deployment: Literal["qnn", "cpu", "universal"] = "qnn",
         task: str | None = None,
         batch_size: int = 1,
@@ -134,17 +132,16 @@ class ExportConfigGenerator:
             config.dynamic_axes = None
             config.dynamo = False
             logger.info("✅ QNN-optimized config: static batch, dynamo=False")
-        # CUDA support disabled — re-enable when needed.
-        # elif target_deployment == "cuda":
-        #     # CUDA can use dynamic batch
-        #     if input_names and detected_task in [
-        #         "text-classification",
-        #         "text-generation",
-        #     ]:
-        #         config.dynamic_axes = {
-        #             name: {0: "batch_size", 1: "sequence_length"} for name in input_names
-        #         }
-        #         logger.info("✅ CUDA config: dynamic batch enabled")
+        elif target_deployment == "cpu":
+            # CPU can use dynamic batch
+            if input_names and detected_task in [
+                "text-classification",
+                "text-generation",
+            ]:
+                config.dynamic_axes = {
+                    name: {0: "batch_size", 1: "sequence_length"} for name in input_names
+                }
+                logger.info("✅ CPU config: dynamic batch enabled")
         elif target_deployment == "universal":
             # Universal - user decides
             config.dynamic_axes = None  # Default static
@@ -288,14 +285,6 @@ class ExportConfigGenerator:
     def generate_for_qnn(model_name_or_path: str, **kwargs: Any) -> ExportConfigTemplate:
         """Convenience method for QNN-optimized export config."""
         return ExportConfigGenerator.generate(model_name_or_path, target_deployment="qnn", **kwargs)
-
-    # CUDA support disabled — re-enable when needed.
-    # @staticmethod
-    # def generate_for_cuda(model_name_or_path: str, **kwargs: Any) -> ExportConfigTemplate:
-    #     """Convenience method for CUDA-optimized export config."""
-    #     return ExportConfigGenerator.generate(
-    #         model_name_or_path, target_deployment="cuda", **kwargs
-    #     )
 
 
 # CLI-friendly functions

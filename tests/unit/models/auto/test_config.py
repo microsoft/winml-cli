@@ -158,7 +158,7 @@ class TestWinMLCompileConfig:
         """Test device via ep_config.provider."""
         from winml.modelkit.compiler import EPConfig, WinMLCompileConfig
 
-        for provider in ["qnn", "cpu", "cuda", "dml"]:
+        for provider in ["qnn", "cpu", "dml"]:
             config = WinMLCompileConfig(ep_config=EPConfig(provider=provider))
             assert config.device == provider
 
