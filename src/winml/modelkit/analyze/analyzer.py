@@ -691,6 +691,7 @@ class ONNXStaticAnalyzer:
                 "QNNExecutionProvider",
                 "OpenVINOExecutionProvider",
                 "VitisAIExecutionProvider",
+                "NvTensorRTRTXExecutionProvider",
             ]
             logger.info("No EP specified, analyzing all supported EPs: %s", eps_to_analyze)
         else:
@@ -854,6 +855,7 @@ def analyze_onnx(
     run_unknown_op: bool = False,
     on_ep_start: Callable | None = None,
     on_node_result: Callable | None = None,
+    output_path: Path | None = None,
 ) -> AnalyzeResult:
     """Analyze an ONNX model and return lint + autoconf results.
 
@@ -873,6 +875,9 @@ def analyze_onnx(
             detected patterns. Default ``True``. When ``False``, skips the
             information engine entirely for faster lint-only analysis
             (``optimization_config`` will be ``None``).
+        output_path: Optional file path to write the full :class:`AnalysisResult`
+            as JSON. The file is written (or overwritten) after each call, so
+            repeated calls with the same path keep the most recent result.
 
     Returns:
         AnalyzeResult with lint diagnostics and optional optimization config.
@@ -888,6 +893,11 @@ def analyze_onnx(
         ...     print(f"Errors: {result.lint.error_patterns}")
         >>> if result.autoconf:
         ...     print(f"Autoconf: {result.optimization_config.to_dict()}")
+
+        >>> # Save full analysis JSON alongside the model
+        >>> result = analyze_onnx(
+        ...     "model.onnx", ep="qnn", output_path=Path("analyze_result.json")
+        ... )
 
         >>> # Lint-only (skip autoconf — faster, no information engine)
         >>> result = analyze_onnx("model.onnx", ep="qnn", autoconf=False)
@@ -913,6 +923,12 @@ def analyze_onnx(
         on_ep_start=on_ep_start,
         on_node_result=on_node_result,
     )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(analysis.to_json(), encoding="utf-8")
+        logger.debug("Analysis result written: %s", output_path)
 
     # Extract lint result (always computed — uses RuntimeChecker classification)
     lint = analysis.get_lint_result(ep=ep)
