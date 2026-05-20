@@ -8,7 +8,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### 🚀 Platform upgrades
 
-- **WinML runtime → 2.0** (#441)
+- **Windows ML → 2.0** (#441)
 - **Python → 3.11** (`requires-python = ">=3.11,<3.12"`)
 
 ### ⚠️ Behavior changes
