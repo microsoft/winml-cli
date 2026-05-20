@@ -24,6 +24,7 @@ import json
 import pytest
 from click.testing import CliRunner
 
+from tests._helpers import run_inspect as _run
 from winml.modelkit.commands.inspect import inspect
 
 
@@ -53,11 +54,6 @@ EXPECTED_TOP_KEYS = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _run(*args: str) -> object:
-    """Invoke inspect with *args and return the CliRunner Result."""
-    return CliRunner().invoke(inspect, list(args), obj={})
 
 
 def _run_json(*args: str) -> dict:
