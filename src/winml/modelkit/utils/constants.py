@@ -164,9 +164,6 @@ SUPPORTED_DEVICES = [
     "NPU",
 ]
 
-# TODO: unify casing with SUPPORTED_DEVICES (uppercase) and DEVICE_TO_DEVICE_TYPE keys
-SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
-
 # EP -> ordered tuple of supported devices (lowercase). The FIRST element is
 # the canonical default device when only ``--ep`` is provided. Single source
 # of truth for both compatibility checks and default-device inference.

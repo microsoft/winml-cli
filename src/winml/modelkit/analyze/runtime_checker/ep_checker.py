@@ -57,6 +57,7 @@ class EPChecker:
         self._provider_options = provider_options
 
     def _get_sess_options(self) -> ort.SessionOptions:
+        winml.register_execution_providers(ort=True)
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         winml.add_ep_for_device(sess_options, self.ep_name, self.device_type)
