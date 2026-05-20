@@ -138,7 +138,10 @@ def _normalize_exported_model(output_path: Path) -> bool:
     from ..optim import optimize_onnx
 
     logger.info("Normalizing model")
-    tmp_dir = Path(tempfile.mkdtemp())
+    # Place the temp dir next to the output so copy_onnx_model stays on the
+    # same volume — avoids a cross-volume data transfer for multi-GB models
+    # and keeps the system drive's %TEMP% free of large sidecars.
+    tmp_dir = Path(tempfile.mkdtemp(dir=output_path.parent))
     tmp_path = tmp_dir / output_path.name
 
     try:
