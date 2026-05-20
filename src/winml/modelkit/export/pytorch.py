@@ -86,7 +86,7 @@ def export_pytorch(
     )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
-        return exporter.export(
+        stats = exporter.export(
             model=model,
             output_path=str(output_path),
             export_config=export_config,
@@ -94,3 +94,41 @@ def export_pytorch(
             task=task,
             **kwargs,
         )
+
+    stats["model_normalization_succeeded"] = _normalize_exported_model(output_path)
+
+    return stats
+
+
+def _normalize_exported_model(output_path: Path) -> bool:
+    """Normalize the exported ONNX in-place via optimize_onnx.
+
+    Writes the normalized model into a temporary directory, then replaces
+    the original export (and its `.data` sidecar, if any) via
+    copy_onnx_model — which overwrites both the `.onnx` file and its
+    external-data sidecar by design. On any failure during optimization
+    or copy, logs a warning and leaves the original export untouched.
+    The temp directory is removed in either case.
+
+    Returns:
+        True if normalization succeeded, False otherwise.
+    """
+    import shutil
+    import tempfile
+
+    from ..onnx import copy_onnx_model
+    from ..optim import optimize_onnx
+
+    logger.info("Normalizing model")
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / output_path.name
+
+    try:
+        optimize_onnx(model=output_path, output=tmp_path)
+        copy_onnx_model(tmp_path, output_path)
+    except Exception as e:
+        logger.warning("Normalization failed; keeping un-normalized export: %s", e)
+        return False
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    return True
