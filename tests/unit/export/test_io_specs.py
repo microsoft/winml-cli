@@ -240,7 +240,7 @@ class TestIOSpecsInputNames:
                 "detr",
                 "object-detection",
                 "detr_config",
-                ["pixel_values", "pixel_mask"],
+                ["pixel_values"],
             ),
         ],
         ids=["albert", "distilbert", "gpt2", "convnext", "detr"],
