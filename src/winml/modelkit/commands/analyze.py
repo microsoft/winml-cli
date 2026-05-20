@@ -407,8 +407,8 @@ def _render_analysis_summary(
 
         # Aggregate instance counts for this EP.
         ep_data = ep_instance_counts.get(ep_device_pair)
-            if ep_data is None:
-                ep_data = {}
+        if ep_data is None:
+            ep_data = {}
         has_instance_data = any(
             sum(
                 counts.get(level, 0)
