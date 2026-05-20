@@ -284,10 +284,11 @@ def _build_modules(
     required=False,
     optional_message="Falls back to compile config EP if not set.",
 )
-@click.option(
-    "--device",
+@cli_utils.device_option(
+    required=False,
     default="auto",
-    help="Target device ('auto', 'npu', 'gpu', 'cpu'). Default: auto-detect.",
+    include_auto=True,
+    optional_message="Default: auto-detect.",
 )
 @click.option(
     "--no-analyze",
@@ -377,25 +378,26 @@ def build(
     if not output_dir and not use_cache:
         raise click.UsageError("One of --output-dir or --use-cache is required.")
 
-    # If ep unspecified, attempt to auto-select a suitable EP from the registry
+    # If ep unspecified, resolve the target device and pick the highest-priority
+    # EP compatible with it. Avoids selecting an EP that does not match the host
+    # hardware -- analyzing for the wrong EP leaves black nodes that block a
+    # later build targeting the actual device (#663).
+    #
+    # resolve_device() either returns a device with >=1 available EP (auto-mode
+    # walks the priority list, falls back to cpu which is always valid), or
+    # raises ValueError for an explicit device with no compatible EP. So the
+    # following resolve_eps()[0] is safe whenever resolve_device returns.
     if ep is None:
-        from ..session import WinMLEPRegistry
+        from ..sysinfo import resolve_device as _resolve_device
+        from ..sysinfo import resolve_eps as _resolve_eps
 
-        registry = WinMLEPRegistry.get_instance()
-        candidate_eps: list[EPName] = [
-            "QNNExecutionProvider",
-            "OpenVINOExecutionProvider",
-            "VitisAIExecutionProvider",
-        ]
-        for candidate_ep in candidate_eps:
-            if registry.is_ep_available(candidate_ep):
-                ep = candidate_ep
-                logger.info("EP unspecified for build, auto-selecting: %s", ep)
-                break
-    if ep is None:
-        logger.warning(
-            "EP unspecified for build, and auto-selection failed. Proceeding without EP hints."
-        )
+        try:
+            resolved_device, _ = _resolve_device(device=device)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+        device = resolved_device
+        ep = _resolve_eps(resolved_device)[0]
+        logger.info("Auto-resolved device=%s, EP=%s", resolved_device, ep)
 
     try:
         # Load or auto-generate config
@@ -435,7 +437,15 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(device=device)
-                cfg.quant = resolved_quant
+                if resolved_quant is None:
+                    cfg.quant = None
+                elif cfg.quant is None:
+                    cfg.quant = resolved_quant
+                else:
+                    # Only update precision fields; preserve task/model_name
+                    # and other calibration settings from the existing config.
+                    cfg.quant.weight_type = resolved_quant.weight_type
+                    cfg.quant.activation_type = resolved_quant.activation_type
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
                     provider = cfg.compile.ep_config.provider
                     patched = WinMLCompileConfig.for_provider(provider, device=device)
@@ -756,6 +766,7 @@ def _run_optimize_stage(
     max_iters: int,
     stage_timings: list[tuple[str, float | None]],
     show_io_first: bool = False,
+    analyze_output_path: Path | None = None,
 ) -> tuple[Path, float]:
     """Run the optimize stage inside a StageLive context.
 
@@ -867,6 +878,7 @@ def _run_optimize_stage(
             on_patterns_discovered=_on_patterns,
             on_reoptimize=_on_reoptimize,
             use_external_data=True,
+            analyze_output_path=analyze_output_path,
         )
         # Mark config as resolved so CI/CD reruns skip the analyzer.
         config.auto = False
@@ -1099,6 +1111,7 @@ def _build_hf_pipeline(
     compiled_path = output_dir / _name("compiled.onnx")
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Reuse check
     if final_path.exists() and not rebuild:
@@ -1154,6 +1167,7 @@ def _build_hf_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=False,
+        analyze_output_path=analyze_result_path,
     )
 
     # Persist config after autoconf
@@ -1217,6 +1231,7 @@ def _build_onnx_pipeline(
     compiled_path = output_dir / f"{stem}_compiled.onnx"
     final_path = output_dir / "model.onnx"
     config_path = output_dir / "winml_build_config.json"
+    analyze_result_path = output_dir / "analyze_result.json"
 
     # Reuse check
     if final_path.exists() and not rebuild:
@@ -1246,6 +1261,7 @@ def _build_onnx_pipeline(
         max_iters=max_iters,
         stage_timings=stage_timings,
         show_io_first=True,
+        analyze_output_path=analyze_result_path,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
