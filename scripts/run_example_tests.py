@@ -7,10 +7,10 @@
 """Run eval tests for all example configs under a given EP.
 
 Usage:
-    python scripts/run_example_tests.py --ep qnn --hardware npu --device npu
-    python scripts/run_example_tests.py --ep qnn --hardware npu --device npu --timeout 600
-    python scripts/run_example_tests.py --ep openvino --hardware cpu --device cpu --eval-only
-    python scripts/run_example_tests.py --ep vitisai --hardware npu --device npu \
+    python scripts/run_example_tests.py --ep qnn --device npu
+    python scripts/run_example_tests.py --ep qnn --device npu --timeout 600
+    python scripts/run_example_tests.py --ep openvino --device cpu --eval-only
+    python scripts/run_example_tests.py --ep vitisai --device npu \
         --models microsoft_resnet-50,BAAI_bge-base-en-v1.5
 """
 
@@ -170,12 +170,11 @@ def main() -> None:
         help="EP folder under examples/",
     )
     parser.add_argument(
-        "--hardware",
+        "--device",
         required=True,
         choices=["npu", "gpu", "cpu"],
-        help="Hardware sub-folder under examples/<ep>/",
+        help="Device",
     )
-    parser.add_argument("--device", default="npu", help="Device (default: npu)")
     parser.add_argument(
         "--timeout",
         type=int,
@@ -186,7 +185,7 @@ def main() -> None:
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")
     args = parser.parse_args()
 
-    ep_dir = REPO_ROOT / "examples" / args.ep / args.hardware
+    ep_dir = REPO_ROOT / "examples" / args.ep / args.device
     if not ep_dir.exists():
         print(f"EP directory not found: {ep_dir}")
         sys.exit(1)
@@ -202,7 +201,7 @@ def main() -> None:
         cfg_file for model_dir in model_dirs for cfg_file in model_dir.glob("*_config.json")
     )
 
-    print(f"EP: {args.ep}, Hardware: {args.hardware}, Device: {args.device}")
+    print(f"EP: {args.ep}, Device: {args.device}")
     print(f"Models: {len(model_dirs)}, Configs: {len(configs)}")
     print()
 
