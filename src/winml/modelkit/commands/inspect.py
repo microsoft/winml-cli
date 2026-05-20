@@ -30,13 +30,28 @@ from rich.console import Console
 logger = logging.getLogger(__name__)
 console = Console()
 
+# File extensions that unambiguously indicate a local file path.
+# HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
+# so matching on any suffix would cause false-positives; restrict to known extensions.
+_LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
+
 
 def _looks_like_local_path(model_id: str) -> bool:
-    """Return True when model_id is explicitly a local path."""
+    """Return True when model_id is explicitly a local path.
+
+    Conservative heuristic — only returns True for unambiguous local indicators:
+    path separators, absolute paths, dot/tilde prefixes, or known model file extensions.
+    """
     from pathlib import Path
 
     _p = Path(model_id).expanduser()
-    return _p.exists() or _p.is_absolute() or "\\" in model_id or model_id.startswith((".", "~"))
+    return (
+        _p.exists()
+        or _p.is_absolute()
+        or "\\" in model_id
+        or model_id.startswith(("./", "../", "~/"))
+        or _p.suffix.lower() in _LOCAL_FILE_EXTS
+    )
 
 
 @click.command("inspect")
@@ -146,21 +161,20 @@ def inspect(
             "Use --list-tasks to see available tasks."
         )
 
-    # Classify the input before hitting HF Hub: explicitly-local paths must exist.
-    # Keep this conservative to avoid misclassifying valid HF IDs as local paths.
-    if model_id:
+    # Classify the input before hitting HF Hub: local paths must exist.
+    # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
+    # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
+    if model_id and _looks_like_local_path(model_id):
         from pathlib import Path
 
         _p = Path(model_id).expanduser()
-        _is_local = _looks_like_local_path(model_id)
-        if _is_local:
-            if _p.suffix == ".onnx" and _p.is_file():
-                raise click.ClickException(
-                    "ONNX file inspection is not yet supported. "
-                    "Use 'winml config -m model.onnx' for ONNX build config."
-                )
-            if not _p.exists():
-                raise click.ClickException(f"Local path '{model_id}' does not exist.")
+        if _p.suffix == ".onnx" and _p.is_file():
+            raise click.ClickException(
+                "ONNX file inspection is not yet supported. "
+                "Use 'winml config -m model.onnx' for ONNX build config."
+            )
+        if not _p.exists():
+            raise click.ClickException(f"Local path '{model_id}' does not exist.")
 
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table

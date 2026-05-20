@@ -10,10 +10,15 @@ NO actual HuggingFace downloads or model loading.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -264,10 +269,8 @@ class TestInspectErrors:
             assert result.exit_code != 0
             assert "Inspection error" in result.output
 
-    def test_missing_local_file_shows_path_error(
-        self, runner: CliRunner, tmp_path: pytest.TempPathFactory
-    ) -> None:
-        """Absolute path to a missing file shows a clear local error, not 'Network error'."""
+    def test_missing_local_file_shows_path_error(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Absolute path to a missing .onnx file shows a clear local error, not 'Network error'."""
         from winml.modelkit.commands.inspect import inspect
 
         missing = str(tmp_path / "missing.onnx")
@@ -300,8 +303,15 @@ class TestInspectErrors:
             assert "Model not found" in result.output
             assert "Network error" not in result.output
 
-    def test_hf_id_with_dot_not_treated_as_missing_local_path(self) -> None:
-        """A valid-looking HF ID with '.' should not be pre-classified as local."""
-        from winml.modelkit.commands.inspect import _looks_like_local_path
+    def test_dotted_hf_id_reaches_hub_path(self, runner: CliRunner) -> None:
+        """HF IDs with version dots (e.g. Phi-3.5) must not be classified as local paths."""
+        from winml.modelkit.commands.inspect import inspect
 
-        assert _looks_like_local_path("org/model.onnx") is False
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=RuntimeError("intentional — proves we reached the Hub path"),
+        ):
+            result = runner.invoke(inspect, ["-m", "microsoft/Phi-3.5-mini-instruct"], obj={})
+        assert "does not exist" not in result.output, (
+            "dotted HF ID was misclassified as a local path"
+        )
