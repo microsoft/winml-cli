@@ -410,8 +410,17 @@ class WinMLAutoModel:
         # =====================================================================
         from ..build import build_hf_model
 
-        # Pass resolved EP so the static analyzer targets only this EP
-        resolved_ep = config.compile.ep_config.provider if config.compile is not None else None
+        # Pass resolved EP so the static analyzer targets only this EP.
+        # Prefer the user-supplied EP; fall back to the compile-derived EP
+        # (compile is None on compile-less paths like CPU, so deriving from
+        # it alone would drop an explicit --ep cpu and analyze aggregates
+        # across all EPs).
+        user_ep = kwargs.get("ep")
+        resolved_ep = (
+            user_ep
+            if user_ep is not None
+            else (config.compile.ep_config.provider if config.compile is not None else None)
+        )
         result = build_hf_model(
             config=config,
             output_dir=output_dir,
