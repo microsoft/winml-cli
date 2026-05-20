@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import sys
 import traceback
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 
@@ -36,20 +35,13 @@ class WinML:
             return
         self._initialized = True
 
-        self._fix_winrt_runtime()
-        import winui3.microsoft.windows.ai.machinelearning as winml
-        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-            InitializeOptions,
-            initialize,
-        )
+        from windowsml import EpCatalog
 
-        self._win_app_sdk_handle = initialize(options=InitializeOptions.ON_NO_MATCH_SHOW_UI)
-        self._win_app_sdk_handle.__enter__()
-        catalog = winml.ExecutionProviderCatalog.get_default()
-        self._providers = catalog.find_all_providers()
+        self._catalog = EpCatalog()
+        self._providers = self._catalog.find_all_providers()
         self._ep_paths: dict[str, str] = {}
         for provider in self._providers:
-            provider.ensure_ready_async().get()
+            provider.ensure_ready()
             if provider.library_path == "":
                 continue
             self._ep_paths[provider.name] = provider.library_path
@@ -61,19 +53,10 @@ class WinML:
     def __del__(self) -> None:
         """Clean up WinML resources."""
         self._providers = None
-        self._win_app_sdk_handle.__exit__(None, None, None)
-
-    def _fix_winrt_runtime(self) -> None:
-        """This function removes the msvcp140.dll from the winrt-runtime package.
-
-        So it does not cause issues with other libraries.
-        """
-        from importlib import metadata
-
-        site_packages_path = Path(str(metadata.distribution("winrt-runtime").locate_file("")))
-        dll_path = site_packages_path / "winrt" / "msvcp140.dll"
-        if dll_path.exists():
-            dll_path.unlink()
+        catalog = getattr(self, "_catalog", None)
+        if catalog is not None:
+            catalog.close()
+            self._catalog = None
 
     def register_execution_providers(
         self, ort: bool = True, ort_genai: bool = False
