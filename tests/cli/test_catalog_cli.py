@@ -118,7 +118,7 @@ def type_task_pair(catalog_models: list[dict]) -> tuple[str, str]:
     for m in catalog_models:
         if m.get("model_type") and m.get("task"):
             return m["model_type"], m["task"]
-    pytest.skip("catalog has no model with both model_type and task")
+    return pytest.skip("catalog has no model with both model_type and task")
 
 
 @pytest.fixture(scope="module")
@@ -128,7 +128,7 @@ def ep_model_type_pair(catalog_models: list[dict]) -> tuple[str, str]:
         eps = sorted((m.get("supported_eps") or {}).keys())
         if eps and m.get("model_type"):
             return eps[0], m["model_type"]
-    pytest.skip("catalog has no model with both supported_eps and model_type")
+    return pytest.skip("catalog has no model with both supported_eps and model_type")
 
 
 @pytest.fixture(scope="module")
