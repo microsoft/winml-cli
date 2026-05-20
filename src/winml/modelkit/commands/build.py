@@ -440,6 +440,12 @@ def build(
                 if resolved_quant is None:
                     cfg.quant = None
                 elif cfg.quant is None:
+                    # Populate calibration identifiers from the loader/model
+                    # so the resulting config passes HF-build validation.
+                    if cfg.loader is not None and cfg.loader.task:
+                        resolved_quant.task = cfg.loader.task
+                    if model_id:
+                        resolved_quant.model_name = model_id
                     cfg.quant = resolved_quant
                 else:
                     # Only update precision fields; preserve task/model_name
@@ -457,6 +463,18 @@ def build(
                     _patch_device(_cfg)
             else:
                 _patch_device(config_or_configs)
+
+        # Fail-fast schema validation: ensure the config is valid before
+        # printing any banner or creating any output directories. This
+        # surfaces malformed configs immediately and prevents partial
+        # scratch state when the user passes the wrong file or a
+        # hand-edited config (#P1 UX).
+        _configs_to_validate = config_or_configs if is_module_mode else [config_or_configs]
+        try:
+            for _cfg in _configs_to_validate:
+                _cfg.validate()
+        except ValueError as e:
+            raise click.UsageError(f"Config validation failed: {e}") from e
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
