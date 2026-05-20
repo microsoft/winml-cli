@@ -137,7 +137,7 @@ extends:
           displayName: 'Publish to PyPI via ESRP Release'
           inputs:
             ConnectedServiceName: 'ModelKit ESRP ADO Service Connection'
-            ClientId: '2f619a37-c644-4e18-821f-e0fbb451307e'
+            ClientId: 'e80da4f8-3154-4198-9ad6-8f8988263b02'
             DomainTenantId: '975f013f-7f24-47e8-a7d3-abc4752bf346' # PME tenant
             usemanagedidentity: true
             KeyVaultName: 'ModelKit-KeyVault'
