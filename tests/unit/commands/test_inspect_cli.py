@@ -263,3 +263,39 @@ class TestInspectErrors:
             result = runner.invoke(inspect, ["-m", "test"], obj={})
             assert result.exit_code != 0
             assert "Inspection error" in result.output
+
+    def test_missing_local_file_shows_path_error(
+        self, runner: CliRunner, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        """Absolute path to a missing file shows a clear local error, not 'Network error'."""
+        from winml.modelkit.commands.inspect import inspect
+
+        missing = str(tmp_path / "missing.onnx")
+        result = runner.invoke(inspect, ["-m", missing], obj={})
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+        assert "Network error" not in result.output
+
+    def test_missing_local_relative_path_shows_path_error(self, runner: CliRunner) -> None:
+        """Relative path starting with '.' shows a clear local error, not 'Network error'."""
+        from winml.modelkit.commands.inspect import inspect
+
+        result = runner.invoke(inspect, ["-m", "./does-not-exist.onnx"], obj={})
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+        assert "Network error" not in result.output
+
+    def test_bogus_hf_id_shows_model_not_found(self, runner: CliRunner) -> None:
+        """RepositoryNotFoundError from HF Hub maps to 'Model not found', not 'Network error'."""
+        from huggingface_hub.utils import RepositoryNotFoundError
+
+        from winml.modelkit.commands.inspect import inspect
+
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=RepositoryNotFoundError("totally-bogus/does-not-exist"),
+        ):
+            result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
+            assert result.exit_code != 0
+            assert "Model not found" in result.output
+            assert "Network error" not in result.output

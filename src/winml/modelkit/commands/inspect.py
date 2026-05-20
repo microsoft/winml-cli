@@ -138,14 +138,25 @@ def inspect(
             "Use --list-tasks to see available tasks."
         )
 
-    # Handle ONNX file input
+    # Classify the input before hitting HF Hub: local paths must exist.
+    # HF IDs (org/model) have no file extension and no path separators other
+    # than a single forward slash, so the heuristics below have no false-positives
+    # for normal HF model identifiers.
     from pathlib import Path
 
-    if model_id and model_id.endswith(".onnx") and Path(model_id).is_file():
-        raise click.ClickException(
-            "ONNX file inspection is not yet supported. "
-            "Use 'winml config -m model.onnx' for ONNX build config."
+    if model_id:
+        _p = Path(model_id)
+        _is_local = (
+            _p.is_absolute() or "\\" in model_id or model_id.startswith(".") or bool(_p.suffix)
         )
+        if _is_local:
+            if _p.suffix == ".onnx" and _p.is_file():
+                raise click.ClickException(
+                    "ONNX file inspection is not yet supported. "
+                    "Use 'winml config -m model.onnx' for ONNX build config."
+                )
+            if not _p.exists():
+                raise click.ClickException(f"Local path '{model_id}' does not exist.")
 
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table
@@ -246,6 +257,8 @@ def _inspect_model_v2(
     # =========================================================================
     # STEP 2: Shared loader resolution (same call as config command)
     # =========================================================================
+    from huggingface_hub.utils import RepositoryNotFoundError
+
     try:
         loader_config, hf_config, _resolved_class = resolve_loader_config(
             model_id,
@@ -253,6 +266,8 @@ def _inspect_model_v2(
             model_type=model_type_override,
             model_class=model_class_override,
         )
+    except RepositoryNotFoundError as e:
+        raise ModelNotFoundError(f"Model '{model_id}' not found on Hugging Face Hub.") from e
     except ValueError as e:
         err_str = str(e).lower()
         if "not found" in err_str or "404" in err_str:
