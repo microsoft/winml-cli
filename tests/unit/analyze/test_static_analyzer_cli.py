@@ -1374,7 +1374,9 @@ class TestAnalyzeSummaryRendering:
         _render_analysis_summary(
             console,
             [ep_support],
-            ep_instance_counts={"DmlExecutionProvider@GPU": {"Conv": {"supported": 2}}},
+            ep_instance_counts={
+                ("DmlExecutionProvider", "GPU"): {"Conv": {"supported": 2}}
+            },
             ep_patterns={},
             ep="DmlExecutionProvider",
             device="GPU",

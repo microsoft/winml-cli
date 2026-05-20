@@ -352,7 +352,7 @@ def _extract_ep_patterns(
 def _render_analysis_summary(
     console: Console,
     results: list,
-    ep_instance_counts: dict[tuple[str, str] | str, dict[str, dict[str, int]]],
+    ep_instance_counts: dict[tuple[str, str], dict[str, dict[str, int]]],
     ep_patterns: dict[str, dict[str, dict]] | None = None,
     *,
     ep: EPNameOrAlias | Literal["all", "auto"] | None = None,
@@ -366,8 +366,7 @@ def _render_analysis_summary(
         console: Rich console for output.
         results: List of EPSupport objects from AnalysisOutput.
         ep_instance_counts: Per-EP instance counts accumulated during analysis,
-            keyed by ``(ep_name, device)`` or legacy ``"EP@DEVICE"``, then
-            op name, then support level.
+            keyed by ``(ep_name, device)``, then op name, then support level.
         ep_patterns: Per-EP subgraph pattern support extracted from results.
         ep: Requested EP name (for display when no results).
         device: Requested device (for display when no results).
