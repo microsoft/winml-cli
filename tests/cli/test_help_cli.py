@@ -38,7 +38,7 @@ import pytest
 from click.testing import CliRunner, Result
 
 from winml.modelkit import __version__
-from winml.modelkit.cli import COMMANDS_DIR, DISABLED_COMMANDS, main
+from winml.modelkit.cli import _COMMANDS_DIR, _DISABLED_COMMANDS, main
 
 
 # ---------------------------------------------------------------------------
@@ -47,11 +47,11 @@ from winml.modelkit.cli import COMMANDS_DIR, DISABLED_COMMANDS, main
 
 ENABLED_COMMANDS: list[str] = sorted(
     p.stem
-    for p in COMMANDS_DIR.glob("*.py")
-    if not p.name.startswith("_") and p.stem not in DISABLED_COMMANDS
+    for p in _COMMANDS_DIR.glob("*.py")
+    if not p.name.startswith("_") and p.stem not in _DISABLED_COMMANDS
 )
 
-_DISABLED_LIST: list[str] = sorted(DISABLED_COMMANDS)
+_DISABLED_LIST: list[str] = sorted(_DISABLED_COMMANDS)
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +123,12 @@ class TestWinmlHelp:
 
     def test_description_present(self) -> None:
         assert "WinML CLI" in _invoke("--help").output
+
+    def test_subcommand_help_has_no_banner(self) -> None:
+        """Subcommand ``--help`` must NOT render the top-level banner."""
+        result = _invoke("sys", "--help")
+        assert result.exit_code == 0
+        assert "Windows ML" not in result.stderr
 
 
 # ===========================================================================

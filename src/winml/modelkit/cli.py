@@ -34,8 +34,7 @@ from .utils.logging import configure_logging
 
 logger = logging.getLogger(__name__)
 
-COMMANDS_DIR = Path(__file__).parent / "commands"
-_COMMANDS_DIR = COMMANDS_DIR  # backward-compat alias
+_COMMANDS_DIR = Path(__file__).parent / "commands"
 
 # 5-row block-letter art for "WinML CLI".  '#' = filled pixel, ' ' = empty.
 # All letters use the same █ character so identical shapes (i vs I) look
@@ -130,8 +129,7 @@ def _print_banner(version: str, *, _console: object | None = None) -> None:
 # Commands that are temporarily disabled from the CLI surface.
 # The modules remain on disk so tests and internal imports still work;
 # they simply do not appear in ``winml --help`` or accept user invocations.
-DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
-_DISABLED_COMMANDS = DISABLED_COMMANDS  # backward-compat alias
+_DISABLED_COMMANDS: frozenset[str] = frozenset({"run", "serve"})
 
 
 def _parse_click_help(path: Path) -> str:
