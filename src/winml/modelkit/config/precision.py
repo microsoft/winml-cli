@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 
 from ..sysinfo import resolve_eps
-from ..utils.constants import EPName, EPNameOrAlias, normalize_ep_name
+from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, EPNameOrAlias, normalize_ep_name
 
 
 logger = logging.getLogger(__name__)
@@ -64,21 +64,6 @@ _BITS_TO_ACTIVATION_TYPE: dict[int, str] = {
     16: "uint16",
 }
 
-
-# EP -> device inference (when --ep is given without --device).
-# Keys are canonical EP names; callers must normalize aliases via
-# `normalize_ep_name()` before lookup. Source of valid EPs is the `EPName`
-# Literal in utils.constants (this dict is the policy layer).
-_EP_TO_DEVICE: dict[EPName, str] = {
-    "QNNExecutionProvider": "npu",
-    "VitisAIExecutionProvider": "npu",
-    "DmlExecutionProvider": "gpu",
-    "MIGraphXExecutionProvider": "gpu",
-    "NvTensorRTRTXExecutionProvider": "gpu",
-    "CUDAExecutionProvider": "gpu",
-    "OpenVINOExecutionProvider": "gpu",
-    "CPUExecutionProvider": "cpu",
-}
 
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
@@ -233,11 +218,11 @@ def resolve_precision(
     ep_canonical: EPName | None = None
     if ep is not None:
         ep_canonical = normalize_ep_name(ep)
-        if ep_canonical not in _EP_TO_DEVICE:
-            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(_EP_TO_DEVICE)}")
-        # Infer device from EP when device is "auto"
+        if ep_canonical not in EP_SUPPORTED_DEVICES:
+            raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
+        # Infer device from EP when device is "auto" — first supported device.
         if device == "auto":
-            device = _EP_TO_DEVICE[ep_canonical]
+            device = EP_SUPPORTED_DEVICES[ep_canonical][0]
             logger.info("Inferred device '%s' from EP '%s'", device, ep_canonical)
 
     # --- Both auto: no-op, keep config defaults ---
@@ -279,7 +264,7 @@ def resolve_precision(
 
     # ep=CPUExecutionProvider means no EPContext compilation needed.
     # For all other explicit EPs (canonical names), use ep as the provider.
-    compile_provider: EPName | None =  ep_canonical
+    compile_provider: EPName | None = ep_canonical
     if not compile_provider:
         eps = resolve_eps(resolved_device)
         compile_provider = eps[0] if eps else None

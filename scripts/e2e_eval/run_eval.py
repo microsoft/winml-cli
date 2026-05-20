@@ -441,7 +441,11 @@ def _run_build(
             "-m",
             entry.hf_id,
             "--use-cache",
+            "--device",
+            device,
         ]
+        if ep:
+            build_args += ["--ep", ep]
 
         build_proc = _run_subprocess(build_args, timeout)
         last_proc = build_proc
