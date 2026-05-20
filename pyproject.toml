@@ -60,6 +60,7 @@ dependencies = [
   "torchvision>=0.24",
   "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
+  "windowsml==2.0.300",
   "winrt-runtime>=3.2.1",
   "winrt-windows-foundation>=3.2.1",
   "winrt-windows-foundation-collections>=3.2.1",
