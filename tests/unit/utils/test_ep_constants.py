@@ -157,10 +157,9 @@ class TestNormalizeEPName:
         assert normalize_ep_name("Dml") == "DmlExecutionProvider"
         assert normalize_ep_name("NV_TENSORRT_RTX") == "NvTensorRTRTXExecutionProvider"
 
-    def test_unknown_ep_raises(self) -> None:
-        """Unrecognized names raise ValueError."""
-        with pytest.raises(ValueError, match="Unsupported execution provider name: SomeFutureEP"):
-            normalize_ep_name("SomeFutureEP")
+    def test_unknown_ep_returned_as_is(self) -> None:
+        """Unrecognized names are returned unchanged for downstream validation."""
+        assert normalize_ep_name("SomeFutureEP") == "SomeFutureEP"
 
 
 class TestExtractEPOptions:
