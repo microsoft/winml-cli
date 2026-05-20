@@ -44,7 +44,7 @@ class WinMLQairtSession(WinMLSession):
     """Session that compiles and runs models using Qualcomm QAIRT SDK.
 
     Overrides compile() to use the QAIRT SDK pipeline instead of
-    ort.ModelCompiler. The SDK runs in an isolated Python 3.10 venv
+    ort.ModelCompiler. The SDK runs in an isolated Python 3.11 venv
     via subprocess.
     """
 
@@ -93,7 +93,7 @@ class WinMLQairtSession(WinMLSession):
         venv_python = ensure_venv(
             root_path=self._qnn_sdk_root,
             venv_name="venv-winml",
-            python_version="3.10",
+            python_version="3.11",
             requirements=QAIRT_DEPENDENCIES,
         )
         logger.info("Virtual environment ready: %s", venv_python)

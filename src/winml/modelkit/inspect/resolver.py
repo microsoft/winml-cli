@@ -64,9 +64,12 @@ def get_known_tasks() -> set[str]:
     """
     tasks: set[str] = set()
 
-    # From HF_MODEL_CLASS_MAPPING values (task part of each (model_type, task) key)
+    # From HF_MODEL_CLASS_MAPPING values (task part of each (model_type, task) key).
+    # Some entries use task=None as a sentinel for the per-model-type default task;
+    # skip those so sorted() in callers never receives a None value.
     for _model_type, task in HF_MODEL_CLASS_MAPPING:
-        tasks.add(task)
+        if task is not None:
+            tasks.add(task)
 
     # From HF_TASK_DEFAULTS keys
     tasks.update(HF_TASK_DEFAULTS.keys())
