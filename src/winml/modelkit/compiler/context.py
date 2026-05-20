@@ -9,10 +9,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import onnx
 import onnxruntime as ort
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPAlias
 
 
 logger = logging.getLogger(__name__)
@@ -83,7 +87,7 @@ class CompileContext:
         return self.config.get(key, default)
 
     @property
-    def execution_provider(self) -> str:
+    def execution_provider(self) -> EPAlias:
         """Get target execution provider."""
         return self.config.get("execution_provider", "qnn")
 

@@ -19,12 +19,16 @@ import platform
 import sys
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import consent as consent_mod
 from . import constants
 from .deviceid import get_or_create_device_id
 from .utils import _extract_exception_stack, _format_exception_message
+
+
+if TYPE_CHECKING:
+    from ..utils.constants import EPNameOrAlias
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,7 +91,6 @@ class Telemetry:
         self._logger = None  # set when enabled; None when disabled
         self._provider = None
         self._disabled = True  # set to False only after successful init
-        self._init_ts = time.time()
         self._app_instance_id = str(uuid.uuid4())
         # Kept in the event schema for forward-compat: today
         # `consent.resolve_consent()` returns "disabled" for non-TTY, so
@@ -159,11 +162,9 @@ class Telemetry:
                 "id_status": id_status,
                 "os.name": uname.system,
                 "os.version": uname.version,
-                "os.release": uname.release,
                 "os.arch": uname.machine,
                 "app_version": app_version,
                 "app_instance_id": self._app_instance_id,
-                "initTs": self._init_ts,
             }
         )
 
@@ -180,7 +181,7 @@ class Telemetry:
         self,
         action_name: str,
         device: str | None,
-        ep: str | None,
+        ep: EPNameOrAlias | None,
         duration_ms: int,
         success: bool,
         **_unused: Any,

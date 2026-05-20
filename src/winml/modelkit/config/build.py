@@ -75,6 +75,7 @@ if TYPE_CHECKING:
     from torch import nn
 
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
+    from ..utils.constants import EPNameOrAlias
 
 __all__ = [
     "WinMLBuildConfig",
@@ -305,7 +306,7 @@ def resolve_quant_compile_config(
     *,
     device: str = "auto",
     precision: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     task: str | None = None,
 ) -> tuple[WinMLQuantizationConfig | None, WinMLCompileConfig | None]:
     """Resolve quantization and compilation config from device/precision policy.
@@ -370,7 +371,7 @@ def generate_onnx_build_config(
     task: str | None = None,
     device: str = "auto",
     precision: str = "auto",
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     override: WinMLBuildConfig | None = None,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
@@ -464,7 +465,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig: ...
 
@@ -483,7 +484,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     no_compile: bool = False,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -501,7 +502,7 @@ def generate_hf_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     no_compile: bool = False,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
@@ -553,6 +554,10 @@ def generate_hf_build_config(
     _trust_remote_code = trust_remote_code or (
         override.loader.trust_remote_code if override and override.loader else False
     )
+    if _trust_remote_code:
+        from ..utils.cli import warn_trust_remote_code
+
+        warn_trust_remote_code()
     loader_config, hf_config, resolved_class = resolve_loader_config(
         model_id,
         task=task,
@@ -718,7 +723,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig: ...
 
@@ -737,7 +742,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     onnx_path: str | Path | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
@@ -755,7 +760,7 @@ def generate_build_config(
     device: str = "auto",
     precision: str = "auto",
     trust_remote_code: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     onnx_path: str | Path | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.

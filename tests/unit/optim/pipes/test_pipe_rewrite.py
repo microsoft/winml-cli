@@ -26,6 +26,7 @@ import onnx
 import onnx.helper as oh
 import pytest
 
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.onnx import ONNXDomain
 from winml.modelkit.optim.pipes.rewrite import RewritePipe, RewritePipeConfig, _detect_conflicts
 from winml.modelkit.optim.pipes.rewrite_rules import (
@@ -105,6 +106,7 @@ def _make_mock_match(node_names: list[str]) -> PatternMatchResult:
     skeleton = SkeletonMatchResult(
         pattern=_MockPattern(),  # type: ignore[arg-type]
         matched_nodes=nodes,
+        matched_node_keys=_stable_test_node_keys(nodes),
         matcher=None,  # type: ignore[arg-type]
     )
     return PatternMatchResult(

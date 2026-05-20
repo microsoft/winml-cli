@@ -9,21 +9,21 @@ a profiling *level* (``"basic"`` or ``"detail"``).  Lookup uses substring
 matching so that ``"QNN"`` matches ``"QNNExecutionProvider"`` without
 hardcoding full EP names.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    from ..utils.constants import EPName
     from .base import OpTracer
 
 # {ep_pattern: {level: tracer_class}}
 _TRACERS: dict[str, dict[str, type[OpTracer]]] = {}
 
 
-def register_tracer(
-    ep_pattern: str, level: str, tracer_class: type[OpTracer]
-) -> None:
+def register_tracer(ep_pattern: str, level: str, tracer_class: type[OpTracer]) -> None:
     """Register a tracer class for an EP pattern and profiling level.
 
     Parameters
@@ -38,7 +38,7 @@ def register_tracer(
     _TRACERS.setdefault(ep_pattern, {})[level] = tracer_class
 
 
-def get_tracer(ep_name: str, level: str) -> type[OpTracer] | None:
+def get_tracer(ep_name: EPName, level: str) -> type[OpTracer] | None:
     """Look up a tracer class by EP name and level.
 
     Uses substring matching: a registered pattern ``"QNN"`` will match

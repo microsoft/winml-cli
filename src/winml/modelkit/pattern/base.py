@@ -181,7 +181,7 @@ from ..onnx.external_data import try_load_external_initializer_array
 from .match import InputInfo, PatternMatchResult, SkeletonMatchResult
 from .op_input_gen import InputShapeConstraint
 from .op_input_gen.op_input_gen import OpInputGenerator
-from .utils import get_attribute_proto_value, make_hashable
+from .utils import get_attribute_proto_value, make_hashable, make_stable_node_key
 
 
 logger = logging.getLogger(__name__)
@@ -1347,7 +1347,7 @@ class PatternMatcher:
                 self.tensor_values[initializer.name] = numpy_helper.to_array(initializer)
 
         for node_idx, node in enumerate(self.graph.node):
-            node_name = node.name or f"node_{node_idx}"
+            node_name = make_stable_node_key(node, node_idx)
 
             # Build node lookup
             self.node_lookup[node_name] = node
@@ -1514,6 +1514,28 @@ class PatternMatcher:
         """
         return ONNXDomain.from_str(node.domain)
 
+    def _get_registered_edge_info(self, tensor_name: str, consumer_name: str) -> EdgeInfo:
+        """Return edge info for a registered tensor-consumer pair.
+
+        Skeleton matching only queries edge metadata for non-virtual inputs with an
+        upstream producer in the model graph. Those entries must exist once
+        _build_lookups() has completed, so a miss indicates a broken registration
+        invariant rather than an ordinary pattern mismatch.
+
+        Args:
+            tensor_name: Name of the consumed tensor.
+            consumer_name: Canonical name of the consumer node.
+
+        Returns:
+            Registered EdgeInfo for the tensor-consumer pair.
+        """
+        edge_info = self.edge_info_by_name.get(tensor_name, {}).get(consumer_name)
+        assert edge_info is not None, (
+            f"Missing edge registration for tensor '{tensor_name}' consumed by "
+            f"'{consumer_name}'. Non-virtual inputs should be registered in _build_lookups()."
+        )
+        return edge_info
+
     def _check_constant_constraints(
         self,
         matched_nodes: list[str],
@@ -1678,8 +1700,8 @@ class PatternMatcher:
         for graph_input in self.graph.input:
             if graph_input.name:
                 edge_partial_matching_results[graph_input.name] = []
-
-        for _idx, node in enumerate(self.graph.node):
+        for node_idx, node in enumerate(self.graph.node):
+            node_name = make_stable_node_key(node, node_idx)
             # touch output edges
             for out_edge in node.output:
                 edge_partial_matching_results[out_edge] = []
@@ -1695,15 +1717,16 @@ class PatternMatcher:
                 input_slots = node_input_slots[subgraph_node]
                 src_slot_matched = True
                 for dst_slot, input_edge in enumerate(node.input):
-                    edge_info = self.edge_info_by_name[input_edge][node.name]
-                    if dst_slot in input_slots:
-                        # check 1: src_slot match
-                        src, src_slot = input_slots[dst_slot]
-                        if src >= 0 and edge_info.src_slot != src_slot:
-                            src_slot_matched = False
-                            break
-                    # else:
-                    # print("TODO: input slot unspecified: ")
+                    if dst_slot not in input_slots:
+                        continue
+                    src, src_slot = input_slots[dst_slot]
+                    if src < 0:
+                        # Free input (graph input / initializer); no edge_info needed.
+                        continue
+                    edge_info = self._get_registered_edge_info(input_edge, node_name)
+                    if edge_info.src_slot != src_slot:
+                        src_slot_matched = False
+                        break
                 if not src_slot_matched:
                     continue
 
@@ -1711,35 +1734,34 @@ class PatternMatcher:
                 dst_slot_partial_mappings = []
                 # src_node_matched = True
                 for dst_slot, input_edge in enumerate(node.input):
-                    edge_info = self.edge_info_by_name[input_edge][node.name]
-                    if dst_slot in input_slots:
-                        src, src_slot = input_slots[dst_slot]
-                        if src < 0:
-                            mapping = {src: input_edge}
-                            dst_slot_partial_mappings.append([mapping])
-                        else:
-                            if input_edge not in edge_partial_matching_results:
-                                assert input_edge in self.constant_and_initializer_names, (
-                                    f"Edge {input_edge} not in "
-                                    f"partial matching results or "
-                                    f"constants/initializers"
-                                )
-                                # cannot match non-constant/
-                                # initializer edges, since src >= 0
-                                dst_slot_partial_mappings.append([])
-                                # src_node_matched = False
-                                continue
-                            src_matched_mappings = [
-                                partial_mapping.node_mapping.copy()
-                                for partial_mapping in edge_partial_matching_results[input_edge]
-                                if (
-                                    src in partial_mapping.node_mapping
-                                    and edge_info.src_name == partial_mapping.node_mapping[src]
-                                )
-                            ]
-                            dst_slot_partial_mappings.append(src_matched_mappings)
-                    else:
+                    if dst_slot not in input_slots:
                         continue  # edge not specified in subgraph, skipping adding mapping
+                    src, src_slot = input_slots[dst_slot]
+                    if src < 0:
+                        mapping = {src: input_edge}
+                        dst_slot_partial_mappings.append([mapping])
+                    else:
+                        if input_edge not in edge_partial_matching_results:
+                            assert input_edge in self.constant_and_initializer_names, (
+                                f"Edge {input_edge} not in "
+                                f"partial matching results or "
+                                f"constants/initializers"
+                            )
+                            # cannot match non-constant/
+                            # initializer edges, since src >= 0
+                            dst_slot_partial_mappings.append([])
+                            # src_node_matched = False
+                            continue
+                        edge_info = self._get_registered_edge_info(input_edge, node_name)
+                        src_matched_mappings = [
+                            partial_mapping.node_mapping.copy()
+                            for partial_mapping in edge_partial_matching_results[input_edge]
+                            if (
+                                src in partial_mapping.node_mapping
+                                and edge_info.src_name == partial_mapping.node_mapping[src]
+                            )
+                        ]
+                        dst_slot_partial_mappings.append(src_matched_mappings)
 
                 # if not src_node_matched:
                 #     continue
@@ -1754,7 +1776,7 @@ class PatternMatcher:
                     merged_mapping = _merge_mappings(mapping_combination)
                     if merged_mapping is not None:
                         # valid mapping
-                        merged_mapping[subgraph_node] = node.name
+                        merged_mapping[subgraph_node] = node_name
                         valid_merged_mappings.append(merged_mapping)
                 # TODO: attach partial result to node of edge?
                 for out_edge in node.output:
@@ -1791,6 +1813,7 @@ class PatternMatcher:
                             SkeletonMatchResult(
                                 pattern=pattern,
                                 matched_nodes=matched_nodes_list,
+                                matched_node_keys=matched_node_names,
                                 matcher=self,
                                 inputs=inputs,
                                 output=output,
@@ -1919,34 +1942,56 @@ class PatternRewriter:
         new_model = copy.deepcopy(self.model)
         graph = new_model.graph
 
+        # Keep per-node stable keys in lockstep with graph.node so unnamed
+        # node keys do not drift when nodes are deleted/inserted during rewrite.
+        graph_node_keys: list[str] = [
+            make_stable_node_key(node, idx) for idx, node in enumerate(graph.node)
+        ]
+        used_graph_node_keys = set(graph_node_keys)
+        generated_node_key_counter = 0
+
+        def _allocate_graph_node_key(node: Any) -> str:
+            """Allocate a non-conflicting stable key for inserted nodes."""
+            nonlocal generated_node_key_counter
+
+            if node.name and node.name not in used_graph_node_keys:
+                key = node.name
+            elif node.name:
+                suffix = 1
+                key = f"{node.name}__{suffix}"
+                while key in used_graph_node_keys:
+                    suffix += 1
+                    key = f"{node.name}__{suffix}"
+            else:
+                key = f"generated_node_{generated_node_key_counter}"
+                while key in used_graph_node_keys:
+                    generated_node_key_counter += 1
+                    key = f"generated_node_{generated_node_key_counter}"
+                generated_node_key_counter += 1
+
+            used_graph_node_keys.add(key)
+            return key
+
         # Track which nodes have been deleted to avoid double deletion
         deleted_node_names: set[str] = set()
 
         rewrite_counter = 0
 
         # Assert non-overlap across all matches
-        all_matched_node_names = [
-            node_name
+        all_matched_node_keys = [
+            node_key
             for match_results, _ in pattern_match_results
             for match_result in match_results
-            for node_name in match_result.skeleton_match_result.matched_node_names
+            for node_key in match_result.skeleton_match_result.matched_node_keys
         ]
-        assert len(all_matched_node_names) == len(set(all_matched_node_names)), (
+        assert len(all_matched_node_keys) == len(set(all_matched_node_keys)), (
             "Overlapping nodes found in pattern matches to rewrite. "
             "Each node can only be matched by one pattern."
         )
         for match_results, new_pattern_class in pattern_match_results:
             for match_result in match_results:
-                # Rebuild node_name_to_idx before each rewrite to handle index changes
-                # This avoids issues if matches within a group are in bad order
-                # TODO: avoid rebuiling by using
-                # dict[node_name, linked_list_node]; this would
-                # reduce theoretical time complexity but we need
-                # careful implementation to make it actually faster
-                node_name_to_idx: dict[str, int] = {}
-                for idx, node in enumerate(graph.node):
-                    assert node.name is not None, "All nodes must have names for rewriting."
-                    node_name_to_idx[node.name] = idx
+                # Rebuild current key->index lookup from persistent graph_node_keys.
+                node_name_to_idx = {key: idx for idx, key in enumerate(graph_node_keys)}
                 skeleton_match = match_result.skeleton_match_result
 
                 # Check if removable
@@ -1954,7 +1999,7 @@ class PatternRewriter:
                     warnings.warn(
                         f"Skipping non-removable pattern match for "
                         f"{skeleton_match.pattern.__class__.__name__} with nodes "
-                        f"{skeleton_match.matched_node_names}. Intermediate tensors may be used "
+                        f"{skeleton_match.matched_node_keys}. Intermediate tensors may be used "
                         f"by nodes outside the pattern.",
                         stacklevel=2,
                     )
@@ -1962,7 +2007,7 @@ class PatternRewriter:
 
                 # Check for already deleted nodes
                 already_deleted = [
-                    n for n in skeleton_match.matched_node_names if n in deleted_node_names
+                    n for n in skeleton_match.matched_node_keys if n in deleted_node_names
                 ]
                 if already_deleted:
                     warnings.warn(
@@ -2036,21 +2081,33 @@ class PatternRewriter:
                 # Find insertion point: position of last matched node after deletions
                 # Since original graph is topologically sorted,
                 # last matched node is after all input producers
-                matched_indices = [node_name_to_idx[n] for n in skeleton_match.matched_node_names]
+                missing_nodes = [
+                    n for n in skeleton_match.matched_node_keys if n not in node_name_to_idx
+                ]
+                if missing_nodes:
+                    warnings.warn(
+                        f"Skipping pattern match with missing nodes in graph: {missing_nodes}",
+                        stacklevel=2,
+                    )
+                    continue
+
+                matched_indices = [node_name_to_idx[n] for n in skeleton_match.matched_node_keys]
                 max_matched_idx = max(matched_indices)
                 insert_idx = max_matched_idx - (len(matched_indices) - 1)
 
                 # Delete matched nodes from the graph (reverse order to avoid index shifting)
                 for idx in sorted(matched_indices, reverse=True):
                     del graph.node[idx]
+                    del graph_node_keys[idx]
 
                 # Mark nodes as deleted
-                deleted_node_names.update(skeleton_match.matched_node_names)
+                deleted_node_names.update(skeleton_match.matched_node_keys)
 
                 # Insert new nodes at the computed position
                 new_nodes = list(new_subgraph_model.graph.node)
                 for i, new_node in enumerate(new_nodes):
                     graph.node.insert(insert_idx + i, new_node)
+                    graph_node_keys.insert(insert_idx + i, _allocate_graph_node_key(new_node))
 
                 # Append new initializers (constants) from the new subgraph
                 for initializer in new_subgraph_model.graph.initializer:

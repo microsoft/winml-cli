@@ -10,7 +10,10 @@ import pytest
 
 from winml.modelkit.utils.constants import (
     ALL_EP_NAMES,
+    EP_ALIAS_NAMES,
     EP_ALIASES,
+    EP_NAME_TO_ALIAS,
+    EP_NAMES,
     SUPPORTED_EPS,
     extract_ep_options,
     normalize_ep_name,
@@ -54,6 +57,48 @@ class TestEPAliases:
         """Alias keys must be lowercase for case-insensitive lookup."""
         for alias in EP_ALIASES:
             assert alias == alias.lower()
+
+    def test_covers_every_ep_alias_literal(self) -> None:
+        """Every value in the `EPAlias` Literal must have a mapping."""
+        missing = set(EP_ALIAS_NAMES) - set(EP_ALIASES)
+        assert not missing, f"EP_ALIASES is missing entries for: {sorted(missing)}"
+
+    def test_no_extra_keys_outside_literal(self) -> None:
+        """EP_ALIASES must not contain keys absent from the `EPAlias` Literal."""
+        extra = set(EP_ALIASES) - set(EP_ALIAS_NAMES)
+        assert not extra, f"EP_ALIASES has unexpected aliases: {sorted(extra)}"
+
+    def test_values_are_subset_of_ep_names(self) -> None:
+        """Every alias value must be a canonical EPName Literal value."""
+        invalid = set(EP_ALIASES.values()) - set(EP_NAMES)
+        assert not invalid, f"EP_ALIASES maps to non-EPName values: {sorted(invalid)}"
+
+
+class TestEPNameToAlias:
+    """Tests for EP_NAME_TO_ALIAS reverse mapping."""
+
+    def test_covers_every_ep_name_literal(self) -> None:
+        """Every value in the `EPName` Literal must have a reverse mapping."""
+        missing = set(EP_NAMES) - set(EP_NAME_TO_ALIAS)
+        assert not missing, f"EP_NAME_TO_ALIAS is missing entries for: {sorted(missing)}"
+
+    def test_no_extra_keys_outside_literal(self) -> None:
+        """EP_NAME_TO_ALIAS must not contain keys absent from the `EPName` Literal."""
+        extra = set(EP_NAME_TO_ALIAS) - set(EP_NAMES)
+        assert not extra, f"EP_NAME_TO_ALIAS has unexpected canonical names: {sorted(extra)}"
+
+    def test_values_are_subset_of_ep_aliases(self) -> None:
+        """Every reverse-mapped value must be a valid EPAlias Literal value."""
+        invalid = set(EP_NAME_TO_ALIAS.values()) - set(EP_ALIAS_NAMES)
+        assert not invalid, f"EP_NAME_TO_ALIAS maps to non-EPAlias values: {sorted(invalid)}"
+
+    def test_round_trip_through_ep_aliases(self) -> None:
+        """For every canonical name, EP_ALIASES[EP_NAME_TO_ALIAS[name]] == name."""
+        for name, alias in EP_NAME_TO_ALIAS.items():
+            assert EP_ALIASES[alias] == name, (
+                f"Round-trip failed: EP_NAME_TO_ALIAS[{name!r}]={alias!r}, "
+                f"but EP_ALIASES[{alias!r}]={EP_ALIASES[alias]!r}"
+            )
 
 
 class TestAllEPNames:

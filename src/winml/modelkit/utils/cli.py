@@ -11,12 +11,47 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
+from rich.console import Console
 
 from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
 
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+
+
+# Shared stderr console for security/diagnostic messages emitted from utils.
+# Mirrors the module-level ``console = Console()`` pattern used by individual
+# command modules, but targets stderr so messages survive ``-q/--quiet``.
+_stderr_console = Console(stderr=True)
+
+# Per-process flag so the warning surfaces at most once per CLI run / API call.
+# Multiple instrumented entry points along a single call chain (e.g. CLI flag
+# -> generate_hf_build_config -> resolve_loader_config -> load_hf_model)
+# would otherwise emit the same warning several times.
+_trust_remote_code_warned = False
+
+
+def warn_trust_remote_code() -> None:
+    """Print the ``trust_remote_code`` security warning to stderr.
+
+    Uses the shared stderr ``rich.Console`` so the warning renders in bold red
+    and matches the rest of the CLI's output style; bypassing the ``logging``
+    module also means it is **not** suppressed by ``-q/--quiet``. Emitted at
+    most once per process so a single CLI run or API call surfaces the
+    warning exactly once, even when several instrumented entry points (CLI
+    flag, ``load_hf_model``, ``generate_hf_build_config``, ...) are reached
+    along the same call chain.
+    """
+    global _trust_remote_code_warned
+    if _trust_remote_code_warned:
+        return
+    _trust_remote_code_warned = True
+    _stderr_console.print(
+        "[bold red]WARNING:[/bold red] trust_remote_code is enabled - "
+        "custom Python from the model repository will be downloaded and "
+        "executed. Proceed only if you trust the publisher."
+    )
 
 
 def model_path_option(required=True):
@@ -60,6 +95,26 @@ def model_option(required=True):
     )
 
 
+def output_option(help_text: str, required: bool = False):
+    """Add ``-o/--output`` option that accepts a file path.
+
+    The path is delivered to the callback as a :class:`pathlib.Path`.
+
+    Args:
+        help_text: Command-specific help string for the option.
+        required: Whether the option is required (default: False).
+
+    Returns:
+        Decorator function.
+    """
+    kwargs: dict = {"type": click.Path(path_type=Path), "help": help_text}
+    if required:
+        kwargs["required"] = True
+    else:
+        kwargs["default"] = None
+    return click.option("--output", "-o", **kwargs)
+
+
 def ep_option(required=True, optional_message=None):
     """Add --ep (execution provider) option to a Click command.
 
@@ -82,6 +137,7 @@ def ep_option(required=True, optional_message=None):
 
     return click.option(
         "--ep",
+        "--execution-provider",
         required=required,
         default=None,
         type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
@@ -179,11 +235,17 @@ def trust_remote_code_option(optional_message: str | None = None):
     if optional_message:
         help_text = f"{help_text} {optional_message}"
 
+    def _warn_callback(ctx: click.Context, param: click.Parameter, value: bool) -> bool:
+        if value:
+            warn_trust_remote_code()
+        return value
+
     return click.option(
         "--trust-remote-code",
         is_flag=True,
         default=False,
         help=help_text,
+        callback=_warn_callback,
     )
 
 

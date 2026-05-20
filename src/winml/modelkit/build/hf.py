@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     import torch.nn as nn
 
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def build_hf_model(
     trust_remote_code: bool = False,
     random_init: bool = False,
     cache_key: str | None = None,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
@@ -170,6 +171,7 @@ def build_hf_model(
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
     manifest_path = output_dir / _name("build_manifest.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)
     if final_path.exists() and not rebuild:
@@ -273,6 +275,7 @@ def build_hf_model(
             ep=ep,
             device=device,
             max_optim_iterations=hack_max_optim_iterations,
+            analyze_output_path=analyze_result_path,
             **onnx_kwargs,
         )
         stage_timings["optimize"] = opt_elapsed

@@ -119,9 +119,9 @@ class TestRegistry:
         from winml.modelkit.eval.evaluate import _DEFAULT_DATASETS
 
         cfg = _DEFAULT_DATASETS["zero-shot-classification"]
-        assert cfg.path is not None
-        assert cfg.columns_mapping.get("input_column") is not None
-        assert cfg.columns_mapping.get("label_column") is not None
+        assert cfg["path"] is not None
+        assert cfg["columns_mapping"].get("input_column") is not None
+        assert cfg["columns_mapping"].get("label_column") is not None
 
     def test_exported_from_package(self) -> None:
         from winml.modelkit import eval as eval_pkg

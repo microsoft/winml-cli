@@ -11,6 +11,7 @@ Priority: HTP metadata > hierarchy_tag > PatternMatcher
 import pytest
 from onnx import TensorProto, helper
 
+from tests.unit.test_helpers import stable_test_node_keys as _stable_test_node_keys
 from winml.modelkit.analyze import ONNXModel, PatternExtractor
 from winml.modelkit.pattern import PatternMatchResult, SkeletonMatchResult, SubgraphPattern
 
@@ -78,6 +79,7 @@ class TestPatternDeduplication:
         skeleton1 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div_node, erf_node],
+            matched_node_keys=_stable_test_node_keys([div_node, erf_node]),
             matcher=None,
         )
 
@@ -92,6 +94,7 @@ class TestPatternDeduplication:
         skeleton2 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div_node, erf_node],
+            matched_node_keys=_stable_test_node_keys([div_node, erf_node]),
             matcher=None,
         )
 
@@ -155,6 +158,7 @@ class TestPatternDeduplication:
         skeleton1 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div1_node],
+            matched_node_keys=_stable_test_node_keys([div1_node]),
             matcher=None,
         )
 
@@ -168,6 +172,7 @@ class TestPatternDeduplication:
         skeleton2 = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[div2_node],
+            matched_node_keys=_stable_test_node_keys([div2_node]),
             matcher=None,
         )
 
@@ -202,6 +207,7 @@ class TestPatternMatchNodeAccess:
         skeleton = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[conv_node],
+            matched_node_keys=_stable_test_node_keys([conv_node]),
             matcher=None,
         )
 
@@ -233,6 +239,7 @@ class TestPatternMatchNodeAccess:
         skeleton = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[relu_node],
+            matched_node_keys=_stable_test_node_keys([relu_node]),
             matcher=None,
         )
 
@@ -264,6 +271,7 @@ class TestPatternMatchNodeAccess:
         skeleton = SkeletonMatchResult(
             pattern=pattern,
             matched_nodes=[add_node],
+            matched_node_keys=_stable_test_node_keys([add_node]),
             matcher=None,
         )
 

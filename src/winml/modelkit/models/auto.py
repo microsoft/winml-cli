@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
     from .winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class WinMLAutoModel:
         config: WinMLBuildConfig | None = None,
         device: str = "auto",
         precision: str = "auto",
-        ep: str | None = None,
+        ep: EPNameOrAlias | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -289,6 +290,11 @@ class WinMLAutoModel:
         """
         model_id = str(model_id_or_path)  # Ensure string for Path inputs
         logger.info("Loading WinML model from: %s", model_id)
+
+        if trust_remote_code:
+            from ..utils.cli import warn_trust_remote_code
+
+            warn_trust_remote_code()
 
         # =====================================================================
         # ONNX FAST PATH -- skip HF loading and export when given an .onnx file

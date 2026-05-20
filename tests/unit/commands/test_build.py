@@ -23,14 +23,22 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+_DEVICE_TO_EPS = {
+    "npu": ["QNNExecutionProvider"],
+    "gpu": ["DmlExecutionProvider"],
+    "cpu": ["CPUExecutionProvider"],
+}
+
+
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
+    """Mock resolve_device / resolve_eps to avoid hardware detection.
 
-    The build command calls resolve_device() for I/O and (since #540)
-    WinMLEPRegistry.get_instance() for EP auto-selection when --ep is
-    not specified. Both must be mocked to avoid slow DLL scanning and
-    WinML SDK discovery on CI runners without WinML installed.
+    The build command calls resolve_device() / resolve_eps() to auto-select
+    an EP when ``--ep`` is not specified. Both must be mocked to avoid
+    slow DLL scanning and WinML SDK discovery on CI runners without WinML
+    installed. WinMLEPRegistry.get_instance is also patched defensively
+    for any downstream code path that may touch it.
     """
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
@@ -39,6 +47,10 @@ def mock_resolve_device():
         patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "gpu", "cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
@@ -86,6 +98,45 @@ def mock_build_reused():
     """Mock _run_single_build returning None (reuse is handled internally)."""
     with patch("winml.modelkit.commands.build._run_single_build", return_value=None) as mock:
         yield mock
+
+
+@pytest.fixture
+def mock_run_single_build():
+    """Mock the heavy ``_run_single_build`` so flag plumbing can be inspected."""
+    with patch("winml.modelkit.commands.build._run_single_build", return_value=None) as mock:
+        yield mock
+
+
+def _make_minimal_config_file(
+    tmp_path: Path,
+    task: str = "image-classification",
+    *,
+    name: str = "config.json",
+    compile_section: dict | None = None,
+) -> str:
+    """Create a minimal WinMLBuildConfig JSON for CLI validation tests."""
+    config: dict = {
+        "loader": {"task": task},
+        "export": {"opset_version": 17, "batch_size": 1},
+        "optim": {},
+        "quant": None,
+        "compile": compile_section,
+    }
+    config_path = tmp_path / name
+    config_path.write_text(json.dumps(config))
+    return str(config_path)
+
+
+def _invoke(args: list[str], *, debug: bool = False):
+    """Invoke the build command with a fresh CliRunner.
+
+    ``catch_exceptions=False`` is intentionally not used here so
+    validation failures still come back as normal Click results.
+    """
+    from winml.modelkit.commands.build import build
+
+    runner = CliRunner()
+    return runner.invoke(build, args, obj={"debug": debug})
 
 
 # =============================================================================
@@ -156,6 +207,375 @@ class TestBuildCliInterface:
         )
         assert result.exit_code != 0
         assert "mutually exclusive" in result.output.lower()
+
+
+# =============================================================================
+# CLI VALIDATION / FLAG PLUMBING REGRESSIONS
+# =============================================================================
+
+
+class TestBuildArgValidation:
+    """Argument-validation errors must surface as UsageError (exit != 0)."""
+
+    def test_missing_config_required(self, tmp_path: Path):
+        """``-c/--config`` is required by Click."""
+        result = _invoke(["-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        output = result.output.lower()
+        assert "config" in output or "required" in output
+
+    def test_config_file_does_not_exist(self, tmp_path: Path):
+        """``click.Path(exists=True)`` rejects non-existent config files."""
+        missing = tmp_path / "no_such_config.json"
+        result = _invoke(["-c", str(missing), "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "no_such_config.json" in result.output or "exist" in result.output.lower()
+
+    def test_missing_output_and_cache(self, tmp_path: Path):
+        """One of ``--output-dir`` or ``--use-cache`` must be provided."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(["-c", cfg, "-m", "microsoft/resnet-50"])
+        assert result.exit_code != 0
+        assert "required" in result.output.lower()
+
+    def test_output_dir_and_use_cache_mutually_exclusive(self, tmp_path: Path):
+        """``--output-dir`` and ``--use-cache`` are mutually exclusive."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(
+            [
+                "-c",
+                cfg,
+                "-m",
+                "microsoft/resnet-50",
+                "-o",
+                str(tmp_path / "out"),
+                "--use-cache",
+            ]
+        )
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output.lower()
+
+    def test_invalid_json_config(self, tmp_path: Path):
+        """Malformed JSON config surfaces ``Invalid JSON in config:``."""
+        bad = tmp_path / "bad.json"
+        bad.write_text("{ not valid }")
+        result = _invoke(["-c", str(bad), "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "Invalid JSON" in result.output
+
+    def test_empty_config_file(self, tmp_path: Path):
+        """An empty config file is rejected with a clear message."""
+        empty = tmp_path / "empty.json"
+        empty.write_text("")
+        result = _invoke(["-c", str(empty), "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "empty" in result.output.lower()
+
+    def test_config_must_be_object_or_array(self, tmp_path: Path):
+        """A JSON scalar config (e.g. a string) is rejected."""
+        scalar = tmp_path / "scalar.json"
+        scalar.write_text('"not an object"')
+        result = _invoke(["-c", str(scalar), "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "object" in result.output.lower() or "array" in result.output.lower()
+
+    def test_compile_flag_without_compile_section(self, tmp_path: Path):
+        """``--compile`` on a config without a compile section is a UsageError."""
+        cfg = _make_minimal_config_file(tmp_path, compile_section=None)
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--compile"])
+        assert result.exit_code != 0
+        assert "compile" in result.output.lower()
+
+    def test_use_cache_requires_loader_task(self, tmp_path: Path):
+        """``--use-cache`` without a ``loader.task`` in config errors out."""
+        cfg_path = tmp_path / "no_task.json"
+        cfg_path.write_text(
+            json.dumps(
+                {
+                    "loader": {},
+                    "export": {"opset_version": 17, "batch_size": 1},
+                    "optim": {},
+                    "quant": None,
+                    "compile": None,
+                }
+            )
+        )
+        result = _invoke(["-c", str(cfg_path), "-m", "microsoft/resnet-50", "--use-cache"])
+        assert result.exit_code != 0
+        assert "loader.task" in result.output
+
+    def test_module_mode_rejects_use_cache(self, tmp_path: Path):
+        """``--use-cache`` on an array config hits the module-mode-specific error."""
+        arr_path = tmp_path / "modules.json"
+        arr_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "loader": {
+                            "task": "image-classification",
+                            "model_type": "resnet",
+                            "module_path": "layer1",
+                        },
+                        "export": {"opset_version": 17, "batch_size": 1},
+                        "optim": {},
+                        "quant": None,
+                        "compile": None,
+                    }
+                ]
+            )
+        )
+        result = _invoke(["-c", str(arr_path), "--use-cache"])
+        assert result.exit_code != 0
+        assert (
+            "--use-cache is not supported for module mode (array config). "
+            "Use --output-dir instead." in result.output
+        )
+
+    def test_module_array_non_object_entry(self, tmp_path: Path):
+        """Module config entries must be JSON objects."""
+        arr_path = tmp_path / "bad_modules.json"
+        arr_path.write_text(json.dumps([{"loader": {"task": "x"}}, "not-an-object"]))
+        result = _invoke(["-c", str(arr_path), "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "object" in result.output.lower()
+
+    def test_help_lists_all_options(self):
+        """``--help`` must surface every behavior-bearing option."""
+        result = _invoke(["--help"])
+        assert result.exit_code == 0
+        for flag in [
+            "--config",
+            "-c",
+            "--model",
+            "-m",
+            "--output-dir",
+            "-o",
+            "--use-cache",
+            "--rebuild",
+            "--no-quant",
+            "--no-compile",
+            "--compile",
+            "--ep",
+            "--device",
+            "--no-analyze",
+            "--no-optimize",
+            "--max-optim-iterations",
+            "--trust-remote-code",
+            "--verbose",
+        ]:
+            assert flag in result.output, f"Help text missing flag: {flag}"
+
+
+class TestBuildFlagPassthrough:
+    """Each behavior-bearing flag must propagate to ``_run_single_build``."""
+
+    def _base_args(self, cfg: str, tmp_path: Path) -> list[str]:
+        return ["-c", cfg, "-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")]
+
+    def test_defaults_no_flags(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """With no optional flags, defaults are forwarded as-is."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(self._base_args(cfg, tmp_path))
+        assert result.exit_code == 0, result.output
+        kwargs = mock_run_single_build.call_args.kwargs
+        assert kwargs["rebuild"] is False
+        assert kwargs["model_id"] == "microsoft/resnet-50"
+        assert kwargs["extra_kwargs"] == {} or "trust_remote_code" not in kwargs["extra_kwargs"]
+
+    def test_rebuild_flag(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--rebuild`` sets ``rebuild=True``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--rebuild"])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["rebuild"] is True
+
+    def test_no_quant_clears_quant(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--no-quant`` zeroes ``config.quant`` before dispatching."""
+        cfg_path = tmp_path / "with_quant.json"
+        cfg_path.write_text(
+            json.dumps(
+                {
+                    "loader": {"task": "image-classification"},
+                    "export": {"opset_version": 17, "batch_size": 1},
+                    "optim": {},
+                    "quant": {
+                        "mode": "qdq",
+                        "samples": 10,
+                        "task": "image-classification",
+                        "model_name": "test",
+                    },
+                    "compile": None,
+                }
+            )
+        )
+        result = _invoke(
+            ["-c", str(cfg_path), "-m", "x", "-o", str(tmp_path / "out"), "--no-quant"]
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].quant is None
+
+    def test_no_compile_clears_compile(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--no-compile`` zeroes ``config.compile``."""
+        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--no-compile"])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].compile is None
+
+    def test_compile_preserves_compile(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--compile`` keeps the compile section from the config file."""
+        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out"), "--compile"])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].compile is not None
+
+    def test_compile_absent_inherits_from_config(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """Without ``--compile`` / ``--no-compile``, config compile is preserved."""
+        cfg = _make_minimal_config_file(tmp_path, compile_section={"execution_provider": "qnn"})
+        result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["config"].compile is not None
+
+    def test_no_optimize_sets_extra_kwarg(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--no-optimize`` sets ``extra_kwargs['skip_optimize']``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--no-optimize"])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["extra_kwargs"].get("skip_optimize") is True
+
+    def test_no_analyze_zeros_max_iterations(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``--no-analyze`` forces ``hack_max_optim_iterations=0``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--no-analyze"])
+        assert result.exit_code == 0, result.output
+        extras = mock_run_single_build.call_args.kwargs["extra_kwargs"]
+        assert extras.get("hack_max_optim_iterations") == 0
+
+    def test_max_optim_iterations_explicit(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--max-optim-iterations N`` forwards N as ``hack_max_optim_iterations``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--max-optim-iterations", "5"])
+        assert result.exit_code == 0, result.output
+        assert (
+            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("hack_max_optim_iterations")
+            == 5
+        )
+
+    def test_no_analyze_wins_over_max_iterations(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``--no-analyze`` takes precedence over ``--max-optim-iterations``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(
+            [
+                *self._base_args(cfg, tmp_path),
+                "--no-analyze",
+                "--max-optim-iterations",
+                "7",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert (
+            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("hack_max_optim_iterations")
+            == 0
+        )
+
+    def test_ep_flag_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--ep`` value reaches ``_run_single_build`` verbatim."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--ep", "qnn"])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["ep"] == "qnn"
+
+    def test_device_flag_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--device`` value reaches ``_run_single_build`` verbatim."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--device", "NPU"])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["device"] == "npu"
+
+    def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "--trust-remote-code"])
+        assert result.exit_code == 0, result.output
+        assert (
+            mock_run_single_build.call_args.kwargs["extra_kwargs"].get("trust_remote_code") is True
+        )
+
+    def test_verbose_flag_accepted(self, tmp_path: Path, mock_run_single_build: MagicMock):
+        """``-v/--verbose`` is parsed and does not affect dispatch."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke([*self._base_args(cfg, tmp_path), "-v"])
+        assert result.exit_code == 0, result.output
+
+    def test_debug_inherited_from_parent_ctx(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """``ctx.obj['debug']`` from the parent CLI bumps verbosity."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(self._base_args(cfg, tmp_path), debug=True)
+        assert result.exit_code == 0, result.output
+
+    def test_model_omitted_means_random_weights(
+        self, tmp_path: Path, mock_run_single_build: MagicMock
+    ):
+        """Omitting ``-m`` selects the random-weight build path."""
+        cfg = _make_minimal_config_file(tmp_path)
+        result = _invoke(["-c", cfg, "-o", str(tmp_path / "out")])
+        assert result.exit_code == 0, result.output
+        assert mock_run_single_build.call_args.kwargs["model_id"] is None
+
+
+class TestBuildErrorHandling:
+    """Pipeline errors must surface with a hint and a non-zero exit code."""
+
+    def test_value_error_becomes_usage_error(self, tmp_path: Path):
+        """``ValueError`` from the pipeline becomes a UsageError."""
+        cfg = _make_minimal_config_file(tmp_path)
+        with patch(
+            "winml.modelkit.commands.build._run_single_build",
+            side_effect=ValueError("bad config"),
+        ):
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "bad config" in result.output
+
+    def test_generic_failure_is_reported(self, tmp_path: Path):
+        """Unhandled exceptions surface as ``Build failed:`` without traceback."""
+        cfg = _make_minimal_config_file(tmp_path)
+        with patch(
+            "winml.modelkit.commands.build._run_single_build",
+            side_effect=RuntimeError("ONNX export failed"),
+        ):
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "Build failed" in result.output
+
+    def test_quant_failure_hint(self, tmp_path: Path):
+        """Errors mentioning Quantization include the ``--no-quant`` hint."""
+        cfg = _make_minimal_config_file(tmp_path)
+        with patch(
+            "winml.modelkit.commands.build._run_single_build",
+            side_effect=RuntimeError("Quantization failed: calibration"),
+        ):
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "--no-quant" in result.output
+
+    def test_compile_failure_hint(self, tmp_path: Path):
+        """Errors mentioning Compilation include the ``--no-compile`` hint."""
+        cfg = _make_minimal_config_file(tmp_path)
+        with patch(
+            "winml.modelkit.commands.build._run_single_build",
+            side_effect=RuntimeError("Compilation failed: missing EP"),
+        ):
+            result = _invoke(["-c", cfg, "-m", "x", "-o", str(tmp_path / "out")])
+        assert result.exit_code != 0
+        assert "--no-compile" in result.output
 
 
 # =============================================================================
@@ -524,7 +944,195 @@ class TestBuildEpDevice:
             obj={"debug": False},
         )
         call_kwargs = mock_build_api.call_args.kwargs
-        assert call_kwargs["device"] == "NPU"
+        assert call_kwargs["device"] == "npu"
+
+
+# =============================================================================
+# EP AUTO-SELECTION TESTS
+# =============================================================================
+
+
+class TestBuildEpAutoSelection:
+    """Auto-select EP when --ep is omitted: resolve device -> first compatible EP.
+
+    The selection result depends on the host's available devices/EPs at runtime,
+    so resolve_device / resolve_eps are mocked to give the test a known surface.
+    Regression: hardcoded ``[QNN, OV, VitisAI]`` walk used to pick OpenVINO on a
+    GPU box if OV happened to be installed, leaving black nodes that blocked a
+    subsequent build for the actual device (issue #663).
+    """
+
+    def test_auto_selects_qnn_for_npu(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Default device=auto resolves to npu (per fixture) -> QNNExecutionProvider."""
+        from winml.modelkit.commands.build import build
+
+        result = runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path)],
+            obj={"debug": False},
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "QNNExecutionProvider"
+
+    def test_auto_selects_dml_for_explicit_gpu(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``--device gpu`` (no --ep) -> resolve_device returns gpu -> Dml."""
+        from winml.modelkit.commands.build import build
+
+        with patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("gpu", ["gpu", "cpu"]),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    "test",
+                    "-o",
+                    str(tmp_path),
+                    "--device",
+                    "gpu",
+                ],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "DmlExecutionProvider"
+
+    def test_auto_selects_cpu_ep_for_explicit_cpu(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``--device cpu`` (no --ep) -> CPUExecutionProvider."""
+        from winml.modelkit.commands.build import build
+
+        with patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("cpu", ["cpu"]),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    "test",
+                    "-o",
+                    str(tmp_path),
+                    "--device",
+                    "cpu",
+                ],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "CPUExecutionProvider"
+
+    def test_explicit_ep_bypasses_auto_selection(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``--ep qnn`` keeps the user's choice even when device resolution would pick another."""
+        from winml.modelkit.commands.build import build
+
+        # resolve_device would point at gpu -> Dml, but --ep wins.
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("gpu", ["gpu", "cpu"]),
+            ),
+            patch("winml.modelkit.sysinfo.resolve_eps") as mock_resolve_eps,
+        ):
+            result = runner.invoke(
+                build,
+                ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path), "--ep", "qnn"],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "qnn"
+        mock_resolve_eps.assert_not_called()
+
+    def test_resolve_device_value_error_surfaces_as_usage_error(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
+
+        Uses default ``--device auto`` (no CLI flag) so the downstream
+        device-patch path isn't triggered; the only resolve_device call is
+        the one inside the auto-select block.
+        """
+        from winml.modelkit.commands.build import build
+
+        with patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            side_effect=ValueError("simulated resolve_device failure"),
+        ):
+            result = runner.invoke(
+                build,
+                ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path)],
+                obj={"debug": False},
+            )
+        assert result.exit_code != 0
+        assert "simulated resolve_device failure" in result.output
+        mock_build_api.assert_not_called()
+
+    def test_auto_selection_respects_resolve_eps_priority(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """First element of resolve_eps(resolved_device) is selected, not later ones."""
+        from winml.modelkit.commands.build import build
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("gpu", ["gpu", "cpu"]),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.resolve_eps",
+                return_value=["DmlExecutionProvider", "OpenVINOExecutionProvider"],
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    "test",
+                    "-o",
+                    str(tmp_path),
+                    "--device",
+                    "gpu",
+                ],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "DmlExecutionProvider"
 
 
 # =============================================================================

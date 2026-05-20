@@ -92,7 +92,7 @@ class TestCompileConfig:
         """Test NvTensorRTRTX factory method."""
         config = WinMLCompileConfig.for_nv_tensorrt_rtx()
         assert config.ep_config.provider == "nv_tensorrt_rtx"
-        assert config.ep_config.enable_ep_context is False
+        assert config.ep_config.enable_ep_context is True
 
     def test_for_openvino(self):
         """Test OpenVINO factory method."""
@@ -104,7 +104,7 @@ class TestCompileConfig:
         """Test Vitis AI factory method."""
         config = WinMLCompileConfig.for_vitisai()
         assert config.ep_config.provider == "vitisai"
-        assert config.ep_config.enable_ep_context is False
+        assert config.ep_config.enable_ep_context is True
 
     def test_for_migraphx(self):
         """Test MIGraphX factory method."""
@@ -202,16 +202,15 @@ class TestForProvider:
             # EPs that produce EPContext → compile config returned
             ("qnn", "qnn"),
             ("openvino", "openvino"),
+            ("vitisai", "vitisai"),
+            ("nv_tensorrt_rtx", "nv_tensorrt_rtx"),
             # EPs with enable_ep_context=False → no offline compile step → None
             ("dml", None),
             ("cpu", None),
             ("cuda", None),
-            ("nv_tensorrt_rtx", None),
-            ("vitisai", None),
             ("migraphx", None),
-            # Unknown/custom EPs use the generic fallback (enable_ep_context=False
-            # in the fallback does NOT apply the None rule — only known factories do)
-            ("custom_ep", "custom_ep"),
+            # Unknown/custom EPs: no EPContext support → None (same as known non-EPContext EPs)
+            ("custom_ep", None),
         ],
     )
     def test_for_provider(
@@ -229,7 +228,7 @@ class TestForProvider:
 
     @pytest.mark.parametrize(
         "factory_name",
-        ["for_dml", "for_cpu", "for_cuda", "for_vitisai", "for_migraphx", "for_nv_tensorrt_rtx"],
+        ["for_dml", "for_cpu", "for_cuda", "for_migraphx"],
     )
     def test_direct_factory_still_works(self, factory_name: str) -> None:
         """Low-level for_* factories are still callable directly even though
@@ -238,8 +237,7 @@ class TestForProvider:
         assert config is not None
         assert config.ep_config.enable_ep_context is False
 
-    def test_for_provider_custom_ep_no_context(self):
-        """Custom EP fallback disables EP context."""
+    def test_for_provider_custom_ep_returns_none(self):
+        """Unknown/custom EPs return None — no EPContext support assumed."""
         result = WinMLCompileConfig.for_provider("custom_ep")
-        assert result is not None
-        assert result.ep_config.enable_ep_context is False
+        assert result is None

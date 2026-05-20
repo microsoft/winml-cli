@@ -95,7 +95,12 @@ class TestCER:
 
 
 class TestCIDEr:
-    """Sanity checks for the pycocoevalcap-backed CIDEr metric."""
+    """Numerical sanity checks for the in-house CIDEr metric.
+
+    Expected values are pinned to the established reference implementation
+    output for fixed, small corpora. ``_round()`` in the production code
+    rounds to 4 decimal places, so we assert with ``abs=1e-4``.
+    """
 
     def test_cider_perfect_match_positive(self) -> None:
         # With identical pred==ref across multiple samples, CIDEr is positive.
@@ -114,6 +119,55 @@ class TestCIDEr:
         m.update("foo bar baz", ["a dog in the park"])
         cider = m.compute()["cider"]
         assert cider == pytest.approx(0.0, abs=1e-4)
+
+    def test_cider_exact_match_corpus_value(self) -> None:
+        # Two-sample corpus, candidate == reference for every sample.
+        # CIDEr is scaled by 10, so a perfect match yields 10.0.
+        m = TextSimilarityMetric()
+        m.update("a cat on a rock", ["a cat on a rock"])
+        m.update("the dog in the park", ["the dog in the park"])
+        assert m.compute()["cider"] == pytest.approx(10.0, abs=1e-4)
+
+    def test_cider_one_token_off_value(self) -> None:
+        # First sample swaps a single token; second is an exact match.
+        m = TextSimilarityMetric()
+        m.update("a cat on a rock", ["a cat on a stone"])
+        m.update("the dog in the park", ["the dog in the park"])
+        assert m.compute()["cider"] == pytest.approx(8.4673, abs=1e-4)
+
+    def test_cider_multi_reference_value(self) -> None:
+        # Two references per sample; candidate matches the first reference
+        # exactly in each case.
+        m = TextSimilarityMetric()
+        m.update(
+            "a small cat sat on a rock",
+            ["a small cat sat on a rock", "a tiny cat sitting on a stone"],
+        )
+        m.update(
+            "the brown dog runs in the green park",
+            [
+                "the brown dog runs in the green park",
+                "a brown dog is running in a park",
+            ],
+        )
+        assert m.compute()["cider"] == pytest.approx(5.7662, abs=1e-4)
+
+    def test_cider_three_samples_partial_overlap_value(self) -> None:
+        # Mixed regime: one exact match, two partial overlaps.
+        m = TextSimilarityMetric()
+        m.update(
+            "a man riding a bicycle on a street",
+            ["a man riding a bicycle on a street"],
+        )
+        m.update(
+            "a woman walking with an umbrella in the rain",
+            ["a woman holding an umbrella walking in the rain"],
+        )
+        m.update(
+            "a child playing with a red ball",
+            ["a child playing with a yellow ball"],
+        )
+        assert m.compute()["cider"] == pytest.approx(6.7371, abs=1e-4)
 
 
 class TestComputeShape:

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     import onnx
 
+    from ...utils.constants import EPName
     from ..models.information import Action, Information
     from ..models.onnx_model import ONNXModel
     from ..models.runtime_checks import PatternRuntime
@@ -67,7 +68,7 @@ class InformationEngine:
         self,
         op_runtime_results: list[PatternRuntime],
         subgraph_runtime_results: list[PatternRuntime],
-        ep: str,
+        ep: EPName,
         model: ONNXModel,
         device: str,
         rules_dir: Path | None = None,
@@ -107,7 +108,7 @@ class InformationEngine:
 
         self._op_runtime_results = op_runtime_results
         self._subgraph_runtime_results = subgraph_runtime_results
-        self._ep = ep
+        self._ep: EPName = ep
         self._model = model
         self._device = device
 
@@ -120,10 +121,10 @@ class InformationEngine:
         # Infer IHV from EP name for per-IHV rule loading
         infer_ihv_start = time.perf_counter()
         try:
-            ihv_type = infer_ihv_from_ep_name(ep)
-            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, ep)
+            ihv_type = infer_ihv_from_ep_name(self._ep)
+            logger.info("Inferred IHV type %s from EP %s", ihv_type.value, self._ep)
         except ValueError as e:
-            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", ep, e)
+            logger.warning("Could not infer IHV from EP %s: %s. Loading all rules.", self._ep, e)
             ihv_type = None
         infer_ihv_ms = int((time.perf_counter() - infer_ihv_start) * 1000)
 
@@ -153,7 +154,11 @@ class InformationEngine:
 
             init_doc_checker_start = time.perf_counter()
             self._doc_checker = DocConstraintChecker(
-                model_proto, ep, self._device, skip_shape_inference=skip_inference
+                model_proto,
+                self._ep,
+                self._device,
+                skip_shape_inference=skip_inference,
+                node_key_by_node_id=self._model.get_node_key_map(),
             )
             init_doc_checker_ms = int((time.perf_counter() - init_doc_checker_start) * 1000)
             doc_checker_initialized = True
@@ -603,33 +608,30 @@ class InformationEngine:
                 logger.debug("No matched_node_names found in pattern_match for %s", pattern_id)
                 return None
 
-            # Get the first matched node name (for single-op patterns)
+            # Get the first matched stable node key (for single-op patterns)
             onnx_op = pattern_match.matched_node_names[0]
-            node_name = onnx_op.node_name
+            node_key = onnx_op.node_name
             logger.debug(
-                "Extracted node name for %s: %s (op_type=%s)",
+                "Extracted node key for %s: %s (op_type=%s)",
                 pattern_id,
-                node_name,
+                node_key,
                 onnx_op.op_type,
             )
 
-            # Find the actual ONNX NodeProto from model
+            # Resolve ONNX NodeProto from stable sidecar key
             node_lookup_start = time.perf_counter()
-            model_proto = self._model.get_model()
-            node = None
-            for graph_node in model_proto.graph.node:
-                if graph_node.name == node_name:
-                    node = graph_node
-                    break
+            node = self._model.get_node_by_key(node_key)
+            if node is None:
+                node = self._model.get_node_by_name(node_key)
             node_lookup_ms = int((time.perf_counter() - node_lookup_start) * 1000)
 
             if node is None:
-                logger.debug("Could not find node %s in model graph", node_name)
+                logger.debug("Could not find node %s in model graph", node_key)
                 _log_timing(
                     "information_engine.doc_constraints",
                     ep=self._ep,
                     pattern_id=pattern_id,
-                    node=node_name,
+                    node=node_key,
                     found_node=False,
                     node_lookup_ms=node_lookup_ms,
                     total_ms=int((time.perf_counter() - total_start) * 1000),
@@ -665,7 +667,7 @@ class InformationEngine:
                             "information_engine.doc_constraints.slow_query",
                             ep=self._ep,
                             pattern_id=pattern_id,
-                            node=node_name,
+                            node=node_key,
                             node_lookup_ms=node_lookup_ms,
                             checker_ms=checker_ms,
                             total_ms=total_ms,
@@ -682,7 +684,7 @@ class InformationEngine:
                     "information_engine.doc_constraints.slow_query",
                     ep=self._ep,
                     pattern_id=pattern_id,
-                    node=node_name,
+                    node=node_key,
                     node_lookup_ms=node_lookup_ms,
                     checker_ms=checker_ms,
                     total_ms=total_ms,

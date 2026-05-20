@@ -29,6 +29,7 @@ from .hf import BuildResult
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def build_onnx_model(
     config: WinMLBuildConfig,
     output_dir: Path | str,
     rebuild: bool = False,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     **kwargs: Any,
 ) -> BuildResult:
@@ -105,6 +106,7 @@ def build_onnx_model(
     final_path = output_dir / "model.onnx"
     config_path = output_dir / "winml_build_config.json"
     manifest_path = output_dir / "build_manifest.json"
+    analyze_result_path = output_dir / "analyze_result.json"
 
     # Check for existing artifact (skip build if present and not rebuilding)
     if final_path.exists() and not rebuild:
@@ -176,6 +178,7 @@ def build_onnx_model(
                 ep=ep,
                 device=device,
                 max_optim_iterations=hack_max_optim_iterations,
+                analyze_output_path=analyze_result_path,
                 **onnx_kwargs,
             )
         )

@@ -55,25 +55,34 @@ class TestInferIHVFromEPName:
         assert infer_ihv_from_ep_name("vitisaiexecutionprovider") == IHVType.AMD
         assert infer_ihv_from_ep_name("nvtensorrtxexecutionprovider") == IHVType.NVIDIA
 
-    def test_unknown_ep_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("TotallyFakeEP")
+    def test_unknown_ep_resolves_to_microsoft(self) -> None:
+        from winml.modelkit.analyze.models.ihv_type import IHVType
 
-    def test_cpu_ep_raises(self) -> None:
-        """CPUExecutionProvider has no IHV — should raise."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("CPUExecutionProvider")
+        assert infer_ihv_from_ep_name("TotallyFakeEP") == IHVType.MICROSOFT
 
-    def test_dml_ep_raises(self) -> None:
-        """DmlExecutionProvider is Microsoft, not an IHV — should raise."""
-        with pytest.raises(ValueError, match="Unknown execution provider"):
-            infer_ihv_from_ep_name("DmlExecutionProvider")
+    def test_cpu_ep_resolves_to_microsoft(self) -> None:
+        """CPUExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("CPUExecutionProvider") == IHVType.MICROSOFT
+
+    def test_dml_ep_resolves_to_microsoft(self) -> None:
+        """DmlExecutionProvider is a Microsoft EP — should resolve to MICROSOFT."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("DmlExecutionProvider") == IHVType.MICROSOFT
 
     def test_nvidia_ep_maps_to_nvidia(self) -> None:
         """NvTensorRTRTXExecutionProvider should map to IHVType.NVIDIA."""
         from winml.modelkit.analyze.models.ihv_type import IHVType
 
         assert infer_ihv_from_ep_name("NvTensorRTRTXExecutionProvider") == IHVType.NVIDIA
+
+    def test_trtrtx_ep_maps_to_nvidia(self) -> None:
+        """TrtRTXExecutionProvider should map to IHVType.NVIDIA."""
+        from winml.modelkit.analyze.models.ihv_type import IHVType
+
+        assert infer_ihv_from_ep_name("TrtRTXExecutionProvider") == IHVType.NVIDIA
 
 
 class TestHasRuleDataForEP:
@@ -169,7 +178,11 @@ class TestGetDevicesWithRuleData:
             assert get_devices_with_rule_data("CPUExecutionProvider") == ["CPU"]
 
     def test_falls_back_to_ep_device_map_multi_device(self, tmp_path: Path) -> None:
-        """OpenVINO supports npu/gpu/cpu — fallback should return all three."""
+        """OpenVINO supports npu/gpu/cpu — fallback should return all three.
+
+        Order matches ``EP_SUPPORTED_DEVICES["OpenVINOExecutionProvider"]``:
+        NPU first (the canonical default for OpenVINO), then GPU, then CPU.
+        """
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(_PATCH_TARGET, lambda: [tmp_path])
             assert get_devices_with_rule_data("OpenVINOExecutionProvider") == [

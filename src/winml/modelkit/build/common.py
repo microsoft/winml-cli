@@ -23,6 +23,7 @@ from ..optim import optimize_onnx
 
 if TYPE_CHECKING:
     from ..config import WinMLBuildConfig
+    from ..utils.constants import EPNameOrAlias
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def run_optimize_analyze_loop(
     optimized_path: Path,
     config: WinMLBuildConfig,
     *,
-    ep: str | None = None,
+    ep: EPNameOrAlias | None = None,
     device: str | None = None,
     max_optim_iterations: int = 0,
     on_ep_start: Any = None,
@@ -40,6 +41,7 @@ def run_optimize_analyze_loop(
     on_iteration_start: Any = None,
     on_patterns_discovered: Any = None,
     on_reoptimize: Any = None,
+    analyze_output_path: Path | None = None,
     **onnx_kwargs: Any,
 ) -> tuple[Path, float, int, int, dict]:
     """Optimize an ONNX model, analyze, and optionally re-optimize via autoconf.
@@ -60,6 +62,9 @@ def run_optimize_analyze_loop(
         device: Target device for the analyzer.
         max_optim_iterations: Maximum autoconf re-optimization rounds.
             0 means optimize+analyze only (no autoconf re-optimization).
+        analyze_output_path: Optional path to write the full analysis result as
+            JSON. Written after every analyze pass; each pass overwrites the
+            previous one so the file always reflects the most recent analysis.
         **onnx_kwargs: Additional ONNX-level kwargs.
 
     Returns:
@@ -96,6 +101,7 @@ def run_optimize_analyze_loop(
             on_iteration_start=on_iteration_start,
             on_patterns_discovered=on_patterns_discovered,
             on_reoptimize=on_reoptimize,
+            analyze_output_path=analyze_output_path,
             **onnx_kwargs,
         )
     else:
@@ -109,7 +115,7 @@ def run_optimize_analyze_loop(
 def _run_analyze_loop(
     *,
     optimized_path: Path,
-    ep: str | None,
+    ep: EPNameOrAlias | None,
     device: str | None,
     max_optim_iterations: int,
     config: WinMLBuildConfig,
@@ -118,6 +124,7 @@ def _run_analyze_loop(
     on_iteration_start: Any = None,
     on_patterns_discovered: Any = None,
     on_reoptimize: Any = None,
+    analyze_output_path: Path | None = None,
     **kwargs: Any,
 ) -> tuple[int, int, dict]:
     """Run iterative analyzer autoconf loop in a temp folder.
@@ -151,6 +158,7 @@ def _run_analyze_loop(
                 run_unknown_op=False,
                 on_ep_start=on_ep_start,
                 on_node_result=on_node_result,
+                output_path=analyze_output_path,
             )
             analyze_iterations += 1
 
@@ -196,6 +204,7 @@ def _run_analyze_loop(
             device=device,
             run_unknown_op=False,
             on_node_result=lambda _: None,
+            output_path=analyze_output_path,
         )
 
         copy_onnx_model(iter_model, optimized_path)
