@@ -5,7 +5,7 @@
 """QAIRT SDK compilation script - executed in isolated venv-winml subprocess.
 
 This script is invoked by qnn_compiler._compile_qairt() and runs in a separate
-Python 3.10 virtual environment with QAIRT SDK dependencies installed.
+Python 3.11 virtual environment with QAIRT SDK dependencies installed.
 
 Errors are written to stderr. Return code 0 indicates success.
 """
