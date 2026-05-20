@@ -285,14 +285,21 @@ def _inspect_model_v2(
             model_class=model_class_override,
         )
     except RepositoryNotFoundError as e:
-        raise ModelNotFoundError(f"Model '{model_id}' not found on Hugging Face Hub.") from e
+        # Direct HF Hub 404 — keep full message (includes private-repo hint).
+        raise ModelNotFoundError(str(e)) from e
     except ValueError as e:
         err_str = str(e).lower()
         if "not found" in err_str or "404" in err_str:
             raise ModelNotFoundError(str(e)) from e
         raise InspectError(str(e)) from e
     except OSError as e:
-        raise NetworkError(str(e)) from e
+        # transformers wraps RepositoryNotFoundError as a plain OSError with a
+        # recognizable message.  Detect that pattern so users see "Model not found"
+        # (with the original hint text) rather than the misleading "Network error".
+        err_msg = str(e)
+        if "is not a valid model identifier" in err_msg or "is not a local folder" in err_msg:
+            raise ModelNotFoundError(err_msg) from e
+        raise NetworkError(err_msg) from e
 
     if parent_hf_config is None:
         parent_hf_config = hf_config

@@ -289,7 +289,31 @@ class TestInspectErrors:
         assert "Network error" not in result.output
 
     def test_bogus_hf_id_shows_model_not_found(self, runner: CliRunner) -> None:
-        """RepositoryNotFoundError from HF Hub maps to 'Model not found', not 'Network error'."""
+        """transformers wraps HF Hub 404 as a plain OSError; must show 'Model not found'."""
+        from winml.modelkit.commands.inspect import inspect
+
+        # Reproduce what AutoConfig.from_pretrained actually raises for a missing repo:
+        # transformers catches RepositoryNotFoundError internally and re-raises as OSError.
+        hf_oserror = OSError(
+            "totally-bogus/does-not-exist is not a local folder and is not a valid model "
+            "identifier listed on 'https://huggingface.co/models'\n"
+            "If this is a private repository, make sure to pass a token having permission "
+            "to this repo either by logging in with `hf auth login` or by passing "
+            "`token=<your_token>`"
+        )
+        with patch(
+            "transformers.AutoConfig.from_pretrained",
+            side_effect=hf_oserror,
+        ):
+            result = runner.invoke(inspect, ["-m", "totally-bogus/does-not-exist"], obj={})
+            assert result.exit_code != 0
+            assert "Model not found" in result.output
+            assert "Network error" not in result.output
+            # Private-repo hint must be preserved in the error output.
+            assert "private repository" in result.output
+
+    def test_bogus_hf_id_repository_not_found_error(self, runner: CliRunner) -> None:
+        """RepositoryNotFoundError surfaced directly also maps to 'Model not found'."""
         from huggingface_hub.utils import RepositoryNotFoundError
 
         from winml.modelkit.commands.inspect import inspect
