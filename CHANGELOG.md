@@ -81,6 +81,3 @@ Related PRs: #411 (Parquet migration), #600 (rules zip in release), #627 (versio
 
 - `winml_cli-0.0.3-py3-none-any.whl`
 - `rules-v0.0.3.zip`
-
-[0.0.4]: https://github.com/microsoft/winml-cli/releases/tag/v0.0.4
-[0.0.3]: https://github.com/microsoft/winml-cli/releases/tag/v0.0.3
