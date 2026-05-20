@@ -10,6 +10,8 @@ HTPExporter correctly uses WinMLExportConfig for I/O specs.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import onnx
 import pytest
 import torch
@@ -21,6 +23,20 @@ from winml.modelkit.export import (
     WinMLExportConfig,
     export_pytorch,
 )
+
+
+def _all_value_info_have_shape(model: onnx.ModelProto) -> bool:
+    """Every intermediate (value_info) tensor has a concrete or symbolic shape."""
+    if not model.graph.value_info:
+        return False
+    for vi in model.graph.value_info:
+        shape = vi.type.tensor_type.shape
+        if not shape.dim:
+            return False
+        for dim in shape.dim:
+            if not dim.HasField("dim_value") and not dim.HasField("dim_param"):
+                return False
+    return True
 
 
 # =============================================================================
@@ -267,6 +283,53 @@ class TestExportPytorch:
             # Embedding requires int64, but we generate int32
             # This is expected — the test verifies the flow works up to export
             pass
+
+    def test_normalization_succeeds_and_shape_inferences(self, tmp_path) -> None:
+        """After export, status reports succeeded and value_info is fully shaped."""
+        model = TwoLayerNet()
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
+        )
+        result = export_pytorch(model, tmp_path / "model.onnx", config)
+
+        assert result["model_normalization_status"] == "succeeded"
+
+        onnx_model = onnx.load(str(tmp_path / "model.onnx"))
+        assert _all_value_info_have_shape(onnx_model)
+
+    def test_failed_normalization_skips_shape_inference(self, tmp_path) -> None:
+        """When normalization is mocked to return False, status is failed."""
+        model = TwoLayerNet()
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
+        )
+        with patch(
+            "winml.modelkit.export.pytorch._normalize_exported_model",
+            return_value=False,
+        ):
+            result = export_pytorch(model, tmp_path / "model.onnx", config)
+
+        assert result["model_normalization_status"] == "failed"
+
+        onnx_model = onnx.load(str(tmp_path / "model.onnx"))
+        assert not _all_value_info_have_shape(onnx_model)
+
+    def test_normalize_false_skips_normalization(self, tmp_path) -> None:
+        """When normalize=False, the helper isn't called and status is not_run."""
+        model = TwoLayerNet()
+        config = WinMLExportConfig(
+            input_tensors=[InputTensorSpec(name="x", dtype="float32", shape=(1, 10))],
+        )
+        with patch(
+            "winml.modelkit.export.pytorch._normalize_exported_model",
+        ) as mock_normalize:
+            result = export_pytorch(model, tmp_path / "model.onnx", config, normalize=False)
+
+        mock_normalize.assert_not_called()
+        assert result["model_normalization_status"] == "not_run"
+
+        onnx_model = onnx.load(str(tmp_path / "model.onnx"))
+        assert not _all_value_info_have_shape(onnx_model)
 
     def test_mismatched_input_order_exports_successfully(self, tmp_path) -> None:
         """Export succeeds when InputTensorSpec order differs from forward() param order.
