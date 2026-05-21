@@ -133,19 +133,21 @@ extends:
             script: |
               Get-ChildItem -Path "$(Build.SourcesDirectory)/pyPackage" -Recurse
 
-        - task: EsrpRelease@11
+        - task: EsrpRelease@12
           displayName: 'Publish to PyPI via ESRP Release'
           inputs:
-            ConnectedServiceName: 'ModelKit ESRP ADO Service Connection'
-            ClientId: 'e80da4f8-3154-4198-9ad6-8f8988263b02'
-            DomainTenantId: '975f013f-7f24-47e8-a7d3-abc4752bf346' # PME tenant
+            connectedservicename: 'ModelKit ESRP ADO Service Connection'
             usemanagedidentity: true
-            KeyVaultName: 'ModelKit-KeyVault'
-            SignCertName: 'modelkit-tss-sign'
+            keyvaultname: 'ModelKit-KeyVault'
+            signcertname: 'modelkit-tss-sign'
+            clientid: 'e80da4f8-3154-4198-9ad6-8f8988263b02'
             intent: 'PackageDistribution'
-            ContentType: 'NPM'
-            FolderLocation: '$(Build.SourcesDirectory)/pyPackage'
-            WaitForReleaseCompletion: true
-            Owners: 'zhiwang@microsoft.com'
-            Approvers: 'zhiwang@microsoft.com'
-            Mainpublisher: ' ESRPRELPACMAN'
+            contenttype: 'npm'
+            contentsource: 'Folder'
+            folderlocation: '$(Build.SourcesDirectory)/pyPackage'
+            waitforreleasecompletion: true
+            owners: 'zhiwang@microsoft.com'
+            approvers: 'zhiwang@microsoft.com'
+            serviceendpointurl: 'https://api.esrp.microsoft.com'
+            mainpublisher: 'ESRPRELPACMAN'
+            domaintenantid: '975f013f-7f24-47e8-a7d3-abc4752bf346'
