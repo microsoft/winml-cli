@@ -28,14 +28,12 @@ EPName = Literal[
 EPAlias = Literal[
     "qnn",
     "openvino",
-    "ov",
     "vitisai",
-    "vitis",
     "cpu",
     "cuda",
     "dml",
+    "nvtensorrtrtx",
     "nv_tensorrt_rtx",
-    "trtrtx",
     "migraphx",
 ]
 
@@ -53,14 +51,12 @@ SUPPORTED_EPS: list[EPName] = list(get_args(EPName))
 EP_ALIASES: dict[EPAlias, EPName] = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
-    "ov": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
-    "vitis": "VitisAIExecutionProvider",
     "cpu": "CPUExecutionProvider",
     "cuda": "CUDAExecutionProvider",
     "dml": "DmlExecutionProvider",
+    "nvtensorrtrtx": "NvTensorRTRTXExecutionProvider",
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
-    "trtrtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
 }
 
@@ -102,8 +98,6 @@ def normalize_ep_name(ep: EPNameOrAlias | None) -> EPName | None:
     Examples:
         >>> normalize_ep_name("qnn")
         'QNNExecutionProvider'
-        >>> normalize_ep_name("ov")
-        'OpenVINOExecutionProvider'
         >>> normalize_ep_name("QNNExecutionProvider")
         'QNNExecutionProvider'
     """
