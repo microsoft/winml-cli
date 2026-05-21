@@ -137,7 +137,7 @@ extends:
           displayName: 'Publish to PyPI via ESRP Release'
           inputs:
             connectedservicename: 'ModelKit ESRP ADO Service Connection'
-            usemanagedidentity: true
+            usemanagedidentity: false
             keyvaultname: 'ModelKit-KeyVault'
             signcertname: 'modelkit-tss-sign'
             clientid: 'e80da4f8-3154-4198-9ad6-8f8988263b02'
