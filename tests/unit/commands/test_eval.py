@@ -207,6 +207,17 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+class TestEvalHelp:
+    def test_model_help_mentions_onnx_model_id_and_role_path(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "requires --model-id" in result.output
+        assert "role=path" in result.output
+
+
 @pytest.fixture
 def eval_config_file(tmp_path):
     config = {

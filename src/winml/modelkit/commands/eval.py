@@ -32,7 +32,10 @@ logger = logging.getLogger(__name__)
     type=str,
     multiple=True,
     default=(),
-    help="Model to evaluate. Accepts a HuggingFace model ID or an ONNX file path.",
+    help=(
+        "Model to evaluate. Accepts a HuggingFace model ID, an ONNX file path "
+        "(requires --model-id), or split-encoder role=path pairs (see --schema)."
+    ),
 )
 @click.option(
     "--model-id",
@@ -174,7 +177,7 @@ def eval(
     # ── 0. --schema fast path: served from a local lightweight schema table
     #       so this branch does not import the heavy winml.modelkit.eval package.
     if show_schema:
-        task_arg: str | None = ctx.params.get("task")
+        task_arg = task
         if task_arg is None:
             task_list = "\n  ".join(sorted(TASK_SCHEMAS))
             click.echo(

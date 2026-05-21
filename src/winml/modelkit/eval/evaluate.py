@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "image-classification": WinMLEvaluator,
@@ -228,14 +227,6 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     config and any module-level defaults remain untouched.
     """
     config = replace(config, task=_resolve_task(config), dataset=deepcopy(config.dataset))
-    try:
-        model = _load_model(config)
-    except Exception as e:
-        raise ValueError(
-            f"Failed to load model '{config.model_id}'. "
-            f"Run 'winml eval --schema --task {config.task}' to see expected model inputs.",
-        ) from e
-
     if config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task)
         if default is None:
@@ -253,24 +244,34 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 
     print_config(config)
 
+    try:
+        model = _load_model(config)
+    except Exception as error:
+        raise ValueError(
+            f"Failed to load model '{config.model_id}'. "
+            "Check --model, --model-id, --task, device, and EP settings. "
+            f"For composite models, run 'winml eval --schema --task {config.task}' "
+            "to see supported role=path model options.",
+        ) from error
+
     from ..utils.eval_utils import DatasetValidationError
 
     cls = get_evaluator_class(config.task)
     try:
         task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
-    except DatasetValidationError as e:
+    except DatasetValidationError as error:
         raise ValueError(
             f"Dataset '{config.dataset.path}' is not compatible with task "
-            f"'{config.task}': {e}. Use --dataset to specify a different dataset, "
+            f"'{config.task}': {error}. Use --dataset to specify a different dataset, "
             f"or run 'winml eval --schema --task {config.task}' to see the expected schema.",
-        ) from e
-    except Exception as e:
+        ) from error
+    except (KeyError, ValueError) as error:
         raise ValueError(
             f"Failed to compute metrics for task '{config.task}' on dataset "
             f"'{config.dataset.path}'. "
             f"Run 'winml eval --schema --task {config.task}' to see the expected schema.",
-        ) from e
+        ) from error
 
     return EvalResult(config=config, metrics=metrics)
 
@@ -278,23 +279,24 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 def print_config(config: WinMLEvaluationConfig) -> None:
     """Print effective evaluation config to the console (quantize.py style)."""
     ds = config.dataset
-    console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
+    output_console = Console()
+    output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
     if config.model_path is not None:
-        console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
-    console.print(f"[bold blue]Task:[/bold blue] {config.task}")
-    console.print(f"[bold blue]Device:[/bold blue] {config.device}")
+        output_console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
+    output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
+    output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
     if config.ep is not None:
-        console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
-    console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
-    console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")
+        output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
+    output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
+    output_console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")
     if ds.name:
-        console.print(f"[bold blue]Dataset name:[/bold blue] {ds.name}")
-    console.print(f"[bold blue]Split:[/bold blue] {ds.split}")
-    console.print(f"[bold blue]Samples:[/bold blue] {ds.samples}")
-    console.print(f"[bold blue]Shuffle:[/bold blue] {ds.shuffle} (seed={ds.seed})")
-    console.print(f"[bold blue]Streaming:[/bold blue] {ds.streaming}")
+        output_console.print(f"[bold blue]Dataset name:[/bold blue] {ds.name}")
+    output_console.print(f"[bold blue]Split:[/bold blue] {ds.split}")
+    output_console.print(f"[bold blue]Samples:[/bold blue] {ds.samples}")
+    output_console.print(f"[bold blue]Shuffle:[/bold blue] {ds.shuffle} (seed={ds.seed})")
+    output_console.print(f"[bold blue]Streaming:[/bold blue] {ds.streaming}")
     if ds.columns_mapping:
         cols = ", ".join(f"{k}={v}" for k, v in ds.columns_mapping.items())
-        console.print(f"[bold blue]Columns:[/bold blue] {cols}")
+        output_console.print(f"[bold blue]Columns:[/bold blue] {cols}")
     if config.output_path is not None:
-        console.print(f"[bold blue]Output:[/bold blue] {config.output_path}")
+        output_console.print(f"[bold blue]Output:[/bold blue] {config.output_path}")

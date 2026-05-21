@@ -89,15 +89,21 @@ class WinMLEvaluator:
             ds.split,
             ds.samples,
         )
-        if ds.path and Path(ds.path).is_dir():
-            dataset = load_from_disk(ds.path)
-        else:
-            dataset = load_dataset(
-                ds.path,
-                name=ds.name,
-                split=ds.split,
-                streaming=ds.streaming,
-            )
+        try:
+            if ds.path and Path(ds.path).is_dir():
+                dataset = load_from_disk(ds.path)
+            else:
+                dataset = load_dataset(
+                    ds.path,
+                    name=ds.name,
+                    split=ds.split,
+                    streaming=ds.streaming,
+                )
+        except Exception as e:
+            raise DatasetValidationError(
+                f"Failed to load dataset '{ds.path}' "
+                f"(name={ds.name!r}, split='{ds.split}'): {e}",
+            ) from e
 
         if ds.streaming:
             if ds.shuffle:
