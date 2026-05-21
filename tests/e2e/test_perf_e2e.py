@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.utils.constants import EP_ALIASES
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.perf import perf
 
@@ -54,6 +55,7 @@ pytestmark = [pytest.mark.e2e]
 CPU_EPS = ("cpu", "openvino")
 NPU_EPS = ("qnn", "vitisai", "openvino")
 GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino")
+NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
 
 
 def _require_gpu() -> None:
@@ -215,7 +217,7 @@ class _PerfBenchmarkSuite:
         # Verify raw samples count matches iterations
         assert len(data["raw_samples_ms"]) == 3
 
-    def test_benchmark_verbose(self, tmp_path: Path, model_arg: str):
+    def test_benchmark_cpu_verbose(self, tmp_path: Path, model_arg: str):
         """Benchmark with --verbose should succeed and show debug output."""
         output_file = tmp_path / "verbose_result.json"
 
@@ -325,24 +327,25 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        assert data["benchmark_info"]["device"] == "auto"
         # At least a non-cpu should exist and picked up
+        assert data["benchmark_info"]["device"] in ("gpu", "npu")
         assert data["benchmark_info"]["ep"] != "CPUExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
 
-    def test_benchmark_ep_qnn(self, tmp_path: Path, model_arg: str):
-        """Benchmark with --ep qnn.
+    @pytest.mark.parametrize("ep", NON_CPU_EPS)
+    def test_benchmark_ep(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep>.
 
-        Skipped if QNNExecutionProvider is not available on the host.
+        Skipped if the specified ExecutionProvider is not available on the host.
         """
-        require_ep("qnn")
+        require_ep(ep)
 
-        output_file = tmp_path / "perf_qnn.json"
+        output_file = tmp_path / f"perf_{ep}.json"
 
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, ep="qnn"),
+            _build_perf_args(model_arg=model_arg, output_file=output_file, ep=ep),
             obj={},
             catch_exceptions=False,
         )
@@ -350,25 +353,26 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        assert data["benchmark_info"]["ep"] == "QNNExecutionProvider"
+        assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
+        assert data["benchmark_info"]["device"] in ("gpu", "npu"), "Expected a non-CPU EP"
         assert data["latency_ms"]["mean"] > 0
 
-    def test_benchmark_ep_qnn_device_gpu(self, tmp_path: Path, model_arg: str):
-        """Benchmark with --ep qnn and --device gpu.
+    @pytest.mark.parametrize("ep", CPU_EPS)
+    def test_benchmark_ep_device_cpu(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep> and --device cpu.
 
         --ep overrides the device-to-provider mapping, so the session should
-        bind to QNN even though the requested device is GPU. Skipped if QNN
-        or a GPU is unavailable on the host.
+        bind to the specified EP even though the requested device is CPU. Skipped if the specified EP
+        or a CPU is unavailable on the host.
         """
-        require_ep("qnn")
-        _require_gpu()
+        require_ep(ep)
 
-        output_file = tmp_path / "perf_qnn_gpu.json"
+        output_file = tmp_path / f"perf_{ep}_cpu.json"
 
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, device="gpu", ep="qnn"),
+            _build_perf_args(model_arg=model_arg, output_file=output_file, device="cpu", ep=ep, monitor=True),
             obj={},
             catch_exceptions=False,
         )
@@ -376,9 +380,59 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        assert data["benchmark_info"]["device"] == "gpu"
-        assert data["benchmark_info"]["ep"] == "QNNExecutionProvider"
-        assert data["latency_ms"]["mean"] > 0
+        _assert_monitor_result(data, device="cpu", ep=EP_ALIASES[ep])
+
+    @pytest.mark.parametrize("ep", GPU_EPS)
+    def test_benchmark_ep_device_gpu(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep> and --device gpu.
+
+        --ep overrides the device-to-provider mapping, so the session should
+        bind to the specified EP even though the requested device is GPU. Skipped if the specified EP
+        or a GPU is unavailable on the host.
+        """
+        require_ep(ep)
+        _require_gpu()
+
+        output_file = tmp_path / f"perf_{ep}_gpu.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+        _assert_monitor_result(data, device="gpu", ep=EP_ALIASES[ep])
+
+    @pytest.mark.parametrize("ep", NPU_EPS)
+    def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep> and --device npu.
+
+        --ep overrides the device-to-provider mapping, so the session should
+        bind to the specified EP even though the requested device is NPU. Skipped if the specified EP
+        or a NPU is unavailable on the host.
+        """
+        require_ep(ep)
+        _require_npu()
+
+        output_file = tmp_path / f"perf_{ep}_npu.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+        _assert_monitor_result(data, device="npu", ep=EP_ALIASES[ep])
 
 
 # ===========================================================================
