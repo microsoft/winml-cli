@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
@@ -196,14 +195,12 @@ class WinMLSession:
         """
         # If already compiled, ignore (idempotent)
         if self._session is not None:
-            if self._is_verbose():
-                logger.info("Already compiled for %s", self._device)
+            logger.info("Already compiled for %s", self._device)
             return
 
         target_device = self._device
 
-        if self._is_verbose():
-            logger.info("Compiling for device: %s", target_device)
+        logger.info("Compiling for device: %s", target_device)
 
         # Determine model path (original or EPContext)
         ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_{target_device}_ctx.onnx"
@@ -282,6 +279,7 @@ class WinMLSession:
 
             ep_map = get_ep_device_map()
             resolved = ep_map.get(actual_providers[0])
+            print(f"Resolved device from provider {actual_providers[0]}: {resolved}")
             if resolved and "/" not in resolved:
                 self._device = resolved
 
@@ -366,10 +364,6 @@ class WinMLSession:
             self._session = None
         except Exception:
             pass  # Suppress errors during interpreter shutdown
-
-    def _is_verbose(self) -> bool:
-        """Check if verbose logging is enabled via environment variable."""
-        return os.getenv("WINMLSESSION_VERBOSE", "").lower() in ("1", "true", "yes")
 
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.

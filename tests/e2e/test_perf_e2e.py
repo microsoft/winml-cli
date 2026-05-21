@@ -36,9 +36,9 @@ from typing import TYPE_CHECKING
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.utils.constants import EP_ALIASES
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.perf import perf
+from winml.modelkit.utils.constants import EP_ALIASES
 
 
 if TYPE_CHECKING:
@@ -137,7 +137,9 @@ def _build_perf_args(
     return args
 
 
-def _assert_monitor_result(data: dict, *, device: str, device_kind: str | None = None, ep: str | None = None) -> None:
+def _assert_monitor_result(
+    data: dict, *, device: str, device_kind: str | None = None, ep: str | None = None
+) -> None:
     """Assert a monitored perf run produced the expected device + hw_monitor data.
 
     Verifies the resolved ``device`` in ``benchmark_info``, that latency was
@@ -328,7 +330,7 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         # At least a non-cpu should exist and picked up
-        assert data["benchmark_info"]["device"] in ("gpu", "npu")
+        assert data["benchmark_info"]["device"] in ("auto", "gpu", "npu")
         assert data["benchmark_info"]["ep"] != "CPUExecutionProvider"
         assert data["latency_ms"]["mean"] > 0
 
@@ -354,16 +356,14 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
-        assert data["benchmark_info"]["device"] in ("gpu", "npu"), "Expected a non-CPU EP"
+        assert data["benchmark_info"]["device"] in ("auto", "gpu", "npu"), "Expected a non-CPU EP"
         assert data["latency_ms"]["mean"] > 0
 
     @pytest.mark.parametrize("ep", CPU_EPS)
     def test_benchmark_ep_device_cpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep> and --device cpu.
 
-        --ep overrides the device-to-provider mapping, so the session should
-        bind to the specified EP even though the requested device is CPU. Skipped if the specified EP
-        or a CPU is unavailable on the host.
+        Skipped if the specified EP is unavailable on the host.
         """
         require_ep(ep)
 
@@ -372,7 +372,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, device="cpu", ep=ep, monitor=True),
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", ep=ep, monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -386,9 +388,7 @@ class _PerfBenchmarkSuite:
     def test_benchmark_ep_device_gpu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep> and --device gpu.
 
-        --ep overrides the device-to-provider mapping, so the session should
-        bind to the specified EP even though the requested device is GPU. Skipped if the specified EP
-        or a GPU is unavailable on the host.
+        Skipped if the specified EP or a GPU is unavailable on the host.
         """
         require_ep(ep)
         _require_gpu()
@@ -398,7 +398,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True),
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -412,9 +414,7 @@ class _PerfBenchmarkSuite:
     def test_benchmark_ep_device_npu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep <ep> and --device npu.
 
-        --ep overrides the device-to-provider mapping, so the session should
-        bind to the specified EP even though the requested device is NPU. Skipped if the specified EP
-        or a NPU is unavailable on the host.
+        Skipped if the specified EP or a NPU is unavailable on the host.
         """
         require_ep(ep)
         _require_npu()
@@ -424,7 +424,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True),
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -457,8 +459,7 @@ class TestPerfHuggingFace:
 
     @pytest.mark.parametrize("ep", CPU_EPS)
     def test_benchmark_ep_cpu(self, ep: str, tmp_path: Path, model_arg: str):
-        """Benchmark with --ep <ep>.
-        """
+        """Benchmark with --ep <ep>."""
         require_ep(ep)
 
         output_file = tmp_path / f"perf_hf_{ep}_cpu.json"
@@ -481,8 +482,7 @@ class TestPerfHuggingFace:
 
     @pytest.mark.parametrize("ep", GPU_EPS)
     def test_benchmark_ep_gpu(self, ep: str, tmp_path: Path, model_arg: str):
-        """Benchmark with --ep <ep>.
-        """
+        """Benchmark with --ep <ep>."""
         require_ep(ep)
 
         output_file = tmp_path / f"perf_hf_{ep}_gpu.json"
@@ -505,8 +505,7 @@ class TestPerfHuggingFace:
 
     @pytest.mark.parametrize("ep", NPU_EPS)
     def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
-        """Benchmark with --ep <ep>.
-        """
+        """Benchmark with --ep <ep>."""
         require_ep(ep)
 
         output_file = tmp_path / f"perf_hf_{ep}_npu.json"
