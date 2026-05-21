@@ -504,9 +504,7 @@ class TestEPOption:
         [
             "qnn",
             "openvino",
-            "ov",
             "vitisai",
-            "vitis",
             "QNNExecutionProvider",
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",

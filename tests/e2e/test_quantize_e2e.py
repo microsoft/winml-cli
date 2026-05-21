@@ -362,16 +362,23 @@ class TestPrecision:
         model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
         assert _weight_dq_zero_point_dtype(model) == onnx.TensorProto.INT8
 
-    def test_unknown_precision_falls_back_to_uint8(
+    def test_non_quant_precision_rejected(
         self, runner: CliRunner, tiny_onnx: Path, tmp_path: Path
     ):
+        """Float precisions like fp16 must be rejected at CLI parse time.
+
+        Replaces the legacy ``test_unknown_precision_falls_back_to_uint8`` which
+        documented the silent-fallback bug that PR #680 fixed.
+        """
         out = tmp_path / "a6.onnx"
         r = _invoke(
             runner,
             ["-m", str(tiny_onnx), "-o", str(out), "--precision", "fp16", "--samples", "4"],
+            expect_success=False,
         )
-        model = _assert_quantized_output(input_onnx=tiny_onnx, output_onnx=out, stdout=r.output)
-        assert _zero_point_dtype(model, "QuantizeLinear") == onnx.TensorProto.UINT8
+        assert r.exit_code != 0
+        assert "not a supported quantization precision" in r.output
+        assert not out.exists()
 
 
 # ===========================================================================

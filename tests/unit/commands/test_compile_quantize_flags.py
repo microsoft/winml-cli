@@ -239,10 +239,11 @@ class TestResolveQuantTypes:
         assert a == "uint8"
 
     def test_unknown_precision_uses_defaults(self):
-        """Unknown precision string falls through to defaults."""
-        w, a = _resolve_quant_types("fp16", None, None)
-        assert w == "uint8"
-        assert a == "uint8"
+        """Explicit non-quantized precision (e.g., fp16) is rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="not a supported quantization precision"):
+            _resolve_quant_types("fp16", None, None)
 
 
 class TestCompileDeviceDisplayLabel:
@@ -516,3 +517,40 @@ class TestQuantizeConfigValidation:
         r = self._invoke(["-m", str(model), "--config", str(bc)])
         assert r.exit_code != 0
         assert "Build config must be a JSON object" in r.output
+
+
+class TestQuantizePrecisionValidation:
+    """Regression tests for issue #555.
+
+    `winml quantize --precision <unknown>` must reject the value before
+    running quantization, instead of silently falling back to uint8/uint8
+    and printing "Success!".
+    """
+
+    @staticmethod
+    def _invoke(args):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        return CliRunner().invoke(quantize_cmd, args, obj={}, catch_exceptions=False)
+
+    @pytest.mark.parametrize(
+        "bad_precision",
+        ["banana", "w4a16", "int4", "fp64"],
+    )
+    def test_unknown_precision_rejected(self, tmp_path, bad_precision):
+        model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
+        ran: dict[str, bool] = {"called": False}
+
+        def fake_quantize(*_args, **_kwargs):
+            ran["called"] = True
+            raise AssertionError("quantize_onnx must not be called for invalid precision")
+
+        with patch("winml.modelkit.quant.quantize_onnx", side_effect=fake_quantize):
+            r = self._invoke(["-m", str(model), "--precision", bad_precision])
+
+        assert r.exit_code != 0, r.output
+        assert "not a supported quantization precision" in r.output
+        assert ran["called"] is False
+

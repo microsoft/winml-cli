@@ -48,7 +48,8 @@ console = Console()
     "-p",
     type=str,
     default=None,
-    help="Quantization precision: int8, int16, or w{x}a{y} (e.g., w8a16). "
+    help="Quantization precision. Accepted: auto, int8, int16, or w{x}a{y} "
+    "where x,y in {8,16} (e.g., w8a8, w8a16, w16a16). "
     "Overridden by explicit --weight-type/--activation-type.",
 )
 @click.option(
@@ -192,8 +193,7 @@ def quantize(
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
-    if precision:
-        console.print(f"[bold blue]Precision:[/bold blue] {precision}")
+    console.print(f"[bold blue]Precision:[/bold blue] {precision or 'auto'}")
     console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
     console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
     console.print(f"[bold blue]Samples:[/bold blue] {samples}")
@@ -260,8 +260,15 @@ def _resolve_quant_types(
 
     if precision and is_quantized_precision(precision):
         default_w, default_a = resolve_quant_types(precision)
-    else:
+    elif precision is None or precision.lower() == "auto":
         default_w, default_a = "uint8", "uint8"
+    else:
+        raise click.BadParameter(
+            f"'{precision}' is not a supported quantization precision. "
+            "Accepted: auto, int8, int16, or w{x}a{y} with x,y in {8,16} "
+            "(e.g., w8a8, w8a16, w16a16).",
+            param_hint="'-p' / '--precision'",
+        )
 
     # Explicit flags override precision defaults
     resolved_w = weight_type if weight_type else default_w

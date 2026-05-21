@@ -578,12 +578,13 @@ class TestQuantizeCliResolveQuant:
         assert w == "uint8"
         assert a == "uint8"
 
-    # ---- Unsupported precision falls back to uint8/uint8 ----
-    def test_unsupported_precision_falls_back(self) -> None:
-        """Unsupported precision (w4a16) is not quantized -> fallback to uint8."""
-        w, a = self._resolve(precision="w4a16")
-        assert w == "uint8"
-        assert a == "uint8"
+    # ---- Unsupported precision is rejected ----
+    def test_unsupported_precision_rejected(self) -> None:
+        """Unsupported precision (w4a16) must raise BadParameter, not silently fall back."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="not a supported quantization precision"):
+            self._resolve(precision="w4a16")
 
     # ---- Explicit flags override precision ----
     def test_explicit_weight_overrides_precision(self) -> None:

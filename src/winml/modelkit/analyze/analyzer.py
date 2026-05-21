@@ -514,7 +514,7 @@ class ONNXStaticAnalyzer:
             model_path: Path to ONNX model file
             ep: Target execution provider (e.g., "QNNExecutionProvider",
                 "OpenVINOExecutionProvider", "VitisAIExecutionProvider").
-                Also supports aliases: "qnn", "ov"/"openvino", "vitis"/"vitisai".
+                Also supports aliases: "qnn", "openvino", "vitisai".
                 If None, analyzes all supported EPs.
             device: Device type (e.g., "CPU", "GPU", "NPU").
                 If None, uses "NPU" as default.
@@ -549,7 +549,7 @@ class ONNXStaticAnalyzer:
             >>> # Using EP alias
             >>> result = analyzer.analyze(
             ...     "model.onnx",
-            ...     ep="ov",  # Short for OpenVINOExecutionProvider
+            ...     ep="openvino",  # Short for OpenVINOExecutionProvider
             ...     device="GPU"
             ... )
 
@@ -642,7 +642,7 @@ class ONNXStaticAnalyzer:
             model_proto: ONNX ModelProto object
             ep: Target execution provider (e.g., "QNNExecutionProvider",
                 "OpenVINOExecutionProvider", "DmlExecutionProvider").
-                Also supports aliases: "qnn", "ov"/"openvino", "vitis"/"vitisai".
+                Also supports aliases: "qnn", "openvino", "vitisai".
                 If None, analyzes all supported EPs.
             device: Target device type (e.g., "CPU", "GPU", "NPU").
                 If None, uses "NPU" as default.
