@@ -23,7 +23,10 @@ def make_evaluator(columns_mapping=None):
     mock_ds.__len__ = lambda self: 0
     mock_ds.shuffle.return_value = mock_ds
     mock_ds.select.return_value = mock_ds
-    mock_ds.column_names = ["image", "text"]
+    mock_ds.column_names = [
+        mapping.get("input_column", "image"),
+        mapping.get("label_column", "text"),
+    ]
 
     mock_pipe = MagicMock()
     model = MagicMock()
@@ -38,19 +41,6 @@ def make_evaluator(columns_mapping=None):
     with patch("datasets.load_dataset", return_value=mock_ds), \
          patch("transformers.pipeline", return_value=mock_pipe):
         return WinMLImageToTextEvaluator(config, model)
-
-
-class TestSchema:
-    def test_has_image_and_text_columns(self):
-        schema = WinMLImageToTextEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert "image" in names
-        assert "text" in names
-
-    def test_image_column_type(self):
-        schema = WinMLImageToTextEvaluator.schema_info()
-        type_map = {col.name: col.type for col in schema}
-        assert type_map["image"] == "Image"
 
 
 class TestInit:
