@@ -42,6 +42,29 @@ from winml.modelkit.session.session import WinMLSession
 QNN_VENDOR_ID: int = 0x4D4F
 
 
+@pytest.fixture(autouse=True)
+def _all_eps_available_by_default():
+    """Pretend every catalog EP is registered, unless a test overrides.
+
+    After docs/design/session/3_design_ep.md §6.4, ``default_ep_for_device``
+    filters by ``available_eps()`` from ``ep_registry``. Pre-existing tests
+    that asserted static-catalog defaults (e.g. ``default_ep_for_device("npu")
+    == "QNNExecutionProvider"``) would otherwise become host-dependent on
+    dev boxes where the catalog default isn't actually installed.
+
+    Tests that want to exercise a specific registered subset override this
+    by patching the same target inside the test body.
+    """
+    from winml.modelkit.session import EP_DEVICE_SPECS
+
+    all_eps = frozenset(s.ep for s in EP_DEVICE_SPECS)
+    with patch(
+        "winml.modelkit.session.ep_registry.available_eps",
+        return_value=all_eps,
+    ):
+        yield
+
+
 # =============================================================================
 # EP MARKERS - Skip tests if required EP is not available
 # =============================================================================

@@ -23,7 +23,6 @@ import pytest
 
 from winml.modelkit.ep_path import (
     EP_DLL_NAMES,
-    EP_NAME_ALIASES,
     EP_PATH,
     EpSource,
     FilesystemSource,
@@ -32,7 +31,6 @@ from winml.modelkit.ep_path import (
     WinMlCatalogSource,
     _parse_modelkit_ep_path,
     _qnn_arch_resolver,
-    canonicalize_ep_name,
     discover_eps,
 )
 
@@ -492,68 +490,3 @@ class TestDiscoverEps:
         resolved = discover_eps(extra_sources=[src])
         assert resolved["QNNExecutionProvider"] == (fake_dll.resolve(), src)
 
-    def test_alias_spellings_dedup_to_canonical_key(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Two sources both yield the same EP under different alias
-        # spellings (PascalCase vs camelCase). The dedup logic must
-        # canonicalize the keys and apply first-hit-wins, so the result
-        # contains exactly one entry under the canonical (camelCase) key.
-        first_dll = _touch(tmp_path / "first" / "trt.dll")
-        second_dll = _touch(tmp_path / "second" / "trt.dll")
-        # The first source uses the PascalCase alias.
-        first = FilesystemSource(
-            root=first_dll.parent,
-            dll_patterns={"NvTensorRTRTXExecutionProvider": first_dll.name},
-        )
-        # The second uses the canonical camelCase form.
-        second = FilesystemSource(
-            root=second_dll.parent,
-            dll_patterns={"NvTensorRtRtxExecutionProvider": second_dll.name},
-        )
-        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
-        resolved = discover_eps(extra_sources=[first, second])
-        # Exactly one entry, keyed by the canonical name.
-        nv_keys = [k for k in resolved if k.lower() == "nvtensorrtrtxexecutionprovider"]
-        assert nv_keys == ["NvTensorRtRtxExecutionProvider"]
-        # First hit wins, so the path is the first source's DLL.
-        path, _src = resolved["NvTensorRtRtxExecutionProvider"]
-        assert path == first_dll.resolve()
-
-
-# ---------------------------------------------------------------------------
-# EP-name alias canonicalization helper.
-# ---------------------------------------------------------------------------
-
-
-class TestCanonicalizeEpName:
-    """canonicalize_ep_name normalizes alias spellings to canonical form."""
-
-    def test_known_alias_normalizes(self) -> None:
-        # NVIDIA's PascalCase docs alias normalizes to the WinML
-        # EP-Catalog camelCase canonical name.
-        assert (
-            canonicalize_ep_name("NvTensorRTRTXExecutionProvider")
-            == "NvTensorRtRtxExecutionProvider"
-        )
-
-    def test_canonical_name_is_identity(self) -> None:
-        # The canonical name itself is in the alias table's value set
-        # but not its key set; identity is the correct behavior.
-        assert (
-            canonicalize_ep_name("NvTensorRtRtxExecutionProvider")
-            == "NvTensorRtRtxExecutionProvider"
-        )
-
-    def test_unknown_name_passes_through(self) -> None:
-        # Defensive default: unknown names (typos, future EPs) are NOT
-        # silently rewritten or rejected — they flow through to ORT for
-        # diagnosis.
-        assert canonicalize_ep_name("UnknownProvider") == "UnknownProvider"
-
-    def test_alias_table_values_are_canonical(self) -> None:
-        # Every value in the alias table should be a fixed point (it
-        # itself canonicalizes to itself), otherwise we would have a
-        # chain of aliases.
-        for canonical in EP_NAME_ALIASES.values():
-            assert canonicalize_ep_name(canonical) == canonical

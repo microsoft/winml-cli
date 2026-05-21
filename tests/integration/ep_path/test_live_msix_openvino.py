@@ -127,13 +127,9 @@ def test_windows_workload_openvino_ep_runs_inference(tmp_path):
     # registered. Order: NPU > GPU > CPU. ort.get_ep_devices() reflects
     # the registration done above; if OpenVINO has zero entries here, the
     # registration didn't take and we should fail explicitly.
-    from winml.modelkit.ep_path import canonicalize_ep_name
-
-    target = canonicalize_ep_name("OpenVINOExecutionProvider")
+    target = "OpenVINOExecutionProvider"
     ep_devices = ort.get_ep_devices()
-    matching_ep_devices = [
-        d for d in ep_devices if canonicalize_ep_name(d.ep_name) == target
-    ]
+    matching_ep_devices = [d for d in ep_devices if d.ep_name == target]
     assert matching_ep_devices, (
         "OpenVINOExecutionProvider registered but ort.get_ep_devices() shows "
         f"zero matching (EP, device) pairs. ep_devices={ep_devices!r}"

@@ -18,7 +18,17 @@ def mock_resolve_device():
 
     EP discovery via WinML can be very slow on CI runners without hardware.
     This fixture ensures config tests run fast by returning a fixed device.
+
+    Also pretends every catalog EP is registered so that tests asserting
+    static-catalog deduction (e.g. ``device="npu"`` → ``compile_provider="qnn"``)
+    remain host-independent after the registration-aware contract in
+    docs/design/session/3_design_ep.md §6.4. Tests that want to exercise
+    a specific subset of available EPs override this with a local
+    ``patch("winml.modelkit.session.ep_registry.available_eps", ...)``.
     """
+    from winml.modelkit.session import EP_DEVICE_SPECS
+
+    all_eps = frozenset(s.ep for s in EP_DEVICE_SPECS)
     with (
         patch(
             "winml.modelkit.session.auto_detect_device",
@@ -27,6 +37,10 @@ def mock_resolve_device():
         patch(
             "winml.modelkit.sysinfo.hardware.get_available_devices",
             return_value=["npu", "gpu", "cpu"],
+        ),
+        patch(
+            "winml.modelkit.session.ep_registry.available_eps",
+            return_value=all_eps,
         ),
     ):
         yield

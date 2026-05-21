@@ -82,28 +82,12 @@ class EPDevice:
         )
 
 
-# --- canonicalization ------------------------------------------------------
-
-# MIGRATION: After feat/update-pkg-deps merges, replace this stub with
-#     from .ep_path import canonicalize_ep_name
-# and delete _EP_NAME_ALIASES below. This stub is only the casing-fix
-# slice required to keep this PR self-contained.
-_EP_NAME_ALIASES: Final[dict[str, str]] = {
-    "nvtensorrtrtxexecutionprovider": "NvTensorRtRtxExecutionProvider",
-}
-
-
-def canonicalize_ep_name(name: str) -> str:
-    """Normalize a canonical EP name's casing via the alias table."""
-    return _EP_NAME_ALIASES.get(name.lower(), name)
-
-
 _SHORT_TO_FULL: Final[dict[str, str]] = {
     "qnn": "QNNExecutionProvider",
     "openvino": "OpenVINOExecutionProvider",
     "vitisai": "VitisAIExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
+    "nvtensorrtrtx": "NvTensorRtRtxExecutionProvider",
     "cuda": "CUDAExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
     "dml": "DmlExecutionProvider",
@@ -115,13 +99,14 @@ def expand_ep_name(name: str) -> str:
     """Expand a short EP name to its full form; passthrough if already full.
 
     "xxx" is the short form of "xxxExecutionProvider" (case-folded for
-    lookup). Already-full names flow through canonicalize_ep_name()
-    for casing fixes (e.g. NvTensorRTRTX -> NvTensorRtRtx).
+    lookup). Names that don't match a short alias are passed through
+    unchanged — downstream registration will fail loudly if the spelling
+    doesn't match ORT's canonical name.
     """
     full = _SHORT_TO_FULL.get(name.lower())
     if full is not None:
         return full
-    return canonicalize_ep_name(name)
+    return name
 
 
 # Inverse of _SHORT_TO_FULL — built lazily so any future additions to
@@ -194,7 +179,6 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
     EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
-    EPDeviceSpec(ep="CUDAExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="NvTensorRtRtxExecutionProvider", device="gpu"),
 )
 
@@ -238,24 +222,38 @@ def default_device_for_ep(ep: str) -> str | None:
 
 
 def default_ep_for_device(device: str) -> str | None:
-    """First catalog variant whose device matches. Replaces ``_DEVICE_TO_PROVIDER``.
+    """First catalog variant whose device matches AND whose EP is registered on this host.
 
-    Order in ``EP_DEVICE_SPECS`` encodes preference:
+    Walks ``EP_DEVICE_SPECS`` in order and returns the first ``spec.ep`` that is
+    also in ``available_eps()`` (from :mod:`session.ep_registry`). Returns
+    ``None`` when no catalog entry for the requested device has a registered EP
+    — the caller decides whether to raise, fall back, or treat as a no-op.
 
-    * Among npu variants, QNN comes first.
-    * Among gpu variants, OpenVINO comes first.
+    The static catalog order encodes *preference among installed EPs*, not
+    unconditional defaults. Without the registration filter, this returns the
+    catalog primary even on hosts where it isn't installed (e.g. QNN on an
+    OpenVINO-only box). See ``docs/design/session/3_design_ep.md`` §6.4 for the
+    rationale.
 
-    NOTE: unlike the old ``_DEVICE_TO_PROVIDER``, this returns the full canonical
-    EP name.  Callers that need a short name must call
+    Historical note: replaces ``_DEVICE_TO_PROVIDER`` and returns the full
+    canonical EP name; callers that need a short name must call
     ``short_ep_name(default_ep_for_device(device))``.
 
     Args:
         device: Device category (e.g. ``"npu"``, ``"gpu"``, ``"cpu"``).
 
     Returns:
-        Full EP name, or ``None`` if *device* is not in the catalog.
+        Full EP name of the first registered catalog match, or ``None``.
     """
-    return next((s.ep for s in EP_DEVICE_SPECS if s.device == device), None)
+    # Lazy import: ep_registry imports from this module at top level, so
+    # importing it here avoids the circular-import cycle.
+    from .ep_registry import available_eps
+
+    eps = available_eps()
+    return next(
+        (s.ep for s in EP_DEVICE_SPECS if s.device == device and s.ep in eps),
+        None,
+    )
 
 
 def eps_for_device(device: str) -> frozenset[str]:

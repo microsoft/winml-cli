@@ -104,8 +104,9 @@ class WinMLEPRegistry:
         """Register a single discovered EP and return its claimed devices.
 
         Idempotent: if already registered, returns the current device list
-        without re-loading the DLL. Callers must pass canonicalize_ep_name(...)
-        on user-supplied names first.
+        without re-loading the DLL. Callers must pass the EP's canonical
+        name (the spelling ORT registers under and reports via
+        ``ort.get_ep_devices()``) — no alias normalization layer.
 
         Bundled EPs (e.g. ``CPUExecutionProvider``, ``DmlExecutionProvider``)
         ship with ORT itself rather than as plugin DLLs. They appear in

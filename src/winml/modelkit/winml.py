@@ -237,16 +237,12 @@ def add_ep_for_device(
     """
     import onnxruntime as ort
 
-    from .ep_path import canonicalize_ep_name
-
-    # Canonicalize alias spellings (e.g. PascalCase
-    # ``NvTensorRTRTXExecutionProvider``) so the case-sensitive ``==``
-    # below matches whichever spelling ORT registered the EP under.
-    target_ep_name = canonicalize_ep_name(ep_name)
+    # Exact-match by ORT's canonical EP name. Callers must pass the
+    # spelling ORT registers under (e.g. ``NvTensorRtRtxExecutionProvider``,
+    # camelCase) — no alias normalization layer.
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
-        device_ep_name = canonicalize_ep_name(ep_device.ep_name)
-        if device_ep_name == target_ep_name and ep_device.device.type == device_type:
+        if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
             print(f"Adding {ep_name} for {device_type}")
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options

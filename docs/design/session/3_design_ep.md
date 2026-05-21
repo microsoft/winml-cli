@@ -18,6 +18,7 @@
 - [4. Legacy vs Plugin-EP API](#4-legacy-vs-plugin-ep-api)
 - [5. Stage 1: EP Registration + Plugin Discovery](#5-stage-1-ep-registration--plugin-discovery)
 - [6. Stage 2: Device-Handle Selection](#6-stage-2-device-handle-selection)
+  - [6.4 Registration-aware deduction (REQUIRED)](#64-registration-aware-deduction-required)
 - [7. Provider Options Reference](#7-provider-options-reference)
 - [8. Catalog Status](#8-catalog-status)
 - [9. Empirical Evidence](#9-empirical-evidence)
@@ -186,7 +187,7 @@ def resolve_device(ep: str | None = None, device: str | None = None) -> EPDevice
     if device is None or device.lower() == "auto":
         device = auto_detect_device()              # walks sysinfo + catalog for best match
     if ep is None:
-        ep = short_ep_name(default_ep_for_device(device))   # from EP_DEVICE_SPECS
+        ep = short_ep_name(default_ep_for_device(device))   # see §6.4 — MUST be registration-aware
 
     # 2. Resolution phase
     ep_full = expand_ep_name(ep)                   # qnn -> QNNExecutionProvider
@@ -227,6 +228,42 @@ def _build_session_options(ep_device, ep_config, ep_monitor):
 ```
 
 The dedup step (added 2026-05-15) is required for hosts that report the same OrtEpDevice twice with bit-identical `(vendor_id, device_id)`, observed on Intel iGPU configurations.
+
+### 6.4 Registration-aware deduction (REQUIRED)
+
+**Requirement.** Whenever the codebase deduces an EP from a device alone (`default_ep_for_device(device)` and every caller that does the same walk of `EP_DEVICE_SPECS`), the deduction MUST filter by EPs that are actually registered on the host (i.e., present in `available_eps()` from `session/ep_registry.py`). The static catalog order encodes *preference among installed EPs*, not *unconditional defaults*.
+
+**Why.** `EP_DEVICE_SPECS` is ordered with QNN first for `npu`, DML first for `gpu` (see §6.1). A pure first-match walk returns the catalog default regardless of what is installed. On an OpenVINO-only dev box (no QNN wheel, no Snapdragon), this produces:
+
+```
+default_ep_for_device("npu")  →  "QNNExecutionProvider"    # WRONG: QNN is not registered
+```
+
+Downstream this propagates into `compile_provider`, `WinMLCompileConfig`, and `resolve_device`'s deduction branch — the build pipeline ends up pointed at an EP that isn't on disk.
+
+**Contract.** A registration-aware deduction walks `EP_DEVICE_SPECS` in order and returns the first `spec.ep` that satisfies `spec.ep in available_eps()`. If no catalog entry for the requested device has a registered EP, return `None` and let the caller decide (raise, fall back to CPU, etc.). The pattern is already correct in `auto_detect_device()` (ep_device.py:286) — the same filter must apply to per-device EP deduction.
+
+```python
+# Sketch — final shape TBD; what matters is the FILTER, not the function name.
+def default_ep_for_device(device: str) -> str | None:
+    eps = available_eps()                            # from ep_registry
+    return next(
+        (s.ep for s in EP_DEVICE_SPECS
+         if s.device == device and s.ep in eps),
+        None,
+    )
+```
+
+**Call sites that must observe this contract** (today they don't):
+
+| Site | Symptom |
+|---|---|
+| `session/ep_device.py:242` `default_ep_for_device` | Returns static-catalog default ignoring registration |
+| `session/ep_device.py:379` `resolve_device` device-only branch | Deduces unregistered EP → registration fails later with a confusing message |
+| `config/precision.py:275` (in `resolve_precision`) | `compile_provider` carries the unregistered short name into `PrecisionPolicy` |
+| `config/build.py:612` (in `generate_hf_build_config`, auto/auto path) | `WinMLCompileConfig.for_provider(...)` constructed against an unregistered EP |
+
+**Out of scope.** This requirement only constrains the **deduction default**. Callers may still ask for an explicit EP that is not registered — `resolve_device("qnn", "npu")` on a non-Snapdragon box must continue to raise loudly (today: via `register_ep` registration failure or `DeviceNotFound`). Registration-awareness changes the *default*, not the *explicit* path.
 
 ## 7. Provider Options Reference
 
@@ -407,6 +444,7 @@ Identical structure across all three devices: the catalog `default_provider_opti
 3. **Catalog completeness** — should the catalog ship the doc-recommended baselines for OpenVINO (Layer 1 `load_config`) and the missing QNN tuning keys (`vtcm_mb`, `qnn_context_priority`)? This is non-breaking but changes the perf characteristics for users who currently get `{}`.
 4. **DML provider_options** — ORT docs publish nothing on DmlExecutionProvider's `provider_options` keys. Source inspection needed. Current catalog ships `{}`, which may be all that's available.
 5. **OpenVINO under plugin-EP API: does `load_config` work?** — the OV doc page documents only the legacy API; whether the plugin-EP factory honors `load_config` requires verification. Empirical test: bind GPU handle with `load_config={"GPU":{"PERFORMANCE_HINT":"LATENCY"}}` and measure latency delta vs `{}`. If no delta, `load_config` is being ignored too.
+6. **Registration-aware deduction rollout (see §6.4)** — `default_ep_for_device` and the device-only branch of `resolve_device` currently return static-catalog defaults that may not be registered (e.g. QNN on an OpenVINO-only box). Decide: (a) bake the `available_eps()` filter into `default_ep_for_device` itself, or (b) introduce a sibling `default_available_ep_for_device(device)` and switch the four call sites listed in §6.4. The pure-catalog helper is still useful for sysinfo/inventory views.
 
 ## 11. Appendix
 

@@ -16,14 +16,20 @@ WinMLQuantizationConfig in modelkit.quant.config (#241).
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Final
 
 
 if TYPE_CHECKING:
     from ..session import EPDevice  # noqa: TC004
+
+
+# Per-EP default for ``EPConfig.enable_ep_context``: which EPs default to
+# emitting an EPContext model. Everything not listed defaults to False.
+# Single source of truth — replaces the per-EP factory boilerplate that
+# used to encode this same bit across 8 methods.
+_EP_CONTEXT_DEFAULTS: Final[frozenset[str]] = frozenset({"qnn", "openvino"})
 
 
 @dataclass
@@ -68,14 +74,11 @@ class WinMLCompileConfig:
         verbose: Enable verbose logging
 
     Examples:
-        # Default: QNN compilation
-        config = WinMLCompileConfig.for_qnn()
+        # Resolve hardware target, then build the compile config.
+        ep_device = resolve_device(ep="qnn", device="npu")
+        config = WinMLCompileConfig.for_ep_device(ep_device)
 
-        # CPU (no EPContext)
-        config = WinMLCompileConfig.for_cpu()
-
-        # Custom provider options
-        config = WinMLCompileConfig.for_qnn()
+        # Custom provider options after construction.
         config.ep_config.provider_options["htp_performance_mode"] = "default"
     """
 

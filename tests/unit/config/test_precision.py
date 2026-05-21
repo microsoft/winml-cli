@@ -245,6 +245,84 @@ class TestEpOverride:
 
 
 # =============================================================================
+# TestRegistrationAwareCompileProvider - spec §6.4 in 3_design_ep.md
+# =============================================================================
+
+
+class TestRegistrationAwareCompileProvider:
+    """resolve_precision must propagate registration-aware EP selection.
+
+    The internal call to `default_ep_for_device(resolved_device)` at
+    config/precision.py:275 currently returns the static-catalog default
+    (QNN for npu, DML for gpu). On a host where that EP is not registered,
+    the resulting `compile_provider` points at an EP the build pipeline
+    cannot actually load. See docs/design/session/3_design_ep.md §6.4.
+    """
+
+    def test_npu_on_openvino_only_box_picks_openvino(self) -> None:
+        """device='npu' on an OpenVINO-only host: compile_provider must be 'openvino'.
+
+        Today this returns 'qnn' because the static catalog orders QNN first
+        for npu. The fix to `default_ep_for_device` should propagate here
+        without any change to resolve_precision itself.
+        """
+        import contextlib
+        from unittest.mock import MagicMock, patch
+
+        available = frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"})
+        mock = MagicMock(return_value=available)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch("winml.modelkit.session.ep_registry.available_eps", mock)
+            )
+            stack.enter_context(
+                patch(
+                    "winml.modelkit.session.ep_device.available_eps",
+                    mock,
+                    create=True,
+                )
+            )
+            policy = resolve_precision(device="npu", precision="int8")
+
+        assert policy.compile_provider == "openvino", (
+            f"Expected compile_provider='openvino' on an OpenVINO-only NPU box, "
+            f"got {policy.compile_provider!r}. The static-catalog QNN-first "
+            "default leaked through resolve_precision."
+        )
+
+    def test_gpu_on_migraphx_only_box_picks_migraphx(self) -> None:
+        """device='gpu' on an AMD/MIGraphX-only host (no QNN, no DML): compile_provider must be 'migraphx'.
+
+        MIGraphX is the only GPU-targeting EP in the catalog for AMD hardware.
+        The registration-aware deduction must skip the catalog's QNN/gpu
+        entry (QNN is not registered here) and return MIGraphXExecutionProvider.
+        """
+        import contextlib
+        from unittest.mock import MagicMock, patch
+
+        available = frozenset({"MIGraphXExecutionProvider", "CPUExecutionProvider"})
+        mock = MagicMock(return_value=available)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch("winml.modelkit.session.ep_registry.available_eps", mock)
+            )
+            stack.enter_context(
+                patch(
+                    "winml.modelkit.session.ep_device.available_eps",
+                    mock,
+                    create=True,
+                )
+            )
+            policy = resolve_precision(device="gpu", precision="fp16")
+
+        assert policy.compile_provider == "migraphx", (
+            f"Expected compile_provider='migraphx' on a MIGraphX-only GPU box, "
+            f"got {policy.compile_provider!r}. The static catalog leaked an "
+            "unregistered EP through resolve_precision."
+        )
+
+
+# =============================================================================
 # TestResolveQuantTypes - Direct unit tests for resolve_quant_types()
 # =============================================================================
 

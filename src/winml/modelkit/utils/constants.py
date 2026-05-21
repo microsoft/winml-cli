@@ -38,11 +38,16 @@ def normalize_ep_name(ep: str | None) -> str | None:
     if ep is None:
         return None
 
-    # Map legacy two-letter aliases not in the session facade.
-    _legacy = {"ov": "openvino", "vitis": "vitisai"}
+    # Map non-canonical short-form spellings to the canonical short.
+    # Values must exist as keys in session.ep_device._SHORT_TO_FULL.
+    _short_aliases = {
+        "ov":              "openvino",      # convenience: 2-letter shorthand
+        "vitis":           "vitisai",       # convenience: 2-letter shorthand
+        "nv_tensorrt_rtx": "nvtensorrtrtx", # rename: pre-2026-05-18 short form
+    }
     ep_lower = ep.lower()
-    if ep_lower in _legacy:
-        ep = _legacy[ep_lower]
+    if ep_lower in _short_aliases:
+        ep = _short_aliases[ep_lower]
 
     return expand_ep_name(ep)
 
