@@ -42,6 +42,37 @@ for _stream in (sys.stdout, sys.stderr):
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
+
+def _preload_bundled_onnxruntime_dll() -> None:
+    # Windows ships C:\Windows\System32\onnxruntime.dll (older API version)
+    # as part of the system WindowsML component. When WinML EP plugin DLLs
+    # are loaded (via EpCatalog), they import "onnxruntime.dll" by base name
+    # and the loader binds them to the system copy, producing
+    # "The requested API version [N] is not available" errors.
+    # Loading the wheel-bundled DLL by full path first makes later base-name
+    # imports resolve to the already-loaded module.
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        import os
+        from importlib.util import find_spec
+        from pathlib import Path
+
+        spec = find_spec("onnxruntime")
+        if spec is None or spec.origin is None:
+            return
+        dll = Path(spec.origin).parent / "capi" / "onnxruntime.dll"
+        if not dll.is_file():
+            return
+        os.add_dll_directory(str(dll.parent))
+        ctypes.WinDLL(str(dll))
+    except Exception as _e:  # pragma: no cover - best-effort preload
+        print(f"Warning: failed to preload bundled onnxruntime.dll: {_e}", file=sys.stderr)
+
+
+_preload_bundled_onnxruntime_dll()
+
 from . import _warnings  # Configure warning filters before importing subpackages
 
 
