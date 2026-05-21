@@ -2,14 +2,11 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Depth estimation dataset for calibration pipelines.
+"""Depth-estimation dataset support for calibration.
 
-Extends ImageDataset with ONNX-aware configuration overrides
-for depth estimation models. Depth-Anything (and similar) preprocessors
-default to ``keep_aspect_ratio=True`` and ``do_pad=True``, which produces
-variable-shape tensors. ONNX models exported with static input shapes
-require a fixed ``(H, W)`` matching ``pixel_values`` in the io_config,
-so this dataset forces the processor to emit that exact shape.
+This dataset keeps image preprocessing aligned with the exported ONNX model.
+When a model expects a fixed ``pixel_values`` shape, the processor is forced
+to emit that exact size so calibration samples match the model input.
 """
 
 from __future__ import annotations
@@ -27,41 +24,32 @@ from .image import ImageDataset
 
 logger = logging.getLogger(__name__)
 
-# Default image size for depth estimation (matches Depth-Anything-V2)
+# Default fallback image size for depth-estimation models.
 DEFAULT_DEPTH_ESTIMATION_SIZE = 518
 
-# Default dataset for depth estimation calibration.
-# Mirrors evaluator default in winml.modelkit.eval.evaluate._DEFAULT_DATASETS
-# so calibration uses the same samples as evaluation.
+# Default calibration dataset for depth estimation.
+# Using the same dataset family in calibration and evaluation keeps behavior
+# consistent when users rely on the built-in defaults.
 DEFAULT_DEPTH_ESTIMATION_DATASET = "sayakpaul/nyu_depth_v2"
 DEFAULT_DEPTH_ESTIMATION_SPLIT = "validation"
-# The NYU dataset is script-based; recent `datasets` releases reject
-# script-based datasets, so the parquet mirror revision is required.
+# Use the parquet mirror revision so the dataset can be loaded reliably
+# through the standard HuggingFace datasets API.
 DEFAULT_DEPTH_ESTIMATION_REVISION = "refs/convert/parquet"
 
 
 class DepthEstimationDataset(ImageDataset):
-    """Dataset for depth estimation tasks with ONNX-aware configuration.
+    """Depth-estimation dataset with fixed-shape preprocessing.
 
-    Extends ImageDataset to handle depth estimation models that:
-
-    - May default to ``keep_aspect_ratio=True`` (Depth-Anything family),
-      producing variable output shapes that mismatch static ONNX inputs.
-    - May default to ``do_pad=True``, also producing variable shapes.
-    - Have no ``ClassLabel`` column — the label is a depth map (Image).
-
-    The io_config from the ONNX model is passed via ``kwargs`` and used to
-    derive the exact ``(H, W)`` to use.
+    This specialization ensures calibration samples follow the input shape of
+    the exported ONNX model and works with datasets whose target is a depth map
+    instead of a class label.
     """
 
     def _get_default_dataset(self) -> None:
-        """Set NYU depth v2 (parquet mirror) as the default for calibration.
+        """Set the built-in depth-estimation dataset defaults.
 
-        Overrides ``ImageDataset._get_default_dataset``, which would otherwise
-        pick ``timm/mini-imagenet`` — unsuitable for depth estimation. We use
-        the same dataset the evaluator uses so calibration and evaluation
-        see consistent samples. The parquet revision avoids the script-based
-        loading path that newer ``datasets`` releases reject.
+        The default points to the NYU depth dataset and a stable revision that
+        can be loaded directly through ``datasets``.
         """
         if self._dataset_name is None:
             self._dataset_name = DEFAULT_DEPTH_ESTIMATION_DATASET
@@ -69,20 +57,11 @@ class DepthEstimationDataset(ImageDataset):
             self._revision = DEFAULT_DEPTH_ESTIMATION_REVISION
 
     def _derive_overrides(self, io_config: dict[str, Any] | None) -> dict[str, Any]:
-        """Derive processor configuration overrides from ONNX io_config.
+        """Build processor overrides from the ONNX input configuration.
 
-        Forces fixed-shape preprocessing by:
-
-        1. Setting ``size`` to ``pixel_values`` shape (if known).
-        2. Disabling ``keep_aspect_ratio`` (Depth-Anything-specific).
-        3. Disabling ``do_pad``.
-
-        Args:
-            io_config: Dictionary mapping input names to their configs,
-                       e.g., ``{"pixel_values": {"shape": [1, 3, 518, 518]}}``.
-
-        Returns:
-            Dictionary of processor configuration overrides.
+        When the model exposes a fixed ``pixel_values`` shape, that shape is
+        applied to the image processor and variable-size preprocessing is
+        disabled.
         """
         overrides: dict[str, Any] = {
             "keep_aspect_ratio": False,
@@ -110,16 +89,8 @@ class DepthEstimationDataset(ImageDataset):
         return overrides
 
     def _initialize(self) -> None:
-        """Initialize the depth estimation dataset.
-
-        Overrides parent to:
-
-        1. Apply ONNX-derived processor overrides (size, keep_aspect_ratio, do_pad).
-        2. Use depth-estimation default size when io_config is unavailable.
-        3. Skip ClassLabel detection (depth maps are images, not labels).
-        """
-        # Apply task-specific defaults when caller did not specify a dataset
-        # (e.g. quantization calibration path goes through universal_calib_dataset).
+        """Load the dataset and prepare fixed-shape image tensors."""
+        # Use the built-in defaults when the caller does not provide a dataset.
         if self._dataset_name is None:
             self._get_default_dataset()
 
@@ -142,10 +113,10 @@ class DepthEstimationDataset(ImageDataset):
             logger.error("Failed to load dataset %s: %s", self._dataset_name, e)
             raise
 
-        # Detect image column (depth datasets have no ClassLabel)
+        # Detect the input image column and the depth target column.
         self._detect_image_column(dataset)
 
-        # Efficient sampling
+        # Sample once up front so calibration stays lightweight.
         shuffle = self._config.get("shuffle", False)
         seed = self._config.get("seed", 42)
 
@@ -160,18 +131,18 @@ class DepthEstimationDataset(ImageDataset):
         elif shuffle:
             dataset = dataset.shuffle(seed=seed)
 
-        # Derive ONNX-aware overrides
+        # Match processor output to the ONNX input shape when available.
         io_config = self._config.get("io_config")
         overrides = self._derive_overrides(io_config)
 
-        # Set default size if not derived from io_config
+        # Fall back to the default square size when the ONNX shape is absent.
         if "size" not in overrides:
             overrides["size"] = {
                 "height": DEFAULT_DEPTH_ESTIMATION_SIZE,
                 "width": DEFAULT_DEPTH_ESTIMATION_SIZE,
             }
 
-        # Create processor with overrides
+        # Create a processor that emits tensors compatible with calibration.
         processor = AutoImageProcessor.from_pretrained(
             self._model_name,
             use_fast=True,
@@ -180,37 +151,28 @@ class DepthEstimationDataset(ImageDataset):
 
         logger.debug("Created processor with overrides: %s", overrides)
 
-        # Apply image processing
+        # Convert raw images into model-ready tensors.
         def preprocess_single_sample(example: dict[str, Any]) -> dict[str, Any]:
             return processor(example[self._image_col].convert("RGB"), return_tensors="pt")
 
-        self._dataset = (
-            dataset
-            .map(preprocess_single_sample, remove_columns=[self._image_col])
-            .with_format("torch", output_all_columns=True)
-        )
+        self._dataset = dataset.map(
+            preprocess_single_sample, remove_columns=[self._image_col]
+        ).with_format("torch", output_all_columns=True)
 
         logger.info("Dataset initialized with %d samples", len(self._dataset))
 
     def _detect_image_column(self, dataset: Any) -> None:
-        """Detect image column for depth estimation datasets.
+        """Detect the input image column and depth target column.
 
-        Depth estimation datasets have an Image column for the input photo
-        and typically a second Image column for the ground-truth depth map.
-        No ClassLabel column exists.
-
-        Args:
-            dataset: HuggingFace dataset to analyze.
-
-        Raises:
-            ValueError: If no Image column found.
+        Depth-estimation datasets usually contain one image column for the
+        source image and another column for the ground-truth depth map.
         """
         if not hasattr(dataset, "features"):
             raise ValueError(f"Dataset {self._dataset_name} has no features metadata")
 
         features = dataset.features
 
-        # Find the first Image column (input image)
+        # Use the first image column as the model input.
         self._image_col = None
         self._label_col = None
         self._label_feature = None
@@ -228,14 +190,14 @@ class DepthEstimationDataset(ImageDataset):
                 f"Available: {dict(zip(available_cols, available_types, strict=False))}"
             )
 
-        # Try to find a depth-map column (second Image or commonly-named field)
+        # Prefer common depth-target column names when present.
         for col_name in ["depth_map", "depth", "depths"]:
             if col_name in features and col_name != self._image_col:
                 self._label_col = col_name
                 break
 
         if self._label_col is None:
-            # Fallback: any other column (Image or otherwise)
+            # Fall back to the first non-input column.
             for col_name in features:
                 if col_name != self._image_col:
                     self._label_col = col_name
