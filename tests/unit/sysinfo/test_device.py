@@ -447,9 +447,8 @@ class TestResolveDeviceWithEp:
         assert device == "gpu"
         assert available == ["gpu"]
 
-    def test_ep_filters_available_eps(self, caplog) -> None:
-        """ep='vitisai' filters available_eps; if EP isn't actually available,
-        no compatible EP remains, so the no-EPs warning fires."""
+    def test_ep_requested_but_not_available_raises(self) -> None:
+        """If the requested EP is known but not present on the system, raise."""
         with (
             patch(
                 "winml.modelkit.sysinfo.device._get_available_devices",
@@ -465,18 +464,16 @@ class TestResolveDeviceWithEp:
                     }
                 ),
             ),
-            caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.device"),
+            pytest.raises(
+                ValueError,
+                match="Requested EP 'vitisai' is not available on this system",
+            ),
         ):
-            # vitisai is not in the available set above; after filtering,
-            # available_eps becomes empty.
-            device, _ = resolve_device("auto", ep="vitisai")
-
-        assert device == "cpu"  # auto-fallback when no EP matches
-        assert any("No execution providers detected" in record.message for record in caplog.records)
+            resolve_device("auto", ep="vitisai")
 
     def test_ep_unknown_raises(self) -> None:
-        """Unknown ep short name raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown EP 'tpu'"):
+        """Unknown ep short name raises ValueError from resolve_device."""
+        with pytest.raises(ValueError, match=r"Unknown EP 'tpu'\. Expected one of:"):
             resolve_device("auto", ep="tpu")
 
     def test_ep_case_insensitive(self) -> None:

@@ -204,6 +204,12 @@ def resolve_device(
         if ep_full not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
         available_eps = available_eps & {ep_full}
+        if not available_eps:
+            raise ValueError(
+                f"Requested EP '{ep}' is not available on this system. "
+                f"Available EPs: {sorted(_get_available_eps())}."
+            )
+
         ep_compatible_devices = set(EP_SUPPORTED_DEVICES[ep_full])
         available_devices = [d for d in available_devices if d in ep_compatible_devices]
 
