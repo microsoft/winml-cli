@@ -93,11 +93,22 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
 
         io_config = getattr(self.model, "io_config", None) or {}
         input_shapes = io_config.get("input_shapes", [[]])
+        input_names = io_config.get("input_names", [])
         if input_shapes and len(input_shapes[0]) == 4:
             _, _, h, w = input_shapes[0]
-            pipe.image_processor.size = {"height": h, "width": w}
-            if hasattr(pipe.image_processor, "do_pad"):
-                pipe.image_processor.do_pad = False
+            if "pixel_mask" in input_names:
+                pipe.image_processor.size = {
+                    "shortest_edge": min(h, w),
+                    "longest_edge": max(h, w),
+                }
+                if hasattr(pipe.image_processor, "pad_size"):
+                    pipe.image_processor.pad_size = {"height": h, "width": w}
+                if hasattr(pipe.image_processor, "do_pad"):
+                    pipe.image_processor.do_pad = True
+            else:
+                pipe.image_processor.size = {"height": h, "width": w}
+                if hasattr(pipe.image_processor, "do_pad"):
+                    pipe.image_processor.do_pad = False
 
         return pipe
 

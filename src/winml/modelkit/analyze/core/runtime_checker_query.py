@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import onnx
-import onnxruntime as ort
 import pandas as pd
 from onnx import numpy_helper
 
@@ -1139,9 +1138,6 @@ class RuntimeCheckerQuery:
             return self._ep_available_locally
 
         from ... import winml
-
-        winml.register_execution_providers(ort=True)
-
         from ...utils.constants import DEVICE_TO_DEVICE_TYPE
 
         device_type_enum = DEVICE_TO_DEVICE_TYPE.get(self.device_type)
@@ -1150,7 +1146,7 @@ class RuntimeCheckerQuery:
             return False
 
         try:
-            ep_devices = ort.get_ep_devices()
+            ep_devices = winml.get_registered_ep_devices()
             self._ep_available_locally = any(
                 ep_dev.ep_name == self.ep_name and ep_dev.device.type == device_type_enum
                 for ep_dev in ep_devices

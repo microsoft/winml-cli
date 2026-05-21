@@ -23,14 +23,22 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+_DEVICE_TO_EPS = {
+    "npu": ["QNNExecutionProvider"],
+    "gpu": ["DmlExecutionProvider"],
+    "cpu": ["CPUExecutionProvider"],
+}
+
+
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device and WinMLEPRegistry to avoid hardware detection.
+    """Mock resolve_device / resolve_eps to avoid hardware detection.
 
-    The build command calls resolve_device() for I/O and (since #540)
-    WinMLEPRegistry.get_instance() for EP auto-selection when --ep is
-    not specified. Both must be mocked to avoid slow DLL scanning and
-    WinML SDK discovery on CI runners without WinML installed.
+    The build command calls resolve_device() / resolve_eps() to auto-select
+    an EP when ``--ep`` is not specified. Both must be mocked to avoid
+    slow DLL scanning and WinML SDK discovery on CI runners without WinML
+    installed. WinMLEPRegistry.get_instance is also patched defensively
+    for any downstream code path that may touch it.
     """
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = False
@@ -39,6 +47,10 @@ def mock_resolve_device():
         patch(
             "winml.modelkit.sysinfo.resolve_device",
             return_value=("npu", ["npu", "gpu", "cpu"]),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.resolve_eps",
+            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
@@ -483,7 +495,7 @@ class TestBuildFlagPassthrough:
         cfg = _make_minimal_config_file(tmp_path)
         result = _invoke([*self._base_args(cfg, tmp_path), "--device", "NPU"])
         assert result.exit_code == 0, result.output
-        assert mock_run_single_build.call_args.kwargs["device"] == "NPU"
+        assert mock_run_single_build.call_args.kwargs["device"] == "npu"
 
     def test_trust_remote_code_forwarded(self, tmp_path: Path, mock_run_single_build: MagicMock):
         """``--trust-remote-code`` is forwarded via ``extra_kwargs``."""
@@ -932,7 +944,195 @@ class TestBuildEpDevice:
             obj={"debug": False},
         )
         call_kwargs = mock_build_api.call_args.kwargs
-        assert call_kwargs["device"] == "NPU"
+        assert call_kwargs["device"] == "npu"
+
+
+# =============================================================================
+# EP AUTO-SELECTION TESTS
+# =============================================================================
+
+
+class TestBuildEpAutoSelection:
+    """Auto-select EP when --ep is omitted: resolve device -> first compatible EP.
+
+    The selection result depends on the host's available devices/EPs at runtime,
+    so resolve_device / resolve_eps are mocked to give the test a known surface.
+    Regression: hardcoded ``[QNN, OV, VitisAI]`` walk used to pick OpenVINO on a
+    GPU box if OV happened to be installed, leaving black nodes that blocked a
+    subsequent build for the actual device (issue #663).
+    """
+
+    def test_auto_selects_qnn_for_npu(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Default device=auto resolves to npu (per fixture) -> QNNExecutionProvider."""
+        from winml.modelkit.commands.build import build
+
+        result = runner.invoke(
+            build,
+            ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path)],
+            obj={"debug": False},
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "QNNExecutionProvider"
+
+    def test_auto_selects_dml_for_explicit_gpu(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``--device gpu`` (no --ep) -> resolve_device returns gpu -> Dml."""
+        from winml.modelkit.commands.build import build
+
+        with patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("gpu", ["gpu", "cpu"]),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    "test",
+                    "-o",
+                    str(tmp_path),
+                    "--device",
+                    "gpu",
+                ],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "DmlExecutionProvider"
+
+    def test_auto_selects_cpu_ep_for_explicit_cpu(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``--device cpu`` (no --ep) -> CPUExecutionProvider."""
+        from winml.modelkit.commands.build import build
+
+        with patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            return_value=("cpu", ["cpu"]),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    "test",
+                    "-o",
+                    str(tmp_path),
+                    "--device",
+                    "cpu",
+                ],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "CPUExecutionProvider"
+
+    def test_explicit_ep_bypasses_auto_selection(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """``--ep qnn`` keeps the user's choice even when device resolution would pick another."""
+        from winml.modelkit.commands.build import build
+
+        # resolve_device would point at gpu -> Dml, but --ep wins.
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("gpu", ["gpu", "cpu"]),
+            ),
+            patch("winml.modelkit.sysinfo.resolve_eps") as mock_resolve_eps,
+        ):
+            result = runner.invoke(
+                build,
+                ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path), "--ep", "qnn"],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "qnn"
+        mock_resolve_eps.assert_not_called()
+
+    def test_resolve_device_value_error_surfaces_as_usage_error(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """resolve_device raising (explicit device w/ no compatible EP) -> UsageError.
+
+        Uses default ``--device auto`` (no CLI flag) so the downstream
+        device-patch path isn't triggered; the only resolve_device call is
+        the one inside the auto-select block.
+        """
+        from winml.modelkit.commands.build import build
+
+        with patch(
+            "winml.modelkit.sysinfo.resolve_device",
+            side_effect=ValueError("simulated resolve_device failure"),
+        ):
+            result = runner.invoke(
+                build,
+                ["-c", str(sample_config_file), "-m", "test", "-o", str(tmp_path)],
+                obj={"debug": False},
+            )
+        assert result.exit_code != 0
+        assert "simulated resolve_device failure" in result.output
+        mock_build_api.assert_not_called()
+
+    def test_auto_selection_respects_resolve_eps_priority(
+        self,
+        runner: CliRunner,
+        sample_config_file: Path,
+        mock_build_api: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """First element of resolve_eps(resolved_device) is selected, not later ones."""
+        from winml.modelkit.commands.build import build
+
+        with (
+            patch(
+                "winml.modelkit.sysinfo.resolve_device",
+                return_value=("gpu", ["gpu", "cpu"]),
+            ),
+            patch(
+                "winml.modelkit.sysinfo.resolve_eps",
+                return_value=["DmlExecutionProvider", "OpenVINOExecutionProvider"],
+            ),
+        ):
+            result = runner.invoke(
+                build,
+                [
+                    "-c",
+                    str(sample_config_file),
+                    "-m",
+                    "test",
+                    "-o",
+                    str(tmp_path),
+                    "--device",
+                    "gpu",
+                ],
+                obj={"debug": False},
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_build_api.call_args.kwargs["ep"] == "DmlExecutionProvider"
 
 
 # =============================================================================

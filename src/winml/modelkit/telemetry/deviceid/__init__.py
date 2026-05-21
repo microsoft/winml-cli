@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Device ID: a stable SHA256-hashed UUID4 persisted per user."""
+"""Device ID: a stable CS 4.0 ``r:<uuid>`` localId persisted per user."""
 
 from .deviceid import IdStatus, get_or_create_device_id
 

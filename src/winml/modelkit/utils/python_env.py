@@ -48,7 +48,7 @@ def ensure_venv(
     Args:
         root_path: Parent directory for the virtual environment
         venv_name: Name of the virtual environment directory
-        python_version: Python version to use (e.g., "3.10")
+        python_version: Python version to use (e.g., "3.11")
         requirements: Optional list of package specs to install (e.g., ["numpy>=1.0", "onnx"])
 
     Returns:

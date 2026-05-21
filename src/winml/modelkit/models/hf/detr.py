@@ -16,14 +16,8 @@ Note:
 
 Image size:
     DETR's preprocessor uses shortest_edge=800. The export pipeline reads
-    this from preprocessor_config.json via _populate_image_size_from_preprocessor.
-
-ONNX export:
-    Optimum's built-in DETR/Table Transformer OnnxConfig exports only
-    ``pixel_values``. For non-square images this causes large accuracy
-    regressions because padded regions cannot be masked during inference.
-    This module registers an override that adds optional ``pixel_mask``
-    input and generates matching dummy input tensors during export.
+    this from preprocessor_config.json via _populate_image_size_from_preprocessor,
+    so no custom OnnxConfig is needed. Override via --shape-config if desired.
 
 Exports:
     DETR_CONFIG: WinMLBuildConfig with conv fusion flags
@@ -31,11 +25,7 @@ Exports:
 
 from __future__ import annotations
 
-from optimum.exporters.onnx.model_configs import DetrOnnxConfig, TableTransformerOnnxConfig
-from optimum.utils.input_generators import DummyVisionInputGenerator
-
 from ...config import WinMLBuildConfig
-from ...export import register_onnx_overwrite
 from ...optim import WinMLOptimizationConfig
 
 
@@ -48,69 +38,3 @@ DETR_CONFIG = WinMLBuildConfig(
         conv_add_fusion=True,
     ),
 )
-
-
-class _DetrPixelMaskMixin:
-    """Shared pixel_mask input override for DETR-family ONNX export configs."""
-
-    @property
-    def inputs(self) -> dict[str, dict[int, str]]:
-        """Return input tensors including optional pixel_mask."""
-        return {
-            "pixel_values": {0: "batch_size", 1: "num_channels", 2: "height", 3: "width"},
-            "pixel_mask": {0: "batch_size", 1: "height", 2: "width"},
-        }
-
-
-class PixelMaskInputGenerator(DummyVisionInputGenerator):
-    """Generate all-ones pixel masks with DETR-compatible int64 dtype."""
-
-    SUPPORTED_INPUT_NAMES = ("pixel_mask",)
-
-    def generate(
-        self,
-        input_name: str,
-        framework: str = "pt",
-        int_dtype: str = "int64",
-        float_dtype: str = "fp32",
-    ):
-        """Generate an all-ones int64 pixel mask for the current image batch."""
-        del input_name, float_dtype
-        return self.random_int_tensor(
-            shape=[self.batch_size, self.height, self.width],
-            min_value=1,
-            max_value=2,
-            framework=framework,
-            dtype=int_dtype,
-        )
-
-
-@register_onnx_overwrite(
-    "detr",
-    "feature-extraction",
-    "object-detection",
-    "image-segmentation",
-    library_name="transformers",
-)
-class DetrIOConfig(_DetrPixelMaskMixin, DetrOnnxConfig):
-    """DETR ONNX config override that adds optional pixel_mask input."""
-
-    DUMMY_INPUT_GENERATOR_CLASSES = (
-        PixelMaskInputGenerator,
-        *DetrOnnxConfig.DUMMY_INPUT_GENERATOR_CLASSES,
-    )
-
-
-@register_onnx_overwrite(
-    "table-transformer",
-    "feature-extraction",
-    "object-detection",
-    library_name="transformers",
-)
-class TableTransformerIOConfig(_DetrPixelMaskMixin, TableTransformerOnnxConfig):
-    """Table Transformer ONNX config override that adds optional pixel_mask input."""
-
-    DUMMY_INPUT_GENERATOR_CLASSES = (
-        PixelMaskInputGenerator,
-        *TableTransformerOnnxConfig.DUMMY_INPUT_GENERATOR_CLASSES,
-    )

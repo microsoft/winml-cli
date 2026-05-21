@@ -11,10 +11,8 @@ for object detection models that may have different input requirements.
 from __future__ import annotations
 
 import logging
-from random import Random
 from typing import Any
 
-from datasets import load_dataset
 from datasets.features import Image
 from transformers import AutoImageProcessor
 
@@ -97,35 +95,11 @@ class ObjectDetectionDataset(ImageDataset):
         if self._dataset_name is None:
             self._get_default_dataset()
 
-        # Load dataset
-        logger.info(
-            "Loading object detection dataset: %s with split: %s",
-            self._dataset_name,
-            self._data_split,
-        )
-        try:
-            dataset = load_dataset(self._dataset_name, split=self._data_split)
-        except Exception as e:
-            logger.error("Failed to load dataset %s: %s", self._dataset_name, e)
-            raise
+        # Load + sample (shared with ImageDataset)
+        dataset = self._load_and_sample()
 
         # Detect image column (object detection may not have simple ClassLabel)
         self._detect_image_column(dataset)
-
-        # Efficient sampling
-        shuffle = self._config.get("shuffle", False)
-        seed = self._config.get("seed", 42)
-
-        if self._max_samples is not None:
-            max_samples = min(self._max_samples, len(dataset))
-            indices = (
-                Random(seed).sample(range(len(dataset)), max_samples)
-                if shuffle
-                else list(range(max_samples))
-            )
-            dataset = dataset.select(indices)
-        elif shuffle:
-            dataset = dataset.shuffle(seed=seed)
 
         # Derive ONNX-aware overrides
         io_config = self._config.get("io_config")

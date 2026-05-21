@@ -45,7 +45,6 @@ TASK_DATASET_MAPPING = {
     "sentence-similarity": TextDataset,
     "next-sentence-prediction": TextDataset,
     "fill-mask": TextDataset,
-    "text2text-generation": TextDataset,
     "zero-shot-classification": TextDataset,
     "image-segmentation": ImageSegmentationDataset,
     "random": RandomDataset,

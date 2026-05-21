@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -25,6 +26,10 @@ from winml.modelkit.analyze import (
     analyze_onnx,
 )
 from winml.modelkit.optim import WinMLOptimizationConfig
+
+
+if TYPE_CHECKING:
+    from winml.modelkit.utils.constants import EPName
 
 
 # =============================================================================
@@ -56,7 +61,7 @@ def _make_lint_result(
 
 def _make_mock_output(
     *,
-    ep: str = "QNNExecutionProvider",
+    ep: EPName = "QNNExecutionProvider",
     ihv_type: IHVType = IHVType.QC,
     has_errors: bool = False,
     has_warnings: bool = False,
