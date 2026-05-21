@@ -195,12 +195,12 @@ class WinMLSession:
         """
         # If already compiled, ignore (idempotent)
         if self._session is not None:
-            logger.info("Already compiled for %s", self._device)
+            logger.debug("Already compiled for %s", self._device)
             return
 
         target_device = self._device
 
-        logger.info("Compiling for device: %s", target_device)
+        logger.debug("Compiling for device: %s", target_device)
 
         # Determine model path (original or EPContext)
         ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_{target_device}_ctx.onnx"
