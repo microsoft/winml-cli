@@ -44,7 +44,7 @@ MINIMAL_CATALOG = {
                 "cpu": ["CPU"],
                 "dml": ["GPU"],
                 "qnn": ["GPU", "NPU"],
-                "ov": ["CPU", "GPU", "NPU"],
+                "openvino": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -56,7 +56,7 @@ MINIMAL_CATALOG = {
                 "cpu": ["CPU"],
                 "dml": ["GPU"],
                 "qnn": ["GPU", "NPU"],
-                "ov": ["CPU", "GPU", "NPU"],
+                "openvino": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -68,7 +68,7 @@ MINIMAL_CATALOG = {
             "supported_eps": {
                 "cpu": ["CPU"],
                 "dml": ["GPU"],
-                "ov": ["CPU", "GPU", "NPU"],
+                "openvino": ["CPU", "GPU", "NPU"],
             },
         },
         {
@@ -317,11 +317,11 @@ def test_filter_by_ep_qnn_alias():
     assert all("qnn" in m["supported_eps"] for m in result)
 
 
-def test_filter_by_ep_ov_alias():
+def test_filter_by_ep_openvino_alias():
     # bert (x2) and detr have OV; clip does not
-    result = _filter_by_ep(MINIMAL_CATALOG["models"], "ov")
+    result = _filter_by_ep(MINIMAL_CATALOG["models"], "openvino")
     assert len(result) == 3
-    assert all("ov" in m["supported_eps"] for m in result)
+    assert all("openvino" in m["supported_eps"] for m in result)
 
 
 def test_filter_by_ep_vitisai_alias():
@@ -447,16 +447,16 @@ def test_make_ep_col_fn_for_device_header():
 
 
 def test_make_ep_col_fn_for_device_npu_all_eps():
-    """Model with QNN+OV shows both labels in supported_eps key order."""
+    """Model with QNN+OpenVINO shows both labels in supported_eps key order."""
     _, fn = _make_ep_col_fn_for_device("NPU")
-    bert = MINIMAL_CATALOG["models"][0]  # google-bert: qnn before ov in JSON
-    assert fn(bert) == "QNN / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # google-bert: qnn before openvino in JSON
+    assert fn(bert) == "QNN / OPENVINO"
 
 
-def test_make_ep_col_fn_for_device_npu_ov_only():
+def test_make_ep_col_fn_for_device_npu_openvino_only():
     _, fn = _make_ep_col_fn_for_device("NPU")
-    detr = MINIMAL_CATALOG["models"][2]  # ov only
-    assert fn(detr) == "OV"
+    detr = MINIMAL_CATALOG["models"][2]  # openvino only
+    assert fn(detr) == "OPENVINO"
 
 
 def test_make_ep_col_fn_for_device_npu_vitisai_only():
@@ -472,16 +472,16 @@ def test_make_ep_col_fn_for_device_cpu_always_present():
         assert "CPU" in fn(m)
 
 
-def test_make_ep_col_fn_for_device_cpu_ov_added_when_present():
+def test_make_ep_col_fn_for_device_cpu_openvino_added_when_present():
     _, fn = _make_ep_col_fn_for_device("CPU")
-    bert = MINIMAL_CATALOG["models"][0]  # has cpu + ov (both support CPU)
-    assert fn(bert) == "CPU / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # has cpu + openvino (both support CPU)
+    assert fn(bert) == "CPU / OPENVINO"
 
 
 def test_make_ep_col_fn_for_device_gpu_shows_all_gpu_eps():
     _, fn = _make_ep_col_fn_for_device("GPU")
-    bert = MINIMAL_CATALOG["models"][0]  # dml + qnn + ov all support GPU
-    assert fn(bert) == "DML / QNN / OV"
+    bert = MINIMAL_CATALOG["models"][0]  # dml + qnn + openvino all support GPU
+    assert fn(bert) == "DML / QNN / OPENVINO"
 
 
 def test_make_ep_col_fn_for_device_gpu_dml_always_present():
@@ -577,7 +577,7 @@ def test_device_filter_shows_correct_eps():
     _, fn = _make_ep_col_fn_for_device("NPU")
     wide.print(_build_list_renderable(MINIMAL_CATALOG["models"], ep_col_header="EPs", ep_col_fn=fn))
     rendered = buf.getvalue()
-    assert "QNN / OV" in rendered  # bert models (JSON key order: qnn before ov)
+    assert "QNN / OPENVINO" in rendered  # bert models (JSON key order: qnn before openvino)
     assert "VITISAI" in rendered  # clip model
 
 

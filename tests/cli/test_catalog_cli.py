@@ -322,8 +322,8 @@ class TestCatalogFilterEp:
         vitisai = _run_json(tmp_path / "vitisai.json", "--ep", "vitisai")
         assert 0 < len(vitisai) < len(all_models)
 
-    def test_ep_alias_ov_equals_openvino(self, tmp_path: Path) -> None:
-        ov = _run_json(tmp_path / "ov.json", "--ep", "ov")
+    def test_ep_alias_openvino_equals_openvinoexecutionprovider(self, tmp_path: Path) -> None:
+        ov = _run_json(tmp_path / "ov.json", "--ep", "openvinoexecutionprovider")
         openvino = _run_json(tmp_path / "openvino.json", "--ep", "openvino")
         assert _model_ids(ov) == _model_ids(openvino)
 

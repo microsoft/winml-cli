@@ -13,7 +13,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -33,7 +33,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -53,7 +53,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -76,7 +76,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -96,7 +96,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -116,7 +116,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -136,7 +136,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -159,7 +159,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -182,7 +182,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -204,7 +204,7 @@
         "qnn": [
           "GPU"
         ],
-        "ov": [
+        "openvino": [
           "GPU",
           "NPU"
         ],
@@ -226,7 +226,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -246,7 +246,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -266,7 +266,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -285,7 +285,7 @@
         "qnn": [
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -308,7 +308,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -331,7 +331,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -354,7 +354,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "NPU"
         ],
@@ -376,7 +376,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -399,7 +399,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -422,7 +422,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -442,7 +442,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -462,7 +462,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -485,7 +485,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "NPU"
         ]
@@ -504,7 +504,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -527,7 +527,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "NPU"
         ],
@@ -549,7 +549,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -572,7 +572,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -591,7 +591,7 @@
         "qnn": [
           "GPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -614,7 +614,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -636,7 +636,7 @@
         "qnn": [
           "GPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -659,7 +659,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -682,7 +682,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -705,7 +705,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -728,7 +728,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "NPU"
         ],
@@ -750,7 +750,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "NPU"
         ],
@@ -772,7 +772,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -795,7 +795,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -818,7 +818,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -841,7 +841,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -864,7 +864,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -884,7 +884,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -907,7 +907,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -930,7 +930,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -953,7 +953,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -976,7 +976,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -996,7 +996,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1019,7 +1019,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1039,7 +1039,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1062,7 +1062,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1085,7 +1085,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1105,7 +1105,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1128,7 +1128,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1151,7 +1151,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1174,7 +1174,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1194,7 +1194,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1214,7 +1214,7 @@
           "GPU",
           "NPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
@@ -1236,7 +1236,7 @@
         "qnn": [
           "GPU"
         ],
-        "ov": [
+        "openvino": [
           "CPU",
           "GPU",
           "NPU"
