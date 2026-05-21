@@ -48,7 +48,8 @@ console = Console()
     "-p",
     type=str,
     default=None,
-    help="Quantization precision: int8, int16, or w{x}a{y} (e.g., w8a16). "
+    help="Quantization precision. Accepted: auto, int8, int16, or w{x}a{y} "
+    "where x,y in {8,16} (e.g., w8a8, w8a16, w16a16). "
     "Overridden by explicit --weight-type/--activation-type.",
 )
 @click.option(
@@ -192,6 +193,7 @@ def quantize(
     # Show info
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Output:[/bold blue] {output}")
+    console.print(f"[bold blue]Precision:[/bold blue] {precision or 'auto'}")
     console.print(f"[bold blue]Weight type:[/bold blue] {resolved_weight}")
     console.print(f"[bold blue]Activation type:[/bold blue] {resolved_activation}")
     console.print(f"[bold blue]Samples:[/bold blue] {samples}")
@@ -263,7 +265,8 @@ def _resolve_quant_types(
     else:
         raise click.BadParameter(
             f"'{precision}' is not a supported quantization precision. "
-            "See `winml quantize --help` for details.",
+            "Accepted: auto, int8, int16, or w{x}a{y} with x,y in {8,16} "
+            "(e.g., w8a8, w8a16, w16a16).",
             param_hint="'-p' / '--precision'",
         )
 

@@ -78,7 +78,8 @@ class ImageDataset(BaseTaskDataset):
 
         if streaming:
             # Streaming datasets aren't indexable: shuffle reservoir-samples
-            # within a buffer; take() pulls only the slice we need.
+            # within a buffer; take() pulls only the slice we need. Keep the
+            # 1000-item reservoir for class diversity on class-ordered streams.
             if shuffle:
                 dataset = dataset.shuffle(seed=seed, buffer_size=1000)
             dataset = dataset.take(self._max_samples)
