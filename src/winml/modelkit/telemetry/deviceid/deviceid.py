@@ -3,17 +3,18 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
-"""Stable-per-device ID used as the telemetry device_id.
+r"""Stable-per-device ID used as the telemetry device_id.
 
-Derived from a random UUID4, hashed with SHA256, and persisted so the same
-machine reports the same id across sessions. Users can reset by removing the
-stored value (registry on Windows, state file elsewhere).
+A random UUID4 in CS 4.0 ``ext.device.localId`` form (``r:<canonical-uuid>``,
+where ``r`` is the random scope). Persisted so the same machine reports the
+same id across sessions. Users can reset by removing the stored value
+(``HKCU\SOFTWARE\Microsoft\DeveloperTools\.modelkit``).
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
+import re
 import uuid
 from enum import Enum
 
@@ -22,6 +23,11 @@ from . import _store
 
 _LOGGER = logging.getLogger(__name__)
 _STORAGE_KEY = "deviceid"
+# OneCollector rejects any localId that isn't <scope>:<canonical-uuid>; the
+# 'r' (random) scope is what we generate. Stored values that don't match
+# (e.g. SHA256 hex digests written by releases <= 0.0.4) are treated as
+# absent and regenerated — see issue #691.
+_LOCAL_ID_RE = re.compile(r"^r:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class IdStatus(str, Enum):
@@ -50,17 +56,13 @@ def get_or_create_device_id() -> tuple[str, IdStatus]:
         _LOGGER.debug("deviceid read failed", exc_info=True)
         existing = None
 
-    if existing:
+    if existing and _LOCAL_ID_RE.match(existing):
         return existing, IdStatus.EXISTING
 
-    new_id = _hash_uuid(uuid.uuid4())
+    new_id = f"r:{uuid.uuid4()}"
     try:
         _store.write_key(_STORAGE_KEY, new_id)
     except Exception:
         _LOGGER.debug("deviceid write failed", exc_info=True)
         return "", IdStatus.FAILED
     return new_id, IdStatus.NEW
-
-
-def _hash_uuid(value: uuid.UUID) -> str:
-    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
