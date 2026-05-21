@@ -14,7 +14,6 @@ same id across sessions. Users can reset by removing the stored value
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from enum import Enum
 
@@ -22,12 +21,11 @@ from . import _store
 
 
 _LOGGER = logging.getLogger(__name__)
-_STORAGE_KEY = "deviceid"
-# OneCollector rejects any localId that isn't <scope>:<canonical-uuid>; the
-# 'r' (random) scope is what we generate. Stored values that don't match
-# (e.g. SHA256 hex digests written by releases <= 0.0.4) are treated as
-# absent and regenerated — see issue #691.
-_LOCAL_ID_RE = re.compile(r"^r:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+# Renamed from the prior "deviceid" key in 0.0.5 — releases <= 0.0.4 wrote a
+# SHA256 hex digest under "deviceid" that OneCollector rejects (see #691).
+# New code reads/writes a different key so the legacy value is invisible
+# instead of needing runtime validation. The orphan REG_SZ is harmless.
+_STORAGE_KEY = "device_id"
 
 
 class IdStatus(str, Enum):
@@ -56,7 +54,7 @@ def get_or_create_device_id() -> tuple[str, IdStatus]:
         _LOGGER.debug("deviceid read failed", exc_info=True)
         existing = None
 
-    if existing and _LOCAL_ID_RE.match(existing):
+    if existing:
         return existing, IdStatus.EXISTING
 
     new_id = f"r:{uuid.uuid4()}"

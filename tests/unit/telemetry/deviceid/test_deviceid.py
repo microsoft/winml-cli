@@ -57,16 +57,19 @@ def test_storage_read_failure_falls_through_to_new(isolated_store, monkeypatch):
     assert _RANDOM_LOCAL_ID_RE.match(device_id)
 
 
-def test_legacy_sha256_hex_value_is_regenerated(isolated_store):
-    # Earlier releases stored a 64-char SHA256 hex digest. OneCollector
-    # rejects every event whose ext.device.localId isn't <scope>:<uuid>,
-    # so legacy values must be replaced — there's no continuity to preserve.
+def test_legacy_deviceid_key_is_ignored(isolated_store):
+    # Releases <= 0.0.4 wrote a 64-char SHA256 hex digest under the
+    # legacy "deviceid" key. The new key name ("device_id") sidesteps it
+    # entirely — first read sees nothing, so we generate a fresh value
+    # in the CS 4.0 format. The legacy REG_SZ stays as a harmless orphan.
     legacy_hex = "a" * 64
     _store.write_key("deviceid", legacy_hex)
     device_id, status = get_or_create_device_id()
     assert status is IdStatus.NEW
     assert _RANDOM_LOCAL_ID_RE.match(device_id)
     assert device_id != legacy_hex
+    # Legacy key untouched.
+    assert _store.read_key("deviceid") == legacy_hex
     # Replacement is persisted so the next call returns EXISTING.
     second_id, second_status = get_or_create_device_id()
     assert second_status is IdStatus.EXISTING
