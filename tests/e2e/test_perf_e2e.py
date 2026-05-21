@@ -54,7 +54,7 @@ pytestmark = [pytest.mark.e2e]
 
 CPU_EPS = ("cpu", "openvino")
 NPU_EPS = ("qnn", "vitisai", "openvino")
-GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino")
+GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino", "qnn")
 NON_CPU_EPS = ("qnn", "vitisai", "dml", "nv_tensorrt_rtx", "migraphx")
 
 
@@ -538,7 +538,7 @@ class TestPerfModule:
 
     def test_module_benchmark_cpu(self, tmp_path: Path):
         """Per-module benchmark on CPU for ResNetStage submodules of resnet-50."""
-        output_file = tmp_path / "perf_module.json"
+        output_file = tmp_path / "perf_module_cpu.json"
 
         runner = CliRunner()
         result = runner.invoke(
@@ -546,6 +546,7 @@ class TestPerfModule:
             _build_perf_args(
                 model_arg="microsoft/resnet-50",
                 output_file=output_file,
+                ep="cpu",
                 device="cpu",
                 module="ResNetStage",
             ),
