@@ -165,6 +165,7 @@ def _build_analysis_table(
     ep_device_pair_display_name: str | None = None,
     complete: bool = False,
     all_ops: dict[str, int] | None = None,
+    op_check_skipped: bool = False,
 ) -> Table:
     """Build the analysis table with variable-width stacked bars.
 
@@ -175,7 +176,30 @@ def _build_analysis_table(
           ep_device_pair_display_name: EP/device display label for title
         complete: Show complete marker
         all_ops: All op types with total counts (for showing pending rows)
+        op_check_skipped: If True, render a title-only table (no rows/columns)
     """
+    title = "📊 OP CHECK"
+    if ep_device_pair_display_name:
+        title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
+
+    if op_check_skipped:
+        title += "  Skipped - no rule data"
+    elif complete:
+        title += "  [bold green]✅ Complete[/bold green]"
+
+    if op_check_skipped:
+        table = Table(
+            title=title,
+            show_header=False,
+            header_style="bold",
+            box=None,
+            padding=(0, 1),
+            expand=False,
+            width=80,
+        )
+        table.add_column("")
+        return table
+
     # Build display order: all_ops sorted by count, or just data if no all_ops
     if all_ops:
         display_order = sorted(all_ops, key=lambda x: all_ops[x], reverse=True)
@@ -187,12 +211,6 @@ def _build_analysis_table(
         max_count = max(all_ops.values(), default=1)
     else:
         max_count = max((sum(v.values()) for v in data.values()), default=1)
-
-    title = "📊 OP CHECK"
-    if ep_device_pair_display_name:
-        title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
-    if complete:
-        title += "  [bold green]✅ Complete[/bold green]"
 
     table = Table(
         title=title,
@@ -284,9 +302,6 @@ _SUPPORT_LEVEL_TO_SHORT = {
 
 _PAT_COLORS = {"s": "green", "p": "yellow", "u": "red", "uk": "bright_black"}
 
-_HINT_LOCAL_MACHINE_NOT_SUPPORTED = "local machine not supported"
-_HINT_NO_RULE_DATA = "no rule data"
-
 
 def _render_pattern_matching(
     console: Console,
@@ -358,7 +373,6 @@ def _render_analysis_summary(
     ep: EPNameOrAlias | Literal["all", "auto"] | None = None,
     device: str | None = None,
     no_data_eps: set[tuple[str, str]] | None = None,
-    pair_hints: dict[tuple[str, str], list[str]] | None = None,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -398,11 +412,8 @@ def _render_analysis_summary(
         device_name = (ep_support.device_type or device or "").upper()
         ep_device_pair = (ep_name, device_name)
         ep_label = (
-            ep_name
-            if not device_name
-            else _ep_name_device_display_name(ep_name, device_name)
+            ep_name if not device_name else _ep_name_device_display_name(ep_name, device_name)
         )
-        hints_for_ep = (pair_hints or {}).get(ep_device_pair, [])
 
         # Aggregate instance counts for this EP.
         ep_data = ep_instance_counts.get(ep_device_pair)
@@ -410,8 +421,7 @@ def _render_analysis_summary(
             ep_data = {}
         has_instance_data = any(
             sum(
-                counts.get(level, 0)
-                for level in ("supported", "partial", "unsupported", "unknown")
+                counts.get(level, 0) for level in ("supported", "partial", "unsupported", "unknown")
             )
             > 0
             for counts in ep_data.values()
@@ -422,11 +432,6 @@ def _render_analysis_summary(
         if no_data_eps and ep_device_pair in no_data_eps and not has_instance_data:
             patterns = (ep_patterns or {}).get(ep_name, {})
             console.print(f"   🔵 [bold bright_black]{ep_label}[/bold bright_black]:")
-            for hint in hints_for_ep:
-                hint_style = (
-                    "yellow" if hint == _HINT_LOCAL_MACHINE_NOT_SUPPORTED else "dim"
-                )
-                console.print(f"      [{hint_style}]Hint: {hint}[/{hint_style}]")
             if patterns:
                 console.print("      [dim]Op check skipped — no rule data[/dim]")
                 for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
@@ -461,9 +466,6 @@ def _render_analysis_summary(
         analyzed = _build_analyzed_text(agg)
         console.print(f"   {icon} [{ep_style}]{ep_label}[/{ep_style}]: ", end="")
         console.print(analyzed)
-        for hint in hints_for_ep:
-            hint_style = "yellow" if hint == _HINT_LOCAL_MACHINE_NOT_SUPPORTED else "dim"
-            console.print(f"      [{hint_style}]Hint: {hint}[/{hint_style}]")
 
         # List ops by non-white support level
         classification = ep_support.classification
@@ -717,196 +719,50 @@ def analyze(
             has_rule_data_for_ep,
         )
 
-        ep_raw = (ep or "auto").strip()
-        device_raw = (device or "auto").strip()
+        if device == "auto":
+            from ..sysinfo.device import _get_available_devices
 
-        ep_mode_key = ep_raw.lower()
-        device_mode_key = device_raw.lower()
+            devices = _get_available_devices()
+        elif device == "all":
+            devices = SUPPORTED_DEVICES
+        else:
+            devices = [device]
+        devices = sorted(d.upper() for d in devices)
 
-        ep_mode = "auto"
-        ep_filter: EPName | None = None
-        if ep_mode_key == "all":
-            ep_mode = "all"
-        elif ep_mode_key != "auto":
-            ep_mode = "specific"
-            ep_filter = normalize_ep_name(ep_raw)
+        if ep == "auto":
+            from ..sysinfo.device import _get_available_eps
 
-        device_mode = "auto"
-        device_filter: str | None = None
-        if device_mode_key == "all":
-            device_mode = "all"
-        elif device_mode_key != "auto":
-            device_mode = "specific"
-            device_filter = device_raw.upper()
+            eps = _get_available_eps()
+        elif ep == "all":
+            eps = SUPPORTED_EPS
+        else:
+            # ep is a specific EP or alias
+            eps = [normalize_ep_name(ep)]
 
-        local_pairs = _sort_ep_device_pairs(_get_local_ep_device_pairs())
-        local_pair_set = set(local_pairs)
-        rule_pairs: set[tuple[EPName, str]] = {
+        execution_pairs = [
             (candidate_ep, candidate_device)
-            for candidate_ep in SUPPORTED_EPS
-            for candidate_device in SUPPORTED_DEVICES
-            if has_rule_data_for_ep(candidate_ep, candidate_device)
-        }
-        local_rule_pairs = _sort_ep_device_pairs(set(local_pairs) & rule_pairs)
-        if not local_rule_pairs and not local_pairs:
-            # Fallback when local capability probing is unavailable.
-            local_rule_pairs = _sort_ep_device_pairs(rule_pairs)
+            for candidate_ep in eps
+            for candidate_device in devices
+            if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
+        ]
 
-        execution_pairs: list[tuple[EPName, str]] = []
+        print(
+            f"Candidate EPs: {eps}"
+            f"\nCandidate devices: {devices}"
+            f"\nCandidate EP/device pairs before local filtering: {execution_pairs}"
+        )
 
-        def _rule_pairs_for_ep(target_ep: EPName) -> list[tuple[EPName, str]]:
-            return _sort_ep_device_pairs(
-                {
-                    (target_ep, candidate_device)
-                    for candidate_device in SUPPORTED_DEVICES
-                    if (target_ep, candidate_device) in rule_pairs
-                }
-            )
+        local_pairs = set(_get_local_ep_device_pairs())
+        print(f"Locally available EP/device pairs: {local_pairs}")
 
-        if ep_mode == "auto" and device_mode == "auto":
-            execution_pairs = list(local_rule_pairs)
-        elif ep_mode == "specific" and device_mode == "auto":
-            assert ep_filter is not None
-            local_for_ep: list[tuple[EPName, str]] = [
-                (candidate_ep, candidate_device)
-                for candidate_ep, candidate_device in local_pairs
-                if candidate_ep == ep_filter
-            ]
-            if not local_for_ep:
-                logger.error("Local machine does not support %s with --device auto.", ep_filter)
-                logger.error(
-                    "Try --device all to analyze all rule-data-backed targets for %s.",
-                    ep_filter,
-                )
-                sys.exit(2)
-
-            execution_pairs = _sort_ep_device_pairs(
-                {
-                    (candidate_ep, candidate_device)
-                    for candidate_ep, candidate_device in local_for_ep
-                    if (candidate_ep, candidate_device) in rule_pairs
-                }
-            )
-            if not execution_pairs:
-                if run_unknown_op:
-                    execution_pairs = _sort_ep_device_pairs(set(local_for_ep))
-                else:
-                    logger.error("No rule data found for %s on local available devices.", ep_filter)
-                    logger.error(
-                        "Try --run-unknown-op to probe unsupported/unknown operators "
-                        "on local runtime."
-                    )
-                    sys.exit(2)
-        elif ep_mode == "specific" and device_mode == "all":
-            assert ep_filter is not None
-            execution_pairs = _rule_pairs_for_ep(ep_filter)
-            if not execution_pairs:
-                logger.error("No rule data found for %s.", ep_filter)
-                logger.error(
-                    "Try --run-unknown-op to probe unsupported/unknown operators on local runtime."
-                )
-                sys.exit(2)
-        elif ep_mode == "specific" and device_mode == "specific":
-            assert ep_filter is not None
-            assert device_filter is not None
-            requested_pair = (ep_filter, device_filter)
-            if requested_pair in rule_pairs or run_unknown_op:
-                execution_pairs = [requested_pair]
-            else:
-                logger.error("No rule data found for %s on %s.", ep_filter, device_filter)
-                logger.error(
-                    "Try --run-unknown-op to probe unsupported/unknown operators on local runtime."
-                )
-                sys.exit(2)
-        elif ep_mode == "all" and device_mode == "all":
-            execution_pairs = _sort_ep_device_pairs(rule_pairs)
-        elif ep_mode == "all" and device_mode == "specific":
-            assert device_filter is not None
-            execution_pairs = _sort_ep_device_pairs(
-                {
-                    (candidate_ep, device_filter)
-                    for candidate_ep in SUPPORTED_EPS
-                    if (candidate_ep, device_filter) in rule_pairs
-                }
-            )
-        elif ep_mode == "all" and device_mode == "auto":
-            execution_pairs = list(local_rule_pairs)
-        elif ep_mode == "auto" and device_mode == "specific":
-            assert device_filter is not None
-            execution_pairs = _sort_ep_device_pairs(
-                {
-                    (candidate_ep, candidate_device)
-                    for candidate_ep, candidate_device in local_rule_pairs
-                    if candidate_device == device_filter
-                }
-            )
-            if not execution_pairs:
-                local_for_device: list[tuple[EPName, str]] = [
-                    (candidate_ep, candidate_device)
-                    for candidate_ep, candidate_device in local_pairs
-                    if candidate_device == device_filter
-                ]
-                if local_for_device:
-                    if run_unknown_op:
-                        execution_pairs = _sort_ep_device_pairs(set(local_for_device))
-                    else:
-                        logger.error(
-                            "No rule data found for any EP on %s in local available targets.",
-                            device_filter,
-                        )
-                        logger.error(
-                            "Try --run-unknown-op to probe unsupported/unknown operators "
-                            "on local runtime."
-                        )
-                        sys.exit(2)
-
-                if not execution_pairs:
-                    rule_for_device = _sort_ep_device_pairs(
-                        {
-                            (candidate_ep, candidate_device)
-                            for candidate_ep, candidate_device in rule_pairs
-                            if candidate_device == device_filter
-                        }
-                    )
-                    if rule_for_device:
-                        logger.error(
-                            "Local machine does not support --device %s with --ep auto.",
-                            device_filter,
-                        )
-                        logger.error(
-                            "Try --device all to analyze all rule-data-backed targets "
-                            "on local runtime."
-                        )
-                        sys.exit(2)
-        elif ep_mode == "auto" and device_mode == "all":
-            execution_pairs = list(local_rule_pairs)
+        if device == "auto" or ep == "auto":
+            execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
 
         if not execution_pairs:
             logger.error("No EP/device combination matched the current selection.")
-            logger.error(
-                "Try --run-unknown-op to probe unsupported/unknown operators on local runtime."
-            )
             sys.exit(2)
 
-        pair_hints: dict[tuple[str, str], list[str]] = {}
-        for target_ep, target_device in execution_pairs:
-            hints: list[str] = []
-            if (target_ep, target_device) not in local_pair_set:
-                hints.append(_HINT_LOCAL_MACHINE_NOT_SUPPORTED)
-            if (target_ep, target_device) not in rule_pairs:
-                hints.append(_HINT_NO_RULE_DATA)
-            if hints:
-                pair_hints[(target_ep, target_device)] = hints
-
-        if len(execution_pairs) == 1:
-            ep_label = execution_pairs[0][0]
-            device_label = execution_pairs[0][1]
-        else:
-            ep_label = "all"
-            device_label = "all"
-
         logger.info("Analyzing model: %s", model)
-        logger.info("Target: %s on %s", ep_label, device_label)
         logger.info(
             "Local targets: %s",
             ", ".join(
@@ -953,17 +809,12 @@ def analyze(
                     f"   📋 Operators: [cyan]{_total_ops}[/cyan] total, "
                     f"[cyan]{_unique_ops}[/cyan] unique types"
                 )
-                console.print(
-                    f"   🎯 Target: [bold]{ep_label}[/bold] on [bold]{device_label}[/bold]"
-                )
                 if len(execution_pairs) > 1:
                     execution_labels = ", ".join(
                         _ep_name_device_display_name(target_ep, target_device)
                         for target_ep, target_device in execution_pairs
                     )
-                    console.print(
-                        f"   🎯 Execution targets: [cyan]{execution_labels}[/cyan]"
-                    )
+                    console.print(f"   🎯 Analysis targets: [cyan]{execution_labels}[/cyan]")
                 console.print()
                 del _proto  # free memory
             except Exception:
@@ -983,6 +834,7 @@ def analyze(
         _no_data_eps: set[tuple[str, str]] = set()  # EP/device pairs with no op rule data
         analysis_results: list = []
         current_run_unknown_op = False
+        current_op_check_skipped = False
 
         def _current_ep_device_pair_display_name() -> str:
             """Return current EP/device display label, or empty when unset."""
@@ -1018,6 +870,7 @@ def analyze(
                                 ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                                 complete=True,
                                 all_ops=all_op_counts,
+                                op_check_skipped=current_op_check_skipped,
                             )
                         )
                     except Exception:
@@ -1043,6 +896,7 @@ def analyze(
                             ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                             complete=True,
                             all_ops=all_op_counts,
+                            op_check_skipped=current_op_check_skipped,
                         )
                     )
             except Exception:
@@ -1056,7 +910,7 @@ def analyze(
             nonlocal current_ep_device_pair
             nonlocal instance_counts, all_op_counts, ep_counter, live
             nonlocal unknown_op_progress, unknown_op_task_id, unknown_op_total_nodes
-            nonlocal current_run_unknown_op
+            nonlocal current_run_unknown_op, current_op_check_skipped
 
             # Finalize previous EP's Live display
             if current_ep_device_pair is not None:
@@ -1069,10 +923,13 @@ def analyze(
             all_op_counts = {_display_name(k): v for k, v in operator_counts.items()}
             instance_counts = {}
 
+            has_rule_data = has_rule_data_for_ep(ep_name, current_device)
+            current_op_check_skipped = not has_rule_data and not current_run_unknown_op
+
             # Skip OP CHECK display for EPs with no rule data —
             # op results would all be 0/0/0 (unknown). Pattern detection
             # still runs; results appear in the ANALYSIS SUMMARY.
-            if not has_rule_data_for_ep(ep_name, current_device):
+            if not has_rule_data:
                 _no_data_eps.add((ep_name, current_device))
 
                 if current_run_unknown_op:
@@ -1103,7 +960,7 @@ def analyze(
                         "unknown-op",
                         total=max(1, unknown_op_total_nodes),
                     )
-                return
+                    return
 
             ep_counter += 1
 
@@ -1121,6 +978,7 @@ def analyze(
                     instance_counts,
                     ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                     all_ops=all_op_counts,
+                    op_check_skipped=current_op_check_skipped,
                 ),
                 console=console,
                 refresh_per_second=30,
@@ -1140,6 +998,7 @@ def analyze(
                         instance_counts,
                         ep_device_pair_display_name=_current_ep_device_pair_display_name(),
                         all_ops=all_op_counts,
+                        op_check_skipped=current_op_check_skipped,
                     )
                 )
 
@@ -1209,7 +1068,6 @@ def analyze(
                         ep=target_ep,
                         device=target_device,
                         no_data_eps=_no_data_eps,
-                        pair_hints=pair_hints,
                     )
 
                     # Legend (at the very bottom, only when there are EP results)
