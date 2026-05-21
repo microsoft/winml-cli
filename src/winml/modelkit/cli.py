@@ -204,6 +204,39 @@ class LazyGroup(ActionGroup):
                 discovered = attr
         return discovered
 
+    def resolve_command(
+        self,
+        ctx: click.Context,
+        args: list[str],
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        """Resolve subcommand; append a did-you-mean hint on unknown names.
+
+        Click's default ``No such command 'X'.`` is unhelpful on typos. Mirror
+        the UX of ``git``/``gh``/``cargo``/``kubectl`` by computing the closest
+        known command name with :func:`difflib.get_close_matches` and rewriting
+        the error message in-place. When no close match exists, the original
+        error is re-raised untouched (issue #508).
+        """
+        try:
+            return super().resolve_command(ctx, args)
+        except click.exceptions.UsageError as exc:
+            bad = args[0] if args else ""
+            if (
+                bad
+                and exc.message
+                and f"No such command '{bad}'" in exc.message
+            ):
+                known_commands = self.list_commands(ctx)
+                if bad not in known_commands:
+                    import difflib
+                    matches = difflib.get_close_matches(bad, known_commands, n=1)
+                    if matches:
+                        exc.message = (
+                            f"No such command '{bad}'. "
+                            f"Did you mean '{matches[0]}'?"
+                        )
+            raise
+
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Emit banner to stderr, then delegate to normal help formatting."""
         _print_banner(__version__)
