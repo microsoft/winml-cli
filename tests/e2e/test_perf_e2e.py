@@ -173,7 +173,7 @@ class _PerfBenchmarkSuite:
         Uses --device cpu --iterations 3 --warmup 1 for speed.
         Verifies JSON output file is created with expected schema.
         """
-        output_file = tmp_path / "perf_result.json"
+        output_file = tmp_path / "perf_cpu.json"
 
         runner = CliRunner()
         result = runner.invoke(
@@ -219,7 +219,7 @@ class _PerfBenchmarkSuite:
 
     def test_benchmark_cpu_verbose(self, tmp_path: Path, model_arg: str):
         """Benchmark with --verbose should succeed and show debug output."""
-        output_file = tmp_path / "verbose_result.json"
+        output_file = tmp_path / "perf_cpu_verbose.json"
 
         runner = CliRunner()
         result = runner.invoke(
@@ -455,21 +455,19 @@ class TestPerfHuggingFace:
     def model_arg(self) -> str:
         return "microsoft/resnet-50"
 
-    @pytest.mark.parametrize("ep", NPU_EPS)
-    def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
-        """Benchmark with --ep vitisai.
-
-        Skipped if VitisAIExecutionProvider is not available on the host.
+    @pytest.mark.parametrize("ep", CPU_EPS)
+    def test_benchmark_ep_cpu(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep>.
         """
-        require_ep("vitisai")
+        require_ep(ep)
 
-        output_file = tmp_path / "perf_vitisai.json"
+        output_file = tmp_path / f"perf_hf_{ep}_cpu.json"
 
         runner = CliRunner()
         result = runner.invoke(
             perf,
             _build_perf_args(
-                model_arg=model_arg, output_file=output_file, ep="vitisai", monitor=True
+                model_arg=model_arg, output_file=output_file, device="cpu", ep=ep, monitor=True
             ),
             obj={},
             catch_exceptions=False,
@@ -478,7 +476,55 @@ class TestPerfHuggingFace:
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
-        assert data["benchmark_info"]["ep"] == "VitisAIExecutionProvider"
+        assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
+        _assert_monitor_result(data, device="cpu")
+
+    @pytest.mark.parametrize("ep", GPU_EPS)
+    def test_benchmark_ep_gpu(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep>.
+        """
+        require_ep(ep)
+
+        output_file = tmp_path / f"perf_hf_{ep}_gpu.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="gpu", ep=ep, monitor=True
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
+        _assert_monitor_result(data, device="gpu")
+
+    @pytest.mark.parametrize("ep", NPU_EPS)
+    def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep <ep>.
+        """
+        require_ep(ep)
+
+        output_file = tmp_path / f"perf_hf_{ep}_npu.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["ep"] == EP_ALIASES[ep]
         _assert_monitor_result(data, device="npu")
 
 
