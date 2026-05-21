@@ -85,12 +85,57 @@ def _assert_hw_monitor_section(data: dict, device_kind: str) -> None:
     """
     assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
     hw = data["hw_monitor"]
-    assert hw["device_kind"] == device_kind
-    assert hw["adapter_luid"] is not None
-    assert hw[device_kind]["mean_pct"] > 0
+    if device_kind == "cpu":
+        # For CPU, device_kind is None and adapter_luid is None
+        assert hw["device_kind"] is None
+        assert hw["adapter_luid"] is None
+    else:
+        assert hw["device_kind"] == device_kind
+        assert hw["adapter_luid"] is not None
+        assert hw[device_kind]["mean_pct"] > 0
 
 
-def _assert_monitor_result(data: dict, *, device: str, device_kind: str | None = None) -> None:
+def _build_perf_args(
+    *,
+    model_arg: str,
+    output_file: Path,
+    device: str | None = None,
+    ep: str | None = None,
+    module: str | None = None,
+    monitor: bool = False,
+    verbose: bool = False,
+) -> list[str]:
+    """Build the argv list passed to the perf CLI.
+
+    Iterations are fixed by ``monitor``: 300 when monitoring (HWMonitor needs
+    enough samples to observe utilization) and 3 otherwise (kept tiny for
+    e2e speed). Warmup is always 1.
+    """
+    iterations = 300 if monitor else 3
+    args: list[str] = [
+        "-m",
+        model_arg,
+        "--iterations",
+        str(iterations),
+        "--warmup",
+        "1",
+        "-o",
+        str(output_file),
+    ]
+    if device is not None:
+        args += ["--device", device]
+    if ep is not None:
+        args += ["--ep", ep]
+    if module is not None:
+        args += ["--module", module]
+    if monitor:
+        args.append("--monitor")
+    if verbose:
+        args.append("--verbose")
+    return args
+
+
+def _assert_monitor_result(data: dict, *, device: str, device_kind: str | None = None, ep: str | None = None) -> None:
     """Assert a monitored perf run produced the expected device + hw_monitor data.
 
     Verifies the resolved ``device`` in ``benchmark_info``, that latency was
@@ -103,6 +148,8 @@ def _assert_monitor_result(data: dict, *, device: str, device_kind: str | None =
         device_kind = device
     assert data["benchmark_info"]["device"] == device
     assert data["latency_ms"]["mean"] > 0
+    if ep is not None:
+        assert data["benchmark_info"]["ep"] == ep
     _assert_hw_monitor_section(data, device_kind)
 
 
@@ -129,18 +176,7 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "cpu",
-                "--iterations",
-                "3",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-            ],
+            _build_perf_args(model_arg=model_arg, output_file=output_file, device="cpu"),
             obj={},
             catch_exceptions=False,
         )
@@ -186,19 +222,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "cpu",
-                "--iterations",
-                "2",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-                "--verbose",
-            ],
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", verbose=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -218,19 +244,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "cpu",
-                "--iterations",
-                "100",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-                "--monitor",
-            ],
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="cpu", monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -238,12 +254,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-        assert data["benchmark_info"]["device"] == "cpu"
-        assert data["latency_ms"]["mean"] > 0
-        assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
-        hw = data["hw_monitor"]
-        assert hw["device_kind"] is None
-        assert hw["adapter_luid"] is None
+        _assert_monitor_result(data, device="cpu")
 
     def test_benchmark_gpu_monitor(self, tmp_path: Path, model_arg: str):
         """Benchmark on GPU with --monitor.
@@ -258,19 +269,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "gpu",
-                "--iterations",
-                "100",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-                "--monitor",
-            ],
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="gpu", monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -293,19 +294,9 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "npu",
-                "--iterations",
-                "100",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-                "--monitor",
-            ],
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, device="npu", monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -326,18 +317,7 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "auto",
-                "--iterations",
-                "3",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-            ],
+            _build_perf_args(model_arg=model_arg, output_file=output_file, device="auto"),
             obj={},
             catch_exceptions=False,
         )
@@ -362,18 +342,7 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--ep",
-                "qnn",
-                "--iterations",
-                "3",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-            ],
+            _build_perf_args(model_arg=model_arg, output_file=output_file, ep="qnn"),
             obj={},
             catch_exceptions=False,
         )
@@ -399,20 +368,7 @@ class _PerfBenchmarkSuite:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--device",
-                "gpu",
-                "--ep",
-                "qnn",
-                "--iterations",
-                "3",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-            ],
+            _build_perf_args(model_arg=model_arg, output_file=output_file, device="gpu", ep="qnn"),
             obj={},
             catch_exceptions=False,
         )
@@ -445,7 +401,8 @@ class TestPerfHuggingFace:
     def model_arg(self) -> str:
         return "microsoft/resnet-50"
 
-    def test_benchmark_ep_vitisai(self, tmp_path: Path, model_arg: str):
+    @pytest.mark.parametrize("ep", NPU_EPS)
+    def test_benchmark_ep_npu(self, ep: str, tmp_path: Path, model_arg: str):
         """Benchmark with --ep vitisai.
 
         Skipped if VitisAIExecutionProvider is not available on the host.
@@ -457,19 +414,9 @@ class TestPerfHuggingFace:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                model_arg,
-                "--ep",
-                "vitisai",
-                "--iterations",
-                "100",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-                "--monitor"
-            ],
+            _build_perf_args(
+                model_arg=model_arg, output_file=output_file, ep="vitisai", monitor=True
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -496,20 +443,12 @@ class TestPerfModule:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                "microsoft/resnet-50",
-                "--module",
-                "ResNetStage",
-                "--device",
-                "cpu",
-                "--iterations",
-                "3",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-            ],
+            _build_perf_args(
+                model_arg="microsoft/resnet-50",
+                output_file=output_file,
+                device="cpu",
+                module="ResNetStage",
+            ),
             obj={},
             catch_exceptions=False,
         )
@@ -534,20 +473,12 @@ class TestPerfModule:
         runner = CliRunner()
         result = runner.invoke(
             perf,
-            [
-                "-m",
-                "microsoft/resnet-50",
-                "--module",
-                "NotAValidModuleXyz",
-                "--device",
-                "cpu",
-                "--iterations",
-                "3",
-                "--warmup",
-                "1",
-                "-o",
-                str(output_file),
-            ],
+            _build_perf_args(
+                model_arg="microsoft/resnet-50",
+                output_file=output_file,
+                device="cpu",
+                module="NotAValidModuleXyz",
+            ),
             obj={},
             catch_exceptions=False,
         )
