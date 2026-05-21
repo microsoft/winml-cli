@@ -139,11 +139,10 @@ class TestNormalizeEPName:
         [
             ("qnn", "QNNExecutionProvider"),
             ("openvino", "OpenVINOExecutionProvider"),
-            ("ov", "OpenVINOExecutionProvider"),
             ("vitisai", "VitisAIExecutionProvider"),
-            ("vitis", "VitisAIExecutionProvider"),
             ("cpu", "CPUExecutionProvider"),
             ("dml", "DmlExecutionProvider"),
+            ("nvtensorrtrtx", "NvTensorRTRTXExecutionProvider"),
             ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
             ("migraphx", "MIGraphXExecutionProvider"),
         ],
@@ -185,7 +184,7 @@ class TestExtractEPOptions:
             {
                 "qnn_qairt": "/sdk",
                 "model": "m.onnx",
-                "ov_device": "GPU",
+                "openvino_device": "GPU",
                 "verbose": "1",
             }
         )

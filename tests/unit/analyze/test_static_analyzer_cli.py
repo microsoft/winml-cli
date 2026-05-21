@@ -1001,7 +1001,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 None,
             ),
             (
-                "ov",
+                "openvino",
                 None,
                 0,
                 [
@@ -1021,7 +1021,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 ],
                 None,
             ),
-            ("ov", "gpu", 0, [("OpenVINOExecutionProvider", "GPU")], None),
+            ("openvino", "gpu", 0, [("OpenVINOExecutionProvider", "GPU")], None),
             (
                 "all",
                 "all",
@@ -1040,10 +1040,10 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         ids=[
             "empty-empty",
             "empty-gpu",
-            "ov-empty",
+            "openvino-empty",
             "qnn-empty",
             "qnn-all",
-            "ov-gpu",
+            "openvino-gpu",
             "all-all",
         ],
     )
@@ -1136,7 +1136,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
 
     @patch("winml.modelkit.commands.analyze._render_analysis_summary")
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_ov_gpu_has_local_not_supported_hint(
+    def test_openvino_gpu_has_local_not_supported_hint(
         self,
         mock_analyzer_class: MagicMock,
         mock_summary: MagicMock,
@@ -1144,7 +1144,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """ov + gpu should execute and carry local-not-supported hint into summary rendering."""
+        """openvino + gpu should execute and carry local-not-supported hint into summary."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -1154,7 +1154,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
 
         result = runner.invoke(
             analyze,
-            ["--model", str(model_file), "--ep", "ov", "--device", "gpu"],
+            ["--model", str(model_file), "--ep", "openvino", "--device", "gpu"],
         )
         assert result.exit_code == 0
         assert mock_instance.analyze.called
@@ -1162,9 +1162,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
 
         summary_kwargs = mock_summary.call_args.kwargs
         pair_hints = summary_kwargs["pair_hints"]
-        assert pair_hints[("OpenVINOExecutionProvider", "GPU")] == [
-            "local machine not supported"
-        ]
+        assert pair_hints[("OpenVINOExecutionProvider", "GPU")] == ["local machine not supported"]
 
     @patch("winml.modelkit.commands.analyze._render_analysis_summary")
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
@@ -1374,9 +1372,7 @@ class TestAnalyzeSummaryRendering:
         _render_analysis_summary(
             console,
             [ep_support],
-            ep_instance_counts={
-                ("DmlExecutionProvider", "GPU"): {"Conv": {"supported": 2}}
-            },
+            ep_instance_counts={("DmlExecutionProvider", "GPU"): {"Conv": {"supported": 2}}},
             ep_patterns={},
             ep="DmlExecutionProvider",
             device="GPU",
