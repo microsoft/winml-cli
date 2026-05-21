@@ -48,8 +48,12 @@ pytestmark = [pytest.mark.e2e]
 
 
 # ===========================================================================
-# Helpers
+# Constants and Helpers
 # ===========================================================================
+
+CPU_EPS = ("cpu", "openvino")
+NPU_EPS = ("qnn", "vitisai", "openvino")
+GPU_EPS = ("dml", "nv_tensorrt_rtx", "migraphx", "openvino")
 
 
 def _require_gpu() -> None:
@@ -70,6 +74,36 @@ def _require_npu() -> None:
 
     if not PdhPoller.is_npu_available():
         pytest.skip("No NPU detected via PDH")
+
+
+def _assert_hw_monitor_section(data: dict, device_kind: str) -> None:
+    """Assert the ``hw_monitor`` section is present and well-formed.
+
+    Checks the section emitted by HWMonitor when --monitor is passed:
+    presence, ``device_kind`` match, a non-null ``adapter_luid``, and a
+    positive ``mean_pct`` for the per-device utilization block.
+    """
+    assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
+    hw = data["hw_monitor"]
+    assert hw["device_kind"] == device_kind
+    assert hw["adapter_luid"] is not None
+    assert hw[device_kind]["mean_pct"] > 0
+
+
+def _assert_monitor_result(data: dict, *, device: str, device_kind: str | None = None) -> None:
+    """Assert a monitored perf run produced the expected device + hw_monitor data.
+
+    Verifies the resolved ``device`` in ``benchmark_info``, that latency was
+    measured, and delegates the hw_monitor checks to
+    :func:`_assert_hw_monitor_section`. ``device_kind`` defaults to ``device``
+    when not given (only differs for cases like VitisAI where ``--device`` and
+    the monitored hardware diverge).
+    """
+    if device_kind is None:
+        device_kind = device
+    assert data["benchmark_info"]["device"] == device
+    assert data["latency_ms"]["mean"] > 0
+    _assert_hw_monitor_section(data, device_kind)
 
 
 # ===========================================================================
@@ -172,6 +206,45 @@ class _PerfBenchmarkSuite:
         assert output_file.exists()
         assert "Results saved to" in result.output
 
+    def test_benchmark_cpu_monitor(self, tmp_path: Path, model_arg: str):
+        """Benchmark on CPU with --monitor.
+
+        Requires a real CPU discoverable via PDH. Verifies the JSON output
+        contains the hw_monitor section produced by HWMonitor.
+        """
+
+        output_file = tmp_path / "perf_cpu_monitor.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                model_arg,
+                "--device",
+                "cpu",
+                "--iterations",
+                "100",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--monitor",
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists(), f"Output file not created: {output_file}"
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["device"] == "cpu"
+        assert data["latency_ms"]["mean"] > 0
+        assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
+        hw = data["hw_monitor"]
+        assert hw["device_kind"] is None
+        assert hw["adapter_luid"] is None
+
     def test_benchmark_gpu_monitor(self, tmp_path: Path, model_arg: str):
         """Benchmark on GPU with --monitor.
 
@@ -205,13 +278,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-
-        assert data["benchmark_info"]["device"] == "gpu"
-        assert data["latency_ms"]["mean"] > 0
-        assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
-        assert data["hw_monitor"]["device_kind"] == "gpu"
-        assert data["hw_monitor"]["adapter_luid"] is not None
-        assert data["hw_monitor"]["gpu"]["mean_pct"] > 0
+        _assert_monitor_result(data, device="gpu")
 
     def test_benchmark_npu_monitor(self, tmp_path: Path, model_arg: str):
         """Benchmark on NPU with --monitor.
@@ -246,13 +313,7 @@ class _PerfBenchmarkSuite:
 
         assert output_file.exists(), f"Output file not created: {output_file}"
         data = json.loads(output_file.read_text())
-
-        assert data["benchmark_info"]["device"] == "npu"
-        assert data["latency_ms"]["mean"] > 0
-        assert "hw_monitor" in data, "hw_monitor section missing with --monitor"
-        assert data["hw_monitor"]["device_kind"] == "npu"
-        assert data["hw_monitor"]["adapter_luid"] is not None
-        assert data["hw_monitor"]["npu"]["mean_pct"] > 0
+        _assert_monitor_result(data, device="npu")
 
     def test_benchmark_auto(self, tmp_path: Path, model_arg: str):
         """Benchmark with --device auto.
@@ -375,6 +436,49 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)
+
+
+class TestPerfHuggingFace:
+    """Benchmark a HuggingFace model by loading it via the perf command."""
+
+    @pytest.fixture
+    def model_arg(self) -> str:
+        return "microsoft/resnet-50"
+
+    def test_benchmark_ep_vitisai(self, tmp_path: Path, model_arg: str):
+        """Benchmark with --ep vitisai.
+
+        Skipped if VitisAIExecutionProvider is not available on the host.
+        """
+        require_ep("vitisai")
+
+        output_file = tmp_path / "perf_vitisai.json"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                model_arg,
+                "--ep",
+                "vitisai",
+                "--iterations",
+                "100",
+                "--warmup",
+                "1",
+                "-o",
+                str(output_file),
+                "--monitor"
+            ],
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+
+        assert output_file.exists()
+        data = json.loads(output_file.read_text())
+        assert data["benchmark_info"]["ep"] == "VitisAIExecutionProvider"
+        _assert_monitor_result(data, device="npu")
 
 
 # ===========================================================================
