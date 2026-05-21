@@ -472,8 +472,8 @@ class TestResolveDeviceWithEp:
             resolve_device("auto", ep="vitisai")
 
     def test_ep_unknown_raises(self) -> None:
-        """Unknown ep short name raises ValueError via normalize_ep_name."""
-        with pytest.raises(ValueError, match="Unsupported execution provider name: tpu"):
+        """Unknown ep short name raises ValueError from resolve_device."""
+        with pytest.raises(ValueError, match=r"Unknown EP 'tpu'\. Expected one of:"):
             resolve_device("auto", ep="tpu")
 
     def test_ep_case_insensitive(self) -> None:
