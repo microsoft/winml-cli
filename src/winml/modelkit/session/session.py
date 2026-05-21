@@ -279,7 +279,6 @@ class WinMLSession:
 
             ep_map = get_ep_device_map()
             resolved = ep_map.get(actual_providers[0])
-            print(f"Resolved device from provider {actual_providers[0]}: {resolved}")
             if resolved and "/" not in resolved:
                 self._device = resolved
 
