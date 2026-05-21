@@ -91,16 +91,23 @@ optional-dependencies.qnn = [
   "onnxruntime-qnn>=2.1,<2.2",
 ]
 optional-dependencies.winml-catalog = [
-  # [all] extra pulls in the winrt-Windows.{Foundation,ApplicationModel,...}
-  # bindings needed by IAsyncOperationWithProgress.get() during EP catalog
-  # ensure_ready_async() calls. Without [all], the catalog enumerates but
-  # cannot complete async ops.
-  "wasdk-microsoft-windows-ai-machinelearning[all]>=2.0.1",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap[all]>=2.0.1",
-  # PackageManager.FindPackagesForUser('') for MsixPackageSource (version pinning
-  # and `winml sys --list-ep` MSIX inventory). Not transitively pulled by wasdk's
-  # [all] extras, must be requested explicitly. Same winrt 3.2.x family.
+  # WinAppSDK Python bindings (provide the `winui3.*` namespace used by
+  # WinMlCatalogSource for ExecutionProviderCatalog + dynamic-dependency
+  # bootstrap). Base packages only — we explicitly enumerate the specific
+  # winrt-* sub-bindings below rather than using the [all] extras (which
+  # pull in many unused packages like winrt-Windows.Web.*).
+  "wasdk-microsoft-windows-ai-machinelearning>=2.0.1",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=2.0.1",
+  # Explicit winrt-* bindings actually consumed by src/. All winrt 3.2.x.
+  # When adding new winrt usage, trace the import and add the matching pkg here.
+  #   ep_path.py:_get_pkg_manager  → winrt.windows.management.deployment.PackageManager
   "winrt-Windows.Management.Deployment>=3.2.1",
+  #   ep_path.py:_resolve_provider → IAsyncOperationWithProgress.get()
+  #   (winrt.windows.foundation), called via provider.ensure_ready_async().get()
+  "winrt-Windows.Foundation>=3.2.1",
+  #   PackageManager.find_packages_by_user_security_id() yields Package objects
+  #   whose .id.family_name / .id.version we read (winrt.windows.applicationmodel)
+  "winrt-Windows.ApplicationModel>=3.2.1",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"

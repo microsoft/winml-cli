@@ -21,13 +21,32 @@ if TYPE_CHECKING:
 
 @pytest.fixture()
 def cpu_session(tmp_path: Path) -> WinMLSession:
-    """Create a WinMLSession with CPU device using a minimal ONNX model.
+    """Create a WinMLSession bound to CPUExecutionProvider using a minimal ONNX model.
 
-    The session needs a real ONNX file to construct.
-    We build a tiny Relu model on disk, then create the session.
-    WinML EP registry is mocked to avoid slow PowerShell queries on CI.
+    Uses the real OrtEpDevice for CPU so that is_compatible() can call
+    ORT with actual shapes. WinMLEPRegistry is mocked to return the real
+    CPU OrtEpDevice, bypassing slow PowerShell/WMI queries on CI.
     """
     from unittest.mock import patch
+
+    import onnx
+    import onnxruntime as _ort
+
+    from winml.modelkit.session import EPDevice
+
+    # Discover the real CPU OrtEpDevice so add_provider_for_devices() gets
+    # a genuine handle and ORT can run inference.
+    cpu_ort_devs = [d for d in _ort.get_ep_devices() if d.ep_name == "CPUExecutionProvider"]
+    if not cpu_ort_devs:
+        pytest.skip("CPUExecutionProvider not available in ort.get_ep_devices()")
+    real_cpu_dev = cpu_ort_devs[0]
+
+    cpu_ep_device = EPDevice(
+        ep="CPUExecutionProvider",
+        device="cpu",
+        vendor_id=real_cpu_dev.device.vendor_id,
+        device_id=real_cpu_dev.device.device_id,
+    )
 
     # Build minimal Relu model
     node = helper.make_node("Relu", inputs=["X"], outputs=["Y"])
@@ -40,14 +59,13 @@ def cpu_session(tmp_path: Path) -> WinMLSession:
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     model.ir_version = 8
 
-    import onnx
-
     model_path = tmp_path / "stub.onnx"
     onnx.save(model, str(model_path))
 
-    # Mock EP registry to avoid slow WMI/PowerShell queries on CI
-    with patch.object(WinMLSession, "_init_winml_eps_once"):
-        return WinMLSession(onnx_path=model_path, device="cpu")
+    # Mock EP registry to return the real CPU OrtEpDevice, avoiding WMI queries
+    with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
+        mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_dev]
+        return WinMLSession(onnx_path=model_path, ep_device=cpu_ep_device)
 
 
 class TestIsCompatible:

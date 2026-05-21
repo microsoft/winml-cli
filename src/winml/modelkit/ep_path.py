@@ -52,52 +52,13 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# EP-name alias table.
-# ---------------------------------------------------------------------------
-# Maps every known alias spelling to its canonical EP name. The canonical
-# name is what ORT's WinML EP Catalog registers under (per Microsoft Learn
-# documentation for the supported execution providers). Some upstream
-# documentation and other call sites use a different spelling (e.g.
-# NVIDIA's GitHub README uses PascalCase ``NvTensorRTRTXExecutionProvider``
-# while WinML's ``ExecutionProviderCatalog`` registers under the camelCase
-# ``NvTensorRtRtxExecutionProvider``). Use :func:`canonicalize_ep_name` at
-# any boundary that compares an EP name string to a name reported by ORT.
-#
-# This is intentionally a finite, explicit allow-list: case-insensitive
-# matching would also accept misspellings (e.g.
-# ``NVTENSORRTRTXEXECUTIONPROVIDER``) that ORT itself would reject.
-EP_NAME_ALIASES: dict[str, str] = {
-    # NVIDIA TensorRT-RTX. Canonical form is camelCase per WinML EP
-    # Catalog; PascalCase appears in NVIDIA's standalone-zip docs.
-    "NvTensorRTRTXExecutionProvider": "NvTensorRtRtxExecutionProvider",
-}
-
-
-def canonicalize_ep_name(name: str) -> str:
-    """Normalize an EP-name alias to its canonical form.
-
-    The canonical form is the spelling under which ORT registers the EP
-    (i.e. the spelling reported by ``ort.get_ep_devices()`` and used by
-    ``register_execution_provider_library``). Names that are not in the
-    alias table are returned unchanged so unknown EP spellings (including
-    typos) flow through to ORT for diagnosis.
-
-    Args:
-        name: An EP name in any known spelling.
-
-    Returns:
-        The canonical EP name. Identity for unknown names.
-    """
-    return EP_NAME_ALIASES.get(name, name)
-
-
-# ---------------------------------------------------------------------------
 # Canonical EP-name -> DLL filename table.
 # ---------------------------------------------------------------------------
 # Used by FilesystemSource (when scanning a directory for any registrable
 # DLL) and by the ``MODELKIT_EP_PATH`` env-var override path. Keys are
-# always the canonical EP name; pass non-canonical aliases through
-# :func:`canonicalize_ep_name` before consulting this table.
+# always the canonical EP name (the spelling ORT registers under and
+# reports via ``get_ep_devices()``). EP names that don't match this
+# spelling fail at registration — there is no alias normalization layer.
 EP_DLL_NAMES: dict[str, list[str]] = {
     "OpenVINOExecutionProvider": [
         "onnxruntime_providers_openvino_plugin.dll",
@@ -207,8 +168,7 @@ def _ep_is_compatible(ep_name: str) -> bool:
     * Unknown EP name -> compatible (forward-compat default).
 
     Args:
-        ep_name: Canonical EP name (caller should pass through
-            :func:`canonicalize_ep_name` first if the input is an alias).
+        ep_name: Canonical EP name (the spelling ORT registers under).
     """
     required = _EP_VENDOR_REQUIREMENT.get(ep_name, set())
     if not required:
@@ -1421,12 +1381,7 @@ def discover_eps(
             continue
 
         try:
-            for raw_ep_name, dll_path in it:
-                # Normalize alias spellings (e.g. PascalCase
-                # ``NvTensorRTRTXExecutionProvider``) to the canonical form
-                # so two sources naming the same EP under different aliases
-                # collapse to one entry.
-                ep_name = canonicalize_ep_name(raw_ep_name)
+            for ep_name, dll_path in it:
                 if not dll_path.is_file():
                     logger.warning(
                         "EP %s: source %r produced %s which is not a file",
@@ -1468,7 +1423,6 @@ def discover_eps(
 
 __all__ = [
     "EP_DLL_NAMES",
-    "EP_NAME_ALIASES",
     "EP_PATH",
     "EpSource",
     "FilesystemSource",
@@ -1477,7 +1431,6 @@ __all__ = [
     "PyPiSource",
     "ResolvedEp",
     "WinMlCatalogSource",
-    "canonicalize_ep_name",
     "discover_eps",
     "list_msix_eps",
 ]

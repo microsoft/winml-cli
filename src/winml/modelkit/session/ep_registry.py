@@ -11,9 +11,14 @@ discovery layer and registers them with ONNX Runtime via
 
 from __future__ import annotations
 
+import functools
 import logging
 
 from ..ep_path import EpSource, discover_eps
+
+import onnxruntime as ort
+
+from .ep_device import EPNotDiscovered, EPRegistrationFailed
 
 
 logger = logging.getLogger(__name__)
@@ -53,7 +58,12 @@ class WinMLEPRegistry:
         self._ep_paths: dict[str, str] = {}
         self._ep_sources: dict[str, EpSource] = {}
         self._registered_eps: list[str] = []
+        self._registration_failures: dict[str, str] = {}
 
+        self._discover_eps()
+
+    def _discover_eps(self) -> None:
+        """Discover plugin EPs via the unified ep_path discovery layer."""
         for ep_name, (path, source) in discover_eps().items():
             self._ep_paths[ep_name] = str(path)
             self._ep_sources[ep_name] = source
@@ -78,11 +88,80 @@ class WinMLEPRegistry:
             try:
                 ort.register_execution_provider_library(name, dll_path)
                 self._registered_eps.append(name)
+                # Clear any prior failure record on successful re-register.
+                self._registration_failures.pop(name, None)
                 logger.debug("Registered EP: %s -> %s", name, dll_path)
             except Exception as e:
-                logger.warning("Failed to register EP %s: %s", name, e)
+                # NFR-2: surface EP name + exception class so users can
+                # diagnose which provider failed to register and why.
+                msg = f"{type(e).__name__}: {e}"
+                self._registration_failures[name] = msg
+                logger.warning("Failed to register EP %s (%s)", name, msg)
 
         return self._registered_eps.copy()
+
+    def register_ep(self, ep_name: str) -> list[ort.OrtEpDevice]:
+        """Register a single discovered EP and return its claimed devices.
+
+        Idempotent: if already registered, returns the current device list
+        without re-loading the DLL. Callers must pass the EP's canonical
+        name (the spelling ORT registers under and reports via
+        ``ort.get_ep_devices()``) — no alias normalization layer.
+
+        Bundled EPs (e.g. ``CPUExecutionProvider``, ``DmlExecutionProvider``)
+        ship with ORT itself rather than as plugin DLLs. They appear in
+        ``ort.get_ep_devices()`` without ever needing
+        ``register_execution_provider_library``. If the EP is already
+        visible, this method short-circuits and returns its devices without
+        consulting the catalog.
+
+        Raises:
+            EPNotDiscovered:      ep_name absent from both the catalog
+                                  *and* ``ort.get_ep_devices()`` (i.e. not
+                                  a bundled EP and not a discovered plugin).
+            EPRegistrationFailed: ort.register_execution_provider_library
+                                  raised (original exception chained).
+        """
+        # Plugin EP path: catalog knows about it, register from DLL.
+        if ep_name in self._ep_paths:
+            if ep_name not in self._registered_eps:
+                # Defensive: another singleton (e.g. winml.py:WinML) may have
+                # already called ort.register_execution_provider_library for
+                # this EP in the same process.  ORT's C++ layer is NOT
+                # idempotent — a second registration of the same DLL calls
+                # exit(127) with no Python traceback.  Check ORT's live device
+                # list before attempting the DLL load.
+                already_loaded = any(d.ep_name == ep_name for d in ort.get_ep_devices())
+                if already_loaded:
+                    logger.debug(
+                        "EP %s already loaded by another caller; skipping DLL register",
+                        ep_name,
+                    )
+                    self._registered_eps.append(ep_name)
+                else:
+                    dll_path = self._ep_paths[ep_name]
+                    try:
+                        ort.register_execution_provider_library(ep_name, dll_path)
+                    except Exception as exc:
+                        raise EPRegistrationFailed(
+                            f"ort.register_execution_provider_library({ep_name!r}, "
+                            f"{dll_path!r}) failed: {exc}"
+                        ) from exc
+                    self._registered_eps.append(ep_name)
+            return [d for d in ort.get_ep_devices() if d.ep_name == ep_name]
+
+        # Not in catalog — might be a bundled EP (e.g. CPUExecutionProvider,
+        # DmlExecutionProvider) that ships with ORT itself and is visible
+        # via get_ep_devices() without ever needing register_execution_provider_library.
+        bundled = [d for d in ort.get_ep_devices() if d.ep_name == ep_name]
+        if bundled:
+            return bundled
+
+        raise EPNotDiscovered(
+            f"EP {ep_name!r} not in discovered catalog and not visible via "
+            f"ort.get_ep_devices(). Catalog: {sorted(self._ep_paths)}. "
+            f"Hint: install the plugin or set MODELKIT_EP_PATH."
+        )
 
     def get_ep_library_path(self, ep_name: str) -> str | None:
         """Get the library path for an EP."""
@@ -105,10 +184,52 @@ class WinMLEPRegistry:
         """Whether any plugin EP package is installed and resolvable."""
         return bool(self._ep_paths)
 
+    @property
+    def registration_failures(self) -> dict[str, str]:
+        """Per-EP registration failures from the most recent ``register_to_ort()``.
+
+        Maps EP name → ``"<ExcClass>: <message>"`` for any provider that
+        failed to register. Empty when all registrations succeeded.
+        Successful re-registration clears the corresponding entry.
+        """
+        return self._registration_failures.copy()
+
     @classmethod
     def get_instance(cls) -> WinMLEPRegistry:
         """Get singleton instance."""
         return cls()
+
+
+@functools.lru_cache(maxsize=1)
+def available_eps() -> frozenset[str]:
+    """Collect available EP names from WinML and ORT (cached).
+
+    Hardware and EPs do not change during a process lifetime,
+    so this result is cached via lru_cache.
+
+    Returns:
+        Frozenset of available EP name strings.
+    """
+    eps: set[str] = set()
+
+    try:
+        registry = WinMLEPRegistry.get_instance()
+        eps.update(registry.get_available_eps().keys())
+    except (ImportError, RuntimeError):
+        pass  # WinML not available
+    except Exception:
+        logger.warning("Unexpected error during WinML EP discovery", exc_info=True)
+
+    try:
+        import onnxruntime as ort
+
+        eps.update(ort.get_available_providers())
+    except (ImportError, RuntimeError):
+        pass  # ORT not installed
+    except Exception:
+        logger.warning("Unexpected error during ORT EP discovery", exc_info=True)
+
+    return frozenset(eps)
 
 
 def get_ort_available_providers(use_winml: bool = True) -> list[str]:
@@ -135,6 +256,37 @@ def get_ort_available_providers(use_winml: bool = True) -> list[str]:
             registry = WinMLEPRegistry.get_instance()
             registry.register_to_ort()
         except Exception as e:
-            logger.debug("Plugin EP discovery skipped: %s", e)
+            # NFR-2: surface real failures at WARNING so users can diagnose.
+            logger.warning(
+                "Plugin EP discovery skipped (%s: %s)", type(e).__name__, e
+            )
 
     return ort.get_available_providers()
+
+
+def ensure_initialized() -> None:
+    """Idempotent module-level entry point for WinML EP registration.
+
+    Wraps ``WinMLEPRegistry.get_instance().register_to_ort()`` so callers
+    (e.g. ``QNNMonitor.is_available``) can trigger EP registration without
+    importing ``WinMLSession`` — breaks a latent import cycle.
+
+    Safe to call multiple times. No-op if WinML is unavailable on this system.
+
+    Failures during registration are logged at WARNING (NFR-2: must not be
+    silent) and swallowed so callers can probe availability without raising.
+    Subsequent calls retry — there is no module-level latch on failure.
+    """
+    try:
+        registry = WinMLEPRegistry.get_instance()
+        if registry.winml_available:
+            registry.register_to_ort()
+    except Exception as exc:
+        # NFR-2: surface real environmental failures at WARNING with the
+        # exception class so users can distinguish "not on Windows" from
+        # "registration crashed".
+        logger.warning(
+            "ensure_initialized: WinML EP registration failed (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )

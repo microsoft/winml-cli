@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"D:\\\\BYOM\\\\ModelKit_PRs\\\\mvp\\\\docs\\\\getting-started\\\\04.customer-intro\\\\bug-bash-guide.md\"}",
+  "error": "File content (12685 tokens) exceeds maximum allowed tokens (10000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
+  "timestamp": "2026-04-13T06:58:06.118Z",
+  "retry_count": 1
+}

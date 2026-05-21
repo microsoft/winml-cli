@@ -23,14 +23,22 @@ from click.testing import CliRunner
 
 @pytest.fixture(autouse=True)
 def mock_resolve_device():
-    """Mock resolve_device to avoid hardware detection in all config CLI tests.
+    """Mock auto_detect_device / get_available_devices to avoid hardware detection.
 
-    The config command may call resolve_device() for device/precision resolution.
-    We mock it at the source module since it's a lazy import.
+    The config command calls auto_detect_device() (via commands/config.py) and
+    get_available_devices() / auto_detect_device() (via config/build.py) for
+    device/precision resolution. We mock both at their source modules since
+    they are lazy imports.
     """
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("npu", ["npu", "gpu", "cpu"]),
+    with (
+        patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="npu",
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["npu", "gpu", "cpu"],
+        ),
     ):
         yield
 

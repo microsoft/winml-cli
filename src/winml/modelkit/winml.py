@@ -166,6 +166,19 @@ class WinML:
             for module in modules:
                 if not skip_cache and name in self._registered_eps[module.__name__]:
                     continue
+                # Defensive guard: ORT's register_execution_provider_library is NOT
+                # idempotent — a second call for the same DLL calls C++ exit(127) with
+                # no Python traceback (surfaces as STATUS_DLL_NOT_FOUND / 0xC000026F).
+                # WinMLEPRegistry (session/ep_registry.py) may have already registered
+                # this EP in the same process.  Consult the live ORT device list first.
+                try:
+                    already_loaded = any(d.ep_name == name for d in module.get_ep_devices())
+                except Exception:
+                    already_loaded = False  # conservative: attempt the load
+                if already_loaded:
+                    if name not in self._registered_eps[module.__name__]:
+                        self._registered_eps[module.__name__].append(name)
+                    continue
                 try:
                     module.register_execution_provider_library(name, path)
                     if name not in self._registered_eps[module.__name__]:
@@ -215,7 +228,7 @@ def add_ep_for_device(
         - "QNNExecutionProvider"
         - "OpenVINOExecutionProvider"
         - "VitisAIExecutionProvider"
-        - "NvTensorRTRTXExecutionProvider"
+        - "NvTensorRtRtxExecutionProvider"
 
     device_type is one of:
         - ort.OrtHardwareDeviceType.CPU
@@ -224,16 +237,12 @@ def add_ep_for_device(
     """
     import onnxruntime as ort
 
-    from .ep_path import canonicalize_ep_name
-
-    # Canonicalize alias spellings (e.g. PascalCase
-    # ``NvTensorRTRTXExecutionProvider``) so the case-sensitive ``==``
-    # below matches whichever spelling ORT registered the EP under.
-    target_ep_name = canonicalize_ep_name(ep_name)
+    # Exact-match by ORT's canonical EP name. Callers must pass the
+    # spelling ORT registers under (e.g. ``NvTensorRtRtxExecutionProvider``,
+    # camelCase) — no alias normalization layer.
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
-        device_ep_name = canonicalize_ep_name(ep_device.ep_name)
-        if device_ep_name == target_ep_name and ep_device.device.type == device_type:
+        if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
             print(f"Adding {ep_name} for {device_type}")
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options

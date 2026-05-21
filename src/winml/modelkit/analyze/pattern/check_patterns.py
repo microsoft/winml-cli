@@ -274,6 +274,10 @@ def build_parser():
         "--ep",
         type=str,
         required=True,
+        # CARVE-OUT: This subprocess tool intentionally supports only a curated subset of
+        # NPU EPs. VitisAI and future NPU EPs are excluded because this pattern-checking
+        # tool has not been validated against them. Do NOT derive from eps_for_device("npu")
+        # or EP_DEVICE_SPECS — this is an explicit opt-in allowlist, not catalog drift.
         choices=["QNNExecutionProvider", "OpenVINOExecutionProvider"],
         help=(
             "Execution Provider names to test. "

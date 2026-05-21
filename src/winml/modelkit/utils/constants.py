@@ -6,41 +6,23 @@
 
 import onnxruntime as ort
 
-
-# Supported execution providers — derived from sysinfo's authoritative EP→device map.
-def _get_supported_eps() -> list[str]:
-    from ..sysinfo.device import get_ep_device_map
-
-    return list(get_ep_device_map().keys())
+from ..session import expand_ep_name
 
 
-SUPPORTED_EPS = _get_supported_eps()
-
-# EP shorthand aliases (case-insensitive)
-EP_ALIASES = {
-    "qnn": "QNNExecutionProvider",
-    "openvino": "OpenVINOExecutionProvider",
-    "ov": "OpenVINOExecutionProvider",
-    "vitisai": "VitisAIExecutionProvider",
-    "vitis": "VitisAIExecutionProvider",
-    "cpu": "CPUExecutionProvider",
-    "dml": "DmlExecutionProvider",
-    "nv_tensorrt_rtx": "NvTensorRtRtxExecutionProvider",
-    "migraphx": "MIGraphXExecutionProvider",
-}
-
-# All accepted EP names (full names + aliases)
-ALL_EP_NAMES = list(SUPPORTED_EPS) + list(EP_ALIASES.keys())
+# EP alias prefixes used by extract_ep_options for CLI parameter parsing.
+# Kept as a local tuple — not exported; does not duplicate the session taxonomy.
+_EP_CLI_PREFIXES = ("qnn", "openvino", "ov", "vitisai", "vitis")
 
 
 def normalize_ep_name(ep: str | None) -> str | None:
-    """Normalize EP name from shorthand to full name.
+    """Normalize EP name from shorthand or alias to full canonical name.
 
-    Converts EP aliases to their full names (case-insensitive).
-    If the input is already a full name, returns it unchanged.
+    Delegates to ``expand_ep_name`` from the session facade, which covers
+    all registered short names.  The legacy aliases ``ov`` and ``vitis``
+    are mapped here before forwarding so existing callers keep working.
 
     Args:
-        ep: Execution provider name (can be full name or alias)
+        ep: Execution provider name (can be full name, short name, or alias)
 
     Returns:
         Full execution provider name, or None if input is None
@@ -56,17 +38,18 @@ def normalize_ep_name(ep: str | None) -> str | None:
     if ep is None:
         return None
 
-    # Check if it's already a full name
-    if ep in SUPPORTED_EPS:
-        return ep
-
-    # Try to find in aliases (case-insensitive)
+    # Map non-canonical short-form spellings to the canonical short.
+    # Values must exist as keys in session.ep_device._SHORT_TO_FULL.
+    _short_aliases = {
+        "ov":              "openvino",      # convenience: 2-letter shorthand
+        "vitis":           "vitisai",       # convenience: 2-letter shorthand
+        "nv_tensorrt_rtx": "nvtensorrtrtx", # rename: pre-2026-05-18 short form
+    }
     ep_lower = ep.lower()
-    if ep_lower in EP_ALIASES:
-        return EP_ALIASES[ep_lower]
+    if ep_lower in _short_aliases:
+        ep = _short_aliases[ep_lower]
 
-    # Return as-is if not found (let validation catch invalid names)
-    return ep
+    return expand_ep_name(ep)
 
 
 def extract_ep_options(kwargs: dict) -> dict[str, str]:
@@ -87,24 +70,13 @@ def extract_ep_options(kwargs: dict) -> dict[str, str]:
         >>> extract_ep_options({'qnn_qairt': '/path', 'qnn_backend': 'htp'})
         {'qairt': '/path', 'backend': 'htp'}
     """
-    ep_aliases = list(EP_ALIASES.keys())
     ep_options = {}
     for param_name, param_value in kwargs.items():
         parts = param_name.split("_", 1)
-        if param_value is not None and len(parts) == 2 and parts[0] in ep_aliases:
+        if param_value is not None and len(parts) == 2 and parts[0] in _EP_CLI_PREFIXES:
             ep_options[parts[1]] = str(param_value)
     return ep_options
 
-
-# Supported device types
-SUPPORTED_DEVICES = [
-    "CPU",
-    "GPU",
-    "NPU",
-]
-
-# TODO: unify casing with SUPPORTED_DEVICES (uppercase) and DEVICE_TO_DEVICE_TYPE keys
-SUPPORTED_DEVICES_WITH_AUTO = ["auto", "cpu", "gpu", "npu"]
 
 # Device string to ORT device type mapping
 DEVICE_TO_DEVICE_TYPE = {

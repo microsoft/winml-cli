@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 
+from ..session import VALID_EPS
 from .configs import (
     CalibrationConfig,
     EPConfig,
@@ -50,7 +51,7 @@ def cli() -> None:
     "--ep",
     "--execution-provider",
     "execution_provider",
-    type=click.Choice(["qnn", "cpu", "cuda", "dml"]),
+    type=click.Choice(sorted(VALID_EPS)),
     default="qnn",
     help="Target execution provider",
     show_default=True,

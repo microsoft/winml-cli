@@ -37,13 +37,13 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
         return
     try:
         monkeypatch.setattr(
-            "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
-            classmethod(lambda cls: None),
+            "winml.modelkit.session.ep_registry.ensure_initialized",
+            lambda: None,
         )
     except ImportError as e:
         import warnings
 
-        warnings.warn(f"Could not mock _init_winml_eps_once: {e}", stacklevel=2)
+        warnings.warn(f"Could not mock ensure_initialized: {e}", stacklevel=2)
 
     try:
         monkeypatch.setattr(

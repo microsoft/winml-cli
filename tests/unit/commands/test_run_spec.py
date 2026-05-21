@@ -504,12 +504,7 @@ class TestEPOption:
         [
             "qnn",
             "openvino",
-            "ov",
             "vitisai",
-            "vitis",
-            "QNNExecutionProvider",
-            "OpenVINOExecutionProvider",
-            "VitisAIExecutionProvider",
         ],
     )
     def test_valid_ep_values(self, runner: CliRunner, ep_val: str) -> None:
@@ -519,7 +514,7 @@ class TestEPOption:
         assert result.exit_code == 0, f"--ep {ep_val} failed: {result.output}"
 
     def test_invalid_ep_exits_nonzero(self, runner: CliRunner) -> None:
-        result = runner.invoke(run, ["--model", "m", "--text", "hi", "--ep", "cuda"])
+        result = runner.invoke(run, ["--model", "m", "--text", "hi", "--ep", "bogusxx"])
         assert result.exit_code != 0
 
     def test_ep_default_none(self, runner: CliRunner) -> None:

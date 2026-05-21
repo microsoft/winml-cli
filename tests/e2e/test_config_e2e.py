@@ -21,6 +21,7 @@ Markers:
     e2e: Full end-to-end test with real models
     network: Requires network access to HuggingFace Hub
 """
+
 from __future__ import annotations
 
 import json
@@ -43,9 +44,15 @@ pytestmark = [pytest.mark.e2e, pytest.mark.network]
 @pytest.fixture(autouse=True)
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in CI/test environments."""
-    with patch(
-        "winml.modelkit.sysinfo.resolve_device",
-        return_value=("cpu", ["cpu"]),
+    with (
+        patch(
+            "winml.modelkit.session.auto_detect_device",
+            return_value="cpu",
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
+        ),
     ):
         yield
 
@@ -79,9 +86,7 @@ def _run_config(*args: str) -> dict:
     """Invoke the config command and return parsed JSON output."""
     runner = CliRunner()
     result = runner.invoke(config, list(args), catch_exceptions=False)
-    assert result.exit_code == 0, (
-        f"config failed (exit {result.exit_code}):\n{result.output}"
-    )
+    assert result.exit_code == 0, f"config failed (exit {result.exit_code}):\n{result.output}"
     return _extract_json(result.output)
 
 
@@ -110,6 +115,7 @@ def _assert_onnx_config_structure(data: dict) -> None:
 # ===========================================================================
 # BERT
 # ===========================================================================
+
 
 class TestConfigBert:
     """Config generation for bert-base-uncased."""
@@ -166,6 +172,7 @@ class TestConfigBert:
 # Vision models
 # ===========================================================================
 
+
 class TestConfigVision:
     """Config generation for vision models."""
 
@@ -189,6 +196,7 @@ class TestConfigVision:
 # CLIP
 # ===========================================================================
 
+
 class TestConfigCLIP:
     """Config generation for CLIP."""
 
@@ -209,6 +217,7 @@ class TestConfigCLIP:
 # DETR
 # ===========================================================================
 
+
 class TestConfigDETR:
     """Config generation for DETR."""
 
@@ -223,6 +232,7 @@ class TestConfigDETR:
 # ===========================================================================
 # ONNX input
 # ===========================================================================
+
 
 class TestConfigONNX:
     """Config generation for pre-exported ONNX files."""

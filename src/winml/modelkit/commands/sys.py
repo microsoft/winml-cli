@@ -43,7 +43,8 @@ from ..ep_path import (
     PyPiSource,
     WinMlCatalogSource,
 )
-from ..sysinfo import OS, get_ep_device_map
+from ..session import EP_DEVICE_SPECS
+from ..sysinfo import OS
 
 
 logger = logging.getLogger(__name__)
@@ -476,9 +477,20 @@ def _ep_vendor_prefix(ep_name: str) -> str:
 
 
 def _format_device_types(ep_name: str) -> str:
-    """Return ``"<vendor> <DEV1>/<DEV2>"`` device-type string for an EP."""
-    ep_device_map = get_ep_device_map()
-    raw = ep_device_map.get(ep_name, "unknown").upper()
+    """Return ``"<vendor> <DEV1>/<DEV2>"`` device-type string for an EP.
+
+    Enumerates every :data:`EP_DEVICE_SPECS` entry whose ``ep`` matches in
+    catalog order, so multi-target EPs (e.g. OpenVINO targets NPU/GPU/CPU)
+    surface all of their supported devices.  EPs absent from the catalog
+    (custom/unknown plugins, or ORT built-ins like Azure) render as
+    ``"unknown"`` — caller's vendor prefix still applies.
+    """
+    devices = [spec.device.upper() for spec in EP_DEVICE_SPECS if spec.ep == ep_name]
+    # De-duplicate while preserving catalog order in case a future catalog
+    # entry pairs the same EP with the same device twice (defensive).
+    seen: set[str] = set()
+    unique = [d for d in devices if not (d in seen or seen.add(d))]
+    raw = "/".join(unique) if unique else "unknown"
     return f"{_ep_vendor_prefix(ep_name)}{raw}"
 
 
@@ -616,6 +628,13 @@ def _gather_ep_info() -> dict[str, dict[str, Any]]:
             e,
         )
 
+    # Catalog-driven device enumeration is folded into ``_format_device_types``
+    # via :data:`EP_DEVICE_SPECS`: multi-target EPs (e.g. OpenVINO targets
+    # npu/gpu/cpu) render their full device list in the ``device_types``
+    # field of each record.  EPs installed but uncatalogued (custom plugins,
+    # ORT built-ins like Azure) render as ``"unknown"`` so the user still
+    # sees them — Pass-2 sweep is implicit in the ep_path + ORT-built-in
+    # branches above, not a separate post-pass.
     return result
 
 
