@@ -72,13 +72,20 @@ class TestSinglePlain:
         assert path is None
         assert mid == "microsoft/resnet-50"
 
-    def test_plain_hf_id_explicit_model_id_wins(self):
-        """Explicit --model-id takes precedence over an HF-ID-shaped -m."""
+    def test_plain_hf_id_with_conflicting_model_id_raises(self):
+        """Passing both -m <hf_id> and --model-id is rejected as a conflict."""
+        with pytest.raises(click.UsageError, match="Cannot pass both"):
+            _resolve_model_path(
+                model=("microsoft/resnet-50",), model_id="Intel/bert-base-uncased-mrpc",
+            )
+
+    def test_plain_hf_id_with_matching_model_id_ok(self):
+        """Passing --model-id equal to -m <hf_id> is allowed (no-op duplicate)."""
         path, mid = _resolve_model_path(
-            model=("microsoft/resnet-50",), model_id="Intel/bert-base-uncased-mrpc",
+            model=("microsoft/resnet-50",), model_id="microsoft/resnet-50",
         )
         assert path is None
-        assert mid == "Intel/bert-base-uncased-mrpc"
+        assert mid == "microsoft/resnet-50"
 
     def test_plain_onnx_with_model_id(self, onnx_file):
         path, mid = _resolve_model_path(
@@ -548,7 +555,7 @@ class TestPerTaskDefaultDataset:
             )
         msgs = [r.getMessage() for r in caplog.records]
         assert any(
-            "--dataset is not specified" in m
+            "--dataset not specified" in m
             and "image-classification" in m
             and "timm/mini-imagenet" in m
             for m in msgs

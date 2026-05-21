@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from tqdm import tqdm
 from transformers.pipelines.zero_shot_classification import ZeroShotClassificationPipeline
 
+from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
 
 
@@ -58,43 +59,17 @@ class _FixedShapeZeroShotPipeline(ZeroShotClassificationPipeline):
 class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
     """Evaluator for zero-shot text classification using NLI models."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for zero-shot classification."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("text", "Value(string)", "input_column", description="input text"),
-            SchemaColumn(
-                "label",
-                "ClassLabel",
-                "label_column",
-                description="gold label (ClassLabel or string)",
-            ),
-            SchemaColumn(
-                "<candidate_labels>",
-                "comma-separated str",
-                "candidate_labels",
-                required=False,
-                description="override candidate labels (required for non-ClassLabel columns)",
-            ),
-            SchemaColumn(
-                "<hypothesis_template>",
-                "Value(string)",
-                "hypothesis_template",
-                required=False,
-                description='NLI hypothesis template (default: "This example is {}.")',
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
+        from ..utils.eval_utils import get_default
+
         mapping = config.dataset.columns_mapping
-        self._input_col = mapping.get("input_column", "text")
-        self._label_col = mapping.get("label_column", "label")
+        task = "zero-shot-classification"
+        self._input_col = mapping.get("input_column", get_default(task, "input_column"))
+        self._label_col = mapping.get("label_column", get_default(task, "label_column"))
         self._candidate_labels_override = mapping.get("candidate_labels")
         self._hypothesis_template = mapping.get("hypothesis_template")
         super().__init__(config, model)
@@ -143,7 +118,9 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         col_names = set(dataset.column_names)
         for col in (self._input_col, self._label_col):
             if col not in col_names:
-                raise ValueError(f"Column '{col}' not found in dataset: {sorted(col_names)}")
+                raise DatasetValidationError(
+                    f"Column '{col}' not found in dataset: {sorted(col_names)}",
+                )
         return dataset
 
     def _resolve_candidate_labels(self, dataset: Dataset) -> list[str]:
@@ -158,7 +135,7 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         if names:
             return list(names)
 
-        raise ValueError(
+        raise DatasetValidationError(
             f"Column '{self._label_col}' is not a ClassLabel; pass "
             f'--column "candidate_labels=a,b,...".',
         )

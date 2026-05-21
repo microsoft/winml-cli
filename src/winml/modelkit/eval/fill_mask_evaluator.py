@@ -36,18 +36,15 @@ if TYPE_CHECKING:
 class WinMLFillMaskEvaluator(WinMLEvaluator):
     """Evaluate MLMs via pseudo-perplexity."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema."""
-        from .config import SchemaColumn
-        return [SchemaColumn("text", "Value(string)", "input_column")]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
-        self._input_col = config.dataset.columns_mapping.get("input_column", "text")
+        from ..utils.eval_utils import get_default
+
+        mapping = config.dataset.columns_mapping
+        self._input_col = mapping.get("input_column", get_default("fill-mask", "input_column"))
         self._tokenizer = AutoTokenizer.from_pretrained(config.model_id)
         super().__init__(config, model)
 

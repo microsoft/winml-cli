@@ -113,8 +113,8 @@ class TestEvaluate:
 
         task_without_default = next(
             t
-            for t in ["fill-mask", "summarization", "translation"]
-            if t not in eval_mod._DEFAULT_DATASETS
+            for t in ["image-segmentation", "next-sentence-prediction", "image-to-text"]
+            if t in eval_mod._EVALUATOR_REGISTRY and t not in eval_mod._DEFAULT_DATASETS
         )
 
         config = WinMLEvaluationConfig(

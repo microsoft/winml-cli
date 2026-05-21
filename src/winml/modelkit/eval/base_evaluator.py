@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ..utils.eval_utils import DatasetValidationError, validate_dataset_columns
+
 
 if TYPE_CHECKING:
     from datasets import Dataset
@@ -29,16 +31,6 @@ _PIPELINE_TASK_MAP: dict[str, str] = {
 
 class WinMLEvaluator:
     """Base evaluator. Loads dataset, creates pipeline, runs HF evaluator."""
-
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return dataset schema as list of SchemaColumn."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", "input_column", description="PIL Image"),
-            SchemaColumn("label", "ClassLabel", "label_column", description="integer class label"),
-        ]
 
     def __init__(
         self,
@@ -123,6 +115,9 @@ class WinMLEvaluator:
                 )
             dataset = dataset.select(range(actual_samples))
 
+        validate_dataset_columns(
+            dataset, self.config.task, self.config.dataset.columns_mapping,
+        )
         return self.align_labels(dataset, ds)
 
     def prepare_pipeline(self) -> Pipeline:
@@ -203,8 +198,8 @@ class WinMLEvaluator:
             logger.info("Dataset labels aligned for %s.", ds_config.path)
             return self._filter_unsupported_labels(dataset, label_column)
         except (ValueError, KeyError) as e:
-            raise RuntimeError(
-                f"Label alignment failed for dataset '{ds_config.path}': {e}",
+            raise DatasetValidationError(
+                f"label alignment failed for dataset '{ds_config.path}': {e}",
             ) from e
 
     def _get_label_mapping(self, ds_config: DatasetConfig) -> dict | None:
@@ -228,8 +223,9 @@ class WinMLEvaluator:
         dataset = dataset.filter(lambda row: row[label_column] in supported_ids)
 
         if len(dataset) == 0:
-            raise ValueError(
-                "No samples remain after label filtering. Dataset and model labels have no overlap."
+            raise DatasetValidationError(
+                "No samples remain after label filtering. "
+                "Dataset and model labels have no overlap.",
             )
 
         if len(dataset) < original_count:

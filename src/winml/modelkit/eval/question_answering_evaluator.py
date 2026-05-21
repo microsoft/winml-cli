@@ -36,29 +36,6 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
     passing a v2 dataset works transparently.
     """
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for question answering."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn(
-                "question", "Value(string)", "question_column", description="question text"
-            ),
-            SchemaColumn(
-                "context", "Value(string)", "context_column", description="context passage"
-            ),
-            SchemaColumn(
-                "id", "Value(string)", "id_column", description="unique question-answer pair ID"
-            ),
-            SchemaColumn(
-                "answers",
-                "dict(text: list[str], answer_start: list[int])",
-                "label_column",
-                description="answers with text spans and start positions",
-            ),
-        ]
-
     def prepare_pipeline(self) -> Pipeline:
         """Create pipeline and set tokenizer padding for fixed-shape ONNX.
 
@@ -98,13 +75,10 @@ class WinMLQuestionAnsweringEvaluator(WinMLEvaluator):
         logger.info("Running evaluation...")
         task_evaluator = evaluator(self.config.task)
 
-        # Derive default from schema_info so the fallback isn't hardcoded.
-        schema_default = next(
-            col.name for col in self.schema_info() if col.override == "label_column"
-        )
-        label_col = self.config.dataset.columns_mapping.get(
-            "label_column", schema_default
-        )
+        from ..utils.eval_utils import get_default
+
+        mapping = self.config.dataset.columns_mapping
+        label_col = mapping.get("label_column", get_default("question-answering", "label_column"))
 
         try:
             squad_v2 = task_evaluator.is_squad_v2_format(

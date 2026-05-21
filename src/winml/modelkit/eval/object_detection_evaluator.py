@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
 
 
@@ -35,55 +36,24 @@ logger = logging.getLogger(__name__)
 class WinMLObjectDetectionEvaluator(WinMLEvaluator):
     """Evaluator for object detection using COCO-standard mAP metrics."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for object detection."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", description="PIL Image"),
-            SchemaColumn(
-                "objects",
-                "dict",
-                "annotation_column",
-                description="annotation dict",
-                children=[
-                    SchemaColumn(
-                        "bbox", "list[list[float]]", "bbox_key", description="bounding boxes"
-                    ),
-                    SchemaColumn(
-                        "category", "list[ClassLabel]", "category_key", description="category IDs"
-                    ),
-                ],
-            ),
-            SchemaColumn(
-                "xywh",
-                "option",
-                "box_format",
-                required=False,
-                description="box format: xywh or xyxy",
-            ),
-            SchemaColumn(
-                "absolute",
-                "option",
-                "box_coords",
-                required=False,
-                description="coords: absolute or normalized",
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
         # Read column config BEFORE super().__init__() since prepare_data() needs them
-        ds = config.dataset
-        self._annotation_col = ds.columns_mapping.get("annotation_column", "objects")
-        self._bbox_key = ds.columns_mapping.get("bbox_key", "bbox")
-        self._category_key = ds.columns_mapping.get("category_key", "category")
-        self._box_format = ds.columns_mapping.get("box_format", "xywh")
-        self._box_coords = ds.columns_mapping.get("box_coords", "absolute")
+        from ..utils.eval_utils import get_default
+
+        mapping = config.dataset.columns_mapping
+        task = "object-detection"
+        self._image_col = mapping.get("input_column", get_default(task, "input_column"))
+        self._annotation_col = mapping.get(
+            "annotation_column", get_default(task, "annotation_column"),
+        )
+        self._bbox_key = mapping.get("bbox_key", get_default(task, "bbox_key"))
+        self._category_key = mapping.get("category_key", get_default(task, "category_key"))
+        self._box_format = mapping.get("box_format", get_default(task, "box_format"))
+        self._box_coords = mapping.get("box_coords", get_default(task, "box_coords"))
 
         super().__init__(config, model)
 
@@ -130,9 +100,9 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
         id_map = {}
         for ds_id, name in enumerate(ds_class_names):
             if name not in label2id:
-                raise ValueError(
+                raise DatasetValidationError(
                     f"Dataset label '{name}' not in model's label2id. "
-                    f"Model labels: {list(label2id.keys())}"
+                    f"Model labels: {list(label2id.keys())}",
                 )
             id_map[ds_id] = int(label2id[name])
 
@@ -183,13 +153,13 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
                 "labels": [int(lbl) for lbl in annotations[self._category_key]],
             }
             if self._box_coords == "normalized":
-                image = sample.get("image")
+                image = sample.get(self._image_col)
                 if image is not None:
                     ref["image_size"] = image.size  # (width, height)
             references.append(ref)
 
             # --- Predictions ---
-            image = sample.get("image")
+            image = sample.get(self._image_col)
             if image is None:
                 predictions.append({"boxes": [], "scores": [], "labels": []})
                 continue
@@ -225,8 +195,9 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
         """Check dataset has required annotation structure."""
         ann = dataset.features.get(self._annotation_col)
         if ann is None:
-            raise ValueError(
-                f"No column '{self._annotation_col}'. Available: {list(dataset.features.keys())}."
+            raise DatasetValidationError(
+                f"No column '{self._annotation_col}'. "
+                f"Available: {list(dataset.features.keys())}.",
             )
         sub = ann
         if hasattr(ann, "feature") and isinstance(ann.feature, dict):
@@ -234,6 +205,6 @@ class WinMLObjectDetectionEvaluator(WinMLEvaluator):
         for key in (self._bbox_key, self._category_key):
             if key not in sub:
                 avail = list(sub.keys()) if isinstance(sub, dict) else []
-                raise ValueError(
-                    f"'{self._annotation_col}' has no key '{key}'. Available: {avail}."
+                raise DatasetValidationError(
+                    f"'{self._annotation_col}' has no key '{key}'. Available: {avail}.",
                 )

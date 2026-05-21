@@ -12,6 +12,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from rich.console import Console
+
 from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
 from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 _EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
     "image-classification": WinMLEvaluator,
@@ -197,19 +200,24 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
 
 
 def _resolve_task(config: WinMLEvaluationConfig) -> str:
-    """Resolve task from config or model's HF config."""
+    """Resolve task from config or model's HF config, and validate it is supported."""
     if config.task is not None:
-        return config.task
+        task = config.task
+    else:
+        if config.model_id is None:
+            raise ValueError("Cannot infer task without model_id. Provide --task.")
 
-    if config.model_id is None:
-        raise ValueError("Cannot infer task without model_id. Provide --task.")
+        from transformers import AutoConfig
 
-    from transformers import AutoConfig
+        from ..loader.task import _detect_task_from_config
 
-    from ..loader.task import _detect_task_from_config
+        hf_config = AutoConfig.from_pretrained(config.model_id)
+        task = _detect_task_from_config(hf_config)
 
-    hf_config = AutoConfig.from_pretrained(config.model_id)
-    return _detect_task_from_config(hf_config)
+    if task not in _EVALUATOR_REGISTRY:
+        supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
+        raise ValueError(f"Task '{task}' is not supported. Supported tasks: {supported}.")
+    return task
 
 
 def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
@@ -220,7 +228,13 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
     config and any module-level defaults remain untouched.
     """
     config = replace(config, task=_resolve_task(config), dataset=deepcopy(config.dataset))
-    model = _load_model(config)
+    try:
+        model = _load_model(config)
+    except Exception as e:
+        raise ValueError(
+            f"Failed to load model '{config.model_id}'. "
+            f"Run 'winml eval --schema --task {config.task}' to see expected model inputs.",
+        ) from e
 
     if config.dataset.path is None:
         default = _DEFAULT_DATASETS.get(config.task)
@@ -230,19 +244,57 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
             )
         for k, v in default.items():
             setattr(config.dataset, k, deepcopy(v))
-        import json as _json
-
         logger.warning(
-            "--dataset is not specified; using default dataset for task '%s'. "
-            "Any user-supplied --split / --column / --streaming / --dataset-name "
-            "(or equivalent fields in the eval config) are ignored — the keys "
-            "below take precedence:\n%s",
+            "--dataset not specified; attempting default dataset '%s' for task '%s'. "
+            "Any --split / --column / --streaming / --dataset-name options are ignored.",
+            config.dataset.path,
             config.task,
-            _json.dumps(default, indent=2),
         )
 
+    print_config(config)
+
+    from ..utils.eval_utils import DatasetValidationError
+
     cls = get_evaluator_class(config.task)
-    task_evaluator = cls(config, model)
-    metrics = task_evaluator.compute()
+    try:
+        task_evaluator = cls(config, model)
+        metrics = task_evaluator.compute()
+    except DatasetValidationError as e:
+        raise ValueError(
+            f"Dataset '{config.dataset.path}' is not compatible with task "
+            f"'{config.task}': {e}. Use --dataset to specify a different dataset, "
+            f"or run 'winml eval --schema --task {config.task}' to see the expected schema.",
+        ) from e
+    except Exception as e:
+        raise ValueError(
+            f"Failed to compute metrics for task '{config.task}' on dataset "
+            f"'{config.dataset.path}'. "
+            f"Run 'winml eval --schema --task {config.task}' to see the expected schema.",
+        ) from e
 
     return EvalResult(config=config, metrics=metrics)
+
+
+def print_config(config: WinMLEvaluationConfig) -> None:
+    """Print effective evaluation config to the console (quantize.py style)."""
+    ds = config.dataset
+    console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
+    if config.model_path is not None:
+        console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
+    console.print(f"[bold blue]Task:[/bold blue] {config.task}")
+    console.print(f"[bold blue]Device:[/bold blue] {config.device}")
+    if config.ep is not None:
+        console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
+    console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
+    console.print(f"[bold blue]Dataset:[/bold blue] {ds.path}")
+    if ds.name:
+        console.print(f"[bold blue]Dataset name:[/bold blue] {ds.name}")
+    console.print(f"[bold blue]Split:[/bold blue] {ds.split}")
+    console.print(f"[bold blue]Samples:[/bold blue] {ds.samples}")
+    console.print(f"[bold blue]Shuffle:[/bold blue] {ds.shuffle} (seed={ds.seed})")
+    console.print(f"[bold blue]Streaming:[/bold blue] {ds.streaming}")
+    if ds.columns_mapping:
+        cols = ", ".join(f"{k}={v}" for k, v in ds.columns_mapping.items())
+        console.print(f"[bold blue]Columns:[/bold blue] {cols}")
+    if config.output_path is not None:
+        console.print(f"[bold blue]Output:[/bold blue] {config.output_path}")

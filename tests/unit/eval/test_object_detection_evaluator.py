@@ -10,6 +10,7 @@ from datasets import ClassLabel, Dataset, Features, Sequence, Value
 
 from winml.modelkit.datasets import DatasetConfig
 from winml.modelkit.eval import WinMLObjectDetectionEvaluator
+from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -33,10 +34,12 @@ def make_evaluator(label2id=None, columns_mapping=None):
     """Create evaluator without triggering __init__ data loading."""
     ev = object.__new__(WinMLObjectDetectionEvaluator)
     ev.model = MockModel(label2id)
+    ev._image_col = "image"
     ev._annotation_col = "objects"
     ev._bbox_key = "bbox"
     ev._category_key = "category"
     if columns_mapping:
+        ev._image_col = columns_mapping.get("input_column", "image")
         ev._annotation_col = columns_mapping.get("annotation_column", "objects")
         ev._bbox_key = columns_mapping.get("bbox_key", "bbox")
         ev._category_key = columns_mapping.get("category_key", "category")
@@ -79,7 +82,7 @@ class TestValidateSchema:
     def test_missing_annotation_column_raises(self):
         ev = make_evaluator()
         ds = Dataset.from_dict({"image": ["a.jpg"], "label": [0]})
-        with pytest.raises(ValueError, match="No column 'objects'"):
+        with pytest.raises(DatasetValidationError, match="No column 'objects'"):
             ev._validate_schema(ds)
 
     def test_missing_bbox_key_raises(self):
@@ -94,7 +97,7 @@ class TestValidateSchema:
             {"image": ["a.jpg"], "objects": [{"category": [0]}]},
             features=features,
         )
-        with pytest.raises(ValueError, match="has no key 'bbox'"):
+        with pytest.raises(DatasetValidationError, match="has no key 'bbox'"):
             ev._validate_schema(ds)
 
     def test_missing_category_key_raises(self):
@@ -111,7 +114,7 @@ class TestValidateSchema:
             {"image": ["a.jpg"], "objects": [{"bbox": [[0, 0, 1, 1]]}]},
             features=features,
         )
-        with pytest.raises(ValueError, match="has no key 'category'"):
+        with pytest.raises(DatasetValidationError, match="has no key 'category'"):
             ev._validate_schema(ds)
 
 
@@ -146,7 +149,7 @@ class TestAlignLabels:
         ds = make_od_dataset([[0, 1]], ["cat", "dog"])
         ds_config = DatasetConfig(path="test")
 
-        with pytest.raises(ValueError, match="Dataset label 'dog' not in"):
+        with pytest.raises(DatasetValidationError, match="Dataset label 'dog' not in"):
             ev.align_labels(ds, ds_config)
 
     def test_no_label2id_warns_and_skips(self):
