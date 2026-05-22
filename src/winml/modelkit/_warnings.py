@@ -157,7 +157,7 @@ def _configure() -> None:
                 record.levelname = "DEBUG"
             return True
 
-    logging.getLogger("optimum").addFilter(_TasksManagerFilter())
+    logging.getLogger("optimum.exporters.tasks").addFilter(_TasksManagerFilter())
 
 
 # Auto-configure on import
