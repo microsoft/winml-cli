@@ -753,7 +753,8 @@ def analyze(
             unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
             if unsupported_pairs:
                 logger.warning(
-                    "device is set to auto but ep is not; some (ep, device) pairs to "
+                    "device is set to auto (inferred from local availability) but ep is "
+                    "not; some (ep, device) pairs to "
                     "analyze are not supported in local environment: %s",
                     ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
                 )
@@ -761,7 +762,8 @@ def analyze(
             unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
             if unsupported_pairs:
                 logger.warning(
-                    "ep is set to auto but device is not; some (ep, device) pairs to "
+                    "ep is set to auto (inferred from local availability) but device is "
+                    "not; some (ep, device) pairs to "
                     "analyze are not supported in local environment: %s",
                     ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
                 )
