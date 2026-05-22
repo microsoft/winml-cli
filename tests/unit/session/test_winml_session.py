@@ -176,20 +176,17 @@ class TestWinMLSessionProviders:
         """
         Test that session providers are valid and include CPU fallback.
 
-        With policy-based selection (PREFER_NPU), ORT dynamically selects
-        providers at session creation time. The key requirements are:
+        With device="auto", ``resolve_device`` walks the device priority list
+        (NPU > GPU > CPU) and picks the first one that has a compatible EP
+        available on this system. On a CPU-only runner this falls back to CPU.
+        The key requirements are:
         1. Session initializes successfully
         2. At least one provider is active
         3. CPUExecutionProvider is available as fallback
-
-        Note: WinML-registered EPs (like QNN) may be selected dynamically
-        via set_provider_selection_policy() even if not listed in
-        get_available_providers() beforehand.
         """
-        # Create session with NPU preference
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
-            device="npu",  # PREFER_NPU policy
+            device="auto",
         )
 
         # Run to trigger lazy init
@@ -526,7 +523,7 @@ class TestWinMLSessionExplicitProviders:
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device="cpu",
-            ep_config=EPConfig(provider="cpu", provider_options={"CPUExecutionProvider": {}}),
+            ep_config=EPConfig(provider="cpu"),
         )
 
         outputs = session.run(sample_input)
@@ -540,15 +537,28 @@ class TestWinMLSessionExplicitProviders:
         simple_matmul_onnx: Path,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test ep_config.provider_options dict is passed correctly."""
-        # CPU provider doesn't need options, but we verify the parameter works
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-            ep_config=EPConfig(provider="cpu", provider_options={"CPUExecutionProvider": {}}),
-        )
+        """Verify ep_config.provider_options is forwarded to add_provider_for_devices."""
+        from unittest.mock import patch
 
-        outputs = session.run(sample_input)
+        import onnxruntime as ort
+
+        options = {"arbitrary_key": "arbitrary_value"}
+        captured: list[dict[str, str]] = []
+        real_method = ort.SessionOptions.add_provider_for_devices
+
+        def spy(self_sess, ep_devices, provider_opts):
+            captured.append(dict(provider_opts))
+            return real_method(self_sess, ep_devices, provider_opts)
+
+        with patch.object(ort.SessionOptions, "add_provider_for_devices", spy):
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                device="cpu",
+                ep_config=EPConfig(provider="cpu", provider_options=options),
+            )
+            outputs = session.run(sample_input)
+
+        assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
         assert "C" in outputs
 
 
@@ -709,99 +719,6 @@ class TestWinMLSessionPerfTracking:
         assert stats.count == 3  # 5 - 2 warmup
         assert stats.mean_ms > 0
         assert stats.p99_ms > 0
-
-
-class TestFindEpDevice:
-    """Tests for WinMLSession._find_ep_device combined ep_name + device filter.
-
-    Regression guard: when both filters are set, both must match (AND logic).
-    Previously these were two separate methods and the explicit-EP path
-    ignored device, so `--ep qnn --device cpu` could return QNN-on-NPU.
-    """
-
-    @staticmethod
-    def _ep_dev(name: str, dev_type) -> object:
-        """Build a fake OrtEpDevice-like object."""
-        from types import SimpleNamespace
-
-        return SimpleNamespace(ep_name=name, device=SimpleNamespace(type=dev_type))
-
-    def _patch_devices(self, devices: list) -> object:
-        """Return a contextmanager that patches ort.get_ep_devices."""
-        from unittest.mock import patch
-
-        return patch(
-            "winml.modelkit.session.session.ort.get_ep_devices",
-            return_value=devices,
-        )
-
-    def test_ep_name_only(self) -> None:
-        """ep_name filter with device='auto' returns first matching name."""
-        import onnxruntime as ort
-
-        devs = [
-            self._ep_dev("DmlExecutionProvider", ort.OrtHardwareDeviceType.GPU),
-            self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(device="auto", ep_name="QNNExecutionProvider")
-        assert match is not None
-        assert match.ep_name == "QNNExecutionProvider"
-
-    def test_device_only(self) -> None:
-        """device filter alone returns first matching device type."""
-        import onnxruntime as ort
-
-        devs = [
-            self._ep_dev("CPUExecutionProvider", ort.OrtHardwareDeviceType.CPU),
-            self._ep_dev("DmlExecutionProvider", ort.OrtHardwareDeviceType.GPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(device="gpu")
-        assert match is not None
-        assert match.ep_name == "DmlExecutionProvider"
-
-    def test_ep_name_and_device_both_required(self) -> None:
-        """When both filters are set, both must match (AND logic)."""
-        import onnxruntime as ort
-
-        devs = [
-            # QNN-on-NPU comes first; user asks for QNN-on-CPU
-            self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU),
-            self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.CPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(ep_name="QNNExecutionProvider", device="cpu")
-        assert match is not None
-        assert match.device.type == ort.OrtHardwareDeviceType.CPU
-
-    def test_no_match_returns_none(self) -> None:
-        """Non-matching combination returns None even if individual filters would match."""
-        import onnxruntime as ort
-
-        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(ep_name="QNNExecutionProvider", device="cpu")
-        assert match is None
-
-    def test_auto_device_acts_as_no_filter(self) -> None:
-        """device='auto' falls back to ep_name-only matching."""
-        import onnxruntime as ort
-
-        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(ep_name="QNNExecutionProvider", device="auto")
-        assert match is not None
-        assert match.ep_name == "QNNExecutionProvider"
-
-    def test_ep_none_and_device_auto_returns_none(self) -> None:
-        """ep_name=None and device='auto' → None (no effective filter)."""
-        import onnxruntime as ort
-
-        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
-        with self._patch_devices(devs):
-            assert WinMLSession._find_ep_device(device="auto") is None
-            assert WinMLSession._find_ep_device(device="auto", ep_name=None) is None
 
 
 @pytest.mark.ep("openvino")

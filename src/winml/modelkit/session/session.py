@@ -199,7 +199,6 @@ class WinMLSession:
             return
 
         target_device = self._device
-        resolved_device = target_device
 
         logger.debug("Compiling for device: %s", target_device)
 
