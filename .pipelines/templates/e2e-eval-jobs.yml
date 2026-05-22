@@ -12,6 +12,9 @@ parameters:
   - name: continueRun
     type: boolean
     default: true
+  - name: rerunFailed
+    type: boolean
+    default: false
   - name: modelTimeout
     type: number
     default: 3600
@@ -146,8 +149,16 @@ jobs:
               if ($pair.ep) {
                   $args += @("--ep", $pair.ep)
               }
-              if ('${{ parameters.continueRun }}' -eq 'True') {
-                  $args += @("--continue", "--output-dir", "$(set_output_dir.EVAL_DIR)/$name")
+              $continueRun = ('${{ parameters.continueRun }}' -eq 'True')
+              $rerunFailed = ('${{ parameters.rerunFailed }}' -eq 'True')
+              if ($continueRun -or $rerunFailed) {
+                  $args += @("--output-dir", "$(set_output_dir.EVAL_DIR)/$name")
+                  if ($continueRun) {
+                      $args += "--continue"
+                  }
+                  if ($rerunFailed) {
+                      $args += "--retry-failed"
+                  }
               }
               & uv @args
               if ($LASTEXITCODE -ne 0) {
@@ -335,6 +346,9 @@ jobs:
                   "--timeout", "${{ parameters.modelTimeout }}",
                   "--no-report"
               )
+              if ('${{ parameters.rerunFailed }}' -eq 'True') {
+                  $uvArgs += "--retry-failed"
+              }
               if ($pair.ep) {
                   $uvArgs += @("--ep", $pair.ep)
               }
