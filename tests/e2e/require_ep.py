@@ -56,11 +56,11 @@ def require_ep(ep: str) -> str:
     if provider is None:
         pytest.skip(f"Unknown EP: {ep!r}")
 
-    # CPU is always available via ORT itself but is not enumerated by
+    # CPU, DML are always available via ORT itself but is not enumerated by
     # WinMLEPRegistry, which only tracks WinML-discoverable backend EPs
-    # (QNN, OpenVINO, DML, ...). Short-circuit before consulting the
+    # (QNN, OpenVINO, ...). Short-circuit before consulting the
     # registry so `require_ep("cpu")` doesn't spuriously skip.
-    if provider == "CPUExecutionProvider":
+    if provider in ("CPUExecutionProvider", "DmlExecutionProvider"):
         return provider
 
     # Singleton — first call probes; subsequent calls are free.
