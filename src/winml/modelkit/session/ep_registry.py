@@ -79,7 +79,11 @@ class WinMLEPRegistry:
         providers = self._catalog.find_all_providers()
 
         for provider in providers:
-            provider.ensure_ready()
+            try:
+                provider.ensure_ready()
+            except Exception as e:
+                logger.warning("Failed to ensure EP %s is ready: %s", provider.name, e)
+                continue
             if provider.library_path == "":
                 continue
             self._ep_paths[cast("EPName", provider.name)] = provider.library_path
