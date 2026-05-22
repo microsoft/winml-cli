@@ -680,7 +680,8 @@ class WinMLSession:
                 - output_shapes: list of output shapes
                 - output_types: list of numpy dtypes for outputs
                 - precision: best-effort precision label (e.g. "fp16",
-                  "int8", "w8a16", "unknown")
+                  "int8", "w8a16"), or ``None`` when no signal could be
+                  derived from the graph
         """
         if self._io_config is None:
             from ..onnx import load_onnx
@@ -734,11 +735,12 @@ class WinMLSession:
         return value_ranges
 
     @staticmethod
-    def _get_precision(model_proto: onnx.ModelProto) -> str:
+    def _get_precision(model_proto: onnx.ModelProto) -> str | None:
         """Best-effort estimate of a model's numeric precision.
 
         Returns one of: ``"fp32"``, ``"fp16"``, ``"bf16"``, ``"int4"``,
-        ``"int8"``, ``"int16"``, ``"w{w}a{a}"`` (mixed), or ``"unknown"``.
+        ``"int8"``, ``"int16"``, ``"w{w}a{a}"`` (mixed), or ``None`` when
+        no signal can be derived.
 
         Detection is purely operator-schema-based (no model-architecture
         or naming assumptions). The ladder, first match wins:
@@ -751,7 +753,7 @@ class WinMLSession:
            schema ``bits`` attribute + dominant float bit width for
            activations → ``w{w}a{a}``.
         3. No quant markers → dominant float dtype among initializers.
-        4. No signal → ``"unknown"``.
+        4. No signal → ``None``.
         """
         from onnx import TensorProto
 
@@ -825,7 +827,7 @@ class WinMLSession:
             return "fp16"
 
         # (4) No signal.
-        return "unknown"
+        return None
 
     @staticmethod
     def _dominant_float_bits(graph: onnx.GraphProto) -> int | None:

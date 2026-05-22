@@ -531,8 +531,8 @@ class TestWinMLSessionPrecisionDetection:
         session = WinMLSession(onnx_path=path, device="auto")
         assert session.io_config["precision"] == "w4a16"
 
-    def test_precision_no_signal_unknown(self, tmp_path: Path):
-        """No QDQ ops, no MatMulNBits, no float initializers → 'unknown'."""
+    def test_precision_no_signal_returns_none(self, tmp_path: Path):
+        """No QDQ ops, no MatMulNBits, no float initializers → None."""
         from onnx import TensorProto, helper
 
         a = helper.make_tensor_value_info("A", TensorProto.INT64, [1, 4])
@@ -545,7 +545,7 @@ class TestWinMLSessionPrecisionDetection:
         path = self._save(model, tmp_path / "no_signal.onnx")
 
         session = WinMLSession(onnx_path=path, device="auto")
-        assert session.io_config["precision"] == "unknown"
+        assert session.io_config["precision"] is None
 
 
 @pytest.mark.skip(reason="Re-batching not yet implemented")
