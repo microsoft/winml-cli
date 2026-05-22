@@ -384,10 +384,10 @@ class WinMLSession:
                     device,
                     resolved_device,
                 )
-                return opts
+                return opts, resolved_device, resolved_ep
 
         raise DeviceNotAvailableError(
-            message=f"No available device found for policy '{device}' and EP '{self._ep}'"
+            message=f"No available provider found for device '{device}' and EP '{self._ep}'"
         )
 
     def _validate_inputs(self, inputs: dict[str, Any]) -> None:
