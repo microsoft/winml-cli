@@ -16,9 +16,12 @@ from unittest.mock import MagicMock, patch
 class TestGetPlatformInfo:
     """Test _get_platform_info function."""
 
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)
     @patch("winml.modelkit.commands.sys.OS")
     @patch("winml.modelkit.commands.sys.platform")
-    def test_windows_11_detection(self, mock_platform: MagicMock, mock_os_class: MagicMock) -> None:
+    def test_windows_11_detection(
+        self, mock_platform: MagicMock, mock_os_class: MagicMock, _mock_native: MagicMock
+    ) -> None:
         """Test Windows 11 is correctly detected."""
         from winml.modelkit.commands.sys import _get_platform_info
 
@@ -39,9 +42,12 @@ class TestGetPlatformInfo:
         assert result["machine"] == "AMD64"
         mock_os_class.get.assert_called_once()
 
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)
     @patch("winml.modelkit.commands.sys.OS")
     @patch("winml.modelkit.commands.sys.platform")
-    def test_windows_10_detection(self, mock_platform: MagicMock, mock_os_class: MagicMock) -> None:
+    def test_windows_10_detection(
+        self, mock_platform: MagicMock, mock_os_class: MagicMock, _mock_native: MagicMock
+    ) -> None:
         """Test Windows 10 is correctly detected."""
         from winml.modelkit.commands.sys import _get_platform_info
 
@@ -61,9 +67,12 @@ class TestGetPlatformInfo:
         assert result["release"] == "10"
         assert result["machine"] == "AMD64"
 
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)
     @patch("winml.modelkit.commands.sys.OS")
     @patch("winml.modelkit.commands.sys.platform")
-    def test_windows_7_preserved(self, mock_platform: MagicMock, mock_os_class: MagicMock) -> None:
+    def test_windows_7_preserved(
+        self, mock_platform: MagicMock, mock_os_class: MagicMock, _mock_native: MagicMock
+    ) -> None:
         """Test Windows 7 version is preserved (not changed to 10)."""
         from winml.modelkit.commands.sys import _get_platform_info
 
@@ -83,9 +92,12 @@ class TestGetPlatformInfo:
         assert result["release"] == "7"  # Should keep original value
         assert result["machine"] == "AMD64"
 
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)
     @patch("winml.modelkit.commands.sys.OS")
     @patch("winml.modelkit.commands.sys.platform")
-    def test_windows_81_preserved(self, mock_platform: MagicMock, mock_os_class: MagicMock) -> None:
+    def test_windows_81_preserved(
+        self, mock_platform: MagicMock, mock_os_class: MagicMock, _mock_native: MagicMock
+    ) -> None:
         """Test Windows 8.1 version is preserved (not changed to 10)."""
         from winml.modelkit.commands.sys import _get_platform_info
 
@@ -105,10 +117,11 @@ class TestGetPlatformInfo:
         assert result["release"] == "8.1"  # Should keep original value
         assert result["machine"] == "AMD64"
 
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)
     @patch("winml.modelkit.commands.sys.OS")
     @patch("winml.modelkit.commands.sys.platform")
     def test_windows_detection_fallback_on_exception(
-        self, mock_platform: MagicMock, mock_os_class: MagicMock
+        self, mock_platform: MagicMock, mock_os_class: MagicMock, _mock_native: MagicMock
     ) -> None:
         """Test fallback to platform.release() when OS detection fails."""
         from winml.modelkit.commands.sys import _get_platform_info
@@ -127,6 +140,64 @@ class TestGetPlatformInfo:
         # Should use fallback value from platform.release()
         assert result["system"] == "Windows"
         assert result["release"] == "10"
+        assert result["machine"] == "AMD64"
+
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine")
+    @patch("winml.modelkit.commands.sys.OS")
+    @patch("winml.modelkit.commands.sys.platform")
+    def test_windows_arm64_host_with_x64_python(
+        self,
+        mock_platform: MagicMock,
+        mock_os_class: MagicMock,
+        mock_native: MagicMock,
+    ) -> None:
+        """x64 Python on ARM64 host: IsWow64Process2 reveals the real host arch.
+
+        platform.machine() returns the process arch ("AMD64") under emulation;
+        winml sys should display the host arch ("ARM64") instead.
+        """
+        from winml.modelkit.commands.sys import _get_platform_info
+
+        mock_platform.system.return_value = "Windows"
+        mock_platform.release.return_value = "10"
+        mock_platform.machine.return_value = "AMD64"
+        mock_platform.processor.return_value = "Snapdragon"
+
+        mock_os_instance = MagicMock()
+        mock_os_instance.is_windows_11.return_value = True
+        mock_os_class.get.return_value = mock_os_instance
+
+        mock_native.return_value = "ARM64"
+
+        result = _get_platform_info()
+
+        assert result["machine"] == "ARM64"
+
+    @patch("winml.modelkit.commands.sys._get_windows_native_machine")
+    @patch("winml.modelkit.commands.sys.OS")
+    @patch("winml.modelkit.commands.sys.platform")
+    def test_windows_native_lookup_failure_falls_back(
+        self,
+        mock_platform: MagicMock,
+        mock_os_class: MagicMock,
+        mock_native: MagicMock,
+    ) -> None:
+        """When IsWow64Process2 yields None, fall back to platform.machine()."""
+        from winml.modelkit.commands.sys import _get_platform_info
+
+        mock_platform.system.return_value = "Windows"
+        mock_platform.release.return_value = "10"
+        mock_platform.machine.return_value = "AMD64"
+        mock_platform.processor.return_value = "Intel64 Family 6"
+
+        mock_os_instance = MagicMock()
+        mock_os_instance.is_windows_11.return_value = True
+        mock_os_class.get.return_value = mock_os_instance
+
+        mock_native.return_value = None
+
+        result = _get_platform_info()
+
         assert result["machine"] == "AMD64"
 
     @patch("winml.modelkit.commands.sys.platform")

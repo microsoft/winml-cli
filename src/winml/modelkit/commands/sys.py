@@ -68,10 +68,51 @@ def _get_python_info() -> dict[str, Any]:
     }
 
 
+_IMAGE_FILE_MACHINE_TO_NAME = {
+    0x8664: "AMD64",
+    0xAA64: "ARM64",
+    0x14C: "x86",
+}
+
+
+def _get_windows_native_machine() -> str | None:
+    """Return the host architecture as reported by IsWow64Process2.
+
+    platform.machine() returns the *process* arch (PROCESSOR_ARCHITECTURE),
+    so an x64 Python running under ARM64 emulation reports "AMD64". The
+    Win32 IsWow64Process2 API exposes the real host machine type, which
+    is what the user expects to see in `winml sys`. PROCESSOR_ARCHITEW6432
+    is unreliable on ARM64 (Prism emulation does not set it on Snapdragon X).
+
+    Returns None when the API can't be called or yields an unknown value.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        is_wow64 = kernel32.IsWow64Process2
+        is_wow64.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_ushort),
+            ctypes.POINTER(ctypes.c_ushort),
+        ]
+        is_wow64.restype = wintypes.BOOL
+
+        proc = ctypes.c_ushort(0)
+        native = ctypes.c_ushort(0)
+        if not is_wow64(kernel32.GetCurrentProcess(), ctypes.byref(proc), ctypes.byref(native)):
+            return None
+        return _IMAGE_FILE_MACHINE_TO_NAME.get(native.value)
+    except (OSError, AttributeError):
+        return None
+
+
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
     system = platform.system()
     release = platform.release()
+    machine = platform.machine()
 
     # For Windows, use OS class for accurate Windows 11 detection
     # platform.release() may incorrectly report '10' on some Python versions
@@ -86,10 +127,14 @@ def _get_platform_info() -> dict[str, Any]:
             # Fallback to platform.release() if OS detection fails
             pass
 
+        native_machine = _get_windows_native_machine()
+        if native_machine:
+            machine = native_machine
+
     return {
         "system": system,
         "release": release,
-        "machine": platform.machine(),
+        "machine": machine,
         "processor": platform.processor() or "Unknown",
     }
 
