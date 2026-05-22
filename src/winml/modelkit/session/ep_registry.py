@@ -82,7 +82,7 @@ class WinMLEPRegistry:
             try:
                 provider.ensure_ready()
             except Exception as e:
-                logger.warning("Failed to ensure EP %s is ready: %s", provider.name, e)
+                logger.debug("Failed to ensure EP %s is ready: %s", provider.name, e)
                 continue
             if provider.library_path == "":
                 continue
