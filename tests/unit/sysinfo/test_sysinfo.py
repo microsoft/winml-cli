@@ -12,6 +12,59 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+
+class TestGetWindowsNativeMachine:
+    """Test _get_windows_native_machine and the IMAGE_FILE_MACHINE mapping.
+
+    These tests lock in the IMAGE_FILE_MACHINE_* → display-name mapping so
+    accidentally renaming "ARM64" → "Arm64" (or similar) ships with a test
+    failure rather than silently changing user-visible output. The
+    higher-level _get_platform_info tests mock the helper's return value
+    and would not catch a mapping rename.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (0x8664, "AMD64"),
+            (0xAA64, "ARM64"),
+            (0x14C, "x86"),
+            # ARMNT (0xC4) is not a Windows 11 host arch — intentionally unmapped
+            (0xC4, None),
+            # IMAGE_FILE_MACHINE_UNKNOWN — IsWow64Process2 returns this for the
+            # process slot when the process is native on the host
+            (0x0, None),
+        ],
+    )
+    def test_native_machine_mapping(
+        self, raw: int, expected: str | None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sys_mod, "_query_native_machine_via_win32", lambda: raw)
+
+        assert sys_mod._get_windows_native_machine() == expected
+
+    def test_returns_none_when_win32_query_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sys_mod, "_query_native_machine_via_win32", lambda: None)
+
+        assert sys_mod._get_windows_native_machine() is None
+
+    def test_returns_none_on_non_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        assert sys_mod._get_windows_native_machine() is None
+
 
 class TestGetPlatformInfo:
     """Test _get_platform_info function."""
