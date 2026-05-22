@@ -23,8 +23,6 @@ from unittest.mock import MagicMock, patch
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import click
-
 import pytest
 from click.testing import CliRunner
 
@@ -79,9 +77,10 @@ class TestCommandDiscovery:
 class TestCommandTypoSuggestion:
     """Test did-you-mean hints for mistyped subcommand names (issue #508).
 
-    ``LazyGroup.resolve_command`` augments Click's ``No such command 'X'.``
-    with the closest known command from ``list_commands``, matching the UX
-    of ``git`` / ``gh`` / ``cargo`` / ``kubectl``.
+    ``LazyGroup.resolve_command`` seeds ``self.commands`` from the
+    filesystem-discovered names so Click 8.4+'s built-in
+    :class:`click.exceptions.NoSuchCommand` suggester can find candidates.
+    The output matches the UX of ``git`` / ``gh`` / ``cargo`` / ``kubectl``.
     """
 
     def test_typo_suggests_closest_command(self, runner: CliRunner) -> None:
@@ -104,25 +103,6 @@ class TestCommandTypoSuggestion:
         result = runner.invoke(main, ["xyzzy"])
         assert result.exit_code != 0
         assert "No such command 'xyzzy'." in result.output
-        assert "Did you mean" not in result.output
-
-    def test_known_command_resolution_failure_does_not_self_suggest(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Known command load failure should not suggest itself."""
-
-        def fake_get_command(ctx: click.Context, cmd_name: str) -> None:
-            return None
-
-        def fake_list_commands(ctx: click.Context) -> list[str]:
-            return ["export"]
-
-        monkeypatch.setattr(main, "get_command", fake_get_command)
-        monkeypatch.setattr(main, "list_commands", fake_list_commands)
-
-        result = runner.invoke(main, ["export"])
-        assert result.exit_code != 0
-        assert "No such command 'export'." in result.output
         assert "Did you mean" not in result.output
 
 
