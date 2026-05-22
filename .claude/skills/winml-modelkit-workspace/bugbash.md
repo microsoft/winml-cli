@@ -6,18 +6,6 @@
 
 Skill is at `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit/SKILL.md`. Eval baseline at [`reports/20260520-135348.md`](reports/20260520-135348.md).
 
-## Setup
-
-1. Clone the repo and open in Claude Code (or your agent of choice that supports skills).
-2. The skill auto-loads when the agent sees a relevant query — you do **not** need to type `/winml-modelkit` or read SKILL.md yourself. If you want to be explicit, you can type `use the winml-modelkit skill` at the start of your message.
-3. `winml` CLI does **not** need to be pre-installed — the skill's first scenario covers install. If you want to do that ahead of time:
-   ```powershell
-   uv venv --python 3.10
-   .venv\Scripts\activate
-   uv pip install "$env:USERPROFILE\.aitk\bin\model_lab_runtime\cache\winml_cli-0.0.3-py3-none-any.whl"
-   winml --help
-   ```
-
 ## How to file bugs
 
 For each scenario you try, note:
