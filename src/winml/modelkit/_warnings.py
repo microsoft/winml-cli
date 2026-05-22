@@ -27,6 +27,12 @@ def _configure() -> None:
     # Environment variable to reduce tokenizers noise
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+    # Suppress huggingface_hub tqdm download progress bars by default.
+    # These are written directly to stderr by tqdm and cannot be routed
+    # through Python logging.  Users can override with
+    # HF_HUB_DISABLE_PROGRESS_BARS=0 to restore them.
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
     # Allow users to see all warnings if they want
     if os.environ.get("WINMLCLI_SHOW_ALL_WARNINGS", "").lower() in ("1", "true", "yes"):
         return
@@ -119,8 +125,8 @@ def _configure() -> None:
                                 duplicated files but your machine does not
                                 support them
 
-        After (INFO level, only visible with -v / --verbose):
-            [09:12:34] INFO     C:\\...\\huggingface_hub\\file_download.py:1:
+        After (DEBUG level, only visible with --verbose):
+            [09:12:34] DEBUG    C:\\...\\huggingface_hub\\file_download.py:1:
                                 UserWarning: `huggingface_hub` cache-system uses
                                 symlinks by default to efficiently store
                                 duplicated files but your machine does not
@@ -130,11 +136,28 @@ def _configure() -> None:
         def filter(self, record: logging.LogRecord) -> bool:
             msg = record.getMessage()
             if "symlinks" in msg and "huggingface_hub" in msg:
-                record.levelno = logging.INFO
-                record.levelname = "INFO"
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
             return True
 
     logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
+
+    class _TasksManagerFilter(logging.Filter):
+        """Downgrade optimum TasksManager architecture-mismatch notice to DEBUG.
+
+        optimum logs a WARNING when TasksManager selects a different Auto class
+        than the one in config.architectures (e.g. AutoModelForSequenceClassification
+        vs RobertaForSequenceClassification).  This is expected behaviour for
+        WinML models and is purely informational.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if "TasksManager returned" in record.getMessage():
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+            return True
+
+    logging.getLogger("optimum").addFilter(_TasksManagerFilter())
 
 
 # Auto-configure on import

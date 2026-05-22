@@ -39,7 +39,7 @@ def _emit_warning(message: str, filename: str) -> None:
 
 
 class TestHFSymlinksInfoFilter:
-    """_HFSymlinksInfoFilter downgrades huggingface_hub symlinks warnings to INFO."""
+    """_HFSymlinksInfoFilter downgrades huggingface_hub symlinks warnings to DEBUG."""
 
     def test_filter_is_installed(self) -> None:
         """_configure() installs _HFSymlinksInfoFilter on the py.warnings logger."""
@@ -47,8 +47,8 @@ class TestHFSymlinksInfoFilter:
 
         _get_hf_symlinks_filter()  # asserts filter exists
 
-    def test_downgrade_to_info(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Warning from huggingface_hub containing 'symlinks' is downgraded to INFO."""
+    def test_downgrade_to_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Warning from huggingface_hub containing 'symlinks' is downgraded to DEBUG."""
         import winml.modelkit._warnings  # noqa: F401
 
         with caplog.at_level(logging.DEBUG, logger="py.warnings"):
@@ -63,8 +63,8 @@ class TestHFSymlinksInfoFilter:
 
         records = [r for r in caplog.records if "symlinks" in r.getMessage()]
         assert records, "No matching record captured"
-        assert records[0].levelno == logging.INFO
-        assert records[0].levelname == "INFO"
+        assert records[0].levelno == logging.DEBUG
+        assert records[0].levelname == "DEBUG"
 
     def test_unrelated_warning_unchanged(self, caplog: pytest.LogCaptureFixture) -> None:
         """Records without 'symlinks' in message are not modified."""
