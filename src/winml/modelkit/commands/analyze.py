@@ -1135,8 +1135,6 @@ def analyze(
                             ((target_ep, target_device), value)
                         )
 
-                per_pair_values["gelu_fusion"][0] = (per_pair_values["gelu_fusion"][0][0], False)
-
                 merged: dict[str, object] = {}
                 for key, entries in per_pair_values.items():
                     merged[key] = entries[0][1]
