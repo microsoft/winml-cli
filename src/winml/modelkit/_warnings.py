@@ -125,8 +125,8 @@ def _configure() -> None:
                                 duplicated files but your machine does not
                                 support them
 
-        After (DEBUG level, only visible with --verbose):
-            [09:12:34] DEBUG    C:\\...\\huggingface_hub\\file_download.py:1:
+        After (INFO level, only visible with --verbose or -v):
+            [09:12:34] INFO     C:\\...\\huggingface_hub\\file_download.py:1:
                                 UserWarning: `huggingface_hub` cache-system uses
                                 symlinks by default to efficiently store
                                 duplicated files but your machine does not
@@ -136,14 +136,14 @@ def _configure() -> None:
         def filter(self, record: logging.LogRecord) -> bool:
             msg = record.getMessage()
             if "symlinks" in msg and "huggingface_hub" in msg:
-                record.levelno = logging.DEBUG
-                record.levelname = "DEBUG"
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
             return True
 
     logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
 
     class _TasksManagerFilter(logging.Filter):
-        """Downgrade optimum TasksManager architecture-mismatch notice to DEBUG.
+        """Downgrade optimum TasksManager architecture-mismatch notice to INFO.
 
         optimum logs a WARNING when TasksManager selects a different Auto class
         than the one in config.architectures (e.g. AutoModelForSequenceClassification
@@ -153,11 +153,28 @@ def _configure() -> None:
 
         def filter(self, record: logging.LogRecord) -> bool:
             if "TasksManager returned" in record.getMessage():
-                record.levelno = logging.DEBUG
-                record.levelname = "DEBUG"
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
             return True
 
     logging.getLogger("optimum.exporters.tasks").addFilter(_TasksManagerFilter())
+
+    class _TransformersWeightsFilter(logging.Filter):
+        """Downgrade the transformers "weights not used" notice from WARNING to INFO.
+
+        When loading a checkpoint, transformers warns about pooler or other
+        weights that are intentionally absent in the target architecture.
+        This is expected (e.g. RobertaForSequenceClassification drops the
+        pooler from a base checkpoint) and is purely informational.
+        """
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if "were not used when initializing" in record.getMessage():
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+            return True
+
+    logging.getLogger("transformers.modeling_utils").addFilter(_TransformersWeightsFilter())
 
 
 # Auto-configure on import
