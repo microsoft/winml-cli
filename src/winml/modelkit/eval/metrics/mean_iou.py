@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-import torch
 
 
 # Sentinel value for pixels excluded from metric computation.
@@ -73,6 +72,8 @@ class MeanIoUMetric:
             reference: (H, W) int array, 0-indexed class IDs.
                 Pixels with ignore_index value are excluded from metric.
         """
+        import torch
+
         pred_t = torch.from_numpy(prediction.astype(np.int64)).unsqueeze(0)
         ref_t = torch.from_numpy(reference.astype(np.int64)).unsqueeze(0)
 

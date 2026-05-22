@@ -12,9 +12,11 @@ conversion and box format normalization internally.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import torch
+
+if TYPE_CHECKING:
+    import torch
 
 
 class MAPMetric:
@@ -53,6 +55,7 @@ class MAPMetric:
             num_ground_truths, num_images, plus additional scalar
             metrics from torchmetrics.
         """
+        import torch
         from torchmetrics.detection import MeanAveragePrecision
 
         target_list = [self._convert_target(ref, box_format, box_coords) for ref in references]
@@ -83,6 +86,8 @@ class MAPMetric:
         box_coords: str,
     ) -> dict[str, torch.Tensor]:
         """Convert one image's ground truth to torchmetrics format."""
+        import torch
+
         raw_boxes = ref.get("boxes", [])
         raw_labels = ref.get("labels", [])
 
@@ -121,6 +126,8 @@ class MAPMetric:
     @staticmethod
     def _convert_prediction(pred: dict[str, Any]) -> dict[str, torch.Tensor]:
         """Convert one image's predictions to torchmetrics format."""
+        import torch
+
         raw_boxes = pred.get("boxes", [])
         raw_scores = pred.get("scores", [])
         raw_labels = pred.get("labels", [])
@@ -141,6 +148,8 @@ class MAPMetric:
 
 def _xywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
     """Convert [x, y, width, height] to [xmin, ymin, xmax, ymax]."""
+    import torch
+
     x, y, w, h = boxes.unbind(-1)
     return torch.stack([x, y, x + w, y + h], dim=-1)
 
@@ -151,5 +160,7 @@ def _denormalize_boxes(
     height: int,
 ) -> torch.Tensor:
     """Convert normalized [0,1] boxes to absolute pixel coordinates."""
+    import torch
+
     scale = torch.tensor([width, height, width, height], dtype=boxes.dtype)
     return boxes * scale

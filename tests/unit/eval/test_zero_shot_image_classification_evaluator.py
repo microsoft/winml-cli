@@ -102,8 +102,7 @@ def _make_evaluator(class_names=None):
     """Instantiate evaluator by patching external dependencies."""
     from datasets import ClassLabel, Dataset, Features, Image
 
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     class_names = class_names or ["airplane", "automobile", "bird", "cat", "deer",
                                    "dog", "frog", "horse", "ship", "truck"]
