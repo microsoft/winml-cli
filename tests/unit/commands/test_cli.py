@@ -152,7 +152,16 @@ class TestSysCommand:
     def _mock_hw_detection(self):
         """Mock slow hardware detection to prevent CI timeouts."""
         mock_devices = [{"priority": 1, "type": "CPU", "name": "Mock CPU", "details": {}}]
-        mock_eps = [{"name": "CPUExecutionProvider", "device": "CPU", "path": None}]
+        # _gather_ep_info returns dict[ep_name, {compatible, device_types, entries}].
+        mock_eps = {
+            "CPUExecutionProvider": {
+                "compatible": True,
+                "device_types": "CPU",
+                "entries": [
+                    {"status": "primary", "source_kind": "built-in", "dll_path": None}
+                ],
+            }
+        }
         with (
             patch("winml.modelkit.commands.sys._gather_device_info", return_value=mock_devices),
             patch("winml.modelkit.commands.sys._gather_ep_info", return_value=mock_eps),
@@ -196,7 +205,7 @@ class TestSysCommand:
         assert result.exit_code == 0
 
     def test_sys_list_device_list_ep_json_is_valid_single_object(self, runner: CliRunner) -> None:
-        """--list-device --list-ep --format json must emit one valid JSON object, not two arrays."""
+        """--list-device --list-ep --format json must emit one valid JSON object."""
         import json
 
         result = runner.invoke(main, ["sys", "--list-device", "--list-ep", "--format", "json"])
@@ -205,7 +214,10 @@ class TestSysCommand:
         assert "devices" in data
         assert "executionProviders" in data
         assert isinstance(data["devices"], list)
-        assert isinstance(data["executionProviders"], list)
+        # executionProviders is dict[ep_name, {compatible, device_types, entries}]
+        # per the comprehensive inventory shape; one key per detected EP.
+        assert isinstance(data["executionProviders"], dict)
+        assert "CPUExecutionProvider" in data["executionProviders"]
 
     def test_sys_list_device_compact(self, runner: CliRunner) -> None:
         """--list-device --format compact must produce compact output, not text table."""
@@ -222,6 +234,90 @@ class TestSysCommand:
         assert "CPUExecutionProvider" in result.output
         # Compact output is a single line; no Rich panel headers
         assert "Available Execution Providers" not in result.output
+
+
+class TestSysListEpEndToEnd:
+    """End-to-end coverage for ``_gather_ep_info`` shape (review I-5).
+
+    Other ``TestSysCommand`` tests mock ``_gather_ep_info`` to return a
+    canned dict. Here we mock only the slow boundary calls
+    (``_get_pkg_manager``, ``_get_catalog``) and let the real handler
+    walk ``EP_PATH``, derive ``compatible``/``device_types``/``status``,
+    and emit the JSON shape.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_for_e2e(self, monkeypatch):
+        """Make _gather_ep_info hermetic without mocking it out entirely."""
+        from winml.modelkit import ep_path as _ep
+
+        monkeypatch.setattr(_ep, "EP_PATH", [])
+        monkeypatch.setattr(_ep, "_get_catalog", lambda: None)
+        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: None)
+        monkeypatch.delenv("MODELKIT_EP_PATH", raising=False)
+        # Force compat detection to pretend nothing is detected so
+        # vendor-constrained EPs come out as `compatible=False`.
+        _ep._get_detected_vendors.cache_clear()
+        monkeypatch.setattr(
+            _ep,
+            "_get_detected_vendors",
+            lambda: frozenset({"Qualcomm Inc"}),
+        )
+
+    def test_json_shape_has_all_required_fields(self, runner: CliRunner) -> None:
+        import json
+
+        result = runner.invoke(main, ["sys", "--list-ep", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        eps = data["executionProviders"]
+        assert isinstance(eps, dict)
+        # Built-in CPUExecutionProvider should always be present (no
+        # vendor requirement, never incompatible).
+        assert "CPUExecutionProvider" in eps
+        cpu = eps["CPUExecutionProvider"]
+        assert cpu["compatible"] is True
+        assert "device_types" in cpu
+        entries = cpu["entries"]
+        assert isinstance(entries, list)
+        assert len(entries) >= 1
+        first = entries[0]
+        assert first["status"] == "primary"
+        assert first["source_kind"] == "built-in"
+
+    def test_incompatible_ep_section_marks_entries(
+        self, runner: CliRunner, monkeypatch
+    ) -> None:
+        # Inject a PyPiSource for OpenVINO into EP_PATH; with detected
+        # vendors = {"Qualcomm Inc"}, OpenVINO must be marked incompatible
+        # at the section level AND at every entry level.
+        from winml.modelkit import ep_path as _ep
+        from winml.modelkit.ep_path import PyPiSource
+
+        # Provide a real installed distribution so the source resolves;
+        # onnxruntime-ep-openvino is installed in this venv.
+        ov_source = PyPiSource(
+            distribution="onnxruntime-ep-openvino",
+            relative_dll=(
+                "onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"
+            ),
+            eps=("OpenVINOExecutionProvider",),
+        )
+        monkeypatch.setattr(_ep, "EP_PATH", [ov_source])
+
+        import json
+
+        result = runner.invoke(main, ["sys", "--list-ep", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        ov = data["executionProviders"].get("OpenVINOExecutionProvider")
+        if ov is None:
+            pytest.skip("onnxruntime-ep-openvino not installed in this venv")
+        assert ov["compatible"] is False
+        # Section incompatible -> every entry status overridden to incompatible.
+        for entry in ov["entries"]:
+            assert entry["status"] == "incompatible"
+            assert entry["compatible"] is False
 
 
 class TestDisabledCommands:

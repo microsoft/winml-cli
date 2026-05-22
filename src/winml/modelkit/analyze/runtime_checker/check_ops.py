@@ -261,10 +261,10 @@ class RTXChecker(EPChecker):
 
     def __init__(self, device_type: ort.OrtHardwareDeviceType) -> None:
         if device_type != ort.OrtHardwareDeviceType.GPU:
-            raise ValueError("NvTensorRTRTXExecutionProvider only supports GPU device type")
+            raise ValueError("NvTensorRtRtxExecutionProvider only supports GPU device type")
         """Initialize RTX checker."""
         super().__init__(
-            ep_name="NvTensorRTRTXExecutionProvider", device_type=ort.OrtHardwareDeviceType.GPU
+            ep_name="NvTensorRtRtxExecutionProvider", device_type=ort.OrtHardwareDeviceType.GPU
         )
 
 
@@ -286,7 +286,7 @@ def get_ep_checker(ep_name: str, device: str) -> EPChecker:
         "OpenVINOExecutionProvider": OpenVINONPUChecker,
         "VitisAIExecutionProvider": VitisAIChecker,
         "MIGraphXExecutionProvider": MIGraphXChecker,
-        "NvTensorRTRTXExecutionProvider": RTXChecker,
+        "NvTensorRtRtxExecutionProvider": RTXChecker,
         # Add other EPChecker subclasses here as needed
     }
     if ep_name not in ep_name_to_checker:
@@ -332,7 +332,7 @@ def build_parser():
             "OpenVINOExecutionProvider",
             "VitisAIExecutionProvider",
             "MIGraphXExecutionProvider",
-            "NvTensorRTRTXExecutionProvider",
+            "NvTensorRtRtxExecutionProvider",
         ],
         help=(
             "Execution Provider names to test. "
@@ -340,7 +340,7 @@ def build_parser():
             "OpenVINOExecutionProvider, "
             "VitisAIExecutionProvider, "
             "MIGraphXExecutionProvider, "
-            "NvTensorRTRTXExecutionProvider"
+            "NvTensorRtRtxExecutionProvider"
         ),
     )
     parser.add_argument(

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"ls \\\"D:\\\\BYOM\\\\ModelKit_PRs\\\\mvp\\\\src\\\\winml\\\\modelkit\\\\\\\" 2>/dev/null || ls \\\"D:\\\\BYOM\\\\ModelKit_PRs\\\\mvp\\\\src\\\\\\\" 2>/dev/null\",\"description\":\"List source directory structure\"}",
+  "error": "Exit code 2",
+  "timestamp": "2026-04-13T06:00:39.844Z",
+  "retry_count": 1
+}

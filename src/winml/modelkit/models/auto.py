@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from ..cache import get_cache_dir, get_cache_key, get_model_dir
 from ..loader import load_hf_model
 from ..loader.task import get_task_abbrev
+from ..session import short_ep_name
 
 # Import task mapping from winml/ subpackage
 from .winml import get_supported_tasks, get_winml_class
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from ..config import WinMLBuildConfig
+    from ..session import EPDevice
     from .winml.base import WinMLPreTrainedModel
 
 logger = logging.getLogger(__name__)
@@ -100,11 +102,10 @@ class WinMLAutoModel:
         cls,
         onnx_path: str | Path | dict[str, str | Path],
         *,
+        ep_device: EPDevice,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
-        device: str = "auto",
         precision: str = "auto",
-        ep: str | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
@@ -120,11 +121,11 @@ class WinMLAutoModel:
 
         Args:
             onnx_path: Path to existing ONNX model file.
+            ep_device: Resolved (EP, device) target. Use ``resolve_device(ep, device)``
+                from ``session.ep_device`` to construct this.
             task: Task name. Optional for ONNX builds (not needed for build pipeline).
             config: Build config. If None, auto-generated with device/precision resolution.
-            device: Target device ("auto", "npu", "gpu", "cpu").
             precision: Target precision ("auto", "fp32", "fp16", "int8").
-            ep: Explicit execution provider.
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
@@ -169,9 +170,9 @@ class WinMLAutoModel:
         config = generate_onnx_build_config(
             onnx_path,
             task=task,
-            device=device,
+            device=ep_device.device,
             precision=precision,
-            ep=ep,
+            ep=short_ep_name(ep_device.ep),
             override=config,
         )
 
@@ -190,8 +191,7 @@ class WinMLAutoModel:
             return winml_class(
                 onnx_path=onnx_path,
                 config=None,
-                device=device,
-                session_options=session_options,
+                ep_device=ep_device,
             )
 
         # Resolve output directory
@@ -214,8 +214,8 @@ class WinMLAutoModel:
             config=config,
             output_dir=output_dir,
             rebuild=force_rebuild,
-            ep=ep,
-            device=device,
+            ep=short_ep_name(ep_device.ep),
+            device=ep_device.device,
             **kwargs,
         )
 
@@ -226,18 +226,17 @@ class WinMLAutoModel:
         return winml_class(
             onnx_path=result.final_onnx_path,
             config=None,  # No HF PretrainedConfig for bare ONNX builds
-            device=device,
-            session_options=session_options,
+            ep_device=ep_device,
         )
 
     @classmethod
     def from_pretrained(
         cls,
         model_id_or_path: str | Path,
+        ep_device: EPDevice,
         *,
         task: str | None = None,
         config: WinMLBuildConfig | None = None,
-        device: str = "auto",
         precision: str = "auto",
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
@@ -260,11 +259,11 @@ class WinMLAutoModel:
 
         Args:
             model_id_or_path: HF model ID, local path, or path to .onnx file.
+            ep_device: Resolved (EP, device) target. Use ``resolve_device(ep, device)``
+                from ``session.ep_device`` to construct this. Required.
             task: Explicit task name. If None, auto-detected from config.
             config: WinMLBuildConfig for pipeline configuration.
                 Required when model_id_or_path is an ONNX file.
-            device: Target device ("auto", "npu", "gpu", "cpu").
-                "auto" detects available hardware (NPU > GPU > CPU).
             precision: Target precision ("auto", "fp32", "fp16", "int8", "int16").
                 "auto" selects based on device (npu->int8, gpu->fp16, cpu->fp16).
             cache_dir: Directory for caching. If None, uses default cache dir.
@@ -295,11 +294,10 @@ class WinMLAutoModel:
         if onnx_file.suffix == ".onnx" and onnx_file.exists():
             return cls.from_onnx(
                 onnx_path=onnx_file,
+                ep_device=ep_device,
                 task=task,
                 config=config,
-                device=device,
                 precision=precision,
-                ep=kwargs.pop("ep", None),
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
@@ -355,10 +353,9 @@ class WinMLAutoModel:
             task=task,
             override=config,
             shape_config=shape_config,
-            device=device,
+            device=ep_device.device,
             precision=precision,
-            trust_remote_code=trust_remote_code,
-            ep=kwargs.get("ep"),
+            ep=short_ep_name(ep_device.ep),
         )
 
         resolved_task = build_config.loader.task
@@ -411,7 +408,7 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             cache_key=cache_key,
             ep=resolved_ep,
-            device=device,
+            device=ep_device.device,
         )
         onnx_path = result.final_onnx_path
 
@@ -424,7 +421,7 @@ class WinMLAutoModel:
         model = winml_class(
             onnx_path=onnx_path,
             config=hf_config,  # HF PretrainedConfig for pipeline compatibility
-            device=device,  # pass user's original device string; WinMLSession handles "auto"
+            ep_device=ep_device,
         )
         model._build_config = config  # resolved build config (task, quant, compile)
         return model

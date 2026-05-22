@@ -10,6 +10,7 @@ and handles the appropriate metadata storage and configuration loading strategie
 
 import logging
 import re
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -116,7 +117,7 @@ def inject_hub_metadata(onnx_model: Any, model_name_or_path: str, metadata: dict
         model_name_or_path: Original model identifier
         metadata: Hub metadata dictionary
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     # Clear any existing HF metadata
     # We need to remove items by filtering, not reassigning
@@ -150,7 +151,7 @@ def inject_hub_metadata(onnx_model: Any, model_name_or_path: str, metadata: dict
         export_version = "unknown"
 
     add_prop("hf_export_version", export_version)
-    add_prop("hf_export_timestamp", datetime.now(timezone.utc).isoformat())
+    add_prop("hf_export_timestamp", datetime.now(UTC).isoformat())
 
     # Optional fields
     for key in ["pipeline_tag", "library_name", "base_model", "private", "gated"]:
@@ -166,7 +167,7 @@ def inject_hub_metadata(onnx_model: Any, model_name_or_path: str, metadata: dict
     onnx_model.doc_string = (
         f"Exported from HuggingFace model: {metadata.get('model_id')}\n"
         f"Revision: {metadata.get('sha', 'unknown')[:8]}\n"
-        f"Export timestamp: {datetime.now(timezone.utc).isoformat()}\n"
+        f"Export timestamp: {datetime.now(UTC).isoformat()}\n"
         f"ModelExport version: {export_version}"
     )
 

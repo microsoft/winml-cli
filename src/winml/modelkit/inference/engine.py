@@ -31,7 +31,7 @@ import logging
 import tempfile
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -516,7 +516,7 @@ class InferenceEngine:
         latency_ms = (time.perf_counter() - t0) * 1000
         self._latency_samples.append(latency_ms)
         self._request_count += 1
-        self._last_request_at = datetime.now(tz=timezone.utc)
+        self._last_request_at = datetime.now(tz=UTC)
 
         session = getattr(self._model, "_session", None)
         ep_name = getattr(session, "_ep", self._ep)

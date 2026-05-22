@@ -34,7 +34,10 @@ from importlib.metadata import PackageNotFoundError, version
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-from . import _warnings  # Configure warning filters before importing subpackages
+# Order matters: _warnings configures filters before any subpackage imports;
+# _transformers_compat re-injects transformers 4.x symbols for optimum-onnx 0.1.0.
+from . import _warnings  # noqa: I001
+from . import _transformers_compat
 
 
 try:

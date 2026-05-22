@@ -10,14 +10,14 @@ readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.11,<3.12"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -33,9 +33,15 @@ dependencies = [
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
   "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  "onnx>=1.21,<1.22",
   "onnx-ir>=0.1",
-  "onnxruntime-windowsml>=1.23.2,<1.24.0",
+  # onnxruntime-windowsml = Microsoft's MSIX-aligned ORT distro. Same
+  # `onnxruntime/` Python module as upstream `onnxruntime`, but bundles
+  # DirectML EP and tracks the WinML ExecutionProviderCatalog cadence.
+  # The two distributions are mutually exclusive — only one can be
+  # installed at a time. Pinning to 1.24.5 series for compatibility with
+  # the wasdk-microsoft-windows-ai-machinelearning 2.0.1 contract.
+  "onnxruntime-windowsml>=1.24.5,<1.25",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -55,13 +61,8 @@ dependencies = [
   "torchinfo>=1.8",
   "torchmetrics[detection]>=1.0",
   "torchvision>=0.24",
-  "transformers>=4.57",
+  "transformers>=5,<6",
   "uvicorn[standard]>=0.42.0",
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002",
-  "winrt-runtime>=3.2.1",
-  "winrt-windows-foundation>=3.2.1",
-  "winrt-windows-foundation-collections>=3.2.1",
 ]
 
 optional-dependencies.dev = [
@@ -82,9 +83,31 @@ optional-dependencies.dev = [
   "types-colorama>=0.4.15.20250801",
 ]
 optional-dependencies.audio = [ "soundfile>=0.13" ]
-optional-dependencies.openvino = [ "openvino>=2023" ]
+optional-dependencies.openvino = [
+  "onnxruntime-ep-openvino>=1.4,<1.5",
+  "openvino>=2025",
+]
 optional-dependencies.qnn = [
-  "onnxruntime-qnn>=1.24.1; python_version>='3.11'",
+  "onnxruntime-qnn>=2.1,<2.2",
+]
+optional-dependencies.winml-catalog = [
+  # WinAppSDK Python bindings (provide the `winui3.*` namespace used by
+  # WinMlCatalogSource for ExecutionProviderCatalog + dynamic-dependency
+  # bootstrap). Base packages only — we explicitly enumerate the specific
+  # winrt-* sub-bindings below rather than using the [all] extras (which
+  # pull in many unused packages like winrt-Windows.Web.*).
+  "wasdk-microsoft-windows-ai-machinelearning>=2.0.1",
+  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=2.0.1",
+  # Explicit winrt-* bindings actually consumed by src/. All winrt 3.2.x.
+  # When adding new winrt usage, trace the import and add the matching pkg here.
+  #   ep_path.py:_get_pkg_manager  → winrt.windows.management.deployment.PackageManager
+  "winrt-Windows.Management.Deployment>=3.2.1",
+  #   ep_path.py:_resolve_provider → IAsyncOperationWithProgress.get()
+  #   (winrt.windows.foundation), called via provider.ensure_ready_async().get()
+  "winrt-Windows.Foundation>=3.2.1",
+  #   PackageManager.find_packages_by_user_security_id() yields Package objects
+  #   whose .id.family_name / .id.version we read (winrt.windows.applicationmodel)
+  "winrt-Windows.ApplicationModel>=3.2.1",
 ]
 urls."Bug Tracker" = "https://github.com/microsoft/ModelKit/issues"
 urls.Documentation = "https://github.com/microsoft/ModelKit/blob/main/README.md"
@@ -106,6 +129,32 @@ dev = [
   "pre-commit>=4.5.1",
   "pytest-cov>=7",
   "pytest-timeout>=2.4.0",
+]
+
+# EXPERIMENTAL: transformers 5.x with PyPI optimum + optimum-onnx 0.1.0.
+# optimum-onnx 0.1.0 hardcodes imports against transformers 4.x internals
+# (is_offline_mode, get_parameter_dtype, _CAN_RECORD_REGISTRY, OutputRecorder).
+# We re-inject those symbols via src/winml/modelkit/_transformers_compat.py,
+# loaded at the top of src/winml/modelkit/__init__.py.
+# Remove the override + shim when optimum-onnx 0.2 lands.
+[tool.uv]
+override-dependencies = [
+  "transformers>=5,<6",
+  # wasdk-microsoft-windows-ai-machinelearning 2.0.1 metadata pins
+  # onnxruntime-windowsml==1.24.5.post202604171637 (PEP 440 normalized
+  # form), but PyPI publishes it as 1.24.5.202604171637 — uv cannot
+  # resolve the exact pin. Override with a flexible range so uv picks
+  # the actually-published version.
+  "onnxruntime-windowsml>=1.24.5,<1.25",
+  # onnxruntime-qnn declares 'onnxruntime' as a runtime dep, but
+  # onnxruntime-windowsml ships the same `onnxruntime/` Python module
+  # and satisfies the same role. Without this override, both distros
+  # get installed and the upstream wheel's files win on disk → DML EP
+  # disappears from get_available_providers(). Neutralize the upstream
+  # `onnxruntime` *transitive* requirement (NOT onnxruntime-windowsml
+  # itself, which we explicitly want) so only onnxruntime-windowsml
+  # ends up installed.
+  "onnxruntime; sys_platform == 'unobtainium'",
 ]
 
 [tool.setuptools.packages.find]
@@ -135,7 +184,7 @@ include = [ "winml", "winml.*" ]
 # =============================================================================
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 
 line-length = 100 # Extended for modern screens
 # Indent with spaces (consistent with PEP 8)
@@ -420,7 +469,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 
 # === Strict Mode ===
 strict = true

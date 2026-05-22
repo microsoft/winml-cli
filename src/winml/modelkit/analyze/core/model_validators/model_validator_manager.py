@@ -142,7 +142,7 @@ class ModelValidatorManager:
                 if info:
                     logger.info(f"{validator.validator_name} found issue: {info.pattern_id}")
                     information_list.append(info)
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 logger.exception(
                     f"Validator {validator.validator_name} failed with exception: "
                     f"{type(e).__name__}",

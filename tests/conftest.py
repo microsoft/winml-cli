@@ -22,12 +22,12 @@ from onnx import TensorProto
 
 
 # =============================================================================
-# WINML SDK INITIALIZATION GUARD
+# WINML EP INITIALIZATION GUARD
 # =============================================================================
 # winml.modelkit.models.winml.base imports WinMLSession at module level,
-# which triggers WinMLEPRegistry._discover_eps() → WinML SDK runtime init.
-# This can hang on CI environments without the SDK installed.
-# Mock it globally for non-e2e tests; e2e tests use real initialization.
+# which triggers WinMLEPRegistry plugin discovery on the registered ORT
+# EP plugins. Mock it globally for non-e2e tests to keep them fast and
+# to avoid loading EP DLLs; e2e tests use real initialization.
 
 
 @pytest.fixture(autouse=True)
@@ -37,13 +37,13 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
         return
     try:
         monkeypatch.setattr(
-            "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
-            classmethod(lambda cls: None),
+            "winml.modelkit.session.ep_registry.ensure_initialized",
+            lambda: None,
         )
     except ImportError as e:
         import warnings
 
-        warnings.warn(f"Could not mock _init_winml_eps_once: {e}", stacklevel=2)
+        warnings.warn(f"Could not mock ensure_initialized: {e}", stacklevel=2)
 
     try:
         monkeypatch.setattr(
