@@ -746,14 +746,7 @@ def analyze(
             if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
         ]
 
-        print(
-            f"Candidate EPs: {eps}"
-            f"\nCandidate devices: {devices}"
-            f"\nCandidate EP/device pairs before local filtering: {execution_pairs}"
-        )
-
         local_pairs = set(_get_local_ep_device_pairs())
-        print(f"Locally available EP/device pairs: {local_pairs}")
 
         if device == "auto" or ep == "auto":
             execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
@@ -1130,19 +1123,41 @@ def analyze(
             import json
 
             try:
-                config_ep = execution_pairs[0][0]
-                if len(execution_pairs) > 1:
-                    logger.warning(
-                        "Multiple EP/device targets selected; writing optimization config "
-                        "for the first target: %s",
-                        _ep_name_device_display_name(
-                            execution_pairs[0][0],
-                            execution_pairs[0][1],
-                        ),
+                # Merge optimization configs from all execution pairs; warn on conflicts.
+
+                per_pair_values: dict[str, list[tuple[tuple[str, str], object]]] = {}
+                for (target_ep, target_device), run_result in zip(
+                    execution_pairs, analysis_results, strict=False
+                ):
+                    pair_config = run_result.get_optimization_config(ep=target_ep)
+                    for key, value in pair_config.items():
+                        per_pair_values.setdefault(key, []).append(
+                            ((target_ep, target_device), value)
+                        )
+
+                per_pair_values["gelu_fusion"][0] = (per_pair_values["gelu_fusion"][0][0], False)
+
+                merged: dict[str, object] = {}
+                for key, entries in per_pair_values.items():
+                    merged[key] = entries[0][1]
+                    distinct = {value for _, value in entries}
+                    if len(distinct) == 1:
+                        continue
+                    detail = ", ".join(
+                        f"{_ep_name_device_display_name(pair[0], pair[1])}={value!r}"
+                        for pair, value in entries
                     )
-                config = analysis_results[0].get_optimization_config(ep=config_ep)
+                    logger.warning(
+                        "Conflicting optimization setting %r across analysis pairs: %s "
+                        "(using %r from first pair in merged config)",
+                        key,
+                        detail,
+                        merged[key],
+                    )
+
+                merged = dict(sorted(merged.items()))
                 optim_config.parent.mkdir(parents=True, exist_ok=True)
-                optim_config.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
+                optim_config.write_text(json.dumps(merged, indent=2), encoding="utf-8")
                 logger.info("Optimization config saved to: %s", optim_config)
             except OSError as e:
                 logger.error("Failed to write config to %s: %s", optim_config, e)
