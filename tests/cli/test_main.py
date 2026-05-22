@@ -74,6 +74,38 @@ class TestCommandDiscovery:
         assert "format" in result.output.lower()
 
 
+class TestCommandTypoSuggestion:
+    """Test did-you-mean hints for mistyped subcommand names (issue #508).
+
+    ``LazyGroup.resolve_command`` seeds ``self.commands`` from the
+    filesystem-discovered names so Click 8.4+'s built-in
+    :class:`click.exceptions.NoSuchCommand` suggester can find candidates.
+    The output matches the UX of ``git`` / ``gh`` / ``cargo`` / ``kubectl``.
+    """
+
+    def test_typo_suggests_closest_command(self, runner: CliRunner) -> None:
+        """`winml exprt` -> suggest 'export'."""
+        result = runner.invoke(main, ["exprt"])
+        assert result.exit_code != 0
+        assert "No such command 'exprt'." in result.output
+        assert "Did you mean 'export'?" in result.output
+
+    def test_typo_suggests_for_transposition(self, runner: CliRunner) -> None:
+        """`winml exoprt` (transposition) -> suggest 'export'."""
+        result = runner.invoke(main, ["exoprt"])
+        assert result.exit_code != 0
+        assert "Did you mean 'export'?" in result.output
+
+    def test_unknown_command_with_no_close_match_is_unchanged(
+        self, runner: CliRunner
+    ) -> None:
+        """Garbage input -> original error, no spurious suggestion."""
+        result = runner.invoke(main, ["xyzzy"])
+        assert result.exit_code != 0
+        assert "No such command 'xyzzy'." in result.output
+        assert "Did you mean" not in result.output
+
+
 class TestExportCommand:
     """Test export command functionality."""
 
