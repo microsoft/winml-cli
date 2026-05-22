@@ -23,6 +23,8 @@ Usage:
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import json
 import logging
 import platform
@@ -80,18 +82,15 @@ _IMAGE_FILE_MACHINE_TO_NAME = {
 
 
 if sys.platform == "win32":
-    import ctypes as _ctypes
-    from ctypes import wintypes as _wintypes
-
     try:
-        _KERNEL32 = _ctypes.WinDLL("kernel32", use_last_error=True)
+        _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
         _IS_WOW64_PROCESS_2 = _KERNEL32.IsWow64Process2
         _IS_WOW64_PROCESS_2.argtypes = [
-            _wintypes.HANDLE,
-            _ctypes.POINTER(_ctypes.c_ushort),
-            _ctypes.POINTER(_ctypes.c_ushort),
+            ctypes.wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_ushort),
+            ctypes.POINTER(ctypes.c_ushort),
         ]
-        _IS_WOW64_PROCESS_2.restype = _wintypes.BOOL
+        _IS_WOW64_PROCESS_2.restype = ctypes.wintypes.BOOL
     except (OSError, AttributeError):
         _KERNEL32 = None  # type: ignore[assignment]
         _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
@@ -109,8 +108,6 @@ def _query_native_machine_via_win32() -> int | None:
     """
     if sys.platform != "win32" or _IS_WOW64_PROCESS_2 is None or _KERNEL32 is None:
         return None
-
-    import ctypes
 
     proc = ctypes.c_ushort(0)
     native = ctypes.c_ushort(0)
