@@ -371,9 +371,9 @@ class TestWinMLSessionPrecisionDetection:
 
     @staticmethod
     def _save(model, path: Path) -> Path:
-        import onnx
+        from onnx import save
 
-        onnx.save(model, str(path))
+        save(model, str(path))
         return path
 
     def test_precision_fp32_from_initializers(self, simple_matmul_onnx: Path):
