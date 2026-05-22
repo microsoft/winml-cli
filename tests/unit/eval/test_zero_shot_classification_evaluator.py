@@ -16,6 +16,7 @@ from winml.modelkit.eval import (
     WinMLEvaluationConfig,
     WinMLZeroShotClassificationEvaluator,
 )
+from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -321,25 +322,6 @@ class TestPreparePipeline:
 
 
 # ---------------------------------------------------------------------------
-# schema_info
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaInfo:
-    def test_schema_has_input_and_label(self) -> None:
-        cols = WinMLZeroShotClassificationEvaluator.schema_info()
-        overrides = {c.override for c in cols if c.override}
-        assert "input_column" in overrides
-        assert "label_column" in overrides
-
-    def test_schema_has_optional_overrides(self) -> None:
-        cols = WinMLZeroShotClassificationEvaluator.schema_info()
-        override_to_required = {c.override: c.required for c in cols if c.override}
-        assert override_to_required.get("candidate_labels") is False
-        assert override_to_required.get("hypothesis_template") is False
-
-
-# ---------------------------------------------------------------------------
 # align_labels / schema validation
 # ---------------------------------------------------------------------------
 
@@ -357,7 +339,7 @@ class TestAlignLabels:
             ds,
             columns_mapping={"input_column": "nope", "label_column": "label"},
         )
-        with pytest.raises(ValueError, match="Column 'nope'"):
+        with pytest.raises(DatasetValidationError, match="Column 'nope'"):
             ev.align_labels(ds, ev.config.dataset)
 
     def test_missing_label_column_raises(self) -> None:
@@ -366,7 +348,7 @@ class TestAlignLabels:
             ds,
             columns_mapping={"input_column": "text", "label_column": "missing"},
         )
-        with pytest.raises(ValueError, match="Column 'missing'"):
+        with pytest.raises(DatasetValidationError, match="Column 'missing'"):
             ev.align_labels(ds, ev.config.dataset)
 
     def test_no_alignment_against_nli_label2id(self) -> None:
@@ -407,7 +389,7 @@ class TestResolveCandidateLabels:
     def test_string_label_without_override_raises(self) -> None:
         ds = _make_string_dataset(["a"], ["World"])
         ev = make_evaluator(ds)
-        with pytest.raises(ValueError, match="not a ClassLabel"):
+        with pytest.raises(DatasetValidationError, match="not a ClassLabel"):
             ev._resolve_candidate_labels(ds)
 
     def test_empty_override_raises(self) -> None:

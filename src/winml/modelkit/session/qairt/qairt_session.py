@@ -83,8 +83,7 @@ class WinMLQairtSession(WinMLSession):
         """
         # If already compiled, ignore (idempotent)
         if self._session is not None:
-            if self._is_verbose():
-                logger.info("Already compiled for %s", self._device)
+            logger.debug("Already compiled for %s", self._device)
             return
 
         logger.info("Compiling via QAIRT SDK: %s", self._onnx_path)

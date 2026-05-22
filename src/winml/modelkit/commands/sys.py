@@ -23,6 +23,8 @@ Usage:
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import json
 import logging
 import platform
@@ -68,10 +70,80 @@ def _get_python_info() -> dict[str, Any]:
     }
 
 
+# Intentionally limited to the host architectures Windows 11 ships on.
+# 32-bit ARM (ARMNT 0xC4, ARM 0x1C4) and IA64 are not Windows 11 host
+# targets, so IsWow64Process2 will not report them in practice; an
+# unmapped value falls through to None and logs at debug level.
+_IMAGE_FILE_MACHINE_TO_NAME = {
+    0x8664: "AMD64",
+    0xAA64: "ARM64",
+    0x14C: "x86",
+}
+
+
+if sys.platform == "win32":
+    try:
+        _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        _IS_WOW64_PROCESS_2 = _KERNEL32.IsWow64Process2
+        _IS_WOW64_PROCESS_2.argtypes = [
+            ctypes.wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_ushort),
+            ctypes.POINTER(ctypes.c_ushort),
+        ]
+        _IS_WOW64_PROCESS_2.restype = ctypes.wintypes.BOOL
+    except (OSError, AttributeError):
+        _KERNEL32 = None  # type: ignore[assignment]
+        _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
+else:
+    _KERNEL32 = None  # type: ignore[assignment]
+    _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
+
+
+def _query_native_machine_via_win32() -> int | None:
+    """Call IsWow64Process2 and return the native IMAGE_FILE_MACHINE_* code.
+
+    Returns None on non-Windows or when the API call fails. Logs the
+    GetLastError code at debug level on failure so a regression in
+    IsWow64Process2 wiring is not silently swallowed.
+    """
+    if sys.platform != "win32" or _IS_WOW64_PROCESS_2 is None or _KERNEL32 is None:
+        return None
+
+    proc = ctypes.c_ushort(0)
+    native = ctypes.c_ushort(0)
+    if not _IS_WOW64_PROCESS_2(
+        _KERNEL32.GetCurrentProcess(), ctypes.byref(proc), ctypes.byref(native)
+    ):
+        logger.debug("IsWow64Process2 failed: GetLastError=%d", ctypes.get_last_error())
+        return None
+    return native.value
+
+
+def _get_windows_native_machine() -> str | None:
+    """Return the host architecture name, or None when unavailable.
+
+    platform.machine() returns the *process* arch (PROCESSOR_ARCHITECTURE),
+    so an x64 Python running under ARM64 emulation reports "AMD64". This
+    consults IsWow64Process2 for the real host machine type, which is what
+    the user expects to see in `winml sys`. PROCESSOR_ARCHITEW6432 is
+    unreliable on ARM64 (Prism emulation does not set it on Snapdragon X).
+    """
+    if sys.platform != "win32":
+        return None
+    raw = _query_native_machine_via_win32()
+    if raw is None:
+        return None
+    name = _IMAGE_FILE_MACHINE_TO_NAME.get(raw)
+    if name is None:
+        logger.debug("IsWow64Process2 returned unmapped native machine: 0x%x", raw)
+    return name
+
+
 def _get_platform_info() -> dict[str, Any]:
     """Gather OS and platform information."""
     system = platform.system()
     release = platform.release()
+    machine = platform.machine()
 
     # For Windows, use OS class for accurate Windows 11 detection
     # platform.release() may incorrectly report '10' on some Python versions
@@ -86,10 +158,14 @@ def _get_platform_info() -> dict[str, Any]:
             # Fallback to platform.release() if OS detection fails
             pass
 
+        native_machine = _get_windows_native_machine()
+        if native_machine:
+            machine = native_machine
+
     return {
         "system": system,
         "release": release,
-        "machine": platform.machine(),
+        "machine": machine,
         "processor": platform.processor() or "Unknown",
     }
 

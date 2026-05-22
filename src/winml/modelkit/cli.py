@@ -204,6 +204,13 @@ class LazyGroup(ActionGroup):
                 discovered = attr
         return discovered
 
+    def resolve_command(self, ctx: click.Context, args: list[str]):
+        """Seed ``self.commands`` so Click can emit a did-you-mean hint on typos."""
+        # Click's NoSuchCommand exception uses self.commands to find suggestions.
+        for name in self.list_commands(ctx):
+            self.commands.setdefault(name, None)  # type: ignore[arg-type]
+        return super().resolve_command(ctx, args)
+
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Emit banner to stderr, then delegate to normal help formatting."""
         _print_banner(__version__)

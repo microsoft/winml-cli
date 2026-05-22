@@ -59,27 +59,6 @@ def make_evaluator(io_config=None, columns_mapping=None):
 
 
 # ---------------------------------------------------------------------------
-# schema_info
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaInfo:
-    def test_returns_four_columns(self):
-        schema = WinMLQuestionAnsweringEvaluator.schema_info()
-        assert len(schema) == 4
-
-    def test_column_names(self):
-        schema = WinMLQuestionAnsweringEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert names == ["question", "context", "id", "answers"]
-
-    def test_column_overrides(self):
-        schema = WinMLQuestionAnsweringEvaluator.schema_info()
-        overrides = [col.override for col in schema]
-        assert overrides == ["question_column", "context_column", "id_column", "label_column"]
-
-
-# ---------------------------------------------------------------------------
 # prepare_pipeline: tokenizer padding
 # ---------------------------------------------------------------------------
 
@@ -274,7 +253,7 @@ class TestCompute:
         assert call_kwargs["label_column"] == "ans"
 
     def test_label_col_default_derived_from_schema(self):
-        """When label_column is not in columns_mapping, fallback comes from schema_info."""
+        """When label_column is not in columns_mapping, default is 'answers'."""
         ev = make_evaluator(columns_mapping={
             "question_column": "question",
             "context_column": "context",
@@ -288,7 +267,7 @@ class TestCompute:
         with patch("evaluate.evaluator", return_value=mock_task_evaluator):
             ev.compute()
 
-        # is_squad_v2_format should receive the schema default "answers"
+        # is_squad_v2_format should receive the default "answers"
         v2_call_kwargs = mock_task_evaluator.is_squad_v2_format.call_args
         assert v2_call_kwargs[1]["label_column"] == "answers"
 

@@ -30,7 +30,10 @@ def make_evaluator(columns_mapping=None):
     mock_ds.__len__ = lambda self: 10
     mock_ds.shuffle.return_value = mock_ds
     mock_ds.select.return_value = mock_ds
-    mock_ds.column_names = ["image", "label"]
+    mock_ds.column_names = [
+        mapping.get("input_column", "image"),
+        mapping.get("label_column", "label"),
+    ]
 
     mock_pipe = MagicMock()
     mock_pipe.image_processor = MagicMock()
@@ -124,20 +127,6 @@ class TestKNNAccuracyMetric:
 # ---------------------------------------------------------------------------
 # WinMLImageFeatureExtractionEvaluator
 # ---------------------------------------------------------------------------
-
-class TestImageFeatureExtractionEvaluatorSchema:
-    def test_schema_has_image_and_label(self):
-        schema = WinMLImageFeatureExtractionEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert "image" in names
-        assert "label" in names
-
-    def test_schema_column_types(self):
-        schema = WinMLImageFeatureExtractionEvaluator.schema_info()
-        type_map = {col.name: col.type for col in schema}
-        assert type_map["image"] == "Image"
-        assert type_map["label"] == "ClassLabel"
-
 
 class TestImageFeatureExtractionEvaluatorInit:
     def test_default_label_column(self):
