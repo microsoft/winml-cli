@@ -897,7 +897,7 @@ def _print_model_info(
 
     precision = io_config.get("precision")
     if precision:
-        console.print(f"[dim]Precision:[/dim]   {precision}")
+        console.print(f"[dim]Model Precision:[/dim]   {precision}")
 
     names = io_config.get("input_names", [])
     shapes = io_config.get("input_shapes", [])
