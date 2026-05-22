@@ -612,6 +612,114 @@ class TestExportAutoResolveInputTensors:
             assert config.input_tensors is not None
 
 
+class TestExportTaskValidation:
+    """Test export surfaces (model, task) incompatibility cleanly.
+
+    Mirrors `winml config`'s behavior: a `ValueError` raised by Optimum's
+    `TasksManager` for an unsupported (model_type, task) pair must surface as
+    a clean `click.UsageError` instead of falling through to a misleading
+    "Unrecognized configuration class" traceback from `load_hf_model`.
+
+    The narrow exception type (`ONNXConfigNotFoundError`, a `ValueError`
+    subclass) used for models not registered in Optimum at all must continue
+    to be swallowed so registry-only models (e.g., BLIP-style) are unaffected.
+    """
+
+    def test_export_raises_usage_error_for_incompatible_task(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Incompatible (model, task) -> clean UsageError, no misleading traceback.
+
+        Mocks the same ValueError that Optimum's TasksManager raises (and that
+        `winml config` already surfaces) to confirm the export command now
+        propagates it instead of swallowing it.
+        """
+        from winml.modelkit.commands.export import export
+
+        optimum_message = (
+            "resnet doesn't support task text-classification for the onnx backend. "
+            "Supported tasks are: feature-extraction, image-classification."
+        )
+
+        with (
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                side_effect=ValueError(optimum_message),
+            ),
+            patch("winml.modelkit.export.export_pytorch") as mock_export,
+        ):
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "microsoft/resnet-50",
+                    "--task",
+                    "text-classification",
+                    "--output",
+                    str(output_path),
+                ],
+                obj={"debug": False},
+            )
+
+            assert result.exit_code != 0, (
+                f"Expected non-zero exit, got {result.exit_code}\n{result.output}"
+            )
+            # Exact Optimum message is preserved verbatim, matching `winml config`.
+            assert optimum_message in result.output
+            # Should NOT be wrapped with the generic "Export failed:" prefix
+            # (that's the swallowed-then-rethrown path we're avoiding).
+            assert "Export failed" not in result.output
+            # Should fail fast — never reach model loading or actual export.
+            mock_load.assert_not_called()
+            mock_export.assert_not_called()
+
+    def test_export_continues_when_onnx_config_not_found(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """ONNXConfigNotFoundError (model not in Optimum) -> command continues.
+
+        Guards against the regression where naively catching `ValueError`
+        would also catch `ONNXConfigNotFoundError` (a `ValueError` subclass)
+        and break models that rely on MODEL_BUILD_CONFIGS or manual specs.
+        """
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import ONNXConfigNotFoundError
+
+        with (
+            patch("winml.modelkit.loader.load_hf_model") as mock_load,
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                side_effect=ONNXConfigNotFoundError(
+                    "No OnnxConfig registered for model_type='some-custom-model'..."
+                ),
+            ),
+        ):
+            mock_model = MagicMock()
+            mock_load.return_value = (mock_model, None, "feature-extraction")
+
+            output_path = tmp_path / "model.onnx"
+            result = runner.invoke(
+                export,
+                ["--model", "some-custom-model", "--output", str(output_path)],
+                obj={"debug": False},
+            )
+
+            # ONNXConfigNotFoundError must NOT surface as a UsageError.
+            # Command must proceed past auto-resolution into load_hf_model / export.
+            mock_load.assert_called_once()
+            mock_export_onnx.assert_called_once()
+            assert result.exit_code == 0, (
+                f"Expected exit 0, got {result.exit_code}\n{result.output}"
+            )
+
+
 class TestExportOutputDirectory:
     """Test export output directory handling."""
 
