@@ -473,13 +473,13 @@ def _render_analysis_summary(
 
         # List ops by non-white support level (skip when op check was skipped \u2014
         # the classification would be all-unknown with no useful detail).
+        _issue_sections = [
+            (SupportLevel.UNSUPPORTED, "red", "\u26d4 Unsupported"),
+            (SupportLevel.PARTIAL, "yellow", "\u26a0\ufe0f  Partial"),
+            (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
+        ]
+        classification = ep_support.classification
         if not op_check_skipped:
-            classification = ep_support.classification
-            _issue_sections = [
-                (SupportLevel.UNSUPPORTED, "red", "\u26d4 Unsupported"),
-                (SupportLevel.PARTIAL, "yellow", "\u26a0\ufe0f  Partial"),
-                (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
-            ]
             for level, color, heading in _issue_sections:
                 ops = classification.get(level, [])
                 if ops:
@@ -500,9 +500,13 @@ def _render_analysis_summary(
                     f"         {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
                 )
 
-        has_issues = any(classification.get(lvl) for lvl, _, _ in _issue_sections) or bad_patterns
-        if not has_issues:
-            console.print("      [green]Ready to deploy[/green]")
+        # "Ready to deploy" requires actual op-check data; suppress when skipped.
+        if not op_check_skipped:
+            has_issues = (
+                any(classification.get(lvl) for lvl, _, _ in _issue_sections) or bad_patterns
+            )
+            if not has_issues:
+                console.print("      [green]Ready to deploy[/green]")
 
         console.print()
 
