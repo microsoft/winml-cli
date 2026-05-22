@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-  "click>=8.1.8",
+  "click>=8.4",
   "colorama>=0.4.6",
   "datasets>=4.1.1",
   "diffusers>=0.36",
