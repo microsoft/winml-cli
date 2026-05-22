@@ -183,10 +183,6 @@ def _build_analysis_table(
 
     if op_check_skipped:
         title += "  Skipped - no rule data"
-    elif complete:
-        title += "  [bold green]✅ Complete[/bold green]"
-
-    if op_check_skipped:
         table = Table(
             title=title,
             show_header=False,
@@ -196,8 +192,12 @@ def _build_analysis_table(
             expand=False,
             width=80,
         )
+        # add_column is required even though no rows are added — without it the
+        # empty table doesn't render the centered title.
         table.add_column("")
         return table
+    if complete:
+        title += "  [bold green]✅ Complete[/bold green]"
 
     # Build display order: all_ops sorted by count, or just data if no all_ops
     if all_ops:
@@ -770,6 +770,7 @@ def analyze(
             for candidate_device in devices
             if candidate_device.lower() in EP_SUPPORTED_DEVICES[candidate_ep]
         ]
+        execution_pairs = _sort_ep_device_pairs(execution_pairs)
 
         local_pairs = set(_get_local_ep_device_pairs())
 
@@ -779,18 +780,16 @@ def analyze(
             unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
             if unsupported_pairs:
                 logger.warning(
-                    "device is set to auto (inferred from local availability) but ep is "
-                    "not; some (ep, device) pairs to "
-                    "analyze are not supported in local environment: %s",
+                    "--device auto resolves from local availability, but --ep is pinned;"
+                    " the following pairs are not available on this machine: %s",
                     ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
                 )
         elif ep == "auto":
             unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
             if unsupported_pairs:
                 logger.warning(
-                    "ep is set to auto (inferred from local availability) but device is "
-                    "not; some (ep, device) pairs to "
-                    "analyze are not supported in local environment: %s",
+                    "--ep auto resolves from local availability, but --device is pinned;"
+                    " the following pairs are not available on this machine: %s",
                     ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
                 )
 
@@ -1171,9 +1170,9 @@ def analyze(
 
                 per_pair_values: dict[str, list[tuple[tuple[str, str], object]]] = {}
                 for (target_ep, target_device), run_result in zip(
-                    execution_pairs, analysis_results, strict=False
+                    execution_pairs, analysis_results, strict=True
                 ):
-                    pair_config = run_result.get_optimization_config(ep=target_ep)
+                    pair_config = run_result.get_optimization_config(ep=target_ep).to_dict()
                     for key, value in pair_config.items():
                         per_pair_values.setdefault(key, []).append(
                             ((target_ep, target_device), value)

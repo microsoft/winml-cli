@@ -657,7 +657,7 @@ class TestAnalyzeCommandOutput:
         model_file.write_bytes(b"dummy")
         config_file = tmp_path / "optim.json"
 
-        mock_analyzer_result.get_optimization_config.return_value = {
+        mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
             "gelu_fusion": True,
         }
         mock_instance = Mock()
@@ -696,7 +696,7 @@ class TestAnalyzeCommandOutput:
         model_file.write_bytes(b"dummy")
         config_file = tmp_path / "nested" / "dir" / "optim.json"
 
-        mock_analyzer_result.get_optimization_config.return_value = {
+        mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
             "gelu_fusion": True,
         }
         mock_instance = Mock()
@@ -990,17 +990,17 @@ class TestAnalyzeEPDeviceSelectionMatrix:
     @pytest.mark.parametrize(
         ("ep_arg", "device_arg", "expect_exit", "expect_calls", "expect_error"),
         [
-            # Both auto: filter pre-EP_SUPPORTED_DEVICES list to local_pairs.
+            # Both auto: filter to local_pairs. Output sorted by EP_SUPPORTED_DEVICES.
             (
                 None,
                 None,
                 0,
                 [
-                    ("CPUExecutionProvider", "CPU"),
-                    ("DmlExecutionProvider", "GPU"),
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
-                    ("OpenVINOExecutionProvider", "CPU"),
                     ("OpenVINOExecutionProvider", "NPU"),
+                    ("OpenVINOExecutionProvider", "CPU"),
+                    ("DmlExecutionProvider", "GPU"),
+                    ("CPUExecutionProvider", "CPU"),
                 ],
                 None,
             ),
@@ -1010,9 +1010,9 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 "gpu",
                 0,
                 [
-                    ("DmlExecutionProvider", "GPU"),
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "GPU"),
+                    ("DmlExecutionProvider", "GPU"),
                 ],
                 None,
             ),
@@ -1022,9 +1022,9 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 None,
                 0,
                 [
-                    ("OpenVINOExecutionProvider", "CPU"),
-                    ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "NPU"),
+                    ("OpenVINOExecutionProvider", "GPU"),
+                    ("OpenVINOExecutionProvider", "CPU"),
                 ],
                 None,
             ),
@@ -1034,8 +1034,8 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 None,
                 0,
                 [
-                    ("QNNExecutionProvider", "GPU"),
                     ("QNNExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "GPU"),
                 ],
                 None,
             ),
@@ -1044,8 +1044,8 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 "all",
                 0,
                 [
-                    ("QNNExecutionProvider", "GPU"),
                     ("QNNExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "GPU"),
                 ],
                 None,
             ),
@@ -1056,17 +1056,17 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 "all",
                 0,
                 [
-                    ("CPUExecutionProvider", "CPU"),
-                    ("CUDAExecutionProvider", "GPU"),
-                    ("DmlExecutionProvider", "GPU"),
-                    ("MIGraphXExecutionProvider", "GPU"),
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
-                    ("OpenVINOExecutionProvider", "CPU"),
-                    ("OpenVINOExecutionProvider", "GPU"),
-                    ("OpenVINOExecutionProvider", "NPU"),
-                    ("QNNExecutionProvider", "GPU"),
-                    ("QNNExecutionProvider", "NPU"),
+                    ("CUDAExecutionProvider", "GPU"),
+                    ("MIGraphXExecutionProvider", "GPU"),
                     ("VitisAIExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "GPU"),
+                    ("OpenVINOExecutionProvider", "NPU"),
+                    ("OpenVINOExecutionProvider", "GPU"),
+                    ("OpenVINOExecutionProvider", "CPU"),
+                    ("DmlExecutionProvider", "GPU"),
+                    ("CPUExecutionProvider", "CPU"),
                 ],
                 None,
             ),
@@ -1181,14 +1181,14 @@ class TestAnalyzeEPDeviceSelectionMatrix:
 
         result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "qnn"])
         assert result.exit_code == 0
-        assert "not supported in local environment" in result.output.lower()
+        assert "not available on this machine" in result.output.lower()
         actual_calls = [
             (call.kwargs["ep"], call.kwargs["device"])
             for call in mock_instance.analyze.call_args_list
         ]
         assert actual_calls == [
-            ("QNNExecutionProvider", "GPU"),
             ("QNNExecutionProvider", "NPU"),
+            ("QNNExecutionProvider", "GPU"),
         ]
 
     @patch(
@@ -1229,9 +1229,9 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             for call in mock_instance.analyze.call_args_list
         ]
         assert actual_calls == [
-            ("DmlExecutionProvider", "GPU"),
             ("NvTensorRTRTXExecutionProvider", "GPU"),
             ("OpenVINOExecutionProvider", "GPU"),
+            ("DmlExecutionProvider", "GPU"),
         ]
 
 
