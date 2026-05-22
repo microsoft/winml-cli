@@ -11,6 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, normalize_ep_name
+from ..winml import get_registered_ep_devices
 
 
 if TYPE_CHECKING:
@@ -90,47 +91,25 @@ def get_device_ep_map() -> dict[str, list[EPName]]:
 def _get_available_devices() -> tuple[str, ...]:
     """Return prioritized tuple of available devices (cached).
 
-    Priority: NPU > GPU > CPU.
-    Always includes "cpu" as fallback.
-    Uses SysInfo hardware classes for detection.
-
-    Hardware does not change during a process lifetime, so this result is
-    cached via lru_cache (mirrors ``_get_available_eps``). Without this
-    cache, ``resolve_device`` calls within a single CLI invocation each
-    re-run Windows WMI/PowerShell subprocesses (~1.2s/call locally,
-    5-10x slower on cold CI), which on Windows CI runners has caused
-    user-facing commands like ``winml config -m <model> --device npu``
-    to balloon past 280s.
-
-    Returns a ``tuple`` (not ``list``) so the cached value is immutable
-    by construction — callers can't accidentally poison the cache.
-
-    This is an internal helper for :func:`resolve_device` and should not
-    be called directly by external code.
+    Aggregates device types advertised by registered ORT EP devices and
+    filters against the supported set in priority order: NPU > GPU > CPU.
 
     Returns:
         Tuple like ("npu", "gpu", "cpu") with only available devices.
     """
-    devices: list[str] = []
+    from ..utils.constants import DEVICE_TYPE_TO_DEVICE
+
+    available: set[str] = {}
 
     try:
-        from .hardware import NPU
-
-        if NPU.get_all():
-            devices.append("npu")
+        for ep_device in get_registered_ep_devices():
+            device_name = DEVICE_TYPE_TO_DEVICE.get(ep_device.device.type)
+            if device_name is not None:
+                available.add(device_name.lower())
     except Exception:
-        logger.debug("NPU detection failed or unavailable")
+        logger.debug("Failed to enumerate registered EP devices", exc_info=True)
 
-    try:
-        from .hardware import GPU
-
-        if GPU.get_all():
-            devices.append("gpu")
-    except Exception:
-        logger.debug("GPU detection failed or unavailable")
-
-    devices.append("cpu")  # CPU always available
-    return tuple(devices)
+    return tuple(d for d in ("npu", "gpu", "cpu") if d in available)
 
 
 @functools.lru_cache(maxsize=1)

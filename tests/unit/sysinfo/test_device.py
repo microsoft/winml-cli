@@ -21,97 +21,100 @@ from winml.modelkit.sysinfo.device import (
 from winml.modelkit.utils.constants import EP_NAMES
 
 
+def _make_ep_device(device_type) -> MagicMock:
+    """Build a mock OrtEpDevice whose ``.device.type`` is ``device_type``."""
+    mock = MagicMock()
+    mock.device.type = device_type
+    return mock
+
+
 class TestGetAvailableDevices:
     """Tests for _get_available_devices()."""
 
     def test_with_npu_and_gpu(self) -> None:
-        """When NPU and GPU are present, returns ("npu", "gpu", "cpu")."""
-        mock_npu = MagicMock()
-        mock_gpu = MagicMock()
+        """When NPU and GPU EP devices are registered, returns ("npu", "gpu", "cpu")."""
+        import onnxruntime as ort
 
-        with (
-            patch(
-                "winml.modelkit.sysinfo.hardware.NPU.get_all",
-                return_value=[mock_npu],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.hardware.GPU.get_all",
-                return_value=[mock_gpu],
-            ),
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.NPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.CPU),
+            ],
         ):
             devices = _get_available_devices()
 
         assert devices == ("npu", "gpu", "cpu")
 
     def test_no_npu_with_gpu(self) -> None:
-        """When no NPU but GPU present, returns ("gpu", "cpu")."""
-        mock_gpu = MagicMock()
+        """When no NPU but GPU registered, returns ("gpu", "cpu")."""
+        import onnxruntime as ort
 
-        with (
-            patch(
-                "winml.modelkit.sysinfo.hardware.NPU.get_all",
-                return_value=[],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.hardware.GPU.get_all",
-                return_value=[mock_gpu],
-            ),
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.CPU),
+            ],
         ):
             devices = _get_available_devices()
 
         assert devices == ("gpu", "cpu")
 
     def test_no_npu_no_gpu(self) -> None:
-        """When no NPU and no GPU, returns ("cpu",)."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.hardware.NPU.get_all",
-                return_value=[],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.hardware.GPU.get_all",
-                return_value=[],
-            ),
+        """When only CPU EP devices are registered, returns ("cpu",)."""
+        import onnxruntime as ort
+
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[_make_ep_device(ort.OrtHardwareDeviceType.CPU)],
         ):
             devices = _get_available_devices()
 
         assert devices == ("cpu",)
 
     def test_cpu_always_present(self) -> None:
-        """CPU is always in the result, even if detection fails."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.hardware.NPU.get_all",
-                side_effect=RuntimeError("WMI failed"),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.hardware.GPU.get_all",
-                side_effect=RuntimeError("WMI failed"),
-            ),
+        """CPU is always in the result, even if EP enumeration fails."""
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            side_effect=RuntimeError("ORT not available"),
         ):
             devices = _get_available_devices()
 
-        assert "cpu" in devices
         assert devices == ("cpu",)
 
-    def test_npu_detection_failure_falls_through(self) -> None:
-        """If NPU detection raises, GPU and CPU still appear."""
-        mock_gpu = MagicMock()
+    def test_priority_order_independent_of_input(self) -> None:
+        """Result is always NPU > GPU > CPU regardless of enumeration order."""
+        import onnxruntime as ort
 
-        with (
-            patch(
-                "winml.modelkit.sysinfo.hardware.NPU.get_all",
-                side_effect=RuntimeError("WMI failed"),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.hardware.GPU.get_all",
-                return_value=[mock_gpu],
-            ),
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.CPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.NPU),
+            ],
+        ):
+            devices = _get_available_devices()
+
+        assert devices == ("npu", "gpu", "cpu")
+
+    def test_duplicate_device_types_deduplicated(self) -> None:
+        """Multiple EP devices on the same device type collapse to one entry."""
+        import onnxruntime as ort
+
+        with patch(
+            "winml.modelkit.sysinfo.device.get_registered_ep_devices",
+            return_value=[
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.GPU),
+                _make_ep_device(ort.OrtHardwareDeviceType.CPU),
+            ],
         ):
             devices = _get_available_devices()
 
         assert devices == ("gpu", "cpu")
-        assert "npu" not in devices
 
 
 class TestMappingConstants:

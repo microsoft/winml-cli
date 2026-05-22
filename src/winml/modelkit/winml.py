@@ -4,14 +4,16 @@
 # --------------------------------------------------------------------------
 from __future__ import annotations
 
-import sys
-import traceback
+import functools
+import logging
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
     from .utils.constants import EPName
 
+
+logger = logging.getLogger(__name__)
 
 _winml_instance: WinML | None = None
 
@@ -96,12 +98,12 @@ class WinML:
                     try:
                         module.register_execution_provider_library(name, path)
                         self._registered_eps[module.__name__].append(name)
-                    except Exception as e:
-                        print(
-                            f"Failed to register execution provider {name}: {e}",
-                            file=sys.stderr,
+                    except Exception:
+                        logger.exception(
+                            "Failed to register %s for module %s",
+                            name,
+                            module.__name__,
                         )
-                        traceback.print_exc()
         return self._registered_eps
 
 
@@ -119,6 +121,7 @@ def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> d
     return WinML().register_execution_providers(ort=ort, ort_genai=ort_genai)
 
 
+@functools.lru_cache(maxsize=1)
 def get_registered_ep_devices() -> list[Any]:
     """Return ORT EP devices after ensuring WinML EPs are registered.
 
@@ -158,7 +161,7 @@ def add_ep_for_device(
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
         if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
-            print(f"Adding {ep_name} for {device_type}")
+            logger.info(f"Adding {ep_name} for {device_type}")
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options
             )
