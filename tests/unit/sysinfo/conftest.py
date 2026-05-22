@@ -23,9 +23,9 @@ def _clear_device_caches() -> None:
     from winml.modelkit.sysinfo.device import (
         _get_available_devices,
         _get_available_eps,
-        _get_device_ep_map,
+        _get_device_ep_map_from_ort,
     )
 
     _get_available_devices.cache_clear()
     _get_available_eps.cache_clear()
-    _get_device_ep_map.cache_clear()
+    _get_device_ep_map_from_ort.cache_clear()

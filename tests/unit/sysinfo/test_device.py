@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -185,13 +184,13 @@ class TestMappingConstants:
 
 
 def _patch_device_ep_map(mapping: dict[str, tuple[str, ...]]):
-    """Patch the central _get_device_ep_map probe with ``mapping``.
+    """Patch the central _get_device_ep_map_from_ort probe with ``mapping``.
 
     Single mock point for resolve_device/resolve_eps tests. Each value is the
     tuple of EPs registered for that device, in the order ORT would return.
     """
     return patch(
-        "winml.modelkit.sysinfo.device._get_device_ep_map",
+        "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
         return_value=mapping,
     )
 
@@ -233,13 +232,6 @@ class TestResolveDevice:
 
         assert device == "cpu"
         assert available == ["cpu"]
-
-    def test_resolve_device_auto_no_eps(self) -> None:
-        """Auto mode: no EPs at all -> falls back to CPU."""
-        with _patch_device_ep_map({}):
-            device, _available = resolve_device("auto")
-
-        assert device == "cpu"
 
     def test_resolve_device_explicit_valid(self) -> None:
         """Explicit device "gpu" -> returns "gpu"."""
@@ -283,15 +275,18 @@ class TestResolveDevice:
 
         assert device == "cpu"
 
-    def test_resolve_device_empty_eps_warns(self, caplog) -> None:
-        """When no EPs are detected, a warning is logged."""
+    def test_resolve_device_no_eps_raises(self) -> None:
+        """Auto mode with no registered EPs raises RuntimeError.
+
+        Hit when ORT/WinML isn't installed (or hasn't enumerated any device).
+        Failing fast is more helpful than silently writing a config that
+        targets a CPU with no compatible EP.
+        """
         with (
             _patch_device_ep_map({}),
-            caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.device"),
+            pytest.raises(RuntimeError, match="No execution providers detected"),
         ):
             resolve_device("auto")
-
-        assert any("No execution providers detected" in record.message for record in caplog.records)
 
 
 class TestResolveDeviceWithEp:

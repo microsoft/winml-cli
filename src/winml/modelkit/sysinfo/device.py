@@ -217,7 +217,8 @@ def resolve_device(
     # Explicit device requested -- raise if no compatible EP is available.
     if device not in device_ep_map:
         raise ValueError(
-            f"Device '{device}' requested but no EP is available. "
+            f"Device '{device}' requested but no compatible EP is available. "
+            f"Compatible EPs: {_DEVICE_EP_MAP[device]}. "
             f"Available EPs: {sorted(_get_available_eps())}."
         )
     return device, available_devices
