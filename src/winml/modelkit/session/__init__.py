@@ -10,11 +10,11 @@ from .ep_device import (
     VALID_EPS,
     AmbiguousMatch,
     DeviceNotFound,
-    EPDevice,
-    EPDeviceSpec,
-    EPMonitorMismatch,
-    EPNotDiscovered,
-    EPRegistrationFailed,
+    WinMLEPDevice,
+    WinMLEPDeviceSpec,
+    WinMLEPMonitorMismatch,
+    WinMLEPNotDiscovered,
+    WinMLEPRegistrationFailed,
     auto_detect_device,
     default_device_for_ep,
     default_ep_for_device,
@@ -26,7 +26,7 @@ from .ep_device import (
     short_ep_name,
 )
 from .ep_registry import WinMLEPRegistry, available_eps
-from .monitor.ep_monitor import EPMonitor, NullEPMonitor
+from .monitor.ep_monitor import NullEPMonitor, WinMLEPMonitor
 from .monitor.hw_monitor import HWMonitor
 from .monitor.openvino_monitor import OpenVinoMonitor
 from .monitor.qnn_monitor import QNNMonitor
@@ -42,12 +42,6 @@ __all__ = [
     "VALID_EPS",
     "AmbiguousMatch",
     "DeviceNotFound",
-    "EPDevice",
-    "EPDeviceSpec",
-    "EPMonitor",
-    "EPMonitorMismatch",
-    "EPNotDiscovered",
-    "EPRegistrationFailed",
     "HWMonitor",
     "InferenceError",
     "NullEPMonitor",
@@ -56,6 +50,12 @@ __all__ = [
     "QNNMonitor",
     "SessionState",
     "VitisAIMonitor",
+    "WinMLEPDevice",
+    "WinMLEPDeviceSpec",
+    "WinMLEPMonitor",
+    "WinMLEPMonitorMismatch",
+    "WinMLEPNotDiscovered",
+    "WinMLEPRegistrationFailed",
     "WinMLEPRegistry",
     "WinMLQairtSession",
     "WinMLSession",

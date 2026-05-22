@@ -38,11 +38,11 @@ def _make_cpu_session(model_path):
     The real OrtEpDevice is passed to register_ep() so that
     add_provider_for_devices() receives a genuine handle and ORT can run.
     """
-    from winml.modelkit.session import EPDevice
+    from winml.modelkit.session import WinMLEPDevice
     from winml.modelkit.session.session import WinMLSession
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDevice(
+    cpu_ep_device = WinMLEPDevice(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=cpu_dev.device.vendor_id,
@@ -90,11 +90,11 @@ def test_nested_perf_raises():
 
 def test_teardown_ordering_reset_before_monitor_exit():
     """For monitor.requires_session_teardown=True, self.reset() fires BEFORE monitor.__exit__."""
-    from winml.modelkit.session.monitor.ep_monitor import EPMonitor
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
 
     observations: dict = {}
 
-    class _TeardownMonitor(EPMonitor):
+    class _TeardownMonitor(WinMLEPMonitor):
         requires_session_teardown = True
 
         def __init__(self):
@@ -132,11 +132,11 @@ def test_teardown_ordering_reset_before_monitor_exit():
 
 def test_exception_transparency():
     """Exception in `with session.perf()` body propagates; monitor.__exit__ sees exc_info."""
-    from winml.modelkit.session.monitor.ep_monitor import EPMonitor
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
 
     captured: dict = {}
 
-    class _CapturingMonitor(EPMonitor):
+    class _CapturingMonitor(WinMLEPMonitor):
         @classmethod
         def is_available(cls):
             return True
@@ -171,11 +171,11 @@ def test_monitor_enter_raises_leaves_session_clean():
     (which calls WinMLEPRegistry). The mock therefore must stay active across the
     entire perf() call.
     """
-    from winml.modelkit.session import EPDevice
-    from winml.modelkit.session.monitor.ep_monitor import EPMonitor
+    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
 
-    class _RaisingEnterMonitor(EPMonitor):
+    class _RaisingEnterMonitor(WinMLEPMonitor):
         @classmethod
         def is_available(cls):
             return True
@@ -193,7 +193,7 @@ def test_monitor_enter_raises_leaves_session_clean():
             return {"some_key": "1"}
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDevice(
+    cpu_ep_device = WinMLEPDevice(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=cpu_dev.device.vendor_id,

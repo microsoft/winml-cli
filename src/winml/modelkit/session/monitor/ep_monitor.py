@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""EPMonitor - Abstract base class for EP-specific hardware monitoring.
+"""WinMLEPMonitor - Abstract base class for EP-specific hardware monitoring.
 
 Defines the common interface that all EP hardware monitors implement.
 Each subclass provides data collection for a specific execution provider
@@ -12,10 +12,10 @@ v2.4 additions (purely additive — see design spec
 ``docs/design/perf/2026-05-03-op-trace-parser-interface-spec.md`` §3.1 and
 ``docs/design/session/monitor/2_coreloop.md`` §4.1):
 
-* :meth:`EPMonitor.set_onnx_op_types` — concrete no-op default; op-tracing
+* :meth:`WinMLEPMonitor.set_onnx_op_types` — concrete no-op default; op-tracing
   monitors override to receive an injected ``node.name -> node.op_type`` map
   built once by :class:`WinMLSession`.
-* :attr:`EPMonitor.result` — concrete property returning ``self._result`` if
+* :attr:`WinMLEPMonitor.result` — concrete property returning ``self._result`` if
   set, else ``None``. Op-tracing monitors populate ``self._result`` during
   ``__exit__`` parsing.
 """
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from .op_metrics import OpTraceResult
 
 
-class EPMonitor(ABC):
+class WinMLEPMonitor(ABC):
     """Base class for EP-specific hardware performance monitoring.
 
     Used as a context manager alongside ``PerfStats`` to collect
@@ -148,7 +148,7 @@ class EPMonitor(ABC):
         """Whether this monitor can work on the current system."""
 
 
-class NullEPMonitor(EPMonitor):
+class NullEPMonitor(WinMLEPMonitor):
     """No-op EP monitor (Null Object Pattern).
 
     Used when no vendor-specific EP monitor is available.

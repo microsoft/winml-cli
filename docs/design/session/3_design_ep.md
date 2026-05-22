@@ -33,7 +33,7 @@
 
 This doc unifies what the existing design docs cover piecewise:
 - [`ep-path-design.md`](../../ep-path-design.md) explains **Stage 1**: how the codebase walks `EP_PATH` to find plugin DLLs from PyPI / NuGet / MSIX / filesystem and calls `register_execution_provider_library`.
-- [`2026-05-13-ep-device-spec-design.md`](2026-05-13-ep-device-spec-design.md) and [`2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) explain **Stage 2**: the `EPDeviceSpec` catalog, the `EPDevice` typed descriptor, and the deterministic handle-pick replacing the old non-deterministic `_find_ep_device`.
+- [`2026-05-13-ep-device-spec-design.md`](2026-05-13-ep-device-spec-design.md) and [`2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) explain **Stage 2**: the `WinMLEPDeviceSpec` catalog, the `WinMLEPDevice` typed descriptor, and the deterministic handle-pick replacing the old non-deterministic `_find_ep_device`.
 - This doc connects the two stages, contrasts the legacy ORT API mental model with the plugin-EP API the codebase actually uses, and specifies how `provider_options` are layered (catalog → user → monitor).
 
 **Key result, validated empirically on ORT 1.24.5**: under `add_provider_for_devices([handle], options)`, the OrtEpDevice handle drives device selection. Routing keys like OpenVINO's `device_type` and QNN's `backend_type` / `backend_path` are **ignored** (OpenVINO logs a warning; QNN crashes natively in some ORT versions). `provider_options` should carry only **tuning** keys, never **routing** keys.
@@ -48,7 +48,7 @@ This doc unifies what the existing design docs cover piecewise:
 
 **Out of scope:**
 - Compile-time options (`ep.context_enable` etc.) — those go through `SessionOptions.AddConfigEntry`, not `provider_options`. Documented in [`2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) §3.
-- The `EPMonitor` ABC and per-EP monitor concrete classes — documented in [`2_coreloop.md`](monitor/2_coreloop.md).
+- The `WinMLEPMonitor` ABC and per-EP monitor concrete classes — documented in [`2_coreloop.md`](monitor/2_coreloop.md).
 - Silicon-specific QNN tuning (`soc_model`, `htp_arch`) — documented status: requires runtime detection; see §10.
 
 ## 3. Two-Stage Model
@@ -83,9 +83,9 @@ This doc unifies what the existing design docs cover piecewise:
                             │   • pick the first remaining
                             ▼
             ┌─────────────────────────────────────────────────┐
-            │  ONE OrtEpDevice handle + EPDevice descriptor    │
+            │  ONE OrtEpDevice handle + WinMLEPDevice descriptor    │
             │                                                  │
-            │  EPDevice(ep='OpenVINOExecutionProvider',        │
+            │  WinMLEPDevice(ep='OpenVINOExecutionProvider',        │
             │           device='gpu',                          │
             │           vendor_id=0x8086,                      │
             │           device_id=0x64a0,                      │
@@ -126,7 +126,7 @@ ONNX Runtime supports two coexisting APIs for attaching EPs to a session. The co
 | Bundled vs plugin EP | Both. Bundled EPs (CPU, DML) used built-in; plugin EPs (QNN, OpenVINO, VitisAI) needed `register_execution_provider_library` first. | Both via the same handle path. Bundled EPs appear in `ort.get_ep_devices()` without `register_execution_provider_library`. |
 | Failure mode if you pass the routing string anyway | The string drives selection (intended behavior) | Routing string is **ignored**. OpenVINO logs a WARN; QNN crashes natively in some ORT versions (see §9). |
 
-**Why the codebase uses the plugin-EP API exclusively**: it lets a single OrtEpDevice represent "EP × specific hardware device" deterministically, so `WinMLSession` can serialize an `EPDevice` descriptor and round-trip it across CLI / compile pipeline / perf monitor without any string-based device-routing logic. The non-determinism of `_find_ep_device` documented in [`2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) §1 was caused by string-based routing returning the first matching device arbitrarily (e.g., CPU when the user meant NPU). Handle-based routing removes the ambiguity.
+**Why the codebase uses the plugin-EP API exclusively**: it lets a single OrtEpDevice represent "EP × specific hardware device" deterministically, so `WinMLSession` can serialize an `WinMLEPDevice` descriptor and round-trip it across CLI / compile pipeline / perf monitor without any string-based device-routing logic. The non-determinism of `_find_ep_device` documented in [`2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) §1 was caused by string-based routing returning the first matching device arbitrarily (e.g., CPU when the user meant NPU). Handle-based routing removes the ambiguity.
 
 ## 5. Stage 1: EP Registration + Plugin Discovery
 
@@ -163,13 +163,13 @@ Authoritative spec: [`2026-05-13-ep-device-spec-design.md`](2026-05-13-ep-device
 
 ### 6.1 Catalog: `EP_DEVICE_SPECS`
 
-A `tuple[EPDeviceSpec, ...]` defined in [`session/ep_device.py`](../../../src/winml/modelkit/session/ep_device.py) at module scope. **Order encodes deduction preference**: walking the catalog finds the first matching entry per device (`npu` → `QNNExecutionProvider`, `gpu` → `DmlExecutionProvider`, `cpu` → `CPUExecutionProvider`).
+A `tuple[WinMLEPDeviceSpec, ...]` defined in [`session/ep_device.py`](../../../src/winml/modelkit/session/ep_device.py) at module scope. **Order encodes deduction preference**: walking the catalog finds the first matching entry per device (`npu` → `QNNExecutionProvider`, `gpu` → `DmlExecutionProvider`, `cpu` → `CPUExecutionProvider`).
 
 Each entry is:
 
 ```python
 @dataclass(frozen=True)
-class EPDeviceSpec:
+class WinMLEPDeviceSpec:
     ep: str                                              # canonical full EP name
     device: str                                          # one of {npu, gpu, cpu}
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
@@ -177,12 +177,12 @@ class EPDeviceSpec:
 
 The catalog contains 13 entries today (one row per `(ep, device)` target). OpenVINO has 3 (npu/gpu/cpu), QNN has 3 (npu/gpu/cpu), and the rest are single-target EPs.
 
-### 6.2 `resolve_device(ep, device)` → `EPDevice`
+### 6.2 `resolve_device(ep, device)` → `WinMLEPDevice`
 
 The pure-function resolver. Given a user-supplied `(ep, device)` pair (either may be `None` or `device="auto"`):
 
 ```python
-def resolve_device(ep: str | None = None, device: str | None = None) -> EPDevice:
+def resolve_device(ep: str | None = None, device: str | None = None) -> WinMLEPDevice:
     # 1. Deduction phase
     if device is None or device.lower() == "auto":
         device = auto_detect_device()              # walks sysinfo + catalog for best match
@@ -198,13 +198,13 @@ def resolve_device(ep: str | None = None, device: str | None = None) -> EPDevice
     if len(deduped) > 1: raise AmbiguousMatch(...)
     chosen = deduped[0]
 
-    return EPDevice(ep=ep_full, device=device,
+    return WinMLEPDevice(ep=ep_full, device=device,
                     vendor_id=chosen.device.vendor_id,
                     device_id=chosen.device.device_id,
                     vendor=chosen.device.vendor)
 ```
 
-The returned `EPDevice` is a plain-data descriptor — JSON-serializable, no ORT runtime dependency. It flows through CLI args, compile config, perf monitor without re-resolving.
+The returned `WinMLEPDevice` is a plain-data descriptor — JSON-serializable, no ORT runtime dependency. It flows through CLI args, compile config, perf monitor without re-resolving.
 
 ### 6.3 `_build_session_options()` → `add_provider_for_devices`
 
@@ -279,9 +279,9 @@ def _build_provider_options(ep_device, ep_config, ep_monitor) -> dict[str, str]:
     return options
 ```
 
-- **Layer 1 (catalog)**: `EPDeviceSpec.default_provider_options`. Per-target tuning measured by us.
+- **Layer 1 (catalog)**: `WinMLEPDeviceSpec.default_provider_options`. Per-target tuning measured by us.
 - **Layer 2 (user)**: `EPConfig.provider_options` from a JSON config (when CLI is invoked with `-c`).
-- **Layer 3 (monitor)**: `EPMonitor.get_provider_options()`. For `QNNMonitor` this carries `profiling_level=optrace` etc.; monitors win because tracing correctness depends on their options reaching the EP.
+- **Layer 3 (monitor)**: `WinMLEPMonitor.get_provider_options()`. For `QNNMonitor` this carries `profiling_level=optrace` etc.; monitors win because tracing correctness depends on their options reaching the EP.
 
 ### 7.2 Routing keys — IGNORED under the plugin-EP API
 
@@ -412,7 +412,7 @@ QNN is not installed on the current Intel host; the crash behavior on ORT 1.24.5
 
 ```
 --device npu
-  resolved EPDevice    : EPDevice(ep='OpenVINOExecutionProvider', device='npu',
+  resolved WinMLEPDevice    : WinMLEPDevice(ep='OpenVINOExecutionProvider', device='npu',
                                   vendor_id=32902, device_id=25662,
                                   vendor='Intel Corporation')
   bound OrtEpDevice    : ep_name='OpenVINOExecutionProvider' type=NPU
@@ -420,7 +420,7 @@ QNN is not installed on the current Intel host; the crash behavior on ORT 1.24.5
   provider_options sent: {}
 
 --device gpu
-  resolved EPDevice    : EPDevice(ep='OpenVINOExecutionProvider', device='gpu',
+  resolved WinMLEPDevice    : WinMLEPDevice(ep='OpenVINOExecutionProvider', device='gpu',
                                   vendor_id=32902, device_id=25760,
                                   vendor='Intel Corporation')
   bound OrtEpDevice    : ep_name='OpenVINOExecutionProvider' type=GPU
@@ -428,7 +428,7 @@ QNN is not installed on the current Intel host; the crash behavior on ORT 1.24.5
   provider_options sent: {}
 
 --device cpu
-  resolved EPDevice    : EPDevice(ep='OpenVINOExecutionProvider', device='cpu',
+  resolved WinMLEPDevice    : WinMLEPDevice(ep='OpenVINOExecutionProvider', device='cpu',
                                   vendor_id=32902, device_id=7, vendor='Intel')
   bound OrtEpDevice    : ep_name='OpenVINOExecutionProvider' type=CPU
                          vendor_id=0x8086 device_id=0x0007
@@ -454,8 +454,8 @@ Identical structure across all three devices: the catalog `default_provider_opti
 |---|---|
 | **EP** | Execution Provider — an ORT plugin that knows how to partition + run an ONNX graph on a specific hardware family. |
 | **OrtEpDevice** | A handle returned by `ort.get_ep_devices()`, encoding `(ep_name, device.type, vendor_id, device_id, vendor)`. Uniquely identifies "this EP on this specific hardware device." |
-| **EPDevice** | Project-defined plain-data descriptor (frozen dataclass) at `session/ep_device.py`. Captures the OrtEpDevice's fields without holding the handle — JSON-serializable. |
-| **EPDeviceSpec** | Project-defined catalog entry (frozen dataclass) — a static template `(ep, device, default_provider_options)`. The catalog `EP_DEVICE_SPECS` is a tuple of these. |
+| **WinMLEPDevice** | Project-defined plain-data descriptor (frozen dataclass) at `session/ep_device.py`. Captures the OrtEpDevice's fields without holding the handle — JSON-serializable. |
+| **WinMLEPDeviceSpec** | Project-defined catalog entry (frozen dataclass) — a static template `(ep, device, default_provider_options)`. The catalog `EP_DEVICE_SPECS` is a tuple of these. |
 | **Plugin-EP API** | The newer ORT API (`add_provider_for_devices` / `SessionOptionsAppendExecutionProvider_V2`) that takes OrtEpDevice handles instead of EP-name strings. |
 | **Legacy API** | The older ORT API (`sess.set_providers([("EP", options)])` / `SessionOptionsAppendExecutionProvider`) that takes EP-name strings + provider_options for both routing and tuning. |
 | **Bundled EP** | An EP statically linked into the ORT wheel (CPU, DML). Appears in `ort.get_ep_devices()` without `register_execution_provider_library`. |
@@ -467,10 +467,10 @@ Identical structure across all three devices: the catalog `default_provider_opti
 
 - [`docs/ep-path-design.md`](../../ep-path-design.md) — Stage 1 design (plugin discovery)
 - [`docs/ep-path-msix-source.md`](../../ep-path-msix-source.md) — MSIX source + `winml sys --list-ep`
-- [`docs/design/session/2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) v1.2 — Stage 2 design, EPDevice descriptor
-- [`docs/design/session/2026-05-13-ep-device-spec-design.md`](2026-05-13-ep-device-spec-design.md) — EPDeviceSpec catalog design
+- [`docs/design/session/2026-05-11-ep-device-refactor.md`](2026-05-11-ep-device-refactor.md) v1.2 — Stage 2 design, WinMLEPDevice descriptor
+- [`docs/design/session/2026-05-13-ep-device-spec-design.md`](2026-05-13-ep-device-spec-design.md) — WinMLEPDeviceSpec catalog design
 - [`docs/design/session/2026-05-13-remaining-issues.md`](2026-05-13-remaining-issues.md) — landing page for the session refactor audit trail
-- [`docs/design/session/monitor/2_coreloop.md`](monitor/2_coreloop.md) — EPMonitor pipeline (Layer 3 of the provider_options merge)
+- [`docs/design/session/monitor/2_coreloop.md`](monitor/2_coreloop.md) — WinMLEPMonitor pipeline (Layer 3 of the provider_options merge)
 - [OpenVINO EP — ONNX Runtime docs](https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html)
 - [QNN EP — ONNX Runtime docs](https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html)
 - ORT source — `onnxruntime/core/providers/openvino/ov_plugin_options.cc` (the warning at line 130 quoted in §9.1)
@@ -485,7 +485,7 @@ Identical structure across all three devices: the catalog `default_provider_opti
 
 | Concern | File | Symbol |
 |---|---|---|
-| Catalog | `src/winml/modelkit/session/ep_device.py` | `EP_DEVICE_SPECS`, `EPDeviceSpec` |
+| Catalog | `src/winml/modelkit/session/ep_device.py` | `EP_DEVICE_SPECS`, `WinMLEPDeviceSpec` |
 | Resolver | `src/winml/modelkit/session/ep_device.py` | `resolve_device`, `auto_detect_device` |
 | EP-path walker | `src/winml/modelkit/ep_path.py` | `discover_eps`, `EP_PATH`, `EpSource` subclasses |
 | Plugin registration | `src/winml/modelkit/session/ep_registry.py` | `WinMLEPRegistry`, `register_ep` |

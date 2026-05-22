@@ -34,8 +34,8 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
-    from ..session import EPDevice
-    from ..session.monitor.ep_monitor import EPMonitor
+    from ..session import WinMLEPDevice
+    from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ _HW_POLL_INTERVAL_MS = 200
 # =============================================================================
 
 
-def _monitor_to_json_dict(monitor: EPMonitor) -> dict[str, Any]:
+def _monitor_to_json_dict(monitor: WinMLEPMonitor) -> dict[str, Any]:
     """Extract JSON-serializable monitor data via typed accessors (v2.4).
 
     Op-tracing monitors expose data via ``monitor.result`` (returns
@@ -120,7 +120,7 @@ def _resolve_ep_monitor(
     output_dir: Path,
     device: str | None = None,
 ) -> Any:
-    """Pick the EPMonitor for the requested EP and optional op-tracing level.
+    """Pick the WinMLEPMonitor for the requested EP and optional op-tracing level.
 
     Explicit dispatch — no registry, no plugin loading. Raises RuntimeError
     when op-tracing is requested against an EP that has no op-tracing monitor.
@@ -140,7 +140,7 @@ def _resolve_ep_monitor(
             to auto-infer EP when ``op_tracing`` is set and ``ep`` is empty.
 
     Returns:
-        An EPMonitor subclass instance. NullEPMonitor when no monitor applies.
+        An WinMLEPMonitor subclass instance. NullEPMonitor when no monitor applies.
 
     Raises:
         RuntimeError: If op_tracing is truthy but the EP has no op-tracing
@@ -464,7 +464,7 @@ class PerfBenchmark:
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
 
-        # Resolve (ep, device) to EPDevice at the CLI boundary.
+        # Resolve (ep, device) to WinMLEPDevice at the CLI boundary.
         # resolve_device deduces missing sides and normalizes "auto".
         ep_device = resolve_device(ep=self.config.ep or None, device=self.config.device)
 
@@ -1086,7 +1086,7 @@ def _run_simple_loop(
 def _run_onnx_benchmark(
     onnx_path: Path,
     *,
-    ep_device: EPDevice,
+    ep_device: WinMLEPDevice,
     iterations: int,
     warmup: int,
     batch_size: int,
@@ -1539,7 +1539,7 @@ def perf(
 
             from ..session import resolve_device
 
-            # Resolve to an EPDevice: resolve_device handles "auto" and
+            # Resolve to a WinMLEPDevice: resolve_device handles "auto" and
             # deduces missing ep or device.
             ep_device = resolve_device(ep=config.ep or None, device=config.device)
 

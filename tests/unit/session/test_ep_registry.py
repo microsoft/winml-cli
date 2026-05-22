@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.session import EPNotDiscovered, EPRegistrationFailed
+from winml.modelkit.session import WinMLEPNotDiscovered, WinMLEPRegistrationFailed
 from winml.modelkit.session.ep_registry import WinMLEPRegistry, ensure_initialized
 
 from .conftest import QNN_VENDOR_ID
@@ -159,8 +159,8 @@ def test_register_ep_happy_path(fresh_registry: WinMLEPRegistry) -> None:
 
 
 def test_register_ep_unknown_raises(fresh_registry: WinMLEPRegistry) -> None:
-    """register_ep raises EPNotDiscovered for an EP not in the catalog."""
-    with pytest.raises(EPNotDiscovered):
+    """register_ep raises WinMLEPNotDiscovered for an EP not in the catalog."""
+    with pytest.raises(WinMLEPNotDiscovered):
         fresh_registry.register_ep("MysteryExecutionProvider")
 
 
@@ -182,11 +182,11 @@ def test_register_ep_idempotent(fresh_registry: WinMLEPRegistry) -> None:
 
 
 def test_register_ep_failure_wraps(fresh_registry: WinMLEPRegistry) -> None:
-    """register_ep raises EPRegistrationFailed when ORT's register call raises."""
+    """register_ep raises WinMLEPRegistrationFailed when ORT's register call raises."""
     with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
         mock_ort.register_execution_provider_library.side_effect = RuntimeError("dll boom")
         mock_ort.get_ep_devices.return_value = []
-        with pytest.raises(EPRegistrationFailed):
+        with pytest.raises(WinMLEPRegistrationFailed):
             fresh_registry.register_ep("QNNExecutionProvider")
 
 

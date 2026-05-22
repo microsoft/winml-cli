@@ -20,16 +20,16 @@
 | v1.0 | 2026-05-03 | Initial draft (commit `bb3e2a91`) — separate `QNNOpTraceParser` companion class. |
 | v1.1 | 2026-05-03 | Revised per user feedback: monitor IS the parser (multiple inheritance); delete `qnn/csv_parser.py` and `qnn/qhas_parser.py` as public modules; concrete docstring examples; `_token_N` strip is a QNN-internal concern with worked examples. |
 | v1.2 | 2026-05-06 | Added §3.4 Identifier mapping reference: 3-identifier table, bridge explanation, class responsibilities table, 4 worked walkthroughs, design notes. Consolidates info that was previously spread across §3, §5, §6. |
-| v2.0 | 2026-05-08 | **Major simplification.** Drop the `OpTraceParser` ABC entirely — premature abstraction for a single concrete implementer (QNNMonitor); multiple inheritance + MRO ordering + a separate ABC file is too much complexity for one EP. Wait for the second op-tracing EP before extracting an abstraction. Also drop `to_dict()` from the `EPMonitor` ABC contract — it conflated op-tracing telemetry (QNN) with proof-of-execution signals (VitisAI/OpenVINO) under one polymorphic interface, which is dishonest. Replacement: extend the existing `EPMonitor` ABC with two concrete-default members (`set_onnx_op_types` no-op default, `result` property returning `None`); QNNMonitor stays single-inheritance and owns ONNX-graph lookup + fallback chain as private internals; `commands/perf.py` switches to isinstance-based typed accessor dispatch. Spec is now scoped to "QNN op-type resolution via ONNX graph lookup, implemented privately on QNNMonitor". |
+| v2.0 | 2026-05-08 | **Major simplification.** Drop the `OpTraceParser` ABC entirely — premature abstraction for a single concrete implementer (QNNMonitor); multiple inheritance + MRO ordering + a separate ABC file is too much complexity for one EP. Wait for the second op-tracing EP before extracting an abstraction. Also drop `to_dict()` from the `WinMLEPMonitor` ABC contract — it conflated op-tracing telemetry (QNN) with proof-of-execution signals (VitisAI/OpenVINO) under one polymorphic interface, which is dishonest. Replacement: extend the existing `WinMLEPMonitor` ABC with two concrete-default members (`set_onnx_op_types` no-op default, `result` property returning `None`); QNNMonitor stays single-inheritance and owns ONNX-graph lookup + fallback chain as private internals; `commands/perf.py` switches to isinstance-based typed accessor dispatch. Spec is now scoped to "QNN op-type resolution via ONNX graph lookup, implemented privately on QNNMonitor". |
 | v2.0.1 | 2026-05-08 | Doc-review fixes: restored .strip() + trailing-slash safety in _heuristic_op_type pseudocode (§3.2, §4.1) per design-review C-6. |
 
 ## 1. Goal
 
-Document the QNN op-type resolution mechanism — ONNX-graph `node.name → node.op_type` lookup with a four-layer fallback chain — as a **QNNMonitor-private** detail. The op-type field on each `OperatorMetrics` is resolved primarily from an injected ONNX-graph map; EP-authoritative fields (`qhas.qnn_op_type`) and a QNN-specific heuristic (`_token_N` strip + leaf-split) serve as fallbacks. The map is built once at session setup by `WinMLSession` and injected via a new concrete-default `EPMonitor.set_onnx_op_types(map)` hook. Non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) inherit the no-op default and are unaffected.
+Document the QNN op-type resolution mechanism — ONNX-graph `node.name → node.op_type` lookup with a four-layer fallback chain — as a **QNNMonitor-private** detail. The op-type field on each `OperatorMetrics` is resolved primarily from an injected ONNX-graph map; EP-authoritative fields (`qhas.qnn_op_type`) and a QNN-specific heuristic (`_token_N` strip + leaf-split) serve as fallbacks. The map is built once at session setup by `WinMLSession` and injected via a new concrete-default `WinMLEPMonitor.set_onnx_op_types(map)` hook. Non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) inherit the no-op default and are unaffected.
 
 The v2.0 simplification rationale: the v1.x design introduced a separate `OpTraceParser` ABC implemented by `QNNMonitor` via multiple inheritance. After review, that abstraction was deemed premature for a single concrete implementer — multiple inheritance, MRO ordering, and a separate ABC file are too much complexity for one EP. When a second op-tracing EP (TensorRT, OpenVINO) lands, the abstraction can be extracted from the two concrete implementers; until then, the resolution logic lives on `QNNMonitor` as private methods.
 
-The architectural principle is unchanged: **strict information hiding around the QNN module**. Nothing about CSV/QHAS parsing, `_token_N` suffix stripping, `qnn_op_type` field names, or QNN-compiler glue conventions leaks outside the QNN module. The only shapes visible to callers are the `EPMonitor` ABC, the concrete `QNNMonitor` class with its typed `result` accessor, and the canonical `OperatorMetrics` / `OpTraceResult` dataclasses.
+The architectural principle is unchanged: **strict information hiding around the QNN module**. Nothing about CSV/QHAS parsing, `_token_N` suffix stripping, `qnn_op_type` field names, or QNN-compiler glue conventions leaks outside the QNN module. The only shapes visible to callers are the `WinMLEPMonitor` ABC, the concrete `QNNMonitor` class with its typed `result` accessor, and the canonical `OperatorMetrics` / `OpTraceResult` dataclasses.
 
 ## 2. Current state (post-`b77043a1`)
 
@@ -64,13 +64,13 @@ A second gap, surfaced in v1.1: the QNN parsing helpers are reachable as public-
 
 Three pieces, all narrower than v1.x:
 
-1. **`EPMonitor` ABC extension** — two new concrete-default members. `set_onnx_op_types(map)` is a no-op by default; `result` is a property returning `None` by default. Op-tracing monitors override the former and populate `self._result` to make the latter meaningful. Non-op-tracing monitors inherit the defaults and ignore both. The ABC contract also drops `to_dict()` (see §3.4).
-2. **`QNNMonitor` (single inheritance)** — `class QNNMonitor(EPMonitor)`. ALL QNN-specific concerns (CSV reading, QHAS reading, sample aggregation, `_token_N` stripping, leaf-split heuristic, op-type resolution chain) live as private methods on the monitor (or in a private sibling submodule `qnn/_internal.py`, see §7). Nothing leaks outside the QNN module. The monitor exposes a typed `result` property (`OpTraceResult | None`) for downstream consumers.
+1. **`WinMLEPMonitor` ABC extension** — two new concrete-default members. `set_onnx_op_types(map)` is a no-op by default; `result` is a property returning `None` by default. Op-tracing monitors override the former and populate `self._result` to make the latter meaningful. Non-op-tracing monitors inherit the defaults and ignore both. The ABC contract also drops `to_dict()` (see §3.4).
+2. **`QNNMonitor` (single inheritance)** — `class QNNMonitor(WinMLEPMonitor)`. ALL QNN-specific concerns (CSV reading, QHAS reading, sample aggregation, `_token_N` stripping, leaf-split heuristic, op-type resolution chain) live as private methods on the monitor (or in a private sibling submodule `qnn/_internal.py`, see §7). Nothing leaks outside the QNN module. The monitor exposes a typed `result` property (`OpTraceResult | None`) for downstream consumers.
 3. **`WinMLSession` ONNX-map injection** — at `perf().__enter__`, the session unconditionally calls `monitor.set_onnx_op_types(self._build_op_type_map(self._onnx_path))` on every monitor. The no-op default makes the call safe for non-op-tracing monitors; QNNMonitor overrides to store the map.
 
 There is no `OpTraceParser` ABC. There is no multiple inheritance. There is no `to_dict()` on the ABC.
 
-### 3.1 EPMonitor extension (additive, concrete-default)
+### 3.1 WinMLEPMonitor extension (additive, concrete-default)
 
 ```python
 # session/monitor/ep_monitor.py — additions to existing ABC
@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     from .op_metrics import OpTraceResult
 
 
-class EPMonitor(ABC):
+class WinMLEPMonitor(ABC):
     """Per-EP observer attached to a WinMLSession for an inference window."""
 
     requires_session_teardown: ClassVar[bool] = False
@@ -135,23 +135,23 @@ Two concrete-default members are introduced; nothing on the existing contract is
 
 ### 3.2 QNNMonitor (single inheritance)
 
-QNNMonitor stays a plain `EPMonitor` subclass. The op-type resolution logic is its own private business.
+QNNMonitor stays a plain `WinMLEPMonitor` subclass. The op-type resolution logic is its own private business.
 
 ```python
 import re
 from pathlib import Path
 from typing import ClassVar, Self
 
-from .ep_monitor import EPMonitor
+from .ep_monitor import WinMLEPMonitor
 from .op_metrics import OperatorMetrics, OpTraceResult
 
 
-class QNNMonitor(EPMonitor):
+class QNNMonitor(WinMLEPMonitor):
     """QNN per-op profiler. Owns CSV/QHAS parsing + ONNX op-type lookup
     as private internals.
 
     Produces an OpTraceResult exposed via the typed ``result`` property
-    (inherited from EPMonitor; populated during ``__exit__``).
+    (inherited from WinMLEPMonitor; populated during ``__exit__``).
     """
 
     requires_session_teardown: ClassVar[bool] = True
@@ -178,7 +178,7 @@ class QNNMonitor(EPMonitor):
 
     # -- Override no-op default: QNN does use the map --------------------
     def set_onnx_op_types(self, onnx_op_types: dict[str, str]) -> None:
-        """Override the EPMonitor no-op default — QNN consumes the map."""
+        """Override the WinMLEPMonitor no-op default — QNN consumes the map."""
         self._onnx_op_types = dict(onnx_op_types)
 
     # -- Lifecycle (existing, unchanged) ---------------------------------
@@ -344,9 +344,9 @@ When detail mode is active, L2 carries the QHAS-authoritative QNN op type and wi
 
 The strip-then-lookup contract is invisible to all callers — it lives entirely inside `_heuristic_op_type` and the private CSV-reading helpers that build the lookup key. No other EP needs to know `_token_N` exists.
 
-### 3.4 EPMonitor.to_dict() removal — typed accessors instead
+### 3.4 WinMLEPMonitor.to_dict() removal — typed accessors instead
 
-The `to_dict()` method is removed from the `EPMonitor` ABC contract in v2.0. v1.x carried it as a polymorphic method that every concrete monitor implemented, but it was a god-method conflating two unrelated concerns:
+The `to_dict()` method is removed from the `WinMLEPMonitor` ABC contract in v2.0. v1.x carried it as a polymorphic method that every concrete monitor implemented, but it was a god-method conflating two unrelated concerns:
 
 - **Op-tracing telemetry** (QNN): per-operator cycle counts, samples, summary statistics. The honest payload for QNNMonitor.
 - **Proof-of-execution signals** (VitisAI/OpenVINO): xrt-smi snapshots, device-utilisation deltas, "did the NPU actually run" boolean flags. The honest payload for those monitors.
@@ -357,7 +357,7 @@ v2.0 replaces the polymorphic god-method with **two typed accessor properties**,
 
 | Concrete monitor | Typed accessor | Returns |
 |---|---|---|
-| `QNNMonitor` | `result` (inherited from EPMonitor; default `None`; populated in `__exit__`) | `OpTraceResult` |
+| `QNNMonitor` | `result` (inherited from WinMLEPMonitor; default `None`; populated in `__exit__`) | `OpTraceResult` |
 | `VitisAIMonitor` | `proof` (NEW typed `ProofOfExecution` class — out of scope for this lift; flagged as a follow-up) | `ProofOfExecution \| None` |
 | `OpenVINOMonitor` | `proof` (same pattern as VitisAI) | `ProofOfExecution \| None` |
 | `NullEPMonitor` | neither (both `result` and `proof` return `None`) | n/a |
@@ -376,7 +376,7 @@ elif isinstance(ctx.monitor, (VitisAIMonitor, OpenVINOMonitor)):
 
 This separation is honest: the JSON keys reflect what the data actually is. QNN's payload goes under `op_trace`; VitisAI/OpenVINO's payload goes under `ep_proof`. NullEPMonitor contributes nothing.
 
-The `OpTraceResult.to_dict()` method on the dataclass itself is unchanged — it stays at `op_metrics.py` and report writers continue to consume it. Only the polymorphic `EPMonitor.to_dict()` ABC method is removed.
+The `OpTraceResult.to_dict()` method on the dataclass itself is unchanged — it stays at `op_metrics.py` and report writers continue to consume it. Only the polymorphic `WinMLEPMonitor.to_dict()` ABC method is removed.
 
 ### 3.5 Identifier mapping reference
 
@@ -411,8 +411,8 @@ This section consolidates, in one place, how the three identifiers in the system
 | Class | Knows about | Does NOT know about |
 |---|---|---|
 | **`WinMLSession`** | ONNX file paths, `onnx.load()`, model graph traversal. Builds `dict[node.name, node.op_type]` at session setup and injects via `monitor.set_onnx_op_types(map)` unconditionally on every monitor. | QNN profiling output, op-tracing data formats |
-| **`EPMonitor` ABC** | Benchmark lifecycle (`__enter__`/`__exit__`), session options, EP probe failures, `ep_name`. NEW (v2.0): concrete-default `set_onnx_op_types` (no-op) and `result` property (returns `None`). | Specific EP profiling formats (CSV, JSON, etc.); fallback chain semantics |
-| **`QNNMonitor(EPMonitor)`** | EVERYTHING QNN-specific: CSV format, QHAS JSON format, `_token_N` regex, `_extract_samples` accumulator, `qnn_op_type` field semantics, the four-layer fallback chain (`_resolve_op_type`), the QNN heuristic (`_heuristic_op_type`). Single inheritance from EPMonitor; overrides `set_onnx_op_types` to actually store the map and populates `self._result` in `__exit__`. | ONNX file loading (only consumes the prebuilt map; never calls `onnx.load`) |
+| **`WinMLEPMonitor` ABC** | Benchmark lifecycle (`__enter__`/`__exit__`), session options, EP probe failures, `ep_name`. NEW (v2.0): concrete-default `set_onnx_op_types` (no-op) and `result` property (returns `None`). | Specific EP profiling formats (CSV, JSON, etc.); fallback chain semantics |
+| **`QNNMonitor(WinMLEPMonitor)`** | EVERYTHING QNN-specific: CSV format, QHAS JSON format, `_token_N` regex, `_extract_samples` accumulator, `qnn_op_type` field semantics, the four-layer fallback chain (`_resolve_op_type`), the QNN heuristic (`_heuristic_op_type`). Single inheritance from WinMLEPMonitor; overrides `set_onnx_op_types` to actually store the map and populates `self._result` in `__exit__`. | ONNX file loading (only consumes the prebuilt map; never calls `onnx.load`) |
 | **`OperatorMetrics` dataclass** | Just data fields (`name`, `op_path`, `samples_us`, etc.). Pure transport object. | Where any value came from |
 | **Render layer (`report.py`)** | How to draw a Rich Table | All of the above — only sees `OperatorMetrics` |
 
@@ -560,15 +560,15 @@ The chain is **monotonic in quality**: each layer is at least as good as the one
 
 ## 6. Map construction
 
-The ONNX op-type map is built at **session-setup time** by `WinMLSession`, not in the monitor. The monitor receives a fully-formed `dict[str, str]` via `set_onnx_op_types()`. This separation matters because (a) loading ONNX is an I/O operation that should happen once per session, not once per parse call, and (b) the call is uniform across all monitors — non-op-tracing monitors inherit the EPMonitor no-op default and silently ignore the map.
+The ONNX op-type map is built at **session-setup time** by `WinMLSession`, not in the monitor. The monitor receives a fully-formed `dict[str, str]` via `set_onnx_op_types()`. This separation matters because (a) loading ONNX is an I/O operation that should happen once per session, not once per parse call, and (b) the call is uniform across all monitors — non-op-tracing monitors inherit the WinMLEPMonitor no-op default and silently ignore the map.
 
 ### 6.1 Builder lives on `WinMLSession`
 
 ```python
 class WinMLSession:
-    def perf(self, monitor: EPMonitor, ...):
+    def perf(self, monitor: WinMLEPMonitor, ...):
         # Inject the ONNX op-type map unconditionally on every monitor.
-        # The EPMonitor base class provides a no-op default for set_onnx_op_types,
+        # The WinMLEPMonitor base class provides a no-op default for set_onnx_op_types,
         # so non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor)
         # safely ignore the call. QNNMonitor overrides to actually store the map.
         if self._onnx_path is not None:
@@ -604,7 +604,7 @@ The `if n.name` filter is defensive: ONNX permits anonymous nodes (`node.name ==
 
 ### 6.2 Why unconditional injection is safe
 
-The v1.x design used `isinstance(monitor, OpTraceParser)` to decide whether to inject. v2.0 drops that branch. The EPMonitor `set_onnx_op_types` default is a concrete no-op, so calling it on any monitor (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) is a safe no-op. QNNMonitor overrides to do real work. This is simpler than the isinstance branch and slightly more honest — every monitor sees the same call, every monitor decides for itself whether the call means anything.
+The v1.x design used `isinstance(monitor, OpTraceParser)` to decide whether to inject. v2.0 drops that branch. The WinMLEPMonitor `set_onnx_op_types` default is a concrete no-op, so calling it on any monitor (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) is a safe no-op. QNNMonitor overrides to do real work. This is simpler than the isinstance branch and slightly more honest — every monitor sees the same call, every monitor decides for itself whether the call means anything.
 
 The ONNX-map construction itself is gated only on `self._onnx_path is not None`; if the session was constructed without an ONNX path (rare), no map is built and no injection happens.
 
@@ -624,9 +624,9 @@ The principle: **strict information hiding around the QNN module**. Nothing abou
 
 | Current location (`bb3e2a91`) | New home | Notes |
 |---|---|---|
-| `EPMonitor` ABC (existing) | **EXTENDED**: add concrete-default `set_onnx_op_types(map) -> None` (no-op) and `result` property (returns `getattr(self, "_result", None)`). | The two new members are concrete defaults — no abstract methods added. |
-| `EPMonitor.to_dict` abstract method (existing) | **REMOVED** from the ABC contract. Concrete monitors expose data via typed accessors instead (`result` for op-tracing, `proof` for proof-of-execution). | See §3.4. |
-| `NullEPMonitor.to_dict` (existing, returns `{}`) | **REMOVED** — the `result` property inherits the EPMonitor default and returns `None`, which is the honest answer. | NullEPMonitor exposes no data. |
+| `WinMLEPMonitor` ABC (existing) | **EXTENDED**: add concrete-default `set_onnx_op_types(map) -> None` (no-op) and `result` property (returns `getattr(self, "_result", None)`). | The two new members are concrete defaults — no abstract methods added. |
+| `WinMLEPMonitor.to_dict` abstract method (existing) | **REMOVED** from the ABC contract. Concrete monitors expose data via typed accessors instead (`result` for op-tracing, `proof` for proof-of-execution). | See §3.4. |
+| `NullEPMonitor.to_dict` (existing, returns `{}`) | **REMOVED** — the `result` property inherits the WinMLEPMonitor default and returns `None`, which is the honest answer. | NullEPMonitor exposes no data. |
 | `QNNMonitor.to_dict` (existing, delegates to `result.to_dict()`) | **REMOVED** — callers go directly through `monitor.result.to_dict()` on the typed `OpTraceResult` accessor. | The `result` property already exists in production today (`qnn_monitor.py`); it stays. |
 | `VitisAIMonitor.to_dict`, `OpenVINOMonitor.to_dict` (existing) | **KEEP for now, as transitional**. Document them as transitional. Follow-up PR introduces a typed `proof` property + a new `ProofOfExecution` class to replace these. Out of scope for this lift. | Flagged as OQ-6 in the PRD. |
 | `commands/perf.py:542,549` (currently calls `ctx.monitor.to_dict()` to produce the `ep_proof` JSON field) | **REWRITE** to isinstance-based typed accessor dispatch (see §3.4 code sample). QNN's payload routes to `op_trace`; VitisAI/OpenVINO's payload routes to `ep_proof` (preserving the existing schema for those EPs while the typed `proof` follow-up lands). | This is the consumer-side fix for the to_dict god-method. |
@@ -669,7 +669,7 @@ The migration is a refactor: existing logic is preserved and relocated. Each ste
 
 | Step | Change | Tests |
 |---|---|---|
-| 1 | Extend `EPMonitor` ABC with concrete-default `set_onnx_op_types` (no-op) and `result` property (returns `getattr(self, "_result", None)`). Remove `to_dict` from the ABC. | New unit tests: defaults work for any subclass; `result` returns `None` when `_result` is unset; no abstract method added. |
+| 1 | Extend `WinMLEPMonitor` ABC with concrete-default `set_onnx_op_types` (no-op) and `result` property (returns `getattr(self, "_result", None)`). Remove `to_dict` from the ABC. | New unit tests: defaults work for any subclass; `result` returns `None` when `_result` is unset; no abstract method added. |
 | 2 | Add `WinMLSession._build_op_type_map` and the unconditional `monitor.set_onnx_op_types(...)` call in `WinMLSession.perf`. | New unit test: known node names from the resnet50 ONNX produce expected op types. Empty/missing path returns `{}`. The unconditional call is safe for NullEPMonitor/VitisAIMonitor/OpenVINOMonitor (no-op default). |
 | 3 | In `QNNMonitor`: override `set_onnx_op_types` to actually store the map; add private `_resolve_op_type` and `_heuristic_op_type` methods; refactor existing `_parse_artifacts` to dispatch to private `_parse_basic` / `_parse_detail` methods that call `_resolve_op_type`. The two private parse methods initially still call into the existing `qnn/csv_parser.py` / `qnn/qhas_parser.py` modules — no behavioural change beyond the resolution call site. | All existing `test_qnn_monitor.py` tests pass unchanged. New unit tests: hand-built `onnx_op_types={}` + small fixtures → identical `OperatorMetrics` to the inline path; `_resolve_op_type` walks the chain correctly across the 8 hit/miss combinations. |
 | 4 | Wire real ONNX-map construction in the CLI / session-setup paths. Update `OperatorMetrics.name` docstring per §4.1. Add the `QNNMonitor.parse_existing_artifacts` classmethod for standalone use. | New integration test: real ONNX + CSV + QHAS fixtures → ONNX-resolved `name` for nodes that exist in the graph; QHAS-resolved `name` for nodes that don't. |
@@ -695,7 +695,7 @@ After Step 9, the migration is complete: all QNN parsing internals are private, 
 
 Five test layers, each owning a different concern:
 
-1. **EPMonitor ABC default tests** — `set_onnx_op_types(map)` is a no-op for any subclass that doesn't override; `result` property returns `None` when `_result` is unset and the populated value when set. Tests use a minimal `_TestMonitor(EPMonitor)` subclass.
+1. **WinMLEPMonitor ABC default tests** — `set_onnx_op_types(map)` is a no-op for any subclass that doesn't override; `result` property returns `None` when `_result` is unset and the populated value when set. Tests use a minimal `_TestMonitor(WinMLEPMonitor)` subclass.
 2. **`QNNMonitor` private-method unit tests** — hand-built `onnx_op_types` dicts paired with small CSV/QHAS fixtures (no ONNX file, no QNN SDK). Asserts `OperatorMetrics.name` resolution at each chain layer for `_parse_basic` and `_parse_detail`. Calling these private methods directly is acceptable in unit tests because they live on the same class as the test target. The public `QNNMonitor.parse_existing_artifacts` classmethod gives a stable test entry point that doesn't require crossing private boundaries.
 3. **`QNNMonitor` resolver + heuristic unit tests** — `_resolve_op_type` walks the chain correctly for all (L1 hit/miss) × (L2 hit/None) × (L3 hit/None) combinations. `_heuristic_op_type` covers the `_token_N` strip + leaf-split contract independently.
 4. **Integration tests** — real ONNX file + real CSV + real QHAS fixtures (the resnet50 fixture already in the repo). Asserts that ONNX lookup wins over QHAS-authoritative when both have an entry, and that QHAS wins when ONNX misses.
@@ -716,14 +716,14 @@ There are no `OpTraceParser` ABC contract tests in v2.0 — there is no `OpTrace
 - **`_token_N` cleaning**: a CSV event ID `"/encoder/conv1/Conv_token_1_2"` with an ONNX node `"/encoder/conv1/Conv"` resolves to `"Conv"` (L1 hit on the cleaned key).
 - **`set_onnx_op_types` idempotence**: `set_onnx_op_types({})` followed by `set_onnx_op_types({"a": "Conv"})` results in the second map being authoritative.
 - **`set_onnx_op_types` no-op default**: calling it on `NullEPMonitor`/`VitisAIMonitor`/`OpenVINOMonitor` does not raise and does not store anything visible.
-- **`result` default**: `EPMonitor.result` returns `None` when `_result` was never set; returns the stored object when `_result` is populated.
+- **`result` default**: `WinMLEPMonitor.result` returns `None` when `_result` was never set; returns the stored object when `_result` is populated.
 
 ### 8.3 Acceptance criteria
 
 | AC | Description |
 |---|---|
-| P-1 | `EPMonitor.set_onnx_op_types({"a": "b"})` on a subclass that doesn't override is a no-op (no AttributeError, nothing stored visibly). |
-| P-2 | `EPMonitor.result` is `None` for any subclass that doesn't set `self._result`; returns the value when set. |
+| P-1 | `WinMLEPMonitor.set_onnx_op_types({"a": "b"})` on a subclass that doesn't override is a no-op (no AttributeError, nothing stored visibly). |
+| P-2 | `WinMLEPMonitor.result` is `None` for any subclass that doesn't set `self._result`; returns the value when set. |
 | P-3 | `QNNMonitor._resolve_op_type` returns L1 value when L1 hits, regardless of L2/L3 availability. |
 | P-4 | `QNNMonitor._resolve_op_type` returns L2 value when L1 misses and L2 is non-None. |
 | P-5 | `QNNMonitor._resolve_op_type` returns L3 value when L1 misses and L2 is None and heuristic returns non-empty. |
@@ -741,14 +741,14 @@ There are no `OpTraceParser` ABC contract tests in v2.0 — there is no `OpTrace
 
 ## 9. Forward-compat: future EP subclasses
 
-Sketches only; not implementations. Each future EP defines (a) what artifacts its monitor produces, (b) which levels it supports, and (c) what its EP-authoritative op-type field is named, if any. Each future EP's monitor is a plain `EPMonitor` subclass — single inheritance — that overrides `set_onnx_op_types` to store the map and populates `self._result` from `__exit__` so the typed `result` accessor works. Same information-hiding rule applies: nothing about TRT-specific JSON shape, OV-specific layer-type enums, etc., leaks out of the EP's containing module. There is no `OpTraceParser` ABC to mix in.
+Sketches only; not implementations. Each future EP defines (a) what artifacts its monitor produces, (b) which levels it supports, and (c) what its EP-authoritative op-type field is named, if any. Each future EP's monitor is a plain `WinMLEPMonitor` subclass — single inheritance — that overrides `set_onnx_op_types` to store the map and populates `self._result` from `__exit__` so the typed `result` accessor works. Same information-hiding rule applies: nothing about TRT-specific JSON shape, OV-specific layer-type enums, etc., leaks out of the EP's containing module. There is no `OpTraceParser` ABC to mix in.
 
 When a second op-tracing EP lands, the abstraction can be re-extracted from the two concrete implementers (TensorRTMonitor + QNNMonitor share resolver/heuristic shape). Until then, each EP owns its own resolver as private internals.
 
 ### 9.1 TensorRT (NVIDIA GPU)
 
 ```python
-class TensorRTMonitor(EPMonitor):
+class TensorRTMonitor(WinMLEPMonitor):
     """TensorRT JSON profiler output -> OperatorMetrics via private resolver.
 
     TRT emits a JSON array per inference with ``layerName``,
@@ -776,7 +776,7 @@ class TensorRTMonitor(EPMonitor):
 If/when OpenVINO gains op-tracing (separate from the proof-of-execution monitor introduced today), the same pattern applies:
 
 ```python
-class OpenVinoOpTraceMonitor(EPMonitor):
+class OpenVinoOpTraceMonitor(WinMLEPMonitor):
     """OpenVINO benchmark_app -pcseq CSV -> OperatorMetrics via private resolver.
 
     OV emits ``layer_type`` directly as a column (``Convolution``,
@@ -796,7 +796,7 @@ Both EPs fit the same shape: override `set_onnx_op_types`, populate `self._resul
 
 The original four open questions in v1.0 are all resolved. v1.x carried specific resolutions that involved the `OpTraceParser` ABC; v2.0 supersedes those with the simpler "everything QNN-private" answer.
 
-1. **(was open) Injection point: monitor or parser-as-dependency?** **Resolved: monitor only.** v1.x answer was "the monitor IS the parser via multiple inheritance"; v2.0 answer is simpler — there is no parser, only the monitor. The ONNX op-type map is injected via `EPMonitor.set_onnx_op_types(map)`, which has a concrete no-op default on the ABC and is overridden by op-tracing monitors. Constructor injection remains supported (`QNNMonitor(..., onnx_op_types=...)`) for tests and standalone scripts.
+1. **(was open) Injection point: monitor or parser-as-dependency?** **Resolved: monitor only.** v1.x answer was "the monitor IS the parser via multiple inheritance"; v2.0 answer is simpler — there is no parser, only the monitor. The ONNX op-type map is injected via `WinMLEPMonitor.set_onnx_op_types(map)`, which has a concrete no-op default on the ABC and is overridden by op-tracing monitors. Constructor injection remains supported (`QNNMonitor(..., onnx_op_types=...)`) for tests and standalone scripts.
 
 2. **(was open) Should the parser own samples-aggregation? / What about `csv_parser.py` and `qhas_parser.py` as public modules?** **Resolved: delete `qnn/csv_parser.py` and `qnn/qhas_parser.py` as public modules.** Their helpers fold either onto `QNNMonitor` directly (option a) or into a private sibling submodule `qnn/_internal.py` (option b, recommended). Sample-aggregation is QNN-internal and lives wherever the helpers land. Strict information hiding: NO module outside `src/winml/modelkit/session/monitor/qnn/` imports any parsing internal after the refactor. Existing unit tests of private helpers (`test_csv_parser_samples.py`, `test_event_id_split.py`, `test_csv_parser.py`, `test_qhas_parser.py`) are deleted as architectural debt; coverage moves to integration tests on `QNNMonitor.parse_existing_artifacts`. See §7.1, §7.2, §8.1.
 
@@ -828,4 +828,4 @@ These need a one-line decision before the migration starts:
 
 3. **Should `WinMLSession._build_op_type_map` move to a free function for testability?** It's currently a `@staticmethod`. A free function in (say) `session/perf/op_type_map.py` would let unit tests import and exercise it without instantiating the session. Recommend: keep as `@staticmethod` — it has no state, is trivially testable as `WinMLSession._build_op_type_map(...)`, and breaking it out adds one more module without much benefit.
 
-4. **(v2.0) Typed `proof` accessor follow-up.** v2.0 removes `EPMonitor.to_dict()` from the ABC contract but leaves `VitisAIMonitor.to_dict` and `OpenVINOMonitor.to_dict` in place as transitional. The follow-up PR introduces a typed `proof` property + a new `ProofOfExecution` dataclass to cover those EPs honestly. Out of scope for this lift; flagged so it doesn't get lost.
+4. **(v2.0) Typed `proof` accessor follow-up.** v2.0 removes `WinMLEPMonitor.to_dict()` from the ABC contract but leaves `VitisAIMonitor.to_dict` and `OpenVINOMonitor.to_dict` in place as transitional. The follow-up PR introduces a typed `proof` property + a new `ProofOfExecution` dataclass to cover those EPs honestly. Out of scope for this lift; flagged so it doesn't get lost.

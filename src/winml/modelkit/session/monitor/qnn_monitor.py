@@ -9,7 +9,7 @@ Produces an :class:`OpTraceResult` with per-operator cycle counts
 (``level="detail"``).
 
 Contributes session options and provider options to a ``WinMLSession`` via
-the two :class:`EPMonitor` hooks; owns the ``profiling_level`` and
+the two :class:`WinMLEPMonitor` hooks; owns the ``profiling_level`` and
 ``profiling_file_path`` provider-option keys (C-3 in PRD — never
 user-overridable). Requires ``ort.InferenceSession`` teardown before
 ``__exit__`` because QNN EP flushes the profiling CSV only on session
@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from .ep_monitor import EPMonitor
+from .ep_monitor import WinMLEPMonitor
 from .op_metrics import OperatorMetrics, OpTraceResult, TraceStatus
 from .qnn._internal import _TOKEN_SUFFIX, parse_qhas, parse_qnn_profiling_csv
 from .qnn.viewer import find_qnn_sdk, run_qhas_viewer
@@ -47,7 +47,7 @@ _LEVEL_TO_PROFILING: dict[str, str] = {
 }
 
 
-class QNNMonitor(EPMonitor):
+class QNNMonitor(WinMLEPMonitor):
     """Qualcomm NPU per-op profiler via ORT's QNN EP.
 
     Produces an :class:`OpTraceResult` with per-operator cycle counts
@@ -291,7 +291,7 @@ class QNNMonitor(EPMonitor):
     # ------------------------------------------------------------------
 
     def set_onnx_op_types(self, onnx_op_types: dict[str, str]) -> None:
-        """Override the EPMonitor no-op default — QNN uses the map.
+        """Override the WinMLEPMonitor no-op default — QNN uses the map.
 
         Stores the ONNX ``node.name -> node.op_type`` map for use during
         ``__exit__`` parsing.  ``WinMLSession.perf`` calls this once,

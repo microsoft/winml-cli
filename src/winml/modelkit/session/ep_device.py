@@ -4,13 +4,13 @@
 # --------------------------------------------------------------------------
 
 # src/winml/modelkit/session/ep_device.py
-"""EPDevice descriptor + resolution helpers + exception taxonomy.
+"""WinMLEPDevice descriptor + resolution helpers + exception taxonomy.
 
-EPDevice is a pure-data identifier for one (EP, hardware-device) target.
+WinMLEPDevice is a pure-data identifier for one (EP, hardware-device) target.
 It is frozen, JSON-serializable, and has no runtime dependency on ORT.
 Construction is performed by resolve_device(...) or rehydrated via
 from_dict(...). The OrtEpDevice handle is re-derived inside session.py
-at session-build time and never stored on EPDevice itself.
+at session-build time and never stored on WinMLEPDevice itself.
 """
 
 from __future__ import annotations
@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 # --- exceptions ------------------------------------------------------------
 
 
-class EPNotDiscovered(Exception):  # noqa: N818
+class WinMLEPNotDiscovered(Exception):  # noqa: N818
     """EP plugin is not in the catalog or MODELKIT_EP_PATH."""
 
 
-class EPRegistrationFailed(Exception):  # noqa: N818
+class WinMLEPRegistrationFailed(Exception):  # noqa: N818
     """ort.register_execution_provider_library raised."""
 
 
@@ -44,15 +44,15 @@ class AmbiguousMatch(Exception):  # noqa: N818
     """Multiple OrtEpDevices match the descriptor after dedup (bug signal)."""
 
 
-class EPMonitorMismatch(Exception):  # noqa: N818
-    """Monitor.ep_name does not agree with EPDevice.ep."""
+class WinMLEPMonitorMismatch(Exception):  # noqa: N818
+    """Monitor.ep_name does not agree with WinMLEPDevice.ep."""
 
 
 # --- dataclass -------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class EPDevice:
+class WinMLEPDevice:
     """Pure-data identifier of one (EP, hardware-device) binding target."""
 
     ep: str
@@ -71,7 +71,7 @@ class EPDevice:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> EPDevice:
+    def from_dict(cls, d: dict[str, Any]) -> WinMLEPDevice:
         """Rehydrate from a dict produced by to_dict."""
         return cls(
             ep=d["ep"],
@@ -128,19 +128,19 @@ def short_ep_name(full: str) -> str:
 
 
 # --- EP / device taxonomy --------------------------------------------------
-# Single authoritative source: the EPDeviceSpec catalog.
+# Single authoritative source: the WinMLEPDeviceSpec catalog.
 # config/precision.py imports helpers from here (via the session facade).
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class EPDeviceSpec:
+class WinMLEPDeviceSpec:
     """One supported (EP, device) target in the catalog.
 
-    Distinct from EPDevice:
-      - EPDeviceSpec is the *kind-of-target* (machine-independent).
-      - EPDevice is the *runtime instance* (machine-specific, carries
+    Distinct from WinMLEPDevice:
+      - WinMLEPDeviceSpec is the *kind-of-target* (machine-independent).
+      - WinMLEPDevice is the *runtime instance* (machine-specific, carries
         vendor_id / device_id from the OrtEpDevice handle).
-    Many EPDevices map to one EPDeviceSpec.
+    Many WinMLEPDevices map to one WinMLEPDeviceSpec.
     """
 
     ep: str
@@ -148,14 +148,14 @@ class EPDeviceSpec:
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
 
 
-EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
+EP_DEVICE_SPECS: Final[tuple[WinMLEPDeviceSpec, ...]] = (
     # Order encodes first-match deduction preference per device:
     #   npu-first:  QNNExecutionProvider   (Snapdragon HTP — highest-throughput)
     #   gpu-first:  DmlExecutionProvider   (Windows-native; compile-path default)
     #   cpu-first:  CPUExecutionProvider   (bundled with ORT — always available)
     # Secondary entries follow their primary within each device group.
     # ---- Primary per-device (positions 0-2) ----
-    EPDeviceSpec(
+    WinMLEPDeviceSpec(
         ep="QNNExecutionProvider",
         device="npu",
         default_provider_options={
@@ -164,26 +164,26 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "htp_graph_finalization_optimization_mode": "3",
         },
     ),  # primary NPU
-    EPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # primary GPU
-    EPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # primary CPU
+    WinMLEPDeviceSpec(ep="DmlExecutionProvider", device="gpu"),  # primary GPU
+    WinMLEPDeviceSpec(ep="CPUExecutionProvider", device="cpu"),  # primary CPU
     # ---- QNN secondary ----
-    EPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
-    EPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
+    WinMLEPDeviceSpec(ep="QNNExecutionProvider", device="gpu"),  # TODO: measure
+    WinMLEPDeviceSpec(ep="QNNExecutionProvider", device="cpu"),
     # ---- OpenVINO family ----
     # TODO: verify whether `device_type` is needed under add_provider_for_devices,
     # or auto-derived from OrtEpDevice handle (like QNN's backend_type).
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
+    WinMLEPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
+    WinMLEPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
+    WinMLEPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
     # ---- Other single-device EPs ----
-    EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
-    EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
-    EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
-    EPDeviceSpec(ep="NvTensorRtRtxExecutionProvider", device="gpu"),
+    WinMLEPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
+    WinMLEPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
+    WinMLEPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
+    WinMLEPDeviceSpec(ep="NvTensorRtRtxExecutionProvider", device="gpu"),
 )
 
 # O(1) lookup cache built from the ordered catalog.
-_BY_KEY: Final[dict[tuple[str, str], EPDeviceSpec]] = {(s.ep, s.device): s for s in EP_DEVICE_SPECS}
+_BY_KEY: Final[dict[tuple[str, str], WinMLEPDeviceSpec]] = {(s.ep, s.device): s for s in EP_DEVICE_SPECS}
 
 # Public frozensets for callers that only need membership tests.
 # VALID_EPS uses short names for backward compatibility with callers that pass
@@ -192,7 +192,7 @@ VALID_EPS: Final[frozenset[str]] = frozenset({short_ep_name(s.ep) for s in EP_DE
 VALID_DEVICES: Final[frozenset[str]] = frozenset({s.device for s in EP_DEVICE_SPECS})
 
 
-def lookup_device_spec(ep: str, device: str) -> EPDeviceSpec | None:
+def lookup_device_spec(ep: str, device: str) -> WinMLEPDeviceSpec | None:
     """O(1) lookup by exact (ep, device) match using full EP names.
 
     Args:
@@ -200,7 +200,7 @@ def lookup_device_spec(ep: str, device: str) -> EPDeviceSpec | None:
         device: Device category (e.g. ``"npu"``).
 
     Returns:
-        The matching :class:`EPDeviceSpec`, or ``None`` if not found.
+        The matching :class:`WinMLEPDeviceSpec`, or ``None`` if not found.
     """
     return _BY_KEY.get((ep, device))
 
@@ -345,8 +345,8 @@ def _get_ep_registry() -> Any:
 def resolve_device(
     ep: str | None = None,
     device: str | None = None,
-) -> EPDevice:
-    """Resolve a (EP name, device kind) pair to an EPDevice.
+) -> WinMLEPDevice:
+    """Resolve a (EP name, device kind) pair to an WinMLEPDevice.
 
     Deduction matrix:
         both given   -> validate + return
@@ -363,8 +363,8 @@ def resolve_device(
 
     Raises:
         ValueError:           Unknown EP or device string.
-        EPNotDiscovered:      EP plugin not in catalog or MODELKIT_EP_PATH.
-        EPRegistrationFailed: ort.register_execution_provider_library raised.
+        WinMLEPNotDiscovered:      EP plugin not in catalog or MODELKIT_EP_PATH.
+        WinMLEPRegistrationFailed: ort.register_execution_provider_library raised.
         DeviceNotFound:       EP registered, but no matching OrtEpDevice.
         AmbiguousMatch:       multiple OrtEpDevice match after dedup.
     """
@@ -435,7 +435,7 @@ def resolve_device(
         )
 
     chosen = deduped[0]
-    return EPDevice(
+    return WinMLEPDevice(
         ep=ep_full,
         device=device_lower,
         vendor_id=chosen.device.vendor_id,

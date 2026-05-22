@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Final
 
 
 if TYPE_CHECKING:
-    from ..session import EPDevice  # noqa: TC004
+    from ..session import WinMLEPDevice  # noqa: TC004
 
 
 # Per-EP default for ``EPConfig.enable_ep_context``: which EPs default to
@@ -87,7 +87,7 @@ class WinMLCompileConfig:
 
     # Resolved EP+device pair (set by CLI or API callers; None means compile
     # stage will infer from ep_config.provider via resolve_device()).
-    ep_device: EPDevice | None = None
+    ep_device: WinMLEPDevice | None = None
 
     # Behavior
     validate: bool = True
@@ -99,8 +99,8 @@ class WinMLCompileConfig:
         return self.ep_config.provider
 
     @classmethod
-    def for_ep_device(cls, ep_device: EPDevice) -> WinMLCompileConfig:
-        """Factory that creates a config from a fully-resolved EPDevice.
+    def for_ep_device(cls, ep_device: WinMLEPDevice) -> WinMLCompileConfig:
+        """Factory that creates a config from a fully-resolved WinMLEPDevice.
 
         The ep_device is stored on the config and threaded to the compile
         stage so that resolve_device() is only called once at the CLI boundary.
@@ -109,7 +109,7 @@ class WinMLCompileConfig:
             ep_device: Fully-resolved (EP, device) binding.
 
         Returns:
-            WinMLCompileConfig bound to the given EPDevice.
+            WinMLCompileConfig bound to the given WinMLEPDevice.
         """
         from ..session import short_ep_name
 
@@ -299,7 +299,7 @@ class WinMLCompileConfig:
         Returns:
             WinMLCompileConfig instance.
         """
-        from ..session import EPDevice as _EPDevice
+        from ..session import WinMLEPDevice as _WinMLEPDevice
 
         ep_config = EPConfig(
             provider=data.get("execution_provider", "qnn"),
@@ -312,7 +312,7 @@ class WinMLCompileConfig:
 
         ep_device = None
         if "ep_device" in data and data["ep_device"] is not None:
-            ep_device = _EPDevice.from_dict(data["ep_device"])
+            ep_device = _WinMLEPDevice.from_dict(data["ep_device"])
 
         return cls(
             ep_config=ep_config,

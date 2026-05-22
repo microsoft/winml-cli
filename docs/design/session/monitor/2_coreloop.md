@@ -19,7 +19,7 @@
 - [2. Module Structure](#2-module-structure)
 - [3. Core Loop Implementation](#3-core-loop-implementation)
 - [4. API Design](#4-api-design)
-  - [4.1 EPMonitor — revised ABC](#41-epmonitor--revised-abc)
+  - [4.1 WinMLEPMonitor — revised ABC](#41-epmonitor--revised-abc)
   - [4.2 NullEPMonitor](#42-nullepmonitor)
   - [4.3 QNNMonitor](#43-qnnmonitor)
   - [4.4 PerfContext](#44-perfcontext)
@@ -44,7 +44,7 @@
 | Spec | `../../standards/design-doc-spec.md` | Normative doc standard this design conforms to |
 | Iterations | `./iterations/01.md` – `11.md` | Brainstorming record (informational) |
 | Upstream | `../../../src/winml/modelkit/session/session.py` | `WinMLSession` — existing code extended here |
-| Upstream | `../../../src/winml/modelkit/session/monitor/ep_monitor.py` | `EPMonitor` ABC — existing code extended here |
+| Upstream | `../../../src/winml/modelkit/session/monitor/ep_monitor.py` | `WinMLEPMonitor` ABC — existing code extended here |
 | Upstream | `../../../src/winml/modelkit/commands/perf.py` | CLI benchmark entry point — existing code modified here |
 | Deleted | `../../../src/winml/modelkit/optracing/qnn/profiler.py` | `QNNProfiler` — deleted by this refactor |
 
@@ -56,9 +56,9 @@ This refactor orchestrates four subsystems. Data dependencies MUST be understood
 
 | Actor | Role | Location |
 |-------|------|----------|
-| `WinMLSession` | Owns `ort.InferenceSession` lifecycle; exposes `perf()`. v2.3+: also builds `dict[node.name, node.op_type]` from the ONNX graph at session setup. v2.4: injects the map unconditionally into every monitor via `monitor.set_onnx_op_types(map)` — the EPMonitor no-op default makes the call safe for non-op-tracing monitors. | `session/session.py` |
-| `EPMonitor` (ABC) | Per-EP observer with two optional config hooks. v2.4: extended with two concrete-default members — `set_onnx_op_types(map)` (no-op default; op-tracing monitors override) and `result` property (default `None`; concrete monitors populate `self._result` from `__exit__`). v2.4: `to_dict()` removed from ABC contract. | `session/monitor/ep_monitor.py` |
-| `QNNMonitor` | Concrete monitor for Qualcomm NPU. v2.4: stays single-inheritance `class QNNMonitor(EPMonitor)`. Owns ALL QNN-specific parsing internals (CSV reading, QHAS reading, `_token_N` strip, leaf-split heuristic, four-layer resolver chain) as private surface. Overrides `set_onnx_op_types` to actually store the map; populates `self._result` from `__exit__`. Adds `parse_existing_artifacts` classmethod for offline use. | `session/monitor/qnn_monitor.py` |
+| `WinMLSession` | Owns `ort.InferenceSession` lifecycle; exposes `perf()`. v2.3+: also builds `dict[node.name, node.op_type]` from the ONNX graph at session setup. v2.4: injects the map unconditionally into every monitor via `monitor.set_onnx_op_types(map)` — the WinMLEPMonitor no-op default makes the call safe for non-op-tracing monitors. | `session/session.py` |
+| `WinMLEPMonitor` (ABC) | Per-EP observer with two optional config hooks. v2.4: extended with two concrete-default members — `set_onnx_op_types(map)` (no-op default; op-tracing monitors override) and `result` property (default `None`; concrete monitors populate `self._result` from `__exit__`). v2.4: `to_dict()` removed from ABC contract. | `session/monitor/ep_monitor.py` |
+| `QNNMonitor` | Concrete monitor for Qualcomm NPU. v2.4: stays single-inheritance `class QNNMonitor(WinMLEPMonitor)`. Owns ALL QNN-specific parsing internals (CSV reading, QHAS reading, `_token_N` strip, leaf-split heuristic, four-layer resolver chain) as private surface. Overrides `set_onnx_op_types` to actually store the map; populates `self._result` from `__exit__`. Adds `parse_existing_artifacts` classmethod for offline use. | `session/monitor/qnn_monitor.py` |
 | `PerfContext` | Dataclass yielded by `session.perf()` | `session/session.py` (new) |
 | `OpTraceResult` | Structured profiling output. Exposed via the typed `QNNMonitor.result` accessor. | `session/monitor/op_metrics.py` (relocated) |
 | `ort.InferenceSession` | Actual ORT session; writes profiling CSV | ORT runtime |
@@ -88,7 +88,7 @@ This refactor orchestrates four subsystems. Data dependencies MUST be understood
 │     │   if self._onnx_path is not None:                       │       │
 │     │     m = self._build_op_type_map(self._onnx_path)        │       │
 │     │     mon.set_onnx_op_types(m)            ← HOOK 3        │       │
-│     │   # No isinstance check — EPMonitor has a no-op default │       │
+│     │   # No isinstance check — WinMLEPMonitor has a no-op default │       │
 │     │   # so the call is safe for any monitor.                │       │
 │     │   mon.__enter__()                                       │       │
 │     └─────────────────────────────────────────────────────────┘       │
@@ -116,9 +116,9 @@ This refactor orchestrates four subsystems. Data dependencies MUST be understood
 
 ### 0.5.3 Module responsibility summary
 
-- **`WinMLSession`**: template-method owner. Merges monitor hook contributions at compile; creates `ort.InferenceSession`; runs inference; handles teardown ordering at `perf().__exit__`. v2.3+: also responsible for building the ONNX `node.name → node.op_type` map at session setup (via the static `_build_op_type_map(onnx_path)` helper). v2.4: injects the map unconditionally into every monitor via `monitor.set_onnx_op_types(map)` — no isinstance check. The injection happens before `monitor.__enter__()` so the monitor's `__exit__` parse pass always sees a fully-populated map. Non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) inherit the EPMonitor no-op default and silently ignore the call.
-- **`EPMonitor` (ABC)**: contract definition for benchmark lifecycle. Two optional config hooks (`get_session_options`, `get_provider_options`) with base-class defaults. `is_available` classmethod. Mandatory `__enter__`/`__exit__`. v2.4: extended with two concrete-default members — `set_onnx_op_types(map)` (no-op default) and `result` property (default returns `getattr(self, "_result", None)`). v2.4: `to_dict()` removed from the ABC contract — concrete monitors expose data via typed accessors instead.
-- **`QNNMonitor`**: concrete implementation. v2.4: stays single-inheritance (`class QNNMonitor(EPMonitor)`). Declares session+provider options. Overrides `set_onnx_op_types` to actually store the map. Owns ALL QNN-specific parsing (CSV format, QHAS JSON, `_token_N` strip regex, leaf-split heuristic, sample aggregation, cycle-to-microsecond conversion, the four-layer fallback chain `_resolve_op_type`, the `_heuristic_op_type` method, the private `_parse_basic` / `_parse_detail` parse methods) as private internals — either as private methods on the class or in a private sibling submodule `qnn/_internal.py` (option b, recommended per spec §7.2). Populates `self._result` from `__exit__`; the typed `result` property (inherited from EPMonitor) exposes it. Adds `parse_existing_artifacts(level, artifacts, onnx_op_types=None)` classmethod for offline use. External code sees only the EPMonitor ABC + the canonical `OperatorMetrics` / `OpTraceResult` shapes.
+- **`WinMLSession`**: template-method owner. Merges monitor hook contributions at compile; creates `ort.InferenceSession`; runs inference; handles teardown ordering at `perf().__exit__`. v2.3+: also responsible for building the ONNX `node.name → node.op_type` map at session setup (via the static `_build_op_type_map(onnx_path)` helper). v2.4: injects the map unconditionally into every monitor via `monitor.set_onnx_op_types(map)` — no isinstance check. The injection happens before `monitor.__enter__()` so the monitor's `__exit__` parse pass always sees a fully-populated map. Non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) inherit the WinMLEPMonitor no-op default and silently ignore the call.
+- **`WinMLEPMonitor` (ABC)**: contract definition for benchmark lifecycle. Two optional config hooks (`get_session_options`, `get_provider_options`) with base-class defaults. `is_available` classmethod. Mandatory `__enter__`/`__exit__`. v2.4: extended with two concrete-default members — `set_onnx_op_types(map)` (no-op default) and `result` property (default returns `getattr(self, "_result", None)`). v2.4: `to_dict()` removed from the ABC contract — concrete monitors expose data via typed accessors instead.
+- **`QNNMonitor`**: concrete implementation. v2.4: stays single-inheritance (`class QNNMonitor(WinMLEPMonitor)`). Declares session+provider options. Overrides `set_onnx_op_types` to actually store the map. Owns ALL QNN-specific parsing (CSV format, QHAS JSON, `_token_N` strip regex, leaf-split heuristic, sample aggregation, cycle-to-microsecond conversion, the four-layer fallback chain `_resolve_op_type`, the `_heuristic_op_type` method, the private `_parse_basic` / `_parse_detail` parse methods) as private internals — either as private methods on the class or in a private sibling submodule `qnn/_internal.py` (option b, recommended per spec §7.2). Populates `self._result` from `__exit__`; the typed `result` property (inherited from WinMLEPMonitor) exposes it. Adds `parse_existing_artifacts(level, artifacts, onnx_op_types=None)` classmethod for offline use. External code sees only the WinMLEPMonitor ABC + the canonical `OperatorMetrics` / `OpTraceResult` shapes.
 - **`commands/perf.py`**: CLI dispatcher. Resolves the right monitor class by explicit `if/elif` on `--ep` and `--op-tracing` flags; constructs it with the appropriate `level` and `output_dir`. v2.4: switches the JSON-output flow from a unified `ctx.monitor.to_dict()` to isinstance-based typed accessor dispatch — `isinstance(ctx.monitor, QNNMonitor)` routes the payload to the `op_trace` JSON key (sourced from `monitor.result.to_dict()`); `isinstance(..., (VitisAIMonitor, OpenVINOMonitor))` routes to `ep_proof` (transitional `monitor.to_dict()` until typed `proof` accessor follow-up). NullEPMonitor contributes no key.
 - **`session/ep_registry.py`**: module-level `ensure_initialized()`. Single shared entry point for WinML EP registration. Eliminates the reverse-coupling `QNNMonitor → WinMLSession._init_winml_eps_once`.
 
@@ -128,14 +128,14 @@ This refactor orchestrates four subsystems. Data dependencies MUST be understood
 
 ### 1.1 Purpose
 
-Collapse the dual per-EP hierarchy (`EPMonitor` + `OpTracer`) into one; fix the broken `onnxruntime-windowsml` session-creation path; eliminate code duplication by routing all ORT session construction through `WinMLSession`.
+Collapse the dual per-EP hierarchy (`WinMLEPMonitor` + `OpTracer`) into one; fix the broken `onnxruntime-windowsml` session-creation path; eliminate code duplication by routing all ORT session construction through `WinMLSession`.
 
 ### 1.2 Core Principles
 
 - **P1 — Session owns the session; monitor informs the session.** `WinMLSession.compile()` is the sole owner of `ort.InferenceSession` construction. Monitors contribute configuration via two hooks but never create ORT sessions directly.
 - **P2 — Delete > refactor.** Where two abstractions exist for the same concept, delete one. `QNNProfiler` and `OpTracer` are deleted rather than patched.
 - **P3 — Good primitives > bespoke facades.** A clean pair (`WinMLSession`, `QNNMonitor`) composes cleanly into any caller shape. We do not add helper classes or wrapper utilities.
-- **P4 — Extension by hook, not by new abstraction.** New EP monitors are added by subclassing `EPMonitor` and overriding the two hooks. No registry, no factory, no plugin loader.
+- **P4 — Extension by hook, not by new abstraction.** New EP monitors are added by subclassing `WinMLEPMonitor` and overriding the two hooks. No registry, no factory, no plugin loader.
 - **P5 — Explicit over implicit.** No silent fallbacks. No silent session mutations (auto-reset logs at `WARNING`). No silent "ep unsupported" errors (hard-fail at dispatch time).
 
 ### 1.3 Design Pattern
@@ -144,7 +144,7 @@ Collapse the dual per-EP hierarchy (`EPMonitor` + `OpTracer`) into one; fix the 
 
 - `WinMLSession.compile()` is the template method: it owns the algorithm (resolve device → build session options → find EP device → merge provider options → create ORT session).
 - It calls the monitor at two hook points: `get_session_options()` (add_session_config_entry contributions) and `get_provider_options()` (add_provider_for_devices contributions).
-- The `EPMonitor` itself is a context-managed observer: `__enter__` prepares for observation, `__exit__` finalizes.
+- The `WinMLEPMonitor` itself is a context-managed observer: `__enter__` prepares for observation, `__exit__` finalizes.
 - The monitor never replaces session behavior — only augments specific steps.
 
 ---
@@ -153,7 +153,7 @@ Collapse the dual per-EP hierarchy (`EPMonitor` + `OpTracer`) into one; fix the 
 
 ### 2.1 File layout after refactor
 
-The v2.2 layout (post-relocation from `optracing/`) is updated by v2.3 (deletion of `qnn/csv_parser.py` + `qnn/qhas_parser.py` as public modules) and by v2.4 (extending `EPMonitor` with concrete-default members; QNNMonitor stays single-inheritance — no `op_trace_parser.py` is added).
+The v2.2 layout (post-relocation from `optracing/`) is updated by v2.3 (deletion of `qnn/csv_parser.py` + `qnn/qhas_parser.py` as public modules) and by v2.4 (extending `WinMLEPMonitor` with concrete-default members; QNNMonitor stays single-inheritance — no `op_trace_parser.py` is added).
 
 ```
 src/winml/modelkit/
@@ -163,7 +163,7 @@ src/winml/modelkit/
 │   └── monitor/
 │       ├── ep_monitor.py                    # MODIFIED (v2.4) — adds set_onnx_op_types (no-op default) + result property; drops to_dict from ABC
 │       ├── hw_monitor.py                    # unchanged
-│       ├── qnn_monitor.py                   # MAJOR REWRITE (v2.4) — single inheritance from EPMonitor; private resolver + parse methods (see §4.3)
+│       ├── qnn_monitor.py                   # MAJOR REWRITE (v2.4) — single inheritance from WinMLEPMonitor; private resolver + parse methods (see §4.3)
 │       ├── vitisai_monitor.py               # transitional (v2.4) — keeps to_dict for now; typed `proof` accessor flagged as follow-up
 │       ├── openvino_monitor.py              # transitional (v2.4) — same as vitisai
 │       ├── op_metrics.py                    # moved from optracing/result.py + .to_dict() extension
@@ -186,7 +186,7 @@ src/winml/modelkit/
 ### 2.2 Key dependencies
 
 - `WinMLSession.compile()` calls `mon.get_session_options()` and `mon.get_provider_options()` on the active monitor.
-- **(v2.4)** `WinMLSession.perf().__enter__` builds the ONNX op-type map via `_build_op_type_map(onnx_path)` and injects it via `monitor.set_onnx_op_types(map)` **unconditionally** on every monitor BEFORE calling `monitor.__enter__()`. The EPMonitor no-op default makes the call safe for non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) — they inherit the default and silently ignore the call. QNNMonitor overrides to actually store the map.
+- **(v2.4)** `WinMLSession.perf().__enter__` builds the ONNX op-type map via `_build_op_type_map(onnx_path)` and injects it via `monitor.set_onnx_op_types(map)` **unconditionally** on every monitor BEFORE calling `monitor.__enter__()`. The WinMLEPMonitor no-op default makes the call safe for non-op-tracing monitors (NullEPMonitor, VitisAIMonitor, OpenVINOMonitor) — they inherit the default and silently ignore the call. QNNMonitor overrides to actually store the map.
 - `QNNMonitor.is_available()` calls `session/ep_registry.py::ensure_initialized()` (NOT `WinMLSession._init_winml_eps_once`, which is deleted).
 - `QNNMonitor.__exit__` reads the CSV written by QNN EP during `session.run()` and produces an `OpTraceResult`, populating `self._result`. **(v2.4)** Internally, `__exit__` dispatches to private `self._parse_basic(...)` or `self._parse_detail(...)` based on `self._level`; both private parse methods call the private `_resolve_op_type` template method.
 - `commands/perf.py` imports `QNNMonitor` and `VitisAIMonitor` directly; no registry. **(v2.4)** Uses isinstance-based typed accessor dispatch for JSON output: `isinstance(ctx.monitor, QNNMonitor)` → `op_trace` JSON key from `monitor.result.to_dict()`; `isinstance(ctx.monitor, (VitisAIMonitor, OpenVINOMonitor))` → `ep_proof` JSON key from transitional `monitor.to_dict()`.
@@ -232,7 +232,7 @@ with session.perf(warmup=warmup, monitor=monitor) as ctx, HWMonitor() as hw:
     │         onnx_op_types = WinMLSession._build_op_type_map(self._onnx_path)
     │             → dict[node.name, node.op_type]   (or {} if onnx_path missing/corrupt)
     │         monitor.set_onnx_op_types(onnx_op_types)
-    │         # No isinstance check — EPMonitor.set_onnx_op_types has a
+    │         # No isinstance check — WinMLEPMonitor.set_onnx_op_types has a
     │         # no-op default; non-op-tracing monitors silently ignore.
     │     monitor.__enter__()                     # sets _entered flag
     │     yield PerfContext(stats=PerfStats(...), monitor=monitor)
@@ -334,7 +334,7 @@ An integration test (§8.3) asserts `session._session is None` during `monitor._
 
 ## 4. API Design
 
-### 4.1 `EPMonitor` — revised ABC
+### 4.1 `WinMLEPMonitor` — revised ABC
 
 ```python
 # session/monitor/ep_monitor.py
@@ -345,7 +345,7 @@ if TYPE_CHECKING:
     from .op_metrics import OpTraceResult
 
 
-class EPMonitor(ABC):
+class WinMLEPMonitor(ABC):
     """Per-EP observer attached to a WinMLSession for an inference window."""
 
     # ---- Optional hooks: defaults provided; subclasses override as needed ----
@@ -432,28 +432,28 @@ Largely unchanged from current `ep_monitor.py:62-88`. Inherits the existing defa
 
 ### 4.3 `QNNMonitor`
 
-v2.4 keeps single inheritance: `class QNNMonitor(EPMonitor)`. ALL QNN-specific helpers (CSV reading, sample extraction, QHAS reading, `_token_N` stripping, leaf-split heuristic, four-layer resolver chain) live as private methods on the monitor or in a private sibling submodule `qnn/_internal.py` (option b, recommended) and are invisible to anything outside the QNN module. Nothing about CSV/QHAS parsing leaks out — the only shapes visible to callers are the EPMonitor ABC and the canonical dataclasses.
+v2.4 keeps single inheritance: `class QNNMonitor(WinMLEPMonitor)`. ALL QNN-specific helpers (CSV reading, sample extraction, QHAS reading, `_token_N` stripping, leaf-split heuristic, four-layer resolver chain) live as private methods on the monitor or in a private sibling submodule `qnn/_internal.py` (option b, recommended) and are invisible to anything outside the QNN module. Nothing about CSV/QHAS parsing leaks out — the only shapes visible to callers are the WinMLEPMonitor ABC and the canonical dataclasses.
 
 ```python
 # session/monitor/qnn_monitor.py
 
 import re
 
-from .ep_monitor import EPMonitor
+from .ep_monitor import WinMLEPMonitor
 from .op_metrics import OperatorMetrics, OpTraceResult
 
 
-class QNNMonitor(EPMonitor):
+class QNNMonitor(WinMLEPMonitor):
     """Qualcomm NPU per-op profiler via ORT's QNN EP.
 
-    Single-inheritance EPMonitor subclass. Owns ALL QNN-specific concerns
-    end-to-end: device lifecycle (from EPMonitor) plus CSV/QHAS reading,
+    Single-inheritance WinMLEPMonitor subclass. Owns ALL QNN-specific concerns
+    end-to-end: device lifecycle (from WinMLEPMonitor) plus CSV/QHAS reading,
     `_token_N` stripping, leaf-split heuristic, and the four-layer resolver
     chain — all as private internals.
 
     Produces an OpTraceResult with per-operator cycle counts (level="basic")
     or full QHAS roofline / DMA traffic (level="detail"). The result is
-    exposed via the typed ``result`` property (inherited from EPMonitor;
+    exposed via the typed ``result`` property (inherited from WinMLEPMonitor;
     populated from ``__exit__``).
     """
 
@@ -490,7 +490,7 @@ class QNNMonitor(EPMonitor):
         self._onnx_op_types: dict[str, str] = dict(onnx_op_types or {})
         self._result: OpTraceResult | None = None
 
-    # -- EPMonitor: availability, lifecycle, options --------------------
+    # -- WinMLEPMonitor: availability, lifecycle, options --------------------
 
     @classmethod
     def is_available(cls) -> bool:
@@ -526,7 +526,7 @@ class QNNMonitor(EPMonitor):
         return opts
 
     def set_onnx_op_types(self, onnx_op_types: dict[str, str]) -> None:
-        """Override the EPMonitor no-op default — QNN consumes the map."""
+        """Override the WinMLEPMonitor no-op default — QNN consumes the map."""
         self._onnx_op_types = dict(onnx_op_types)
 
     def __enter__(self) -> Self:
@@ -551,7 +551,7 @@ class QNNMonitor(EPMonitor):
             )
 
     # NOTE: `to_dict()` is removed (v2.4). Consumers go through the typed
-    # `result` accessor (inherited from EPMonitor) and call
+    # `result` accessor (inherited from WinMLEPMonitor) and call
     # `monitor.result.to_dict()` directly on the OpTraceResult dataclass.
 
     # -- Private parsing internals (NOT part of any ABC) ----------------
@@ -719,7 +719,7 @@ The cleaned form serves a deliberate UX choice: the user-visible Node column mat
 
 **On naming convention (v2.3+)**. Per FR-16 / C-7 in the PRD, the value returned by `_resolve_op_type` is rendered verbatim. `LayerNormalization` stays `LayerNormalization` (not translated to `LayerNorm`); `ElementWiseAdd` stays `ElementWiseAdd` (not translated to `Add`). No translation tables anywhere in the parser, monitor, or render layer. Width problems are render-layer concerns (see spec §4 for the rationale).
 
-**On `VitisAIMonitor` and `OpenVINOMonitor` (v2.4 transitional)**. v2.4 removes `to_dict()` from the EPMonitor ABC contract, but VitisAIMonitor and OpenVINOMonitor keep their concrete `to_dict` methods in place as transitional surfaces. The follow-up PR (OQ-6) introduces a typed `proof` property + a new `ProofOfExecution` dataclass to replace those returns. Until that PR lands, `commands/perf.py`'s isinstance dispatch reads `monitor.to_dict()` directly on those two concrete classes for the `ep_proof` JSON key. NullEPMonitor's `to_dict` (which returned `{}`) is removed in v2.4 — NullEPMonitor contributes no JSON key.
+**On `VitisAIMonitor` and `OpenVINOMonitor` (v2.4 transitional)**. v2.4 removes `to_dict()` from the WinMLEPMonitor ABC contract, but VitisAIMonitor and OpenVINOMonitor keep their concrete `to_dict` methods in place as transitional surfaces. The follow-up PR (OQ-6) introduces a typed `proof` property + a new `ProofOfExecution` dataclass to replace those returns. Until that PR lands, `commands/perf.py`'s isinstance dispatch reads `monitor.to_dict()` directly on those two concrete classes for the `ep_proof` JSON key. NullEPMonitor's `to_dict` (which returned `{}`) is removed in v2.4 — NullEPMonitor contributes no JSON key.
 
 ### 4.4 `PerfContext`
 
@@ -730,7 +730,7 @@ The cleaned form serves a deliberate UX choice: the user-visible Node column mat
 class PerfContext:
     """Yielded by WinMLSession.perf(). Aggregates perf stats and the attached EP monitor."""
     stats: PerfStats
-    monitor: EPMonitor        # NullEPMonitor when caller passed monitor=None
+    monitor: WinMLEPMonitor        # NullEPMonitor when caller passed monitor=None
 ```
 
 Frozen to prevent accidental mutation during the `with` block. Not a replacement for `PerfStats` — both `stats` and `monitor` are addressable by attribute.
@@ -744,12 +744,12 @@ Frozen to prevent accidental mutation during the `with` block. Not a replacement
 def perf(
     self,
     warmup: int = 0,
-    monitor: EPMonitor | None = None,
+    monitor: WinMLEPMonitor | None = None,
 ) -> Generator[PerfContext, None, None]:
     """Run a scoped performance window.
 
     Yields:
-        PerfContext with `stats: PerfStats` and `monitor: EPMonitor`.
+        PerfContext with `stats: PerfStats` and `monitor: WinMLEPMonitor`.
 
     Behavior:
         - If `monitor` contributes session_options or provider_options and this
@@ -784,7 +784,7 @@ def perf(
     self._provider_options = {**saved_prov, **extra_prov}
 
     # NEW in v2.4: inject ONNX op-type map UNCONDITIONALLY on every monitor.
-    # The EPMonitor.set_onnx_op_types base implementation is a no-op, so the
+    # The WinMLEPMonitor.set_onnx_op_types base implementation is a no-op, so the
     # call is safe for non-op-tracing monitors (NullEPMonitor, VitisAIMonitor,
     # OpenVINOMonitor) — they inherit the default and silently ignore the map.
     # QNNMonitor overrides to actually store the map.
@@ -934,8 +934,8 @@ def _resolve_ep_monitor(
     ep: str,
     op_tracing: str | None,
     output_dir: Path,
-) -> EPMonitor:
-    """Pick the EPMonitor for the requested EP and optional op-tracing level.
+) -> WinMLEPMonitor:
+    """Pick the WinMLEPMonitor for the requested EP and optional op-tracing level.
 
     Raises RuntimeError with a descriptive message when op-tracing is requested
     against an EP that has no op-tracing monitor.
@@ -1092,7 +1092,7 @@ See PRD §10.5 for the full migration table. Summary:
 
 | Test | Asserts |
 |------|---------|
-| `test_ep_monitor_base.py::test_defaults` | `EPMonitor` subclasses with no overrides get `get_session_options() == {}`, `get_provider_options() == {}`, `requires_session_teardown == False`. |
+| `test_ep_monitor_base.py::test_defaults` | `WinMLEPMonitor` subclasses with no overrides get `get_session_options() == {}`, `get_provider_options() == {}`, `requires_session_teardown == False`. |
 | `test_ep_monitor_base.py::test_double_entry_guard` | Calling `monitor.__enter__()` twice on a concrete `QNNMonitor` raises `RuntimeError`. |
 | `test_qnn_monitor.py::test_is_available_bundled` | Mocked `onnxruntime-qnn` → `is_available()` returns True. |
 | `test_qnn_monitor.py::test_is_available_winml` | Mocked WinML registration + `get_ep_devices` → True. |
@@ -1103,10 +1103,10 @@ See PRD §10.5 for the full migration table. Summary:
 | `test_qnn_monitor.py::test_exit_parse_failure` | Corrupt CSV → `status == "parse_failed"`, `error` populated. |
 | `test_op_metrics.py::test_to_dict_schema` | `OpTraceResult.to_dict()` has required keys (`ep`, `device`, `operators`, `summary`, `artifacts`, `num_samples`, `status`). |
 | `test_ep_registry.py::test_ensure_initialized_idempotent` | Calling twice no-ops; logs on first call only. |
-| `test_ep_monitor_base.py::test_set_onnx_op_types_default_no_op` (v2.4) | Calling `EPMonitor.set_onnx_op_types({"a": "b"})` on a subclass that doesn't override is a no-op — does not raise; nothing visible stored. Pinned by spec acceptance criterion P-1. |
-| `test_ep_monitor_base.py::test_result_default_none` (v2.4) | `EPMonitor.result` returns `None` for any subclass that doesn't set `self._result`; returns the value when set. Pinned by spec acceptance criterion P-2. |
+| `test_ep_monitor_base.py::test_set_onnx_op_types_default_no_op` (v2.4) | Calling `WinMLEPMonitor.set_onnx_op_types({"a": "b"})` on a subclass that doesn't override is a no-op — does not raise; nothing visible stored. Pinned by spec acceptance criterion P-1. |
+| `test_ep_monitor_base.py::test_result_default_none` (v2.4) | `WinMLEPMonitor.result` returns `None` for any subclass that doesn't set `self._result`; returns the value when set. Pinned by spec acceptance criterion P-2. |
 | `test_qnn_monitor.py::test_resolve_op_type_walks_chain` (v2.4) | Given a `QNNMonitor` with hand-built `_onnx_op_types`, parametrise across (L1 hit/miss) × (L2 hit/None) × (L3 hit/None) and assert `_resolve_op_type` returns the right value at each combination. Pinned by spec acceptance criteria P-3 / P-4 / P-5 / P-6. |
-| `test_qnn_monitor.py::test_set_onnx_op_types_overrides_default` (v2.4) | `QNNMonitor` overrides the EPMonitor no-op default; calling `set_onnx_op_types({"a": "Conv"})` updates `monitor._onnx_op_types`. Two successive calls — last value wins. |
+| `test_qnn_monitor.py::test_set_onnx_op_types_overrides_default` (v2.4) | `QNNMonitor` overrides the WinMLEPMonitor no-op default; calling `set_onnx_op_types({"a": "Conv"})` updates `monitor._onnx_op_types`. Two successive calls — last value wins. |
 | `test_qnn_monitor.py::test_heuristic_empty_string_treated_as_miss` (v2.4) | `_heuristic_op_type` returning `""` falls through to L4 (raw `op_path`) inside `_resolve_op_type`. |
 | `test_qnn_monitor.py::test_parse_basic_uses_onnx_lookup` (v2.4) | Inject `{"_qnn_event": "Conv"}`; parsing a CSV fixture with that event yields `OperatorMetrics(name="Conv")`. |
 | `test_qnn_monitor.py::test_parse_basic_falls_back_to_heuristic` (v2.4) | Inject `{}`; parsing a CSV fixture with `/encoder/conv1/Conv_token_1_2` yields `OperatorMetrics(name="Conv", op_path="/encoder/conv1/Conv")` via the leaf-split heuristic on the cleaned form. |
@@ -1128,7 +1128,7 @@ See PRD §10.5 for the full migration table. Summary:
 | `test_perf_auto_reset.py::test_auto_reset_restores_on_exit` | After `perf()` exit, `self._provider_options` is restored to pre-entry state. |
 | `test_perf_monitor_integration.py::test_exception_transparency` | Caller exception in `with` body propagates; `monitor.__exit__` called with correct `exc_info`. |
 | `test_perf_monitor_integration.py::test_nested_perf_forbidden` | Second `session.perf()` inside first raises `RuntimeError`. |
-| `test_perf_monitor_integration.py::test_onnx_map_injected_unconditionally` (v2.4) | `session.perf().__enter__` calls `monitor.set_onnx_op_types(non_empty_map)` BEFORE `monitor.__enter__()` on EVERY monitor (verified via spy on QNNMonitor, VitisAIMonitor, and NullEPMonitor mocks). The non-op-tracing monitors silently absorb the call via the EPMonitor no-op default. |
+| `test_perf_monitor_integration.py::test_onnx_map_injected_unconditionally` (v2.4) | `session.perf().__enter__` calls `monitor.set_onnx_op_types(non_empty_map)` BEFORE `monitor.__enter__()` on EVERY monitor (verified via spy on QNNMonitor, VitisAIMonitor, and NullEPMonitor mocks). The non-op-tracing monitors silently absorb the call via the WinMLEPMonitor no-op default. |
 | `test_perf_monitor_integration.py::test_no_onnx_path_skips_injection` (v2.4) | When `WinMLSession` was constructed without an ONNX path, no `set_onnx_op_types` call is made. |
 | `test_perf_monitor_integration.py::test_qnn_monitor_resolves_via_onnx` (v2.3+, hardware-gated) | Real ONNX (resnet50) + real CSV fixtures: ONNX-resolved `name` for nodes that exist in the graph; falls back correctly when nodes don't. |
 | `test_perf_json_dispatch.py::test_qnn_payload_routes_to_op_trace_key` (v2.4) | After a QNN run, `commands/perf.py` JSON output has an `op_trace` key sourced from `monitor.result.to_dict()` and NO `ep_proof` key for that monitor. |
@@ -1168,7 +1168,7 @@ Pinned by PRD NFR-8 / SC-8. Mechanism per spec §10.1 Q2 (recommendation: AST sc
 
 Adding DMLMonitor (hypothetical):
 
-1. Create `session/monitor/dml_monitor.py` with `class DMLMonitor(EPMonitor)`.
+1. Create `session/monitor/dml_monitor.py` with `class DMLMonitor(WinMLEPMonitor)`.
 2. Override `is_available()` to check for DML EP.
 3. Override `get_provider_options()` if DML profiling requires config (e.g., `"dml_profiling_enabled": "1"`).
 4. Override `requires_session_teardown` if DML's profiling data flush needs it.
@@ -1195,6 +1195,6 @@ No registry changes. No cross-file wiring.
 | 2.0 | 2026-04-19 | Restructured per `docs/standards/design-doc-spec.md` v1.0. Added metadata header, §0 Related Documents, §0.5 I/O Dependencies. Applied user directives: dual `get_session_options` + `get_provider_options` hooks; preserve `OpTraceResult.to_dict()` (not plain dict); `os.chdir` removed (use absolute paths + glob fallback); `generate_dummy_inputs` removed entirely; singular `monitor=`; factory dispatch replaces registry. Applied critic/architect findings: no duplicate dict keys (explicit pop-then-set); add `ep_registry.ensure_initialized` to remove reverse coupling; auto-reset at WARNING (not INFO); `gc.collect` + retry for Windows file-handle lag; exception transparency via `sys.exc_info()` capture; load-bearing teardown ordering made explicit with integration test. |
 | 2.1 | 2026-04-19 | Post-audit fixes: added Table of Contents; corrected §4.6 to acknowledge `OpTraceResult.to_dict()` already exists at `optracing/result.py:79-95` and the refactor preserves its nested schema (adds `status`/`error` as additive top-level keys, keeps `metadata`/`summary`/`operators`/`statistics`/`artifacts`); clarified in §0.5.1 and §4.3 that `ensure_initialized()` is a NEW function added to the existing `ep_registry.py`; added `fixtures/` migration to §8.1; documented `commands/perf.py` import-path redirects in §9.2. |
 | 2.2 | 2026-04-24 | Relocated from docs/design/optracing/ to docs/design/session/monitor/ per spec §1.5.1 transitional commitment (implementation complete). Removed Transitional Location note. |
-| 2.3 | 2026-05-06 | Reflect new op-trace-parser interface spec (`docs/design/perf/2026-05-03-op-trace-parser-interface-spec.md` v1.2): introduce `OpTraceParser` ABC at `session/monitor/op_trace_parser.py` (new §4.1.5); `QNNMonitor` implements both `EPMonitor` and `OpTraceParser` via multiple inheritance (revised §4.3 — class signature, `parse_basic` / `parse_detail` / `supported_levels` / `_heuristic_op_type` implementations); `WinMLSession` builds ONNX `node.name → node.op_type` map via new `_build_op_type_map` static helper and injects it via `set_onnx_op_types` (revised §4.5; revised §3.1 high-level flow; revised §0.5.2 data dependency graph); delete `qnn/csv_parser.py` and `qnn/qhas_parser.py` as public modules — helpers fold into private `qnn/_internal.py` (option b, recommended) or `qnn_monitor.py` directly (option a) (revised §2.1 file layout, new §2.1.1 viewer.py status note); fallback chain ONNX → EP-authoritative → heuristic → raw event ID (documented in §4.1.5 invariants); naming convention (verbatim ONNX `node.op_type`, no translation tables) noted in §4.3. New tests added to §8.2 (parser ABC + QNNMonitor parsing methods + `_build_op_type_map` helper) and new §8.3.1 architecture regression test. Open questions in spec §10.1 (option a/b for helper placement, architecture-test mechanism, `_build_op_type_map` placement) noted as pending; flow back into this doc when resolved. |
-| 2.4 | 2026-05-08 | Major design simplification, reflecting spec v2.0. **Drop `OpTraceParser` ABC entirely** — premature abstraction for a single concrete implementer; multiple inheritance + MRO + a separate ABC file are too much complexity for one EP. Wait for the second op-tracing EP before extracting an abstraction. Replacement: extend `EPMonitor` ABC (§4.1) with two concrete-default members — `set_onnx_op_types(map)` (no-op default) and `result` property (returns `getattr(self, "_result", None)`). §4.1.5 (OpTraceParser ABC) DELETED. **Drop `to_dict()` from EPMonitor ABC contract** — god-method conflating op-tracing telemetry with proof-of-execution; concrete monitors expose typed accessors instead (`result` for op-tracing, `proof` for proof-of-execution — typed `ProofOfExecution` class flagged as follow-up PR, OQ-6 in PRD, out of scope). §4.3 QNNMonitor revised: single inheritance (`class QNNMonitor(EPMonitor)`); private `_resolve_op_type`, `_heuristic_op_type`, `_parse_basic`, `_parse_detail` methods; new `parse_existing_artifacts` classmethod; `to_dict` removed. §4.5 WinMLSession.perf revised: ONNX-map injection now UNCONDITIONAL (no isinstance check) — EPMonitor no-op default makes the call safe for non-op-tracing monitors. §3.1 high-level flow revised. §0.5.1 / §0.5.2 / §0.5.3 / §2.1 / §2.2 updated. §4.2 NullEPMonitor: `to_dict` removed (returned `{}`); `result`/`proof` both inherit None default. §4.X VitisAI / OpenVINO: `to_dict` kept transitionally pending the typed `proof` accessor follow-up. §8 Testing Strategy revised — `test_op_trace_parser.py` removed; new tests added for EPMonitor concrete defaults and isinstance-based JSON dispatch. §8.3.1 architecture regression test scope narrowed (no `op_trace_parser.py` to fence). |
+| 2.3 | 2026-05-06 | Reflect new op-trace-parser interface spec (`docs/design/perf/2026-05-03-op-trace-parser-interface-spec.md` v1.2): introduce `OpTraceParser` ABC at `session/monitor/op_trace_parser.py` (new §4.1.5); `QNNMonitor` implements both `WinMLEPMonitor` and `OpTraceParser` via multiple inheritance (revised §4.3 — class signature, `parse_basic` / `parse_detail` / `supported_levels` / `_heuristic_op_type` implementations); `WinMLSession` builds ONNX `node.name → node.op_type` map via new `_build_op_type_map` static helper and injects it via `set_onnx_op_types` (revised §4.5; revised §3.1 high-level flow; revised §0.5.2 data dependency graph); delete `qnn/csv_parser.py` and `qnn/qhas_parser.py` as public modules — helpers fold into private `qnn/_internal.py` (option b, recommended) or `qnn_monitor.py` directly (option a) (revised §2.1 file layout, new §2.1.1 viewer.py status note); fallback chain ONNX → EP-authoritative → heuristic → raw event ID (documented in §4.1.5 invariants); naming convention (verbatim ONNX `node.op_type`, no translation tables) noted in §4.3. New tests added to §8.2 (parser ABC + QNNMonitor parsing methods + `_build_op_type_map` helper) and new §8.3.1 architecture regression test. Open questions in spec §10.1 (option a/b for helper placement, architecture-test mechanism, `_build_op_type_map` placement) noted as pending; flow back into this doc when resolved. |
+| 2.4 | 2026-05-08 | Major design simplification, reflecting spec v2.0. **Drop `OpTraceParser` ABC entirely** — premature abstraction for a single concrete implementer; multiple inheritance + MRO + a separate ABC file are too much complexity for one EP. Wait for the second op-tracing EP before extracting an abstraction. Replacement: extend `WinMLEPMonitor` ABC (§4.1) with two concrete-default members — `set_onnx_op_types(map)` (no-op default) and `result` property (returns `getattr(self, "_result", None)`). §4.1.5 (OpTraceParser ABC) DELETED. **Drop `to_dict()` from WinMLEPMonitor ABC contract** — god-method conflating op-tracing telemetry with proof-of-execution; concrete monitors expose typed accessors instead (`result` for op-tracing, `proof` for proof-of-execution — typed `ProofOfExecution` class flagged as follow-up PR, OQ-6 in PRD, out of scope). §4.3 QNNMonitor revised: single inheritance (`class QNNMonitor(WinMLEPMonitor)`); private `_resolve_op_type`, `_heuristic_op_type`, `_parse_basic`, `_parse_detail` methods; new `parse_existing_artifacts` classmethod; `to_dict` removed. §4.5 WinMLSession.perf revised: ONNX-map injection now UNCONDITIONAL (no isinstance check) — WinMLEPMonitor no-op default makes the call safe for non-op-tracing monitors. §3.1 high-level flow revised. §0.5.1 / §0.5.2 / §0.5.3 / §2.1 / §2.2 updated. §4.2 NullEPMonitor: `to_dict` removed (returned `{}`); `result`/`proof` both inherit None default. §4.X VitisAI / OpenVINO: `to_dict` kept transitionally pending the typed `proof` accessor follow-up. §8 Testing Strategy revised — `test_op_trace_parser.py` removed; new tests added for WinMLEPMonitor concrete defaults and isinstance-based JSON dispatch. §8.3.1 architecture regression test scope narrowed (no `op_trace_parser.py` to fence). |
 | 2.4.1 | 2026-05-08 | Doc-review fixes: §0.5.2 ASCII diagram updated (typed accessor); §3.2 NullEPMonitor walkthrough updated; §3.4 standalone-profile example updated; §4.3 _heuristic_op_type pseudocode strip-safety restored. |

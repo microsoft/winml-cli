@@ -28,7 +28,7 @@ from rich.console import Console
 from ..config import VALID_EPS
 from ..onnx import is_compiled_onnx
 from ..session import VALID_DEVICES, resolve_device
-from ..session.ep_device import DeviceNotFound, EPNotDiscovered, EPRegistrationFailed
+from ..session.ep_device import DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
 
@@ -175,11 +175,11 @@ def compile(
         ep_device_resolved = resolve_device(ep=ep, device=_device_arg)
     except DeviceNotFound as e:
         raise click.ClickException(str(e)) from e
-    except EPNotDiscovered as e:
+    except WinMLEPNotDiscovered as e:
         raise click.ClickException(
             f"EP plugin not found: {e}. Install the required EP package (e.g. onnxruntime-qnn)."
         ) from e
-    except EPRegistrationFailed as e:
+    except WinMLEPRegistrationFailed as e:
         raise click.ClickException(f"EP registration failed: {e}") from e
     except ValueError as e:
         raise click.UsageError(str(e)) from e
@@ -205,7 +205,7 @@ def compile(
     # Import compiler (late import to speed up CLI)
     from ..compiler import WinMLCompileConfig, compile_onnx
 
-    # Build config from the already-resolved EPDevice (ep_device is never None here).
+    # Build config from the already-resolved WinMLEPDevice (ep_device is never None here).
     config = WinMLCompileConfig.for_ep_device(ep_device_resolved)
 
     config.validate = validate
@@ -224,7 +224,7 @@ def compile(
             "Use 'winml quantize' before 'winml compile' to control quantization."
         )
 
-    # Show info — device and provider come directly from the resolved EPDevice.
+    # Show info — device and provider come directly from the resolved WinMLEPDevice.
     console.print(f"[bold blue]Input:[/bold blue] {model}")
     console.print(f"[bold blue]Device:[/bold blue] {ep_device_resolved.device}")
     if ep:

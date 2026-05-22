@@ -18,7 +18,7 @@ from ..ep_path import EpSource, discover_eps
 
 import onnxruntime as ort
 
-from .ep_device import EPNotDiscovered, EPRegistrationFailed
+from .ep_device import WinMLEPNotDiscovered, WinMLEPRegistrationFailed
 
 
 logger = logging.getLogger(__name__)
@@ -116,10 +116,10 @@ class WinMLEPRegistry:
         consulting the catalog.
 
         Raises:
-            EPNotDiscovered:      ep_name absent from both the catalog
+            WinMLEPNotDiscovered:      ep_name absent from both the catalog
                                   *and* ``ort.get_ep_devices()`` (i.e. not
                                   a bundled EP and not a discovered plugin).
-            EPRegistrationFailed: ort.register_execution_provider_library
+            WinMLEPRegistrationFailed: ort.register_execution_provider_library
                                   raised (original exception chained).
         """
         # Plugin EP path: catalog knows about it, register from DLL.
@@ -143,7 +143,7 @@ class WinMLEPRegistry:
                     try:
                         ort.register_execution_provider_library(ep_name, dll_path)
                     except Exception as exc:
-                        raise EPRegistrationFailed(
+                        raise WinMLEPRegistrationFailed(
                             f"ort.register_execution_provider_library({ep_name!r}, "
                             f"{dll_path!r}) failed: {exc}"
                         ) from exc
@@ -157,7 +157,7 @@ class WinMLEPRegistry:
         if bundled:
             return bundled
 
-        raise EPNotDiscovered(
+        raise WinMLEPNotDiscovered(
             f"EP {ep_name!r} not in discovered catalog and not visible via "
             f"ort.get_ep_devices(). Catalog: {sorted(self._ep_paths)}. "
             f"Hint: install the plugin or set MODELKIT_EP_PATH."

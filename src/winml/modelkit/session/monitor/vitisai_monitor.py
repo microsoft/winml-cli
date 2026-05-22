@@ -8,7 +8,7 @@ Captures xrt-smi snapshots at start/end of monitoring for command
 submission deltas — definitive proof that the AMD NPU executed work.
 
 For real-time utilization/memory/CPU/RAM metrics, use HWMonitor
-(which always runs alongside EPMonitors).
+(which always runs alongside WinMLEPMonitors).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING, Any
 
-from .ep_monitor import EPMonitor
+from .ep_monitor import WinMLEPMonitor
 
 
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class VitisAIMonitor(EPMonitor):
+class VitisAIMonitor(WinMLEPMonitor):
     """AMD NPU proof-of-execution monitor via xrt-smi.
 
     Captures command submission/completion deltas via xrt-smi snapshots

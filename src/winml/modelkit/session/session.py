@@ -22,13 +22,13 @@ from ..onnx import is_compiled_onnx
 from .ep_device import (
     AmbiguousMatch,
     DeviceNotFound,
-    EPDevice,
-    EPMonitorMismatch,
+    WinMLEPDevice,
+    WinMLEPMonitorMismatch,
     expand_ep_name,
     lookup_device_spec,
 )
 from .ep_registry import WinMLEPRegistry
-from .monitor.ep_monitor import EPMonitor
+from .monitor.ep_monitor import WinMLEPMonitor
 from .stats import PerfStats
 
 
@@ -82,11 +82,11 @@ class PerfContext:
     """
 
     stats: PerfStats
-    monitor: EPMonitor  # NullEPMonitor when no monitor was passed
+    monitor: WinMLEPMonitor  # NullEPMonitor when no monitor was passed
 
 
-def _ep_defaults(ep_device: EPDevice) -> dict[str, str]:
-    """EP-specific defaults from the EPDeviceSpec catalog.
+def _ep_defaults(ep_device: WinMLEPDevice) -> dict[str, str]:
+    """EP-specific defaults from the WinMLEPDeviceSpec catalog.
 
     Most EPs return {} — they pick up settings via ep_config.provider_options
     and ep_monitor.get_provider_options(). Only EPs that have measured
@@ -105,16 +105,16 @@ def _ep_defaults(ep_device: EPDevice) -> dict[str, str]:
 
 
 def _build_provider_options(
-    ep_device: EPDevice,
+    ep_device: WinMLEPDevice,
     ep_config: EPConfig | None,
-    ep_monitor: EPMonitor | None,
+    ep_monitor: WinMLEPMonitor | None,
 ) -> dict[str, str]:
     """Flat provider_options for add_provider_for_devices().
 
     Three layers, each overrides the previous:
       1. EP-specific defaults from ep_device (e.g. QNN backend_type).
       2. User overrides from ep_config.provider_options.
-      3. EPMonitor-required options (e.g. QNN profiling_level).
+      3. WinMLEPMonitor-required options (e.g. QNN profiling_level).
 
     Monitor wins last because tracing correctness depends on its options
     actually reaching the EP. Callers who want to disable tracing should
@@ -169,15 +169,15 @@ class NotCompiledError(WinMLSessionError):
 
 
 def _build_session_options(
-    ep_device: EPDevice,
+    ep_device: WinMLEPDevice,
     ep_config: EPConfig | None = None,
-    ep_monitor: EPMonitor | None = None,
+    ep_monitor: WinMLEPMonitor | None = None,
     base_session_options: ort.SessionOptions | None = None,
 ) -> ort.SessionOptions:
-    """Build a fully-bound ort.SessionOptions for one EPDevice target.
+    """Build a fully-bound ort.SessionOptions for one WinMLEPDevice target.
 
     Free function (not a method): pure inputs -> pure outputs.
-    Bridges the EPDevice descriptor to an OrtEpDevice handle inline —
+    Bridges the WinMLEPDevice descriptor to an OrtEpDevice handle inline —
     no _select_one / to_ort_ep_device helper.
     """
     so = base_session_options if base_session_options is not None else ort.SessionOptions()
@@ -205,7 +205,7 @@ def _build_session_options(
         )
     # Some hosts (dual-iGPU listings, OpenVINO on Intel) report multiple
     # OrtEpDevices with identical (ep, type, vendor_id, device_id) — already
-    # collapsed to a single EPDevice by resolve_device(). Mirror that dedup
+    # collapsed to a single WinMLEPDevice by resolve_device(). Mirror that dedup
     # here so add_provider_for_devices sees one handle.
     if len(matching) > 1:
         unique_keys = {
@@ -230,7 +230,7 @@ class WinMLSession:
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: EPDevice,
+        ep_device: WinMLEPDevice,
         *,
         ep_config: EPConfig | None = None,
         base_session_options: ort.SessionOptions | None = None,
@@ -478,7 +478,7 @@ class WinMLSession:
         EP-authoritative or heuristic sources.
 
         Used by :meth:`perf` to inject the map into op-tracing monitors
-        via :meth:`EPMonitor.set_onnx_op_types`.
+        via :meth:`WinMLEPMonitor.set_onnx_op_types`.
         """
         if onnx_path is None:
             return {}
@@ -615,7 +615,7 @@ class WinMLSession:
     def perf(
         self,
         warmup: int = 0,
-        monitor: EPMonitor | None = None,
+        monitor: WinMLEPMonitor | None = None,
     ):
         """Context manager for a scoped perf window.
 
@@ -646,11 +646,11 @@ class WinMLSession:
 
         Yields:
             :class:`PerfContext` with ``stats`` (a :class:`PerfStats`) and
-            ``monitor`` (the effective :class:`EPMonitor`).
+            ``monitor`` (the effective :class:`WinMLEPMonitor`).
 
         Raises:
             RuntimeError: If a perf window is already active (re-entry guard).
-            EPMonitorMismatch: If *monitor* targets a different EP than this session.
+            WinMLEPMonitorMismatch: If *monitor* targets a different EP than this session.
         """
         from .monitor.ep_monitor import NullEPMonitor
 
@@ -659,14 +659,14 @@ class WinMLSession:
                 "WinMLSession.perf() is already active. Nested perf windows are not supported."
             )
 
-        effective_monitor: EPMonitor = monitor if monitor is not None else NullEPMonitor()
+        effective_monitor: WinMLEPMonitor = monitor if monitor is not None else NullEPMonitor()
 
         if (
             monitor is not None
             and monitor.ep_name is not None
             and expand_ep_name(monitor.ep_name) != self._ep_device.ep
         ):
-            raise EPMonitorMismatch(
+            raise WinMLEPMonitorMismatch(
                 f"Monitor ep_name={monitor.ep_name!r} expands to "
                 f"{expand_ep_name(monitor.ep_name)!r}, but session is bound "
                 f"to {self._ep_device.ep!r}. Monitor and session must agree."
@@ -857,7 +857,7 @@ class WinMLSession:
         """Test if a single ONNX node is compatible with an EP.
 
         Wraps the node in a minimal graph, attempts to create an
-        InferenceSession with the session's EPDevice binding.
+        InferenceSession with the session's WinMLEPDevice binding.
 
         Args:
             node: ONNX node to test.
@@ -927,7 +927,7 @@ class WinMLSession:
             test_model = helper.make_model(test_graph, opset_imports=[helper.make_opsetid("", 17)])
             test_model.ir_version = 8
 
-            # 3. Try creating session with same EPDevice binding
+            # 3. Try creating session with same WinMLEPDevice binding
             sess_options = _build_session_options(
                 self._ep_device,
                 self._ep_config,

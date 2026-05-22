@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for EPMonitor, VitisAIMonitor, and internal helpers."""
+"""Tests for WinMLEPMonitor, VitisAIMonitor, and internal helpers."""
 
 from __future__ import annotations
 
@@ -14,21 +14,21 @@ from unittest.mock import patch
 
 import pytest
 
-from winml.modelkit.session import EPMonitor, PerfStats, VitisAIMonitor
+from winml.modelkit.session import WinMLEPMonitor, PerfStats, VitisAIMonitor
 
 
 # ============================================================================
-# EPMonitor (ABC) tests
+# WinMLEPMonitor (ABC) tests
 # ============================================================================
 
 
 class TestEPMonitor:
-    """Test EPMonitor abstract base class."""
+    """Test WinMLEPMonitor abstract base class."""
 
     def test_cannot_instantiate(self):
-        """EPMonitor is abstract and cannot be instantiated directly."""
+        """WinMLEPMonitor is abstract and cannot be instantiated directly."""
         with pytest.raises(TypeError):
-            EPMonitor()
+            WinMLEPMonitor()
 
     def test_subclass_must_implement_all_methods(self):
         """Concrete subclass missing the remaining abstract methods raises TypeError.
@@ -37,7 +37,7 @@ class TestEPMonitor:
         and ``is_available`` — ``to_dict`` is no longer in the contract.
         """
 
-        class IncompleteMonitor(EPMonitor):
+        class IncompleteMonitor(WinMLEPMonitor):
             pass
 
         with pytest.raises(TypeError):
@@ -46,7 +46,7 @@ class TestEPMonitor:
     def test_concrete_subclass_works(self):
         """A fully-implemented subclass can be instantiated."""
 
-        class DummyMonitor(EPMonitor):
+        class DummyMonitor(WinMLEPMonitor):
             def __enter__(self):
                 return self
 
@@ -58,7 +58,7 @@ class TestEPMonitor:
                 return True
 
         mon = DummyMonitor()
-        assert isinstance(mon, EPMonitor)
+        assert isinstance(mon, WinMLEPMonitor)
         assert DummyMonitor.is_available() is True
         # Default v2.4 typed-accessor contract — None unless populated.
         assert mon.result is None
@@ -716,7 +716,7 @@ class TestToDictJsonSerializable:
     def test_qnn_monitor_result_dict_json(self):
         """v2.4: QNN exposes its data via the typed result accessor.
 
-        ``to_dict()`` was removed from the EPMonitor contract; consumers
+        ``to_dict()`` was removed from the WinMLEPMonitor contract; consumers
         access ``OpTraceResult`` via ``monitor.result`` and serialize via
         ``result.to_dict()``.
         """

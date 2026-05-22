@@ -18,16 +18,16 @@ import pytest
 from click.testing import CliRunner
 
 from winml.modelkit.commands.compile import compile
-from winml.modelkit.session import EPDevice
+from winml.modelkit.session import WinMLEPDevice
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _fake_ep_device(ep: str, device: str) -> EPDevice:
-    """Build a stub EPDevice for mocking resolve_device()."""
-    return EPDevice(ep=ep, device=device, vendor_id=0, device_id=0, vendor="")
+def _fake_ep_device(ep: str, device: str) -> WinMLEPDevice:
+    """Build a stub WinMLEPDevice for mocking resolve_device()."""
+    return WinMLEPDevice(ep=ep, device=device, vendor_id=0, device_id=0, vendor="")
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def mock_compile_onnx():
     result.total_time = None
     result.errors = []
 
-    # Default: resolve_device returns a QNN/NPU EPDevice.
+    # Default: resolve_device returns a QNN/NPU WinMLEPDevice.
     default_ep_device = _fake_ep_device("QNNExecutionProvider", "npu")
 
     with (

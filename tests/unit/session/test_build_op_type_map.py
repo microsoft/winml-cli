@@ -5,7 +5,7 @@
 """v2.4 ``WinMLSession._build_op_type_map``: ONNX ``node.name -> node.op_type``.
 
 The map is consumed by op-tracing monitors via
-:meth:`EPMonitor.set_onnx_op_types`. It must be defensive: any failure to
+:meth:`WinMLEPMonitor.set_onnx_op_types`. It must be defensive: any failure to
 load the ONNX (None path, missing file, corrupt protobuf, missing
 ``onnx`` package) returns an empty dict so the perf path keeps working.
 """

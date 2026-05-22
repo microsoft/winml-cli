@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 
 # tests/unit/session/test_ep_device.py
-"""Unit tests for EPDevice descriptor and resolution helpers."""
+"""Unit tests for WinMLEPDevice descriptor and resolution helpers."""
 
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +13,7 @@ import pytest
 from winml.modelkit.session import (
     AmbiguousMatch,
     DeviceNotFound,
-    EPDevice,
+    WinMLEPDevice,
     expand_ep_name,
     resolve_device,
     short_ep_name,
@@ -23,15 +23,15 @@ from .conftest import QNN_VENDOR_ID
 
 
 def test_ep_device_round_trip() -> None:
-    """EPDevice -> to_dict -> from_dict yields an equal instance."""
-    original = EPDevice(
+    """WinMLEPDevice -> to_dict -> from_dict yields an equal instance."""
+    original = WinMLEPDevice(
         ep="QNNExecutionProvider",
         device="npu",
         vendor_id=QNN_VENDOR_ID,
         device_id=0x0001,
         vendor="Qualcomm",
     )
-    rehydrated = EPDevice.from_dict(original.to_dict())
+    rehydrated = WinMLEPDevice.from_dict(original.to_dict())
     assert rehydrated == original
     assert rehydrated.ep == "QNNExecutionProvider"
     assert rehydrated.device == "npu"
@@ -42,7 +42,7 @@ def test_ep_device_round_trip() -> None:
 
 def test_ep_device_lowercase_invariant() -> None:
     """`device` field is forced to lowercase by __post_init__."""
-    ep_device = EPDevice(
+    ep_device = WinMLEPDevice(
         ep="QNNExecutionProvider",
         device="NPU",
         vendor_id=QNN_VENDOR_ID,
@@ -202,7 +202,7 @@ def test_short_ep_name_cuda_tensorrt_round_trip() -> None:
         assert short_ep_name(expand_ep_name(short)) == short
 
 
-# --- EPDeviceSpec catalog tests -------------------------------------------
+# --- WinMLEPDeviceSpec catalog tests -------------------------------------------
 
 
 def test_ep_device_specs_count() -> None:
@@ -488,22 +488,22 @@ def test_resolve_device_device_only_picks_registered_ep() -> None:
 
 
 def test_ep_device_spec_is_frozen() -> None:
-    """EPDeviceSpec is frozen — mutation raises FrozenInstanceError."""
+    """WinMLEPDeviceSpec is frozen — mutation raises FrozenInstanceError."""
     from dataclasses import FrozenInstanceError
 
-    from winml.modelkit.session import EPDeviceSpec
+    from winml.modelkit.session import WinMLEPDeviceSpec
 
-    spec = EPDeviceSpec(ep="QNNExecutionProvider", device="npu")
+    spec = WinMLEPDeviceSpec(ep="QNNExecutionProvider", device="npu")
     with pytest.raises(FrozenInstanceError):
         spec.ep = "DmlExecutionProvider"  # type: ignore[misc]
 
 
 def test_ep_device_spec_default_factory_is_fresh() -> None:
-    """Each EPDeviceSpec with no options gets a new empty dict (not shared)."""
-    from winml.modelkit.session import EPDeviceSpec
+    """Each WinMLEPDeviceSpec with no options gets a new empty dict (not shared)."""
+    from winml.modelkit.session import WinMLEPDeviceSpec
 
-    s1 = EPDeviceSpec(ep="DmlExecutionProvider", device="gpu")
-    s2 = EPDeviceSpec(ep="CUDAExecutionProvider", device="gpu")
+    s1 = WinMLEPDeviceSpec(ep="DmlExecutionProvider", device="gpu")
+    s2 = WinMLEPDeviceSpec(ep="CUDAExecutionProvider", device="gpu")
     # They should be equal (both empty) but not the same object
     assert dict(s1.default_provider_options) == {}
     assert dict(s2.default_provider_options) == {}

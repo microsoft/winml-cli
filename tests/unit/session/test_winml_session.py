@@ -5,12 +5,12 @@
 """WinMLSession tests with simple ONNX model.
 
 Test Scope:
-1. Instantiate WinMLSession with an explicit EPDevice
+1. Instantiate WinMLSession with an explicit WinMLEPDevice
 2. Verify session state, providers, and inference behavior
 3. Test perf() context manager
 
 Key Principle:
-- Use EPDevice-based construction (Task 7 API)
+- Use WinMLEPDevice-based construction (Task 7 API)
 - CPU tests use the real OrtEpDevice with a mocked WinMLEPRegistry
 - NPU/QNN tests use fake OrtEpDevice fixtures (mocked ORT)
 """
@@ -28,16 +28,16 @@ if TYPE_CHECKING:
 import pytest
 
 from winml.modelkit.compiler import EPConfig
-from winml.modelkit.session import EPDevice, EPMonitorMismatch, SessionState, WinMLSession
+from winml.modelkit.session import WinMLEPDevice, WinMLEPMonitorMismatch, SessionState, WinMLSession
 
 
 class TestWinMLSessionInstantiation:
-    """Test WinMLSession instantiation with EPDevice-based selection."""
+    """Test WinMLSession instantiation with WinMLEPDevice-based selection."""
 
     def test_session_init_with_npu_device(
-        self, simple_matmul_onnx: Path, qnn_npu_ep_device: EPDevice, fake_ort_npu: MagicMock
+        self, simple_matmul_onnx: Path, qnn_npu_ep_device: WinMLEPDevice, fake_ort_npu: MagicMock
     ):
-        """Test that WinMLSession can be initialized with an NPU EPDevice.
+        """Test that WinMLSession can be initialized with an NPU WinMLEPDevice.
 
         ORT InferenceSession is also mocked because the fake_ort_npu MagicMock
         cannot be passed to add_provider_for_devices() (requires a real C++ object).
@@ -54,9 +54,9 @@ class TestWinMLSessionInstantiation:
         assert session.state == SessionState.INITIALIZED
 
     def test_session_init_with_cpu_ep_device(
-        self, simple_matmul_onnx: Path, cpu_ep_device: EPDevice, real_cpu_ort_device: object
+        self, simple_matmul_onnx: Path, cpu_ep_device: WinMLEPDevice, real_cpu_ort_device: object
     ):
-        """Test that WinMLSession can be initialized with a CPU EPDevice."""
+        """Test that WinMLSession can be initialized with a CPU WinMLEPDevice."""
         with patch("winml.modelkit.session.session.WinMLEPRegistry") as mock_reg:
             mock_reg.get_instance.return_value.register_ep.return_value = [real_cpu_ort_device]
             session = WinMLSession(onnx_path=simple_matmul_onnx, ep_device=cpu_ep_device)
@@ -65,7 +65,7 @@ class TestWinMLSessionInstantiation:
         assert session.state == SessionState.INITIALIZED
 
     def test_session_init_file_not_found(
-        self, tmp_path: Path, cpu_ep_device: EPDevice, real_cpu_ort_device: object
+        self, tmp_path: Path, cpu_ep_device: WinMLEPDevice, real_cpu_ort_device: object
     ):
         """Test that WinMLSession raises an ORT error for a non-existent ONNX file."""
         from onnxruntime.capi.onnxruntime_pybind11_state import NoSuchFile
@@ -83,7 +83,7 @@ class TestWinMLSessionCompilation:
 
     @pytest.mark.skip(reason="Lazy init design is not implemented in source code.")
     def test_compile_creates_epcontext(
-        self, simple_matmul_onnx: Path, qnn_npu_ep_device: EPDevice, fake_ort_npu: MagicMock
+        self, simple_matmul_onnx: Path, qnn_npu_ep_device: WinMLEPDevice, fake_ort_npu: MagicMock
     ):
         """
         Test that compile() creates EPContext file.
@@ -152,7 +152,7 @@ class TestWinMLSessionProviders:
         """
         Test that session providers are valid and include CPUExecutionProvider.
 
-        The session is bound to CPUExecutionProvider via an explicit EPDevice.
+        The session is bound to CPUExecutionProvider via an explicit WinMLEPDevice.
         """
         session = cpu_winml_session
 
@@ -175,7 +175,7 @@ class TestWinMLSessionProviders:
     def test_cpu_provider_always_available(
         self, cpu_winml_session: WinMLSession, sample_input: dict
     ):
-        """Test that CPUExecutionProvider is available after CPU EPDevice init."""
+        """Test that CPUExecutionProvider is available after CPU WinMLEPDevice init."""
         session = cpu_winml_session
         session.run(sample_input)
 
@@ -441,12 +441,12 @@ class TestWinMLSessionErrorState:
 
 
 class TestWinMLSessionExplicitProviders:
-    """Test EPConfig provider_options passthrough with EPDevice-based init."""
+    """Test EPConfig provider_options passthrough with WinMLEPDevice-based init."""
 
     def test_explicit_cpu_provider(
         self,
         simple_matmul_onnx: Path,
-        cpu_ep_device: EPDevice,
+        cpu_ep_device: WinMLEPDevice,
         real_cpu_ort_device: object,
         sample_input: dict[str, np.ndarray],
     ):
@@ -468,7 +468,7 @@ class TestWinMLSessionExplicitProviders:
     def test_explicit_provider_with_options(
         self,
         simple_matmul_onnx: Path,
-        cpu_ep_device: EPDevice,
+        cpu_ep_device: WinMLEPDevice,
         real_cpu_ort_device: object,
         sample_input: dict[str, np.ndarray],
     ):
@@ -626,12 +626,12 @@ class TestWinMLSessionPerfTracking:
 
 
 # =============================================================================
-# Task 7: EPDevice-based constructor (hard break)
+# Task 7: WinMLEPDevice-based constructor (hard break)
 # =============================================================================
 
 
 def test_winml_session_accepts_ep_device(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
-    """WinMLSession compiles with an explicit EPDevice."""
+    """WinMLSession compiles with an explicit WinMLEPDevice."""
     onnx_path = tmp_path / "noop.onnx"
     onnx_path.write_bytes(b"\x08\x01")  # minimal placeholder; ORT is mocked
     with (
@@ -667,10 +667,10 @@ def test_winml_session_rejects_legacy_device_kwarg(tmp_path) -> None:
 
 
 def test_perf_validates_monitor_ep_name_match(tmp_path, qnn_npu_ep_device, fake_ort_npu) -> None:
-    """Monitor for QNN against an OpenVINO EPDevice -> EPMonitorMismatch."""
+    """Monitor for QNN against an OpenVINO WinMLEPDevice -> WinMLEPMonitorMismatch."""
     onnx_path = tmp_path / "noop.onnx"
     onnx_path.write_bytes(b"\x08\x01")
-    openvino_ep = EPDevice(
+    openvino_ep = WinMLEPDevice(
         ep="OpenVINOExecutionProvider",
         device="npu",
         vendor_id=0x8086,
@@ -691,7 +691,7 @@ def test_perf_validates_monitor_ep_name_match(tmp_path, qnn_npu_ep_device, fake_
     ):
         mock_reg.get_instance.return_value.register_ep.return_value = [fake_ov]
         sess = WinMLSession(onnx_path, ep_device=openvino_ep)
-        with pytest.raises(EPMonitorMismatch), sess.perf(monitor=qnn_monitor):
+        with pytest.raises(WinMLEPMonitorMismatch), sess.perf(monitor=qnn_monitor):
             pass
 
 

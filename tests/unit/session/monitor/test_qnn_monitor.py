@@ -170,7 +170,7 @@ def test_exit_parse_failure_caught(tmp_path):
 
 
 def test_exit_does_not_suppress_caller_exception(tmp_path):
-    """EPMonitor.__exit__ returning None (not True) → exception propagates."""
+    """WinMLEPMonitor.__exit__ returning None (not True) → exception propagates."""
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     m = QNNMonitor(output_dir=tmp_path)

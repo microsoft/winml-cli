@@ -33,7 +33,7 @@ import onnxruntime as ort
 import pytest
 from onnx import TensorProto, helper
 
-from winml.modelkit.session import EPDevice
+from winml.modelkit.session import WinMLEPDevice
 from winml.modelkit.session.session import WinMLSession
 
 
@@ -268,13 +268,13 @@ def sample_input() -> dict[str, np.ndarray]:
 
 
 # =============================================================================
-# Task 7+: EPDevice fixtures (shared across Tasks 10-11 callsite sweeps)
+# Task 7+: WinMLEPDevice fixtures (shared across Tasks 10-11 callsite sweeps)
 # =============================================================================
 
 
 @pytest.fixture
-def qnn_npu_ep_device() -> EPDevice:
-    return EPDevice(
+def qnn_npu_ep_device() -> WinMLEPDevice:
+    return WinMLEPDevice(
         ep="QNNExecutionProvider",
         device="npu",
         vendor_id=QNN_VENDOR_ID,
@@ -293,7 +293,7 @@ def fake_ort_npu() -> MagicMock:
 
 
 # =============================================================================
-# CPU EPDevice fixtures — use real OrtEpDevice so ORT inference actually runs
+# CPU WinMLEPDevice fixtures — use real OrtEpDevice so ORT inference actually runs
 # =============================================================================
 
 # Cached at module-scope so we only call get_ep_devices() once per test session.
@@ -319,9 +319,9 @@ def real_cpu_ort_device() -> ort.OrtEpDevice:
 
 
 @pytest.fixture
-def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> EPDevice:
-    """EPDevice that targets CPUExecutionProvider, matching the real OrtEpDevice."""
-    return EPDevice(
+def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> WinMLEPDevice:
+    """WinMLEPDevice that targets CPUExecutionProvider, matching the real OrtEpDevice."""
+    return WinMLEPDevice(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=real_cpu_ort_device.device.vendor_id,
@@ -332,7 +332,7 @@ def cpu_ep_device(real_cpu_ort_device: ort.OrtEpDevice) -> EPDevice:
 @pytest.fixture
 def cpu_winml_session(
     simple_matmul_onnx: Path,
-    cpu_ep_device: EPDevice,
+    cpu_ep_device: WinMLEPDevice,
     real_cpu_ort_device: ort.OrtEpDevice,
 ) -> WinMLSession:
     """WinMLSession bound to CPU, using a mocked WinMLEPRegistry so that the

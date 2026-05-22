@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""v2.4 EPMonitor extensions: ``set_onnx_op_types`` and ``result`` property.
+"""v2.4 WinMLEPMonitor extensions: ``set_onnx_op_types`` and ``result`` property.
 
 Phase 1 additive contract. Verifies that:
 

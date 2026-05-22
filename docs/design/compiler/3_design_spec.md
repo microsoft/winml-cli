@@ -4,8 +4,8 @@
 **Date**: 2026-05-19
 **Status**: Draft (Option B + uniform `{stem}_{device}.onnx` + NPU-only EPContext policy)
 **Module**: compiler + session (lazy-init refactor)
-**Companion-To**: [`../session/3_design_ep.md`](../session/3_design_ep.md) — Stage 2 device handle selection (EPDeviceSpec catalog is the upstream)
-**Depends-On**: `session/ep_device.py:EPDeviceSpec`, `session/ep_device.py:EP_DEVICE_SPECS`
+**Companion-To**: [`../session/3_design_ep.md`](../session/3_design_ep.md) — Stage 2 device handle selection (WinMLEPDeviceSpec catalog is the upstream)
+**Depends-On**: `session/ep_device.py:WinMLEPDeviceSpec`, `session/ep_device.py:EP_DEVICE_SPECS`
 
 ---
 
@@ -46,20 +46,20 @@ The per-EP `for_xxx` factories and `for_provider(str)` are deleted. **The `enabl
 
 1. **`WinMLSession` lazy-init refactor.** Drop `_persist_jit`. All session creation funnels through a private `_ensure_session()`. `__init__` becomes pure assignment. `compile()` returns `Path` (the written file) or **raises** — no silent fallback. The session is pure mechanism: it compiles when asked; the spec-aware caller (`CompileStage`) decides whether to ask.
 2. **`CompileStage` slim.** Replace `_finalize_output`'s three-way filename search with `_relocate_ctx(ctx_path, output_dir, device)` consuming the exact Path from `compile()`. Drop the EP-string fallback at line 73-75. Other responsibilities retained: qairt/ort selection, validation, `.bin` sidecar rename, `ep_cache_context` patch.
-3. **`deduce_ep_device()` companion to `resolve_device()`.** Returns an EPDevice from the catalog's deduction phase without registering the EP plugin. Required so `winml config` on cross-host workflows (e.g., generating a QNN config on x64 dev box) still works post-typed-everywhere migration.
+3. **`deduce_ep_device()` companion to `resolve_device()`.** Returns an WinMLEPDevice from the catalog's deduction phase without registering the EP plugin. Required so `winml config` on cross-host workflows (e.g., generating a QNN config on x64 dev box) still works post-typed-everywhere migration.
 
 ## 2. Scope
 
 **In scope:**
 - New `WinMLCompileSpec` dataclass + `COMPILE_SPECS` tuple in `compiler/spec.py`.
-- New `get_compile_spec(ep_device_spec: EPDeviceSpec) -> WinMLCompileSpec` lookup (**raises `KeyError` on uncatalogued (ep, device) pairs** — arch test guarantees no miss for known rows).
+- New `get_compile_spec(ep_device_spec: WinMLEPDeviceSpec) -> WinMLCompileSpec` lookup (**raises `KeyError` on uncatalogued (ep, device) pairs** — arch test guarantees no miss for known rows).
 - Re-export of the above from `winml.modelkit.compiler` package.
 - Deletion of 8 per-EP factories (`for_qnn`, ..., `for_migraphx`) and `for_provider(str)` from `WinMLCompileConfig`.
 - **Deletion of `enable_ep_context` field from `EPConfig`** — superseded by `WinMLCompileSpec.supports_ep_context` consulted at `CompileStage`. `EPConfig` shrinks to runtime-only fields.
 - Migration of 3 internal callers in `config/build.py` (target-host build, uses `resolve_device`) + `commands/config.py` (cross-host config-gen, uses new `deduce_ep_device`) + 2 test sites in `tests/unit/models/auto/test_config.py`.
 - **`WinMLSession` lazy-init refactor**: drop `_persist_jit`, single `_ensure_session()` funnel, `compile()` returns `Path` (raises on failure — no permissive fallback).
 - **`CompileStage` spec integration**: consults `WinMLCompileSpec.supports_ep_context` directly. Branches before calling `WinMLSession.compile()`. Owns the passthrough copy + filename naming. Replaces `_finalize_output`'s three-way filename search with `_relocate_ctx` consuming the exact `compile()` return Path. Drops EP-string fallback.
-- **New `deduce_ep_device(ep, device) -> EPDevice`** in `session/ep_device.py` — pure deduction-phase variant of `resolve_device`, no EP-plugin registration. Returns EPDevice with placeholder `vendor_id=0, device_id=0`.
+- **New `deduce_ep_device(ep, device) -> WinMLEPDevice`** in `session/ep_device.py` — pure deduction-phase variant of `resolve_device`, no EP-plugin registration. Returns WinMLEPDevice with placeholder `vendor_id=0, device_id=0`.
 - **`resolve_device` if/elif refactor** — sequential if-guards → mutually-exclusive if/elif/else.
 - **`commands/compile.py:244` simplification** — drop the `enable_ep_context and not result.output_path` guard. `result.output_path` is always set by `CompileStage` (compiled artifact or copied original). The user-facing message keys off the path suffix.
 - Architecture test enforcing 1:1 (ep, device) key parity between `EP_DEVICE_SPECS` and `COMPILE_SPECS`, plus uniqueness within `COMPILE_SPECS`.
@@ -73,13 +73,13 @@ The per-EP `for_xxx` factories and `for_provider(str)` are deleted. **The `enabl
 
 ## 3. Why a Separate Catalog
 
-The natural alternative is to extend `EPDeviceSpec` with the three new fields directly. We rejected this because:
+The natural alternative is to extend `WinMLEPDeviceSpec` with the three new fields directly. We rejected this because:
 
 1. **Layering integrity.** `session/ep_device.py` is the session-layer catalog. Its existing fields (`ep`, `device`, `default_provider_options`) are session/EP-routing concerns — what does ORT need to bind this EP to this device. Adding compile/quant capability flags pulls compile-pipeline knowledge into the session module. The existing codebase enforces module boundaries (`session/`, `compiler/`, `quant/` are distinct concerns).
 
-2. **`EPDeviceSpec` stays focused.** Tests for `session/ep_device.py` shouldn't need to construct compile-capability values to instantiate fixtures. A separate `WinMLCompileSpec` keeps the session module's surface area unchanged.
+2. **`WinMLEPDeviceSpec` stays focused.** Tests for `session/ep_device.py` shouldn't need to construct compile-capability values to instantiate fixtures. A separate `WinMLCompileSpec` keeps the session module's surface area unchanged.
 
-3. **Growth axis.** Future compile/quant capability fields (`supports_fp16`, `requires_calibration`, `compile_artifact`, etc.) accumulate on `WinMLCompileSpec`, not on `EPDeviceSpec`. The session catalog doesn't grow wide as the compile catalog matures.
+3. **Growth axis.** Future compile/quant capability fields (`supports_fp16`, `requires_calibration`, `compile_artifact`, etc.) accumulate on `WinMLCompileSpec`, not on `WinMLEPDeviceSpec`. The session catalog doesn't grow wide as the compile catalog matures.
 
 4. **Drift risk is bounded.** The concern with two catalogs is forgetting to add a row when a new EP lands. One architecture test (`{(s.ep, s.device) for s in EP_DEVICE_SPECS} == {(s.ep, s.device) for s in COMPILE_SPECS}`) catches drift loudly.
 
@@ -97,19 +97,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Literal
 
-from ..session import EPDeviceSpec
+from ..session import WinMLEPDeviceSpec
 
 
 @dataclass(frozen=True)
 class WinMLCompileSpec:
     """Per-(EP, device) compile/quant capability descriptor.
 
-    Sibling to ``EPDeviceSpec`` (session layer). Where ``EPDeviceSpec``
+    Sibling to ``WinMLEPDeviceSpec`` (session layer). Where ``WinMLEPDeviceSpec``
     captures what ORT needs to bind an EP to a hardware device, this
     captures what the compile/quant pipeline can do with that target.
 
     Fields:
-        ep: Canonical full EP name (matches EPDeviceSpec.ep).
+        ep: Canonical full EP name (matches WinMLEPDeviceSpec.ep).
         device: Device category — "npu" | "gpu" | "cpu".
         supports_ep_context: True iff ``ort.ModelCompiler.compile_to_file()``
             produces a meaningful EPContext artifact for this target. False
@@ -235,8 +235,8 @@ The 13 entries are 1:1 with `EP_DEVICE_SPECS` rows. The default policy (`NPU →
 ```python
 # src/winml/modelkit/compiler/spec.py (continued)
 
-def get_compile_spec(ep_device_spec: EPDeviceSpec) -> WinMLCompileSpec:
-    """Look up compile capabilities for a session-layer EPDeviceSpec entry.
+def get_compile_spec(ep_device_spec: WinMLEPDeviceSpec) -> WinMLCompileSpec:
+    """Look up compile capabilities for a session-layer WinMLEPDeviceSpec entry.
 
     Args:
         ep_device_spec: A row from ``EP_DEVICE_SPECS`` (typically obtained
@@ -250,7 +250,7 @@ def get_compile_spec(ep_device_spec: EPDeviceSpec) -> WinMLCompileSpec:
             (§8.1) guarantees 1:1 coverage with ``EP_DEVICE_SPECS``, so this
             should never fire for any (ep, device) pair that ``resolve_device``
             could legitimately produce. A KeyError at runtime indicates
-            either catalog drift or a synthetically constructed EPDeviceSpec
+            either catalog drift or a synthetically constructed WinMLEPDeviceSpec
             outside the canonical catalog.
     """
     for spec in COMPILE_SPECS:
@@ -288,7 +288,7 @@ Consumers always import from `winml.modelkit.compiler`, never from `winml.modelk
 
 `resolve_device(ep, device)` has a hidden side effect: it calls `register_ep(ep_full)` (line 394) which loads the EP plugin DLL. On hosts where the target EP isn't installed (e.g., generating a QNN config on an x64 dev box), `register_ep` raises before the function can return.
 
-Pre-this-branch, `WinMLCompileConfig.for_provider(str)` accepted a string and avoided this — config-gen worked cross-host. Post-typed-everywhere, every config consumer expects an `EPDevice`. We need a pure-deduction variant of `resolve_device` that returns an `EPDevice` without registering the plugin:
+Pre-this-branch, `WinMLCompileConfig.for_provider(str)` accepted a string and avoided this — config-gen worked cross-host. Post-typed-everywhere, every config consumer expects an `WinMLEPDevice`. We need a pure-deduction variant of `resolve_device` that returns an `WinMLEPDevice` without registering the plugin:
 
 ```python
 # src/winml/modelkit/session/ep_device.py
@@ -296,13 +296,13 @@ Pre-this-branch, `WinMLCompileConfig.for_provider(str)` accepted a string and av
 def deduce_ep_device(
     ep: str | None = None,
     device: str | None = None,
-) -> EPDevice:
-    """Deduce an EPDevice from (ep, device) hints without registering the EP plugin.
+) -> WinMLEPDevice:
+    """Deduce an WinMLEPDevice from (ep, device) hints without registering the EP plugin.
 
     Same input-handling logic as ``resolve_device`` (auto-detect when both
     None, deduce device from EP via the catalog, deduce EP from device via
     fixed priority), but skips the ``register_ep`` + ``OrtEpDevice`` resolution
-    step. Returns an ``EPDevice`` with placeholder ``vendor_id=0, device_id=0``.
+    step. Returns an ``WinMLEPDevice`` with placeholder ``vendor_id=0, device_id=0``.
 
     Intended for cross-host config-generation workflows where the target EP
     is not installed on the dev host (e.g., generating a QNN config on x64,
@@ -314,7 +314,7 @@ def deduce_ep_device(
         device: Device category ("npu", "gpu", "cpu", or "auto"/None).
 
     Returns:
-        EPDevice with the deduced (ep, device) and placeholder hardware IDs.
+        WinMLEPDevice with the deduced (ep, device) and placeholder hardware IDs.
 
     Raises:
         ValueError: same conditions as ``resolve_device`` (invalid name, no
@@ -349,7 +349,7 @@ class WinMLSession:
     def __init__(
         self,
         onnx_path: Path,
-        ep_device: EPDevice,
+        ep_device: WinMLEPDevice,
         ep_config: EPConfig | None = None,
         *,
         base_session_options: ort.SessionOptions | None = None,
@@ -502,7 +502,7 @@ No three-way filename search. No EP-string fallback. The stage is a small dispat
 **Today** (`session/ep_device.py:resolve_device`): four sequential `if` guards on (ep, device) state combinations. Sequential ifs allow accidental fall-through if a branch's guard isn't tight; the if/elif refactor makes mutual exclusivity load-bearing:
 
 ```python
-def resolve_device(ep: str | None, device: str | None = None) -> EPDevice:
+def resolve_device(ep: str | None, device: str | None = None) -> WinMLEPDevice:
     # Normalize "auto" sentinel to None.
     if device is not None and device.lower() == "auto":
         device = None
@@ -532,7 +532,7 @@ def resolve_device(ep: str | None, device: str | None = None) -> EPDevice:
     return _resolve_to_ep_device(ep_full, device)
 ```
 
-**Companion split.** The deduction phase (lines 1-15 above) and the resolution phase (lines 16-18) are separated; `deduce_ep_device` (§4.5) calls only the deduction phase + returns an `EPDevice` with placeholder hardware IDs.
+**Companion split.** The deduction phase (lines 1-15 above) and the resolution phase (lines 16-18) are separated; `deduce_ep_device` (§4.5) calls only the deduction phase + returns an `WinMLEPDevice` with placeholder hardware IDs.
 
 ## 5. Catalog Contents
 
@@ -563,7 +563,7 @@ The 13 (ep, device) target rows mirror `EP_DEVICE_SPECS` exactly. v1.3 applies a
 Today (post-prior-refactor in `compiler/configs.py`):
 ```python
 @classmethod
-def for_ep_device(cls, ep_device: EPDevice) -> WinMLCompileConfig:
+def for_ep_device(cls, ep_device: WinMLEPDevice) -> WinMLCompileConfig:
     from ..session import short_ep_name
     provider = short_ep_name(ep_device.ep)
     base = cls.for_provider(provider) or cls(ep_config=EPConfig(provider=provider))
@@ -574,8 +574,8 @@ def for_ep_device(cls, ep_device: EPDevice) -> WinMLCompileConfig:
 After:
 ```python
 @classmethod
-def for_ep_device(cls, ep_device: EPDevice) -> WinMLCompileConfig:
-    """Build a compile config from a resolved EPDevice. No spec lookup;
+def for_ep_device(cls, ep_device: WinMLEPDevice) -> WinMLCompileConfig:
+    """Build a compile config from a resolved WinMLEPDevice. No spec lookup;
     CompileStage consults WinMLCompileSpec at run time."""
     from ..session import short_ep_name
     return cls(
@@ -634,7 +634,7 @@ ep_device = deduce_ep_device(ep=args.ep, device=args.device)
 compile_config = WinMLCompileConfig.for_ep_device(ep_device)
 ```
 
-The resulting `EPDevice` has placeholder `vendor_id=0, device_id=0` — fine for config serialization (the target host re-resolves at build time).
+The resulting `WinMLEPDevice` has placeholder `vendor_id=0, device_id=0` — fine for config serialization (the target host re-resolves at build time).
 
 ### 6.5 `winml compile` CLI — simplified result handling
 
@@ -752,7 +752,7 @@ Skipping any of the three causes either a runtime `TypeError` (Click passes the 
 ### 7.3 Tests modified
 
 - `tests/unit/compiler/test_compiler_configs.py` — delete the test class(es) for per-EP factories and `for_provider` (~40 LOC). Keep `for_ep_device` tests; expand to cover the new spec-driven path. Update any `enable_ep_context` field assertions (field is deleted).
-- `tests/unit/models/auto/test_config.py:169,172` — replace `for_qnn()`/`for_cpu()` with `for_ep_device(EPDevice(...))`.
+- `tests/unit/models/auto/test_config.py:169,172` — replace `for_qnn()`/`for_cpu()` with `for_ep_device(WinMLEPDevice(...))`.
 - `tests/unit/session/test_winml_session.py` — add lazy-compile tests: `_ensure_session` not called in `__init__`; `compile()` returns `Path` on EPContext EP; `compile()` raises on ORT failure (no silent fallback). Note: `compile()` is never called for non-EPContext EPs — `CompileStage` gates the call.
 - `tests/unit/config/test_build.py:1857-1858` — update comments referencing `for_provider`.
 - `tests/unit/compiler/test_compile_stage.py` (or equivalent) — replace `_finalize_output` tests with `_relocate_ctx` tests; add spec-aware branching tests (compile branch vs passthrough branch).
@@ -812,7 +812,7 @@ def test_npu_targets_require_static_shapes():
 ```python
 def test_get_compile_spec_raises_on_uncatalogued_pair():
     """Unknown (ep, device) pair raises KeyError (arch test should prevent this in practice)."""
-    fake = EPDeviceSpec(ep="FakeEP", device="npu")
+    fake = WinMLEPDeviceSpec(ep="FakeEP", device="npu")
     with pytest.raises(KeyError, match="No WinMLCompileSpec entry"):
         get_compile_spec(fake)
 ```
@@ -830,7 +830,7 @@ def test_winml_session_init_does_not_create_inference_session():
 def test_winml_session_compile_returns_path_on_epcontext_ep(tmp_path):
     """compile() returns the Path to {stem}_{device}.onnx (or input path for an
     already-compiled input)."""
-    session = WinMLSession(model_path, ep_device=EPDevice(ep="QNNExecutionProvider", device="npu", ...))
+    session = WinMLSession(model_path, ep_device=WinMLEPDevice(ep="QNNExecutionProvider", device="npu", ...))
     result = session.compile()
     assert result.suffix == ".onnx"
     # Fresh-compile or cache-hit: stem == "{onnx_stem}_{device}".
@@ -956,9 +956,9 @@ Not in v1 — add when the consuming code is ready.
 
 | Term | Meaning |
 |---|---|
-| **EPDevice** | Project-defined plain-data descriptor (frozen dataclass) at `session/ep_device.py`. The resolved (EP, device) descriptor. |
-| **EPDeviceSpec** | The session-layer catalog row — static template `(ep, device, default_provider_options)`. One per (EP, device) target. |
-| **EP_DEVICE_SPECS** | Tuple of 13 EPDeviceSpec rows in `session/ep_device.py`. Order encodes preference. |
+| **WinMLEPDevice** | Project-defined plain-data descriptor (frozen dataclass) at `session/ep_device.py`. The resolved (EP, device) descriptor. |
+| **WinMLEPDeviceSpec** | The session-layer catalog row — static template `(ep, device, default_provider_options)`. One per (EP, device) target. |
+| **EP_DEVICE_SPECS** | Tuple of 13 WinMLEPDeviceSpec rows in `session/ep_device.py`. Order encodes preference. |
 | **WinMLCompileSpec** | This spec's contribution — the compile-layer catalog row. `(ep, device, supports_ep_context, supports_dynamic_shapes, quant_format)`. |
 | **COMPILE_SPECS** | Tuple of 13 WinMLCompileSpec rows in `compiler/spec.py`. 1:1 with EP_DEVICE_SPECS keys. |
 | **EPContext** | ORT's container format wrapping a pre-compiled EP-specific binary blob. Used by `ort.ModelCompiler.compile_to_file()`. |
@@ -967,9 +967,9 @@ Not in v1 — add when the consuming code is ready.
 
 ### 10.2 References
 
-- [`docs/design/session/3_design_ep.md`](../session/3_design_ep.md) — Stage 1+2 EP registration and device handle selection (the EPDevice / EPDeviceSpec upstream).
-- [`docs/design/session/2026-05-13-ep-device-spec-design.md`](../session/2026-05-13-ep-device-spec-design.md) — EPDeviceSpec catalog design.
-- `src/winml/modelkit/session/ep_device.py` — EPDeviceSpec definition, EP_DEVICE_SPECS catalog.
+- [`docs/design/session/3_design_ep.md`](../session/3_design_ep.md) — Stage 1+2 EP registration and device handle selection (the WinMLEPDevice / WinMLEPDeviceSpec upstream).
+- [`docs/design/session/2026-05-13-ep-device-spec-design.md`](../session/2026-05-13-ep-device-spec-design.md) — WinMLEPDeviceSpec catalog design.
+- `src/winml/modelkit/session/ep_device.py` — WinMLEPDeviceSpec definition, EP_DEVICE_SPECS catalog.
 - `src/winml/modelkit/session/session.py:288-349` — current `WinMLSession.compile()` body.
 - `src/winml/modelkit/compiler/configs.py` — current `WinMLCompileConfig` with the 8 per-EP factories to be deleted.
 - ONNX Runtime ModelCompiler docs (EPContext format).

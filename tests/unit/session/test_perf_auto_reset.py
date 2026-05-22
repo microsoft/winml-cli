@@ -26,11 +26,11 @@ def _get_real_cpu_ort_device():
 
 def _make_cpu_session(model_path):
     """Create a WinMLSession bound to CPU with mocked WinMLEPRegistry."""
-    from winml.modelkit.session import EPDevice
+    from winml.modelkit.session import WinMLEPDevice
     from winml.modelkit.session.session import WinMLSession
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDevice(
+    cpu_ep_device = WinMLEPDevice(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=cpu_dev.device.vendor_id,
@@ -48,11 +48,11 @@ def test_auto_reset_fires_when_options_contributed(caplog):
     The WinMLEPRegistry mock must be active during perf() as well as construction,
     because the auto-reset + rebuild path calls _build_session_options().
     """
-    from winml.modelkit.session import EPDevice
-    from winml.modelkit.session.monitor.ep_monitor import EPMonitor
+    from winml.modelkit.session import WinMLEPDevice
+    from winml.modelkit.session.monitor.ep_monitor import WinMLEPMonitor
     from winml.modelkit.session.session import WinMLSession
 
-    class _ContributingMonitor(EPMonitor):
+    class _ContributingMonitor(WinMLEPMonitor):
         @classmethod
         def is_available(cls):
             return True
@@ -70,7 +70,7 @@ def test_auto_reset_fires_when_options_contributed(caplog):
             return {"some_key": "1"}
 
     cpu_dev = _get_real_cpu_ort_device()
-    cpu_ep_device = EPDevice(
+    cpu_ep_device = WinMLEPDevice(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=cpu_dev.device.vendor_id,

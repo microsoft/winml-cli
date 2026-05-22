@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.models.auto import WinMLAutoModel
-from winml.modelkit.session import EPDevice
+from winml.modelkit.session import WinMLEPDevice
 
 
 if TYPE_CHECKING:
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture()
-def cpu_ep_device() -> EPDevice:
-    """Minimal EPDevice for CPU used across from_onnx/from_pretrained tests."""
-    return EPDevice(
+def cpu_ep_device() -> WinMLEPDevice:
+    """Minimal WinMLEPDevice for CPU used across from_onnx/from_pretrained tests."""
+    return WinMLEPDevice(
         ep="CPUExecutionProvider",
         device="cpu",
         vendor_id=0x1234,
@@ -57,7 +57,7 @@ class TestFromOnnx:
     """Test WinMLAutoModel.from_onnx()."""
 
     def test_auto_generates_config_when_none(
-        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDevice
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: WinMLEPDevice
     ):
         """from_onnx() without config auto-generates via generate_build_config."""
         mock_config = MagicMock()
@@ -86,7 +86,7 @@ class TestFromOnnx:
         assert config.export is None
 
     def test_uses_explicit_config_as_override(
-        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDevice
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: WinMLEPDevice
     ):
         """from_onnx() with explicit config merges it as override on generated config."""
         from winml.modelkit.config import WinMLBuildConfig
@@ -128,8 +128,8 @@ class TestFromOnnx:
         assert call_kwargs["config"].optim.get("gelu_fusion") is True  # from override
 
     def test_passes_ep_and_device_to_build(self, fake_onnx: Path, tmp_path: Path):
-        """from_onnx() extracts ep and device from EPDevice and forwards to build_onnx_model."""
-        npu_ep_device = EPDevice(
+        """from_onnx() extracts ep and device from WinMLEPDevice and forwards to build_onnx_model."""
+        npu_ep_device = WinMLEPDevice(
             ep="QNNExecutionProvider",
             device="npu",
             vendor_id=0x17CB,
@@ -162,7 +162,7 @@ class TestFromOnnx:
         assert call_kwargs["device"] == "npu"
 
     def test_returns_winml_pretrained_model(
-        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDevice
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: WinMLEPDevice
     ):
         """from_onnx() returns the inference wrapper from get_winml_class."""
         mock_config = MagicMock()
@@ -193,7 +193,7 @@ class TestFromPretrainedDelegatesToFromOnnx:
     """Test that from_pretrained delegates .onnx files to from_onnx."""
 
     def test_delegates_onnx_to_from_onnx(
-        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDevice
+        self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: WinMLEPDevice
     ):
         """from_pretrained with .onnx file delegates to from_onnx."""
         with patch.object(WinMLAutoModel, "from_onnx") as mock_from_onnx:
@@ -212,7 +212,7 @@ class TestFromPretrainedDelegatesToFromOnnx:
         assert call_kwargs["ep_device"] is cpu_ep_device
         assert call_kwargs["precision"] == "fp32"
 
-    def test_passes_ep_from_kwargs(self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDevice):
+    def test_passes_ep_from_kwargs(self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: WinMLEPDevice):
         """from_pretrained passes ep_device through to from_onnx."""
         with patch.object(WinMLAutoModel, "from_onnx") as mock_from_onnx:
             mock_from_onnx.return_value = MagicMock()

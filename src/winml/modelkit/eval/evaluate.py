@@ -152,7 +152,7 @@ def _load_model(config: WinMLEvaluationConfig) -> WinMLPreTrainedModel:
     if config.model_id is None:
         raise ValueError("model_id is required.")
 
-    # Resolve EPDevice at the boundary. Eval config has no explicit ep field;
+    # Resolve WinMLEPDevice at the boundary. Eval config has no explicit ep field;
     # resolve_device deduces the ep from the device automatically.
     device = config.device.lower()
     ep_device = resolve_device(device=device)
