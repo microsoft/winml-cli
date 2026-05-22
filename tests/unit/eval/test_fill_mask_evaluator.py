@@ -62,12 +62,6 @@ def _make_evaluator(model=None, max_length=None):
 
 
 class TestLifecycle:
-    def test_schema(self) -> None:
-        schema = WinMLFillMaskEvaluator.schema_info()
-        assert len(schema) == 1
-        assert schema[0].name == "text"
-        assert schema[0].type == "Value(string)"
-
     def test_prepare_pipeline_returns_none(self) -> None:
         assert _make_evaluator().pipe is None
 

@@ -38,29 +38,16 @@ logger = logging.getLogger(__name__)
 class WinMLImageToTextEvaluator(WinMLEvaluator):
     """Image-to-text evaluator. Reports CER and CIDEr."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Expected dataset columns: image input + reference text."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", "input_column", description="PIL Image"),
-            SchemaColumn(
-                "text",
-                "string|list[string]",
-                "label_column",
-                description="Reference caption / transcription (string or list)",
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
+        from ..utils.eval_utils import get_default
+
         cm = config.dataset.columns_mapping
-        self._image_col = cm.get("input_column", "image")
-        self._label_col = cm.get("label_column", "text")
+        self._image_col = cm.get("input_column", get_default("image-to-text", "input_column"))
+        self._label_col = cm.get("label_column", get_default("image-to-text", "label_column"))
         super().__init__(config, model)
 
     def align_labels(self, dataset, ds_config):  # type: ignore[override]
