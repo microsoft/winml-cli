@@ -641,8 +641,8 @@ class TestAnalyzeCommandOutput:
         model_file.write_bytes(b"dummy")
         config_file = tmp_path / "optim.json"
 
-        mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
-            "ep": "QNNExecutionProvider"
+        mock_analyzer_result.get_optimization_config.return_value = {
+            "gelu_fusion": True,
         }
         mock_instance = Mock()
         mock_instance.analyze.return_value = mock_analyzer_result
@@ -665,7 +665,7 @@ class TestAnalyzeCommandOutput:
         assert result.exit_code == 0
         assert config_file.exists()
         content = json.loads(config_file.read_text())
-        assert "ep" in content
+        assert content == {"gelu_fusion": True}
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_optim_config_creates_parent_dirs(
@@ -680,8 +680,8 @@ class TestAnalyzeCommandOutput:
         model_file.write_bytes(b"dummy")
         config_file = tmp_path / "nested" / "dir" / "optim.json"
 
-        mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
-            "ep": "QNNExecutionProvider"
+        mock_analyzer_result.get_optimization_config.return_value = {
+            "gelu_fusion": True,
         }
         mock_instance = Mock()
         mock_instance.analyze.return_value = mock_analyzer_result
@@ -1344,10 +1344,10 @@ class TestQDQNodeDisplayMapping:
 
         assert result.exit_code == 0
         # After the fix, 'Conv (QDQ)' is keyed as 'Conv' in instance_counts.
-        # ep_instance_counts['QNNExecutionProvider@NPU']['Conv'] must be populated
+        # ep_instance_counts[("QNNExecutionProvider", "NPU")]['Conv'] must be populated
         # (not 'Conv (QDQ)') so the Conv row shows counts instead of '...'.
         assert mock_summary.called
-        qnn_counts = captured_ep_counts.get("QNNExecutionProvider@NPU", {})
+        qnn_counts = captured_ep_counts.get(("QNNExecutionProvider", "NPU"), {})
         assert "Conv" in qnn_counts, "Conv (QDQ) results must be stored under 'Conv'"
         assert "Conv (QDQ)" not in qnn_counts, "QDQ suffix must be stripped"
         assert qnn_counts["Conv"] == {"supported": 2}
@@ -1377,7 +1377,6 @@ class TestAnalyzeSummaryRendering:
             ep="DmlExecutionProvider",
             device="GPU",
             no_data_eps={("DmlExecutionProvider", "GPU")},
-            pair_hints={("DmlExecutionProvider", "GPU"): ["no rule data"]},
         )
 
         output = console.export_text()
