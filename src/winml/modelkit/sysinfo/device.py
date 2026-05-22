@@ -55,7 +55,7 @@ for _ep, _devices in EP_SUPPORTED_DEVICES.items():
     for _d in _devices:
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Valid explicit device values
+# Valid explicit device values - sort by preference
 _VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
 
 
@@ -210,7 +210,6 @@ def resolve_device(
     return device, [dev for dev in _VALID_DEVICES if dev in device_ep_map]
 
 
-@functools.lru_cache(maxsize=3)
 def resolve_eps(resolved_device: str) -> list[EPName]:
     """Return list of available EPs compatible with the given device.
 
