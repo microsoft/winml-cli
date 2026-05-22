@@ -6,9 +6,44 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from contextlib import contextmanager
 from typing import Literal, TypeAlias, get_args
 
-import onnxruntime as ort
+
+@contextmanager
+def _suppress_ep_registration_stderr():
+    """Suppress native stderr during ORT initialization (Win32 + CRT).
+
+    ORT native code writes "Init provider bridge failed." directly to native
+    stderr (fd 2 / Win32 STD_ERROR_HANDLE), bypassing Python's logging system.
+    Redirects fd 2 to /dev/null for the duration and restores both handles.
+    """
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    old_fd = os.dup(2)
+    os.dup2(null_fd, 2)
+    os.close(null_fd)
+    old_w32 = None
+    if sys.platform == "win32":
+        import ctypes
+        import msvcrt
+
+        k32 = ctypes.WinDLL("kernel32")
+        _std_error_handle = ctypes.c_uint32(0xFFFFFFF4)
+        old_w32 = k32.GetStdHandle(_std_error_handle)
+        k32.SetStdHandle(_std_error_handle, msvcrt.get_osfhandle(2))
+    try:
+        yield
+    finally:
+        os.dup2(old_fd, 2)
+        os.close(old_fd)
+        if old_w32 is not None:
+            k32.SetStdHandle(_std_error_handle, old_w32)
+
+
+with _suppress_ep_registration_stderr():
+    import onnxruntime as ort
 
 
 # Canonical ORT execution provider full names (the `*ExecutionProvider` symbols).

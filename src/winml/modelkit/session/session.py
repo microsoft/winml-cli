@@ -17,6 +17,7 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
+from ..utils.constants import _suppress_ep_registration_stderr
 from .ep_registry import WinMLEPRegistry
 from .stats import PerfStats
 
@@ -121,7 +122,8 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                registered = registry.register_to_ort()
+                with _suppress_ep_registration_stderr():
+                    registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
             logger.debug("WinML EP init skipped: %s", e)
