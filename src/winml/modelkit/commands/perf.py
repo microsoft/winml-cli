@@ -892,10 +892,12 @@ def _print_model_info(
     console.print()
     device_line = f"{device} / {ep_name}" if ep_name else device
     console.print(f"[dim]Device:[/dim]      {device_line}")
-    # TODO: show resolved precision once WinMLPreTrainedModel.precision
-    # is implemented (derive from _build_config.quant.weight_type)
     if task:
         console.print(f"[dim]Task:[/dim]        {task}")
+
+    precision = io_config.get("precision")
+    if precision:
+        console.print(f"[dim]Model Precision:[/dim]   {precision}")
 
     names = io_config.get("input_names", [])
     shapes = io_config.get("input_shapes", [])
