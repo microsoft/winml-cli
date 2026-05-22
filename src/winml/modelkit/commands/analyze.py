@@ -142,7 +142,7 @@ def _build_stacked_bar(counts: dict[str, int], max_count: int) -> Text:
 
 
 def _build_analyzed_text(counts: dict[str, int]) -> Text:
-    """Build 'W/G/B' format like '53/0/0' or '12/5/1' with colors."""
+    """Build 'S/P/U/Unk' format like '53/0/0/0' or '12/5/1/3' with colors."""
     w = counts.get("supported", 0)
     g = counts.get("partial", 0)
     b = counts.get("unsupported", 0)
@@ -154,9 +154,8 @@ def _build_analyzed_text(counts: dict[str, int]) -> Text:
     text.append(str(g), style="bold yellow" if g > 0 else "dim")
     text.append("/", style="dim")
     text.append(str(b), style="bold red" if b > 0 else "dim")
-    if u > 0:
-        text.append("/", style="dim")
-        text.append(str(u), style="bold bright_black")
+    text.append("/", style="dim")
+    text.append(str(u), style="bold bright_black" if u > 0 else "dim")
     return text
 
 
@@ -222,7 +221,7 @@ def _build_analysis_table(
     )
 
     table.add_column("Op Type", width=28, no_wrap=True)
-    table.add_column("S/P/U", width=14, no_wrap=True)
+    table.add_column("S/P/U/Unk", width=16, no_wrap=True)
     table.add_column("", no_wrap=True)
 
     agg: dict[str, int] = {"supported": 0, "partial": 0, "unsupported": 0, "unknown": 0}
@@ -1049,14 +1048,10 @@ def analyze(
                     _render_pattern_matching(console, ep_patterns)
 
                     # Analysis Summary section
-                    summary_ep_instance_counts = {
-                        f"{ep_name}@{device}": counts
-                        for (ep_name, device), counts in ep_instance_counts.items()
-                    }
                     _render_analysis_summary(
                         console,
                         result.output.results,
-                        summary_ep_instance_counts,
+                        ep_instance_counts,
                         ep_patterns=ep_patterns,
                         ep=target_ep,
                         device=target_device,
@@ -1066,7 +1061,7 @@ def analyze(
                     # Legend (at the very bottom, only when there are EP results)
                     if result.output.results:
                         console.print(
-                            "  [dim]S/P/U = Supported/Partial/Unsupported[/dim]"
+                            "  [dim]S/P/U/Unk = Supported/Partial/Unsupported/Unknown[/dim]"
                             "  [green]██[/green] supported"
                             "  [yellow]██[/yellow] partial"
                             "  [red]██[/red] unsupported"
