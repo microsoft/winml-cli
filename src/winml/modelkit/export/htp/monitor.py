@@ -237,9 +237,7 @@ class HTPExportMonitor:
 
     def __enter__(self) -> HTPExportMonitor:
         """Context manager entry."""
-        # Print header if verbose
-        if self.verbose and self.console_writer:
-            self._print_header()
+        self._print_header()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -250,9 +248,7 @@ class HTPExportMonitor:
             if self.data.export_time == 0.0:
                 self.data.export_time = self.data.elapsed_time
 
-            # Print summary if verbose
-            if self.verbose and self.console_writer:
-                self._print_summary()
+            self._print_summary()
 
             # Close all writers normally
             for writer in self.writers:
