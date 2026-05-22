@@ -74,15 +74,20 @@ class TestGetAvailableDevices:
 
         assert devices == ("cpu",)
 
-    def test_cpu_always_present(self) -> None:
-        """CPU is always in the result, even if EP enumeration fails."""
+    def test_returns_empty_when_enumeration_fails(self) -> None:
+        """If EP enumeration raises, return empty tuple (no devices visible).
+
+        ``resolve_device("auto")`` is responsible for the CPU fallback when no
+        devices are reachable; ``_get_available_devices`` only reports what is
+        actually registered.
+        """
         with patch(
             "winml.modelkit.sysinfo.device.get_registered_ep_devices",
             side_effect=RuntimeError("ORT not available"),
         ):
             devices = _get_available_devices()
 
-        assert devices == ("cpu",)
+        assert devices == ()
 
     def test_priority_order_independent_of_input(self) -> None:
         """Result is always NPU > GPU > CPU regardless of enumeration order."""
@@ -179,42 +184,29 @@ class TestMappingConstants:
         assert "NvTensorRTRTXExecutionProvider" in _DEVICE_EP_MAP["gpu"]
 
 
+def _patch_device_ep_map(mapping: dict[str, tuple[str, ...]]):
+    """Patch the central _get_device_ep_map probe with ``mapping``.
+
+    Single mock point for resolve_device/resolve_eps tests. Each value is the
+    tuple of EPs registered for that device, in the order ORT would return.
+    """
+    return patch(
+        "winml.modelkit.sysinfo.device._get_device_ep_map",
+        return_value=mapping,
+    )
+
+
 class TestResolveDevice:
     """Tests for resolve_device()."""
 
-    def setup_method(self) -> None:
-        """Mock _get_available_eps so the real function never runs.
-
-        Tests stack their own ``with patch(...)`` on top of this default mock
-        to set test-specific return values; the inner patch shadows ours for
-        the duration of the with-block and restores back on exit.
-        """
-        self._eps_patcher = patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset(),
-        )
-        self._eps_patcher.start()
-
-    def teardown_method(self) -> None:
-        self._eps_patcher.stop()
-
     def test_resolve_device_auto_npu_with_ep(self) -> None:
-        """Auto mode: NPU hardware + QNN EP -> returns "npu"."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["npu", "gpu", "cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {
-                        "QNNExecutionProvider",
-                        "DmlExecutionProvider",
-                        "CPUExecutionProvider",
-                    }
-                ),
-            ),
+        """Auto mode: NPU EP registered -> returns "npu"."""
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("auto")
 
@@ -222,113 +214,55 @@ class TestResolveDevice:
         assert available == ["npu", "gpu", "cpu"]
 
     def test_resolve_device_auto_npu_without_ep(self) -> None:
-        """Auto mode: NPU hardware + no QNN EP -> falls through to GPU or CPU."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["npu", "gpu", "cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {
-                        "DmlExecutionProvider",
-                        "CPUExecutionProvider",
-                    }
-                ),
-            ),
+        """Auto mode: no NPU EP registered -> falls through to GPU."""
+        with _patch_device_ep_map(
+            {
+                "gpu": ("DmlExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("auto")
 
         assert device == "gpu"
-        assert available == ["npu", "gpu", "cpu"]
+        assert available == ["gpu", "cpu"]
 
     def test_resolve_device_auto_cpu_fallback(self) -> None:
-        """Auto mode: GPU hardware but no GPU EP -> falls through to CPU."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["gpu", "cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset({"CPUExecutionProvider"}),
-            ),
-        ):
+        """Auto mode: only CPU EP registered -> returns "cpu"."""
+        with _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}):
             device, available = resolve_device("auto")
 
         assert device == "cpu"
-        assert available == ["gpu", "cpu"]
+        assert available == ["cpu"]
 
     def test_resolve_device_auto_no_eps(self) -> None:
         """Auto mode: no EPs at all -> falls back to CPU."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["npu", "gpu", "cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(),
-            ),
-        ):
+        with _patch_device_ep_map({}):
             device, _available = resolve_device("auto")
 
         assert device == "cpu"
 
     def test_resolve_device_explicit_valid(self) -> None:
         """Explicit device "gpu" -> returns "gpu"."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["npu", "gpu", "cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {
-                        "DmlExecutionProvider",
-                        "CPUExecutionProvider",
-                    }
-                ),
-            ),
+        with _patch_device_ep_map(
+            {
+                "gpu": ("DmlExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("gpu")
 
         assert device == "gpu"
-        assert available == ["npu", "gpu", "cpu"]
+        assert available == ["gpu", "cpu"]
 
     def test_resolve_device_explicit_invalid(self) -> None:
         """Unrecognized device "tpu" -> raises ValueError."""
         with pytest.raises(ValueError, match="Unknown device 'tpu'"):
             resolve_device("tpu")
 
-    def test_resolve_device_explicit_no_ep_raises(self) -> None:
-        """Explicit "npu" but no NPU EP installed -> raises ValueError (issue #431).
-
-        A warning + success here writes an unusable config; we'd rather fail
-        fast at config time than at compile/inference time.
-        """
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["npu", "gpu", "cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset({"CPUExecutionProvider"}),
-            ),
-            pytest.raises(ValueError, match="no compatible EP"),
-        ):
-            resolve_device("npu")
-
     def test_resolve_device_explicit_no_ep_error_names_missing_eps(self) -> None:
         """Error message must name the compatible EPs so users know what to install."""
         with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["npu", "gpu", "cpu"],
-            ),
+            _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}),
             patch(
                 "winml.modelkit.sysinfo.device._get_available_eps",
                 return_value=frozenset({"CPUExecutionProvider"}),
@@ -338,21 +272,13 @@ class TestResolveDevice:
             resolve_device("npu")
 
         message = str(exc_info.value)
+        assert "no compatible EP" in message
         # Names at least one NPU-compatible EP so the user can act on it
         assert "QNNExecutionProvider" in message or "VitisAIExecutionProvider" in message
 
     def test_resolve_device_case_insensitive(self) -> None:
         """Device argument should be case-insensitive."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset({"CPUExecutionProvider"}),
-            ),
-        ):
+        with _patch_device_ep_map({"cpu": ("CPUExecutionProvider",)}):
             device, _ = resolve_device("CPU")
 
         assert device == "cpu"
@@ -360,14 +286,7 @@ class TestResolveDevice:
     def test_resolve_device_empty_eps_warns(self, caplog) -> None:
         """When no EPs are detected, a warning is logged."""
         with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=["cpu"],
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(),
-            ),
+            _patch_device_ep_map({}),
             caplog.at_level(logging.WARNING, logger="winml.modelkit.sysinfo.device"),
         ):
             resolve_device("auto")
@@ -378,34 +297,14 @@ class TestResolveDevice:
 class TestResolveDeviceWithEp:
     """Tests for resolve_device(ep=...) — EP-aware filtering of available_devices/eps."""
 
-    def setup_method(self) -> None:
-        """Mock _get_available_eps so the real function never runs."""
-        self._eps_patcher = patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset(),
-        )
-        self._eps_patcher.start()
-
-    def teardown_method(self) -> None:
-        self._eps_patcher.stop()
-
     def test_ep_qnn_filters_devices_to_npu_and_gpu(self) -> None:
         """ep='qnn' narrows available_devices to QNN's compatible devices (npu/gpu)."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=("npu", "gpu", "cpu"),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {
-                        "QNNExecutionProvider",
-                        "DmlExecutionProvider",
-                        "CPUExecutionProvider",
-                    }
-                ),
-            ),
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("auto", ep="qnn")
 
@@ -414,17 +313,11 @@ class TestResolveDeviceWithEp:
 
     def test_ep_qnn_auto_picks_gpu_when_no_npu(self) -> None:
         """ep='qnn' on a GPU-only system auto-selects gpu."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=("gpu", "cpu"),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {"QNNExecutionProvider", "CPUExecutionProvider"},
-                ),
-            ),
+        with _patch_device_ep_map(
+            {
+                "gpu": ("QNNExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("auto", ep="qnn")
 
@@ -433,17 +326,11 @@ class TestResolveDeviceWithEp:
 
     def test_ep_dml_filters_to_gpu_only(self) -> None:
         """ep='dml' narrows available_devices to gpu (DML is gpu-only)."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=("npu", "gpu", "cpu"),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {"DmlExecutionProvider", "CPUExecutionProvider"},
-                ),
-            ),
+        with _patch_device_ep_map(
+            {
+                "gpu": ("DmlExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("auto", ep="dml")
 
@@ -453,9 +340,12 @@ class TestResolveDeviceWithEp:
     def test_ep_requested_but_not_available_raises(self) -> None:
         """If the requested EP is known but not present on the system, raise."""
         with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=("npu", "gpu", "cpu"),
+            _patch_device_ep_map(
+                {
+                    "npu": ("QNNExecutionProvider",),
+                    "gpu": ("QNNExecutionProvider", "DmlExecutionProvider"),
+                    "cpu": ("CPUExecutionProvider",),
+                }
             ),
             patch(
                 "winml.modelkit.sysinfo.device._get_available_eps",
@@ -481,17 +371,12 @@ class TestResolveDeviceWithEp:
 
     def test_ep_case_insensitive(self) -> None:
         """ep argument is case-insensitive."""
-        with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=("npu", "gpu", "cpu"),
-            ),
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_eps",
-                return_value=frozenset(
-                    {"QNNExecutionProvider", "CPUExecutionProvider"},
-                ),
-            ),
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "gpu": ("QNNExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             device, available = resolve_device("auto", ep="QNN")
 
@@ -501,9 +386,12 @@ class TestResolveDeviceWithEp:
     def test_ep_explicit_device_filtered_out_raises(self) -> None:
         """ep='qnn' + device='cpu' raises: cpu has no compatible EP within {QNN}."""
         with (
-            patch(
-                "winml.modelkit.sysinfo.device._get_available_devices",
-                return_value=("npu", "gpu", "cpu"),
+            _patch_device_ep_map(
+                {
+                    "npu": ("QNNExecutionProvider",),
+                    "gpu": ("QNNExecutionProvider",),
+                    "cpu": ("CPUExecutionProvider",),
+                }
             ),
             patch(
                 "winml.modelkit.sysinfo.device._get_available_eps",
@@ -524,20 +412,19 @@ class TestResolveEps:
 
         For ``gpu``, the priority is NV → CUDA → MIGraphX → QNN → OpenVINO →
         DML (IHV-first, native-last). When all are advertised, all are
-        returned in that order.
+        returned in that order regardless of the order ORT reports them.
         """
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset(
-                {
-                    "NvTensorRTRTXExecutionProvider",
-                    "CUDAExecutionProvider",
+        with _patch_device_ep_map(
+            {
+                "gpu": (
+                    "DmlExecutionProvider",  # intentionally first to prove
+                    "QNNExecutionProvider",  # output order comes from
+                    "NvTensorRTRTXExecutionProvider",  # _DEVICE_EP_MAP, not
+                    "CUDAExecutionProvider",  # from the input ordering.
                     "MIGraphXExecutionProvider",
-                    "QNNExecutionProvider",
                     "OpenVINOExecutionProvider",
-                    "DmlExecutionProvider",
-                }
-            ),
+                ),
+            }
         ):
             assert resolve_eps("gpu") == [
                 "NvTensorRTRTXExecutionProvider",
@@ -550,17 +437,21 @@ class TestResolveEps:
 
     def test_gpu_with_only_dml_available(self) -> None:
         """Common Windows case: DML is the only GPU EP advertised."""
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset({"DmlExecutionProvider", "CPUExecutionProvider"}),
+        with _patch_device_ep_map(
+            {
+                "gpu": ("DmlExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             assert resolve_eps("gpu") == ["DmlExecutionProvider"]
 
     def test_npu_filters_to_installed_eps(self) -> None:
         """Only EPs that ORT/WinML actually advertises are returned."""
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset({"QNNExecutionProvider", "CPUExecutionProvider"}),
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             # _DEVICE_EP_MAP["npu"] includes Vitis and OpenVINO too, but only
             # QNN is in the available set.
@@ -568,9 +459,10 @@ class TestResolveEps:
 
     def test_cpu_includes_multi_device_eps(self) -> None:
         """OpenVINO declares ``npu/gpu/cpu`` so it shows up for cpu too."""
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset({"OpenVINOExecutionProvider", "CPUExecutionProvider"}),
+        with _patch_device_ep_map(
+            {
+                "cpu": ("OpenVINOExecutionProvider", "CPUExecutionProvider"),
+            }
         ):
             assert resolve_eps("cpu") == [
                 "OpenVINOExecutionProvider",
@@ -579,28 +471,24 @@ class TestResolveEps:
 
     def test_case_insensitive(self) -> None:
         """Upper-case input is normalized before lookup."""
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset({"QNNExecutionProvider"}),
-        ):
+        with _patch_device_ep_map({"npu": ("QNNExecutionProvider",)}):
             assert resolve_eps("NPU") == ["QNNExecutionProvider"]
             assert resolve_eps("Npu") == ["QNNExecutionProvider"]
 
     def test_unknown_device_returns_empty(self) -> None:
         """Unknown device name returns ``[]``, not a KeyError."""
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset({"QNNExecutionProvider", "CPUExecutionProvider"}),
+        with _patch_device_ep_map(
+            {
+                "npu": ("QNNExecutionProvider",),
+                "cpu": ("CPUExecutionProvider",),
+            }
         ):
             assert resolve_eps("tpu") == []
             assert resolve_eps("") == []
 
     def test_no_eps_available_returns_empty(self) -> None:
         """When ORT/WinML advertises nothing, every device resolves to []."""
-        with patch(
-            "winml.modelkit.sysinfo.device._get_available_eps",
-            return_value=frozenset(),
-        ):
+        with _patch_device_ep_map({}):
             assert resolve_eps("npu") == []
             assert resolve_eps("gpu") == []
             assert resolve_eps("cpu") == []
