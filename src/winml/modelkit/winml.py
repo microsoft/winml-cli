@@ -50,13 +50,22 @@ class WinML:
             "onnxruntime_genai": [],
         }
 
+        # WinMLEpCatalogRelease (called by EpCatalog.close() / EpCatalog.__del__)
+        # crashes with ACCESS_VIOLATION (0xC0000005) on some QNN NPU driver
+        # configurations — a Windows SEH exception that Python try/except cannot
+        # catch.  All provider paths have been extracted above, so the catalog
+        # handle is no longer needed.  Null it out immediately so that
+        # EpCatalog.close() becomes a no-op for the remainder of the process
+        # lifetime, whether invoked from a background thread or interpreter
+        # shutdown.  Native resources are reclaimed by the OS when the process
+        # exits.
+        if hasattr(self._catalog, "_handle"):
+            self._catalog._handle = None
+
     def __del__(self) -> None:
         """Clean up WinML resources."""
         self._providers = None
-        catalog = getattr(self, "_catalog", None)
-        if catalog is not None:
-            catalog.close()
-            self._catalog = None
+        self._catalog = None
 
     def register_execution_providers(
         self, ort: bool = True, ort_genai: bool = False
