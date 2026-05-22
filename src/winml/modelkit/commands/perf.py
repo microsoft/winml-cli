@@ -828,7 +828,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             console.print(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
-                f"CPU: {cpu.get('mean_pct', 0):.1f}%  |  "
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
                 f"Mem: {ram.get('used_mb', 0):.0f} MB"
             )
             console.print(
@@ -837,7 +837,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}%  |  "
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
                 f"Mem: {ram.get('used_mb', 0):.0f} MB"
             )
 
