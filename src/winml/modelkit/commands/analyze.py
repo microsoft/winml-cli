@@ -747,8 +747,24 @@ def analyze(
 
         local_pairs = set(_get_local_ep_device_pairs())
 
-        if device == "auto" or ep == "auto":
+        if device == "auto" and ep == "auto":
             execution_pairs = [pair for pair in execution_pairs if pair in local_pairs]
+        elif device == "auto":
+            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
+            if unsupported_pairs:
+                logger.warning(
+                    "device is set to auto but ep is not; some (ep, device) pairs to "
+                    "analyze are not supported in local environment: %s",
+                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
+                )
+        elif ep == "auto":
+            unsupported_pairs = [pair for pair in execution_pairs if pair not in local_pairs]
+            if unsupported_pairs:
+                logger.warning(
+                    "ep is set to auto but device is not; some (ep, device) pairs to "
+                    "analyze are not supported in local environment: %s",
+                    ", ".join(_ep_name_device_display_name(e, d) for e, d in unsupported_pairs),
+                )
 
         if not execution_pairs:
             logger.error("No EP/device combination matched the current selection.")
