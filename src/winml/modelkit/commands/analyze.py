@@ -372,6 +372,7 @@ def _render_analysis_summary(
     ep: EPNameOrAlias | Literal["all", "auto"] | None = None,
     device: str | None = None,
     no_data_eps: set[tuple[str, str]] | None = None,
+    op_check_skipped: bool = False,
 ) -> None:
     """Render the Analysis Summary section after pattern detection.
 
@@ -383,6 +384,10 @@ def _render_analysis_summary(
         ep_patterns: Per-EP subgraph pattern support extracted from results.
         ep: Requested EP name (for display when no results).
         device: Requested device (for display when no results).
+        op_check_skipped: True when op check was skipped (no rule data, no
+            unknown-op probing). When True, the per-op classification list is
+            suppressed — every op would land in "unknown" with no actionable
+            information.
     """
     from ..analyze.models.support_level import SupportLevel
 
@@ -466,19 +471,21 @@ def _render_analysis_summary(
         console.print(f"   {icon} [{ep_style}]{ep_label}[/{ep_style}]: ", end="")
         console.print(analyzed)
 
-        # List ops by non-white support level
-        classification = ep_support.classification
-        _issue_sections = [
-            (SupportLevel.UNSUPPORTED, "red", "\u26d4 Unsupported"),
-            (SupportLevel.PARTIAL, "yellow", "\u26a0\ufe0f  Partial"),
-            (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
-        ]
-        for level, color, heading in _issue_sections:
-            ops = classification.get(level, [])
-            if ops:
-                console.print(f"      [{color}]{heading}:[/{color}]")
-                for op in sorted(ops):
-                    console.print(f"         \u2022 [dim]{op}[/dim]")
+        # List ops by non-white support level (skip when op check was skipped \u2014
+        # the classification would be all-unknown with no useful detail).
+        if not op_check_skipped:
+            classification = ep_support.classification
+            _issue_sections = [
+                (SupportLevel.UNSUPPORTED, "red", "\u26d4 Unsupported"),
+                (SupportLevel.PARTIAL, "yellow", "\u26a0\ufe0f  Partial"),
+                (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
+            ]
+            for level, color, heading in _issue_sections:
+                ops = classification.get(level, [])
+                if ops:
+                    console.print(f"      [{color}]{heading}:[/{color}]")
+                    for op in sorted(ops):
+                        console.print(f"         \u2022 [dim]{op}[/dim]")
 
         # List non-supported patterns for this EP
         patterns = (ep_patterns or {}).get(ep_name, {})
@@ -500,24 +507,39 @@ def _render_analysis_summary(
         console.print()
 
 
-def _resolve_run_unknown_op(ep: str, run_unknown_op: bool) -> bool:
-    """Resolve whether to run unknown operators for a given EP.
+def _resolve_run_unknown_op(
+    ep: str,
+    device: str,
+    run_unknown_op: bool,
+    local_pairs: set[tuple[str, str]],
+) -> bool:
+    """Resolve whether to run unknown operators for a given (EP, device) pair.
 
     Some execution providers (e.g., VitisAI) do not have sufficient runtime
     data to support unknown operator checks, so --run-unknown-op is disabled
-    for them regardless of the user's flag.
+    for them regardless of the user's flag. Unknown-op probing also requires
+    the pair to be available locally — probing a non-local pair would just
+    fail at session creation.
 
     Args:
         ep: Execution provider name (e.g., "VitisAIExecutionProvider")
+        device: Device name (e.g., "NPU")
         run_unknown_op: User-requested flag value
+        local_pairs: Set of (ep, device) pairs available on the local machine
 
     Returns:
-        Effective run_unknown_op value for this EP
+        Effective run_unknown_op value for this (ep, device) pair
     """
     if run_unknown_op and ep == "VitisAIExecutionProvider":
         logger.info(
             "Disabling --run-unknown-op for VitisAIExecutionProvider: "
             "AMD op runtime results are not available yet"
+        )
+        return False
+    if run_unknown_op and (ep, device) not in local_pairs:
+        logger.warning(
+            "Disabling --run-unknown-op for %s: pair is not available on the local machine",
+            _ep_name_device_display_name(ep, device),
         )
         return False
     return run_unknown_op
@@ -1036,7 +1058,9 @@ def analyze(
                     current_device = target_device
                     current_ep_device_pair = None
 
-                    run_unknown_op_for_ep = _resolve_run_unknown_op(target_ep, run_unknown_op)
+                    run_unknown_op_for_ep = _resolve_run_unknown_op(
+                        target_ep, target_device, run_unknown_op, local_pairs
+                    )
 
                     current_run_unknown_op = run_unknown_op_for_ep
 
@@ -1074,6 +1098,7 @@ def analyze(
                         ep=target_ep,
                         device=target_device,
                         no_data_eps=_no_data_eps,
+                        op_check_skipped=current_op_check_skipped,
                     )
 
                     # Legend (at the very bottom, only when there are EP results)
@@ -1094,7 +1119,9 @@ def analyze(
         else:
             # Quiet mode — no live display
             for target_ep, target_device in execution_pairs:
-                run_unknown_op_for_ep = _resolve_run_unknown_op(target_ep, run_unknown_op)
+                run_unknown_op_for_ep = _resolve_run_unknown_op(
+                    target_ep, target_device, run_unknown_op, local_pairs
+                )
 
                 result = analyzer.analyze(
                     model_path=str(model),
