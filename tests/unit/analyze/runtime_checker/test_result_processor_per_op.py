@@ -7,12 +7,17 @@
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
+import pytest
 
 from winml.modelkit.analyze.runtime_checker.result_processor import (
+    PARQUET_STABLE_PANDAS_VERSION,
     _deduplicate_rule_rows,
     _encode_condition_columns_for_parquet,
     _parse_requested_domains,
+    _write_parquet_with_stable_pandas_version,
 )
 
 
@@ -158,5 +163,46 @@ class TestParquetConditionEncoding:
         assert all(isinstance(v, str) for v in encoded_df["attr_value"].tolist())
         # Output columns remain untouched.
         assert encoded_df.iloc[0]["compile_run_success"] == (False, True)
+
+
+class TestParquetMetadataStability:
+    """Validate parquet metadata is pinned for deterministic file diffs."""
+
+    def test_write_parquet_pins_pandas_version(self, tmp_path):
+        pq = pytest.importorskip("pyarrow.parquet")
+
+        parquet_path = tmp_path / "stable_metadata.parquet"
+        df = pd.DataFrame([{"compile_run_success": (True, False), "attr_alpha": "A"}])
+
+        _write_parquet_with_stable_pandas_version(df, parquet_path, compression="snappy")
+
+        metadata = pq.read_metadata(parquet_path).metadata or {}
+        pandas_meta_raw = metadata.get(b"pandas")
+        assert pandas_meta_raw is not None
+
+        pandas_meta = json.loads(pandas_meta_raw.decode("utf-8"))
+        assert pandas_meta["pandas_version"] == PARQUET_STABLE_PANDAS_VERSION
+
+    def test_write_parquet_preserves_metadata_bytes_when_already_pinned(self, tmp_path):
+        pa = pytest.importorskip("pyarrow")
+        pq = pytest.importorskip("pyarrow.parquet")
+
+        baseline_path = tmp_path / "baseline.parquet"
+        rewritten_path = tmp_path / "rewritten.parquet"
+
+        df = pd.DataFrame([{"compile_run_success": (True, False), "attr_alpha": "A"}])
+
+        baseline_table = pa.Table.from_pandas(df, preserve_index=False)
+        pq.write_table(baseline_table, baseline_path, compression="snappy")
+        baseline_meta = pq.read_metadata(baseline_path).metadata or {}
+        baseline_pandas_meta_raw = baseline_meta.get(b"pandas")
+        assert baseline_pandas_meta_raw is not None
+
+        _write_parquet_with_stable_pandas_version(df, rewritten_path, compression="snappy")
+        rewritten_meta = pq.read_metadata(rewritten_path).metadata or {}
+        rewritten_pandas_meta_raw = rewritten_meta.get(b"pandas")
+        assert rewritten_pandas_meta_raw is not None
+
+        assert rewritten_pandas_meta_raw == baseline_pandas_meta_raw
 
 

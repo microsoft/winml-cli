@@ -42,6 +42,9 @@ dependencies = [
   "optimum>=2",
   "optimum-onnx>=0.1",
   "plotext>=5.3.2",
+  # Keep pandas pinned: version drift can change parquet string typing/metadata
+  # and create non-functional diffs in generated rules artifacts.
+  "pandas==2.3.3",
   "pydantic>=2",
   "python-multipart>=0.0.22",
   "rapidfuzz>=3.9",

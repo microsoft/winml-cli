@@ -39,6 +39,10 @@ SNAPSHOT_CURRENT_OPSET_KEY = "__current_opset__"
 SNAPSHOT_CHANGED_KEY = "__changed__"
 SNAPSHOT_DELETED_KEY = "__deleted__"
 
+# Keep parquet schema metadata stable across environments so unchanged rule
+# payloads do not produce binary-only diffs due to pandas metadata version.
+PARQUET_STABLE_PANDAS_VERSION = "2.3.3"
+
 
 def _sorted_dict_by_key(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a shallow key-sorted dict for stable JSON output."""
@@ -754,6 +758,47 @@ def _encode_condition_columns_for_parquet(
     return encoded_df
 
 
+def _write_parquet_with_stable_pandas_version(
+    df: pd.DataFrame,
+    parquet_file: Path,
+    compression: str = "snappy",
+) -> None:
+    """Write parquet with pinned pandas metadata for deterministic artifacts."""
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "Failed to write parquet file with stable pandas metadata. "
+            "Ensure pyarrow is installed."
+        ) from e
+
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    metadata = dict(table.schema.metadata or {})
+
+    pandas_meta: dict[str, Any] = {}
+    pandas_meta_raw = metadata.get(b"pandas")
+    if pandas_meta_raw is not None:
+        try:
+            pandas_meta = json.loads(pandas_meta_raw.decode("utf-8"))
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+            pandas_meta = {}
+
+    # Preserve original metadata bytes when already pinned to avoid
+    # non-functional binary diffs caused only by JSON re-serialization.
+    if pandas_meta.get("pandas_version") == PARQUET_STABLE_PANDAS_VERSION and pandas_meta_raw:
+        metadata[b"pandas"] = pandas_meta_raw
+    else:
+        pandas_meta["pandas_version"] = PARQUET_STABLE_PANDAS_VERSION
+        metadata[b"pandas"] = json.dumps(
+            pandas_meta,
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+    table = table.replace_schema_metadata(metadata)
+    pq.write_table(table, parquet_file, compression=compression)
+
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -938,11 +983,15 @@ if __name__ == "__main__":
                 json.dump(json_payload, f, indent=2, ensure_ascii=False)
 
             try:
-                parquet_write_df.to_parquet(parquet_file, index=False, compression="snappy")
+                _write_parquet_with_stable_pandas_version(
+                    parquet_write_df,
+                    parquet_file,
+                    compression="snappy",
+                )
             except Exception as e:
                 raise RuntimeError(
-                    "Failed to write parquet file. Ensure a parquet engine "
-                    "(for example pyarrow) is installed."
+                    "Failed to write parquet file with stable pandas metadata. "
+                    "Ensure pyarrow is installed."
                 ) from e
 
             processed += 1
