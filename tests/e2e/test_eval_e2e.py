@@ -312,6 +312,7 @@ class TestEvalPerTask:
             "--streaming",
             "--samples", SAMPLES,
             "--precision", "fp16",
+            "--column", "label_column=caption",
             "-o", str(out),
         ])
         # CLI contract: exit 0 and produce the metric keys. Tiny N may
@@ -428,20 +429,17 @@ class TestEvalModelInputForms:
         # so cache discovery below must use the sub-task names.
         _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
 
-        # Locate each sub-encoder's ONNX via its sub-task. find_cache_dir /
-        # _find_build_artifacts filter by manifest["task"], so use the
-        # sub-task names rather than the composite task here.
-        from winml.modelkit.inference.engine import _find_build_artifacts
+        # Locate each sub-encoder's ONNX directly via its cache-key prefix:
+        cache_dir = find_cache_dir(hf_id, task="image-feature-extraction")
+        assert cache_dir is not None, "expected image-encoder cache after warm run"
 
-        image_sub_task = "image-feature-extraction"
-        text_sub_task = "feature-extraction"
+        def _pick_onnx(prefix: str) -> Path:
+            files = sorted(cache_dir.glob(f"{prefix}_*_model.onnx"))
+            assert files, f"no {prefix}_*_model.onnx in {cache_dir}"
+            return files[0]
 
-        cache_dir = find_cache_dir(hf_id, task=image_sub_task)
-        assert cache_dir is not None, (
-            f"expected image-encoder cache after warm run (task={image_sub_task})"
-        )
-        image_onnx, _ = _find_build_artifacts(cache_dir, task=image_sub_task)
-        text_onnx, _ = _find_build_artifacts(cache_dir, task=text_sub_task)
+        image_onnx = _pick_onnx("imgfeat")
+        text_onnx = _pick_onnx("feat")
 
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -507,7 +505,7 @@ class TestEvalSchema:
     @pytest.mark.parametrize("task", _ALL_TASKS)
     def test_schema_for_each_task(self, runner: CliRunner, task: str) -> None:
         result = _invoke(runner, ["--schema", "--task", task])
-        assert "Dataset schema" in result.output
+        assert f"Input schema for {task} models" in result.output
 
 
 # ===========================================================================
@@ -780,9 +778,10 @@ class TestEvalErrorPaths:
         )
 
     def test_schema_without_task(self, runner: CliRunner) -> None:
-        result = _invoke(runner, ["--schema"], expect_success=False)
-        assert result.exit_code != 0
+        # Informational output (exit 0) listing supported tasks; not an error.
+        result = _invoke(runner, ["--schema"])
         assert "--task" in result.output, result.output
+        assert "Supported tasks" in result.output, result.output
 
     def test_schema_bogus_task(self, runner: CliRunner) -> None:
         # get_evaluator_class ValueError wrapped as UsageError.

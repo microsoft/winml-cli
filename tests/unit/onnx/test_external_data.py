@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx
-from onnx import TensorProto, helper, numpy_helper
+from onnx import TensorProto, external_data_helper, helper, numpy_helper
 
 from winml.modelkit.onnx.external_data import (
     copy_onnx_model,
@@ -27,12 +27,37 @@ def _make_small_model() -> onnx.ModelProto:
     """Create a minimal ONNX model (no external data)."""
     x_info = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 4])
     y_info = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 2])
-    weight = numpy_helper.from_array(
-        np.random.randn(4, 2).astype(np.float32), name="W"
-    )
+    weight = numpy_helper.from_array(np.random.randn(4, 2).astype(np.float32), name="W")
     node = helper.make_node("MatMul", ["X", "W"], ["Y"])
     graph = helper.make_graph([node], "test", [x_info], [y_info], [weight])
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _make_filled_model(value: float, shape: tuple[int, ...]) -> onnx.ModelProto:
+    """Create a deterministic ONNX model with a constant-filled initializer.
+
+    Used by overwrite tests where two distinguishable models are needed.
+    """
+    weight = numpy_helper.from_array(np.full(shape, value, dtype=np.float32), name="W")
+    inp = helper.make_tensor_value_info("X", TensorProto.FLOAT, list(shape))
+    out = helper.make_tensor_value_info("Y", TensorProto.FLOAT, list(shape))
+    node = helper.make_node("Add", ["X", "W"], ["Y"])
+    graph = helper.make_graph([node], "g", [inp], [out], [weight])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _serialize_without_external_location(model: onnx.ModelProto) -> bytes:
+    """Serialize the model with the `location` entry stripped from every
+    external_data tensor — for comparing two models that point to different
+    sidecar filenames but are otherwise identical."""
+    clone = onnx.ModelProto()
+    clone.CopyFrom(model)
+    for tensor in external_data_helper._get_all_tensors(clone):
+        if tensor.data_location == TensorProto.EXTERNAL:
+            for entry in list(tensor.external_data):
+                if entry.key == "location":
+                    tensor.external_data.remove(entry)
+    return clone.SerializeToString(deterministic=True)
 
 
 class TestGetExternalDataFiles:
@@ -51,7 +76,8 @@ class TestGetExternalDataFiles:
         model = _make_small_model()
         path = tmp_path / "ext.onnx"
         onnx.save_model(
-            model, str(path),
+            model,
+            str(path),
             save_as_external_data=True,
             all_tensors_to_one_file=True,
             location="ext.onnx.data",
@@ -74,7 +100,8 @@ class TestHasExternalData:
         model = _make_small_model()
         path = tmp_path / "ext.onnx"
         onnx.save_model(
-            model, str(path),
+            model,
+            str(path),
             save_as_external_data=True,
             all_tensors_to_one_file=True,
             location="ext.onnx.data",
@@ -106,7 +133,8 @@ class TestCopyOnnxModel:
         src = tmp_path / "src" / "model.onnx"
         src.parent.mkdir()
         onnx.save_model(
-            model, str(src),
+            model,
+            str(src),
             save_as_external_data=True,
             all_tensors_to_one_file=True,
             location="model.onnx.data",
@@ -145,3 +173,88 @@ class TestCopyOnnxModel:
 
         assert dst.exists()
         assert dst.read_text() == "not a real onnx file"
+
+    def test_copy_overwrites_existing_dst_no_external_data(self, tmp_path: Path) -> None:
+        """Pre-existing dst (no external data) is overwritten byte-for-byte by src."""
+        src = tmp_path / "src.onnx"
+        dst = tmp_path / "dst.onnx"
+
+        onnx.save(_make_filled_model(1.0, (4, 4)), str(src))
+        onnx.save(_make_filled_model(99.0, (8, 8)), str(dst))  # pre-existing, different
+
+        pre_dst_bytes = dst.read_bytes()
+        src_bytes = src.read_bytes()
+        assert pre_dst_bytes != src_bytes
+
+        copy_onnx_model(src, dst)
+
+        post_dst_bytes = dst.read_bytes()
+        assert post_dst_bytes == src_bytes
+        assert post_dst_bytes != pre_dst_bytes
+        assert not (tmp_path / "dst.onnx.data").exists()
+
+    def test_copy_overwrites_existing_dst_with_external_data(self, tmp_path: Path) -> None:
+        """Pre-existing dst + sidecar (external data) are both overwritten.
+
+        Verifies:
+        - dst.onnx.data is byte-identical to src.onnx.data
+        - dst.onnx matches src.onnx except for the external_data.location field
+        - dst.onnx's location field points at dst.onnx.data
+        - Loaded initializer arrays are equal
+        """
+        src = tmp_path / "src.onnx"
+        dst = tmp_path / "dst.onnx"
+        src_data = tmp_path / "src.onnx.data"
+        dst_data = tmp_path / "dst.onnx.data"
+
+        onnx.save_model(
+            _make_filled_model(2.0, (64, 64)),
+            str(src),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="src.onnx.data",
+            size_threshold=0,
+        )
+        onnx.save_model(
+            _make_filled_model(999.0, (32, 32)),
+            str(dst),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="dst.onnx.data",
+            size_threshold=0,
+        )
+
+        src_data_bytes = src_data.read_bytes()
+        pre_dst_data_bytes = dst_data.read_bytes()
+        pre_dst_onnx_bytes = dst.read_bytes()
+        assert src_data_bytes != pre_dst_data_bytes
+
+        copy_onnx_model(src, dst)
+
+        # .data file byte-identical to src's sidecar
+        post_dst_data_bytes = dst_data.read_bytes()
+        assert post_dst_data_bytes == src_data_bytes
+        assert post_dst_data_bytes != pre_dst_data_bytes
+
+        # .onnx file no longer matches old dst
+        assert dst.read_bytes() != pre_dst_onnx_bytes
+
+        # .onnx matches src modulo external_data.location field
+        src_model = onnx.load(str(src), load_external_data=False)
+        dst_model = onnx.load(str(dst), load_external_data=False)
+        assert _serialize_without_external_location(
+            src_model
+        ) == _serialize_without_external_location(dst_model)
+
+        # dst.onnx's location must point at dst.onnx.data
+        for tensor in external_data_helper._get_all_tensors(dst_model):
+            if tensor.data_location == TensorProto.EXTERNAL:
+                info = external_data_helper.ExternalDataInfo(tensor)
+                assert info.location == "dst.onnx.data"
+
+        # Semantic check: loaded initializer arrays are equal
+        src_full = onnx.load(str(src), load_external_data=True)
+        dst_full = onnx.load(str(dst), load_external_data=True)
+        src_arr = numpy_helper.to_array(src_full.graph.initializer[0])
+        dst_arr = numpy_helper.to_array(dst_full.graph.initializer[0])
+        assert np.array_equal(src_arr, dst_arr)

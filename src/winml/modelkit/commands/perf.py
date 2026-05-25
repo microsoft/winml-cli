@@ -834,16 +834,17 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             console.print(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
-                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
+                f"Mem: {ram.get('used_mb', 0):.0f} MB"
             )
             console.print(
-                f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
-                f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
+                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
                 f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
             )
         else:
-            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg")
-            console.print(f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB")
+            console.print(
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
+            )
 
     console.print()
 
@@ -898,10 +899,12 @@ def _print_model_info(
     console.print()
     device_line = f"{device} / {ep_name}" if ep_name else device
     console.print(f"[dim]Device:[/dim]      {device_line}")
-    # TODO: show resolved precision once WinMLPreTrainedModel.precision
-    # is implemented (derive from _build_config.quant.weight_type)
     if task:
         console.print(f"[dim]Task:[/dim]        {task}")
+
+    precision = io_config.get("precision")
+    if precision:
+        console.print(f"[dim]Model Precision:[/dim]   {precision}")
 
     names = io_config.get("input_names", [])
     shapes = io_config.get("input_shapes", [])

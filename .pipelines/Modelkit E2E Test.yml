@@ -25,14 +25,26 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
+  - name: retryFailed
+    displayName: 'Retry previously failed models (--retry-failed)'
+    type: boolean
+    default: false
+  - name: qnnAgentName
+    displayName: 'QNN: self-hosted agent name (Agent.Name)'
+    type: string
+    default: NPU-QNN
   - name: qnnPairs
-    displayName: 'NPU-QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
+    displayName: 'QNN: EP/device pairs (any of: qnn_npu, qnn_gpu)'
     type: object
     default:
       - qnn_npu
       - qnn_gpu
+  - name: ovAgentName
+    displayName: 'OV: self-hosted agent name (Agent.Name)'
+    type: string
+    default: NPU-OV2
   - name: ovPairs
-    displayName: 'NPU-OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
+    displayName: 'OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
     type: object
     default:
       - dml_gpu
@@ -40,44 +52,51 @@ parameters:
       - ov_cpu
       - ov_gpu
       - ov_npu
+  - name: amdAgentName
+    displayName: 'AMD: self-hosted agent name (Agent.Name)'
+    type: string
+    default: NPU-AMD
   - name: amdPairs
-    displayName: 'NPU-AMD: EP/device pairs (any of: vitisai_npu)'
+    displayName: 'AMD: EP/device pairs (any of: vitisai_npu)'
     type: object
     default:
       - vitisai_npu
 
 stages:
   - stage: NPU_QNN
-    displayName: 'E2E Eval — NPU-QNN'
+    displayName: 'E2E Eval — QNN'
     jobs:
       - template: templates/e2e-eval-jobs.yml
         parameters:
-          agentName: NPU-QNN
+          agentName: ${{ parameters.qnnAgentName }}
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
-    displayName: 'E2E Eval — NPU-OV'
+    displayName: 'E2E Eval — OV'
     dependsOn: []
     jobs:
       - template: templates/e2e-eval-jobs.yml
         parameters:
-          agentName: NPU-OV
+          agentName: ${{ parameters.ovAgentName }}
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.ovPairs }}
 
   - stage: NPU_AMD
-    displayName: 'E2E Eval — NPU-AMD'
+    displayName: 'E2E Eval — AMD'
     dependsOn: []
     jobs:
       - template: templates/e2e-eval-jobs.yml
         parameters:
-          agentName: NPU-AMD
+          agentName: ${{ parameters.amdAgentName }}
           agentSuffix: amd
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.amdPairs }}

@@ -9,8 +9,22 @@ running actual ONNX build (which requires runtime dependencies).
 """
 
 import json
+from unittest.mock import patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def mock_device_resolution() -> None:
+    """Keep module-build tests independent of host EP discovery."""
+    with (
+        patch("winml.modelkit.sysinfo.resolve_device", return_value=("cpu", ["cpu"])),
+        patch(
+            "winml.modelkit.config.precision.resolve_eps",
+            return_value=["CPUExecutionProvider"],
+        ),
+    ):
+        yield
 
 
 @pytest.mark.slow
@@ -54,15 +68,16 @@ class TestModuleConfigE2E:
             # task is omitted from loader.to_dict() when None
             assert d["loader"]["model_type"] == "bert"
 
-    def test_config_module_no_match_returns_empty(self) -> None:
-        """Module class that doesn't exist returns empty list."""
-        from winml.modelkit.config import generate_build_config
+    def test_config_module_no_match_raises_with_available_classes(self) -> None:
+        """Module class that doesn't exist raises with discovered classes."""
+        from winml.modelkit.config import SubmoduleClassNotFoundError, generate_build_config
 
-        configs = generate_build_config(
-            model_type="bert",
-            task="fill-mask",
-            module="NonExistentModule",
-        )
+        with pytest.raises(SubmoduleClassNotFoundError) as exc_info:
+            generate_build_config(
+                model_type="bert",
+                task="fill-mask",
+                module="NonExistentModule",
+            )
 
-        assert isinstance(configs, list)
-        assert len(configs) == 0
+        assert exc_info.value.class_name == "NonExistentModule"
+        assert exc_info.value.available_classes

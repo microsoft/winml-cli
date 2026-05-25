@@ -98,6 +98,12 @@ class TestGetEvaluatorClass:
         with pytest.raises(ValueError, match="not supported by `winml eval`"):
             get_evaluator_class("made-up-task")
 
+    def test_evaluator_registry_matches_schema_tasks(self):
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
+
+        assert set(_EVALUATOR_REGISTRY) == set(TASK_SCHEMAS)
+
 
 class TestEvaluate:
     """Tests for evaluate() entry point."""
@@ -113,8 +119,8 @@ class TestEvaluate:
 
         task_without_default = next(
             t
-            for t in ["fill-mask", "summarization", "translation"]
-            if t not in eval_mod._DEFAULT_DATASETS
+            for t in ["image-segmentation", "next-sentence-prediction", "image-to-text"]
+            if t in eval_mod._EVALUATOR_REGISTRY and t not in eval_mod._DEFAULT_DATASETS
         )
 
         config = WinMLEvaluationConfig(
@@ -161,9 +167,131 @@ class TestEvaluate:
 
         assert asdict(config) == original, "evaluate() mutated the caller's config"
 
+    def test_prints_config_before_model_load_failure(self):
+        """Users should see the effective config even when model loading fails."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        calls = []
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="test-dataset"),
+        )
+
+        def fake_print_config(_config):
+            calls.append("print")
+
+        def fake_load_model(_config):
+            calls.append("load")
+            raise RuntimeError("loader failed")
+
+        with (
+            patch.object(eval_mod, "print_config", side_effect=fake_print_config),
+            patch.object(eval_mod, "_load_model", side_effect=fake_load_model),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            eval_mod.evaluate(config)
+
+        assert calls == ["print", "load"]
+        assert "Failed to load model 'test/model'" in str(exc_info.value)
+        assert "expected model inputs" not in str(exc_info.value)
+
+    def test_metric_runtime_error_propagates_without_schema_hint(self):
+        """Internal evaluator failures should not be relabeled as schema issues."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        class FailingEvaluator:
+            def __init__(self, _config, _model):
+                pass
+
+            def compute(self):
+                raise RuntimeError("internal evaluator failure")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="test-dataset"),
+        )
+
+        with (
+            patch.object(eval_mod, "print_config", return_value=None),
+            patch.object(eval_mod, "_load_model", return_value=object()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=FailingEvaluator),
+            pytest.raises(RuntimeError, match="internal evaluator failure"),
+        ):
+            eval_mod.evaluate(config)
+
+    def test_metric_data_shape_errors_keep_schema_hint(self):
+        """Known data-shape exceptions still get a concise schema hint."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        class FailingEvaluator:
+            def __init__(self, _config, _model):
+                pass
+
+            def compute(self):
+                raise KeyError("label")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="test-dataset"),
+        )
+
+        with (
+            patch.object(eval_mod, "print_config", return_value=None),
+            patch.object(eval_mod, "_load_model", return_value=object()),
+            patch.object(eval_mod, "get_evaluator_class", return_value=FailingEvaluator),
+            pytest.raises(ValueError, match="expected schema") as exc_info,
+        ):
+            eval_mod.evaluate(config)
+
+        assert isinstance(exc_info.value.__cause__, KeyError)
+
 
 class TestWinMLEvaluator:
     """Tests for WinMLEvaluator base class."""
+
+    @patch("datasets.load_dataset")
+    def test_load_dataset_failure_wrapped_as_validation_error(self, mock_load_ds):
+        """load_dataset failures surface as DatasetValidationError with dataset context."""
+        from winml.modelkit.eval import WinMLEvaluator
+        from winml.modelkit.utils.eval_utils import DatasetValidationError
+
+        mock_load_ds.side_effect = ValueError(
+            "Unknown split \"validation\". Should be one of ['train', 'val'].",
+        )
+
+        model = MagicMock()
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path="detection-datasets/fashionpedia", split="validation"),
+        )
+
+        with pytest.raises(DatasetValidationError) as exc_info:
+            WinMLEvaluator(config, model)
+
+        msg = str(exc_info.value)
+        assert "Failed to load dataset 'detection-datasets/fashionpedia'" in msg
+        assert "split='validation'" in msg
+        assert "Unknown split" in msg
+        assert isinstance(exc_info.value.__cause__, ValueError)
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")

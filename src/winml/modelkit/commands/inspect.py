@@ -28,7 +28,34 @@ from rich.console import Console
 
 
 logger = logging.getLogger(__name__)
+# `console` is stdout-bound — table/JSON output goes here.
+# `_stderr_console` is for banners and spinners so they never contaminate
+# stdout (important for `--format json` consumers parsing the output).
 console = Console()
+_stderr_console = Console(stderr=True, highlight=False)
+
+# File extensions that unambiguously indicate a local file path.
+# HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
+# so matching on any suffix would cause false-positives; restrict to known extensions.
+_LOCAL_FILE_EXTS = frozenset({".onnx", ".pt", ".pth", ".safetensors", ".bin"})
+
+
+def _looks_like_local_path(model_id: str) -> bool:
+    """Return True when model_id is explicitly a local path.
+
+    Conservative heuristic — only returns True for unambiguous local indicators:
+    path separators, absolute paths, dot/tilde prefixes, or known model file extensions.
+    """
+    from pathlib import Path
+
+    _p = Path(model_id).expanduser()
+    return (
+        _p.exists()
+        or _p.is_absolute()
+        or "\\" in model_id
+        or model_id.startswith(("./", "../", "~/"))
+        or _p.suffix.lower() in _LOCAL_FILE_EXTS
+    )
 
 
 @click.command("inspect")
@@ -138,14 +165,29 @@ def inspect(
             "Use --list-tasks to see available tasks."
         )
 
-    # Handle ONNX file input
-    from pathlib import Path
+    # Classify the input before hitting HF Hub: local paths must exist.
+    # _looks_like_local_path uses a conservative allowlist to avoid misclassifying
+    # HF IDs with version dots (Phi-3.5, Qwen2.5, …) as local paths.
+    if model_id and _looks_like_local_path(model_id):
+        from pathlib import Path
 
-    if model_id and model_id.endswith(".onnx") and Path(model_id).is_file():
-        raise click.ClickException(
-            "ONNX file inspection is not yet supported. "
-            "Use 'winml config -m model.onnx' for ONNX build config."
-        )
+        _p = Path(model_id).expanduser()
+        if _p.suffix == ".onnx" and _p.is_file():
+            raise click.ClickException(
+                "ONNX file inspection is not yet supported. "
+                "Use 'winml config -m model.onnx' for ONNX build config."
+            )
+        if not _p.exists():
+            raise click.ClickException(f"Local path '{model_id}' does not exist.")
+
+    # Print a banner BEFORE the heavy import chain / network calls so users
+    # see immediate feedback instead of ~14 s of silence and assume the
+    # command hung (see #543). Banner + spinner go to stderr so `--format
+    # json` consumers still get clean stdout. Suppressed in --quiet mode.
+    quiet = bool(ctx.obj and ctx.obj.get("quiet"))
+    target = model_id or model_type or model_class
+    if not quiet:
+        _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table
@@ -159,13 +201,26 @@ def inspect(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     try:
-        result = _inspect_model_v2(
-            model_id=model_id,
-            task_override=task,
-            model_type_override=model_type,
-            model_class_override=model_class,
-            include_hierarchy=hierarchy,
-        )
+        if quiet:
+            result = _inspect_model_v2(
+                model_id=model_id,
+                task_override=task,
+                model_type_override=model_type,
+                model_class_override=model_class,
+                include_hierarchy=hierarchy,
+            )
+        else:
+            with _stderr_console.status(
+                f"[bold cyan]Resolving {target}…[/bold cyan]",
+                spinner="dots",
+            ):
+                result = _inspect_model_v2(
+                    model_id=model_id,
+                    task_override=task,
+                    model_type_override=model_type,
+                    model_class_override=model_class,
+                    include_hierarchy=hierarchy,
+                )
 
         if output_format.lower() == "json":
             click.echo(output_json(result, verbose=verbose))
@@ -246,6 +301,8 @@ def _inspect_model_v2(
     # =========================================================================
     # STEP 2: Shared loader resolution (same call as config command)
     # =========================================================================
+    from huggingface_hub.utils import RepositoryNotFoundError
+
     try:
         loader_config, hf_config, _resolved_class = resolve_loader_config(
             model_id,
@@ -253,13 +310,22 @@ def _inspect_model_v2(
             model_type=model_type_override,
             model_class=model_class_override,
         )
+    except RepositoryNotFoundError as e:
+        # Direct HF Hub 404 — keep full message (includes private-repo hint).
+        raise ModelNotFoundError(str(e)) from e
     except ValueError as e:
         err_str = str(e).lower()
         if "not found" in err_str or "404" in err_str:
             raise ModelNotFoundError(str(e)) from e
         raise InspectError(str(e)) from e
     except OSError as e:
-        raise NetworkError(str(e)) from e
+        # transformers wraps RepositoryNotFoundError as a plain OSError with a
+        # recognizable message.  Detect that pattern so users see "Model not found"
+        # (with the original hint text) rather than the misleading "Network error".
+        err_msg = str(e)
+        if "is not a valid model identifier" in err_msg or "is not a local folder" in err_msg:
+            raise ModelNotFoundError(err_msg) from e
+        raise NetworkError(err_msg) from e
 
     if parent_hf_config is None:
         parent_hf_config = hf_config

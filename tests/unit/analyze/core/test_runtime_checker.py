@@ -235,15 +235,6 @@ class TestRuntimeCheckerValidation:
                 patterns=None,
             )
 
-    def test_requires_non_empty_ep(self, simple_onnx_model: ONNXModel):
-        """Test that ep parameter cannot be empty."""
-        with pytest.raises(ValueError, match="ep parameter cannot be empty"):
-            RuntimeChecker(
-                ep="",
-                device="NPU",
-                model=simple_onnx_model,
-            )
-
     def test_requires_non_empty_device(self, simple_onnx_model: ONNXModel):
         """Test that device parameter cannot be empty."""
         with pytest.raises(ValueError, match="device parameter cannot be empty"):

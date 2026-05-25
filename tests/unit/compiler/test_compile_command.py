@@ -216,7 +216,9 @@ class TestCompileCommand:
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
-        result = runner.invoke(main, ["compile", "-m", str(model_path), "--ep", "dml"])
+        result = runner.invoke(
+            main, ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "dml"]
+        )
 
         assert result.exit_code != 0
         # Error line is "Provider 'DmlExecutionProvider' does not support …"
@@ -225,13 +227,13 @@ class TestCompileCommand:
         assert "(e.g. qnn, openvino)" in result.output
 
     @patch("winml.modelkit.compiler.compile_onnx")
-    def test_ep_trtrtx_propagates_gpu_device_type(
+    def test_ep_nvtensorrtrtx_propagates_gpu_device_type(
         self,
         mock_compile_onnx: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Test --device gpu --ep trtrtx no longer injects provider_options[device_type]."""
+        """Test --device gpu --ep nvtensorrtrtx no longer injects provider_options[device_type]."""
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
@@ -244,7 +246,7 @@ class TestCompileCommand:
 
         result = runner.invoke(
             main,
-            ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "trtrtx"],
+            ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "nvtensorrtrtx"],
         )
 
         assert result.exit_code == 0, result.output
@@ -279,10 +281,10 @@ class TestCompileCommand:
     ) -> None:
         """Test the Device line in output shows the --device flag, not the EP-inferred device.
 
-        Before the fix the output used _EP_TO_DEVICE.get(provider, device).
-        For --device gpu --ep qnn that lookup returns 'npu' (qnn's canonical
-        device), so the displayed device contradicted what the user passed.
-        The fix drops the lookup and always prints the user-supplied device.
+        Before the fix the output used an EP-to-device lookup that returned
+        'npu' for --device gpu --ep qnn (qnn's canonical device), so the
+        displayed device contradicted what the user passed. The fix drops
+        the lookup and always prints the user-supplied device.
         """
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
@@ -301,7 +303,7 @@ class TestCompileCommand:
 
         assert result.exit_code == 0, result.output
         assert "Device:" in result.output
-        # Must show "gpu" (the flag value), not "npu" (what _EP_TO_DEVICE["qnn"] returns)
+        # Must show "gpu" (the flag value), not "npu" (qnn's canonical device).
         device_line = next(line for line in result.output.splitlines() if "Device:" in line)
         assert "gpu" in device_line
         assert "npu" not in device_line

@@ -22,23 +22,6 @@ class WinMLTextClassificationEvaluator(WinMLEvaluator):
     Configures tokenizer padding to match the ONNX model's fixed sequence length.
     """
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for text classification."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("text", "Value(string)", "input_column", description="input text"),
-            SchemaColumn("label", "ClassLabel", "label_column", description="integer class label"),
-            SchemaColumn(
-                "<pair_col>",
-                "Value(string)",
-                "second_input_column",
-                required=False,
-                description="second text for sentence pairs",
-            ),
-        ]
-
     def prepare_pipeline(self) -> Pipeline:
         """Create pipeline and set tokenizer padding for fixed-shape ONNX."""
         pipe = super().prepare_pipeline()

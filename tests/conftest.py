@@ -71,6 +71,26 @@ def _skip_winml_ep_init(request: pytest.FixtureRequest, monkeypatch: pytest.Monk
     if "e2e" in {m.name for m in request.node.iter_markers()}:
         return
     try:
+        from winml.modelkit.session import ep_registry as ep_registry_mod
+
+        def _mock_discover_eps(registry) -> None:
+            registry._ep_paths = {}
+            registry._registered_eps = []
+            registry._winml_available = False
+            registry._catalog = None
+
+        monkeypatch.setattr(ep_registry_mod, "_winml_ep_registry", None)
+        monkeypatch.setattr(
+            ep_registry_mod.WinMLEPRegistry,
+            "_discover_eps",
+            _mock_discover_eps,
+        )
+    except ImportError as e:
+        import warnings
+
+        warnings.warn(f"Could not mock WinMLEPRegistry discovery: {e}", stacklevel=2)
+
+    try:
         monkeypatch.setattr(
             "winml.modelkit.session.session.WinMLSession._init_winml_eps_once",
             classmethod(lambda cls: None),

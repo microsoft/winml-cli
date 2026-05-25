@@ -171,6 +171,7 @@ def build_hf_model(
     final_path = output_dir / _name("model.onnx")
     config_path = output_dir / _name("winml_build_config.json")
     manifest_path = output_dir / _name("build_manifest.json")
+    analyze_result_path = output_dir / _name("analyze_result.json")
 
     # Check for existing artifact (skip build if present and not rebuilding)
     if final_path.exists() and not rebuild:
@@ -274,6 +275,7 @@ def build_hf_model(
             ep=ep,
             device=device,
             max_optim_iterations=hack_max_optim_iterations,
+            analyze_output_path=analyze_result_path,
             **onnx_kwargs,
         )
         stage_timings["optimize"] = opt_elapsed

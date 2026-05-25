@@ -47,6 +47,7 @@ def export_pytorch(
     task: str | None = None,
     verbose: bool = False,
     enable_reporting: bool = False,
+    normalize: bool = True,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Export a PyTorch nn.Module to ONNX.
@@ -63,9 +64,15 @@ def export_pytorch(
         task: Task for auto-input generation fallback.
         verbose: Enable verbose logging.
         enable_reporting: Generate export report file.
+        normalize: If True (default), run optimize_onnx on the exported model
+            to apply graph-level optimizations and shape inference. Set False
+            to keep the raw torch.onnx.export output (useful when debugging
+            the exporter or running custom downstream optimization).
 
     Returns:
-        Export statistics dict from HTPExporter.
+        Export statistics dict from HTPExporter, with an extra
+        `model_normalization_status` entry: one of `"not_run"` (when
+        `normalize=False`), `"succeeded"`, or `"failed"`.
     """
     from .htp.exporter import HTPExporter
 
@@ -86,7 +93,7 @@ def export_pytorch(
     )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
-        return exporter.export(
+        stats = exporter.export(
             model=model,
             output_path=str(output_path),
             export_config=export_config,
@@ -94,3 +101,58 @@ def export_pytorch(
             task=task,
             **kwargs,
         )
+
+        if normalize:
+            stats["model_normalization_status"] = (
+                "succeeded" if _normalize_exported_model(output_path) else "failed"
+            )
+        else:
+            stats["model_normalization_status"] = "not_run"
+
+    return stats
+
+
+def _normalize_exported_model(output_path: Path) -> bool:
+    """Normalize the exported ONNX in-place via optimize_onnx.
+
+    Writes the normalized model into a temporary directory, then replaces
+    the original export (and its `.data` sidecar, if any) via
+    copy_onnx_model. The temp directory is removed either way.
+
+    Failure modes are not symmetric:
+    - An optimize_onnx failure leaves the original export untouched: the
+      temp directory is the only write target, and it is cleaned up.
+    - A copy_onnx_model failure may leave the original `.onnx` and/or
+      `.data` sidecar partially overwritten: copy_onnx_model writes
+      directly to the destination (no temp-and-rename), so a process
+      kill or full disk mid-copy can corrupt the destination.
+
+    Returns:
+        True if normalization succeeded, False otherwise. On False, the
+        traceback is included in the warning log to aid debugging.
+    """
+    import shutil
+    import tempfile
+
+    from ..onnx import copy_onnx_model
+    from ..optim import optimize_onnx
+
+    logger.info("Normalizing model")
+    # Place the temp dir next to the output so copy_onnx_model stays on the
+    # same volume — avoids a cross-volume data transfer for multi-GB models
+    # and keeps the system drive's %TEMP% free of large sidecars.
+    tmp_dir = Path(tempfile.mkdtemp(dir=output_path.parent))
+    tmp_path = tmp_dir / output_path.name
+
+    try:
+        optimize_onnx(model=output_path, output=tmp_path)
+        copy_onnx_model(tmp_path, output_path)
+    except Exception:
+        logger.warning(
+            "Normalization failed; keeping un-normalized export",
+            exc_info=True,
+        )
+        return False
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    return True

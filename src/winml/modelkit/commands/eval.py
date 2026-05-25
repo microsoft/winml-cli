@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import click
 
 from ..utils import cli as cli_utils
+from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
 
 
 if TYPE_CHECKING:
@@ -32,11 +33,8 @@ logger = logging.getLogger(__name__)
     multiple=True,
     default=(),
     help=(
-        "Model to evaluate. Accepts three forms: "
-        "(1) HuggingFace model ID, e.g. `-m <hf_model_id>`. "
-        "(2) ONNX file path, e.g. `-m model.onnx` (requires --model-id). "
-        "(3) Composite / split-encoder model as repeated role=path pairs, "
-        "e.g. `-m image-encoder=vision.onnx -m text-encoder=text.onnx`."
+        "Model to evaluate. Accepts a HuggingFace model ID, an ONNX file path "
+        "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
 )
 @click.option(
@@ -166,25 +164,38 @@ def eval(
     show_schema: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Evaluate model accuracy on a dataset.
+    r"""Evaluate a model for a task.
 
-    If --dataset is not provided, a default dataset is used based on the task.
-
-    \b
     Examples:
-        # Use default dataset (auto-detected from task)
         winml eval -m microsoft/resnet-50
-        winml eval -m model.onnx --model-id dslim/bert-base-NER
 
-        # Specify dataset explicitly
-        winml eval -m microsoft/resnet-50 --dataset imagenet-1k
-        winml eval -m model.onnx --model-id microsoft/resnet-50 --dataset imagenet-1k
+        winml eval -m model.onnx --model-id microsoft/resnet-50
 
-        # Multi-config dataset with column overrides
-        winml eval -m model.onnx --model-id Intel/bert-base-uncased-mrpc \\
-            --dataset glue --dataset-name mrpc \\
-            --column input_column=sentence1
+    Run `winml eval --schema --task <task>` to see the dataset columns
+    and options expected by each task.
     """
+    # ── 0. --schema fast path: served from a local lightweight schema table
+    #       so this branch does not import the heavy winml.modelkit.eval package.
+    if show_schema:
+        task_arg = task
+        if task_arg is None:
+            task_list = "\n  ".join(sorted(TASK_SCHEMAS))
+            click.echo(
+                "--schema requires --task <task>.\n\n"
+                f"Supported tasks:\n  {task_list}\n\n"
+                "Example: winml eval --schema --task image-classification"
+            )
+            return
+        schema = TASK_SCHEMAS.get(task_arg)
+        if schema is None:
+            supported = ", ".join(sorted(TASK_SCHEMAS))
+            raise click.UsageError(
+                f"Task '{task_arg}' is not supported by `winml eval`. "
+                f"Supported tasks: {supported}."
+            )
+        _print_schema(task_arg, schema)
+        return
+
     if verbose or (ctx.obj and ctx.obj.get("debug")):
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
@@ -192,20 +203,6 @@ def eval(
 
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg = _build_eval_config(ctx, config_file, column, label_mapping)
-
-    if show_schema:
-        from ..eval.evaluate import get_evaluator_class
-
-        if cfg.task is None:
-            raise click.UsageError(
-                "--schema requires --task. Example: winml eval --schema --task object-detection"
-            )
-        try:
-            cls = get_evaluator_class(cfg.task)
-        except ValueError as e:
-            raise click.UsageError(str(e)) from e
-        _print_schema(cfg.task, cls.schema_info())
-        return
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id)
@@ -227,7 +224,8 @@ def eval(
         result = evaluate(cfg)
         _write_and_display(result, cfg.output_path)
     except Exception as e:
-        logger.exception("Evaluation failed")
+        if verbose:
+            logger.exception("Evaluation failed")
         raise click.ClickException(f"Evaluation failed: {e}") from e
 
 
@@ -475,6 +473,11 @@ def _resolve_model_path(
                 "for preprocessor and config resolution."
             )
         return value, model_id
+    if model_id is not None and model_id != value:
+        raise click.UsageError(
+            "Cannot pass both `-m <hf_id>` and `--model-id`. "
+            "Use `--model-id` only together with an ONNX file path in `-m`."
+        )
     return None, model_id or value
 
 
@@ -539,24 +542,41 @@ def display_eval_report(result: object, console: object) -> None:
     console.print()
 
 
-def _print_schema(task: str, schema: list, indent: int = 0) -> None:
-    """Format and print structured schema info."""
-    prefix = "  " * indent
-    if indent == 0:
-        click.echo(f"Dataset schema ({task}):\n")
-        click.echo(f"{prefix}{'Column':<20} {'Type':<25} {'Override (--column)'}")
-        click.echo(f"{prefix}{'-' * 20} {'-' * 25} {'-' * 25}")
+def _print_schema(task: str, schema: TaskSchema) -> None:
+    """Render the human-readable input schema for *task*."""
+    width = 50
+    title = f"Input schema for {task} models"
+    click.echo(title)
+    click.echo("=" * width)
+    click.echo()
 
-    for col in schema:
-        marker = "*" if col.required else " "
-        override_str = f"--column {col.override}={col.name}" if col.override else ""
-        click.echo(f"{prefix}{marker} {col.name:<18} {col.type:<25} {override_str}")
-        if col.description:
-            click.echo(f"{prefix}  {' ' * 18} {col.description}")
-        for child in col.children:
-            co = f"--column {child.override}={child.name}" if child.override else ""
-            click.echo(f"{prefix}    .{child.name:<16} {child.type:<25} {co}")
-            if child.description:
-                click.echo(f"{prefix}    {' ' * 18} {child.description}")
+    click.echo("--column option schema")
+    click.echo()
+    click.echo("Evaluating needs a dataset with the following columns:")
+    for item in schema.columns:
+        click.echo(f"  {item.name}")
+        click.echo(f"      {item.description} (default: {item.default})")
 
-    click.echo(f"\n{prefix}* = required")
+    if schema.params:
+        click.echo()
+        click.echo("Additional configuration parameters:")
+        for p in schema.params:
+            click.echo(f"  {p.name}")
+            click.echo(f"      {p.description} (default: {p.default})")
+
+    overrides = [c for c in (*schema.columns, *schema.params) if c.remap_hint]
+    if overrides:
+        click.echo()
+        click.echo("Override any default with --column:")
+        for c in overrides:
+            click.echo(f"  --column {c.name}={c.remap_hint}")
+
+    if schema.roles:
+        click.echo()
+        click.echo("-" * width)
+        click.echo("-m option schema")
+        click.echo()
+        click.echo("Use one of the following model input forms:")
+        click.echo("  1. use huggingface id: -m <hf-id>")
+        model_args = " ".join(f"-m {r}=<{r}.onnx>" for r in schema.roles)
+        click.echo(f"  2. use onnx file: {model_args} --model-id <hf-id>")

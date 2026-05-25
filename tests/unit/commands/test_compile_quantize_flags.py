@@ -23,12 +23,24 @@ _DEVICE_TO_EPS = {
 
 @pytest.fixture(autouse=True)
 def mock_functions():
-    """Mock resolve_eps to avoid hardware detection.
+    """Mock ``resolve_eps`` + ``WinMLEPRegistry`` to avoid hardware detection.
+
+    The compile CLI's ``_resolve_compile_provider`` calls
+    ``WinMLEPRegistry.get_instance().is_ep_available`` to reject EPs not
+    registered on the host — for unit tests we stub it to ``True``. Tests
+    that exercise the negative path patch the singleton locally.
     """
+    mock_registry = MagicMock()
+    mock_registry.is_ep_available.return_value = True
+
     with (
         patch(
             "winml.modelkit.commands.compile.resolve_eps",
             side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
+        ),
+        patch(
+            "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
+            return_value=mock_registry,
         ),
     ):
         yield
@@ -58,11 +70,18 @@ class TestResolveCompileProvider:
         assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
 
     def test_ep_overrides_device(self):
-        """ep takes priority over device mapping."""
-        assert _resolve_compile_provider("npu", "migraphx") == "MIGraphXExecutionProvider"
-        assert _resolve_compile_provider("gpu", "vitisai") == "VitisAIExecutionProvider"
+        """``ep`` takes priority over the device default.
+
+        For each pair below, the device alone would resolve to a different
+        EP via ``resolve_eps`` (e.g. ``gpu`` -> NV first); the explicit
+        ``--ep`` overrides that default. Devices are kept compatible with
+        the EP per ``EP_SUPPORTED_DEVICES`` — the incompatible counterpart
+        is covered by ``test_incompatible_pair_rejected``.
+        """
+        assert _resolve_compile_provider("gpu", "migraphx") == "MIGraphXExecutionProvider"
+        assert _resolve_compile_provider("npu", "vitisai") == "VitisAIExecutionProvider"
         assert (
-            _resolve_compile_provider("cpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
+            _resolve_compile_provider("gpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
         )
 
     def test_ep_is_case_insensitive(self):
@@ -72,20 +91,24 @@ class TestResolveCompileProvider:
         )
 
     @pytest.mark.parametrize(
-        ("ep", "expected"),
+        # Each row pairs an EP alias with a device the EP actually supports
+        # (per ``EP_SUPPORTED_DEVICES``); using an incompatible device would
+        # now correctly raise ``UsageError`` and is covered in
+        # ``test_ep_device_pair.py``.
+        ("device", "ep", "expected"),
         [
-            ("qnn", "QNNExecutionProvider"),
-            ("dml", "DmlExecutionProvider"),
-            ("migraphx", "MIGraphXExecutionProvider"),
-            ("nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
-            ("vitisai", "VitisAIExecutionProvider"),
-            ("openvino", "OpenVINOExecutionProvider"),
-            ("cpu", "CPUExecutionProvider"),
+            ("npu", "qnn", "QNNExecutionProvider"),
+            ("gpu", "dml", "DmlExecutionProvider"),
+            ("gpu", "migraphx", "MIGraphXExecutionProvider"),
+            ("gpu", "nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
+            ("npu", "vitisai", "VitisAIExecutionProvider"),
+            ("gpu", "openvino", "OpenVINOExecutionProvider"),
+            ("cpu", "cpu", "CPUExecutionProvider"),
         ],
     )
-    def test_all_valid_eps(self, ep, expected):
+    def test_all_valid_eps(self, device, ep, expected):
         """All alias inputs resolve to their canonical EP name."""
-        assert _resolve_compile_provider("npu", ep) == expected
+        assert _resolve_compile_provider(device, ep) == expected
 
 
 class TestCompileAutoDeviceEndToEnd:
@@ -128,6 +151,36 @@ class TestCompileAutoDeviceEndToEnd:
         assert result.exit_code == 0, result.output
         assert "Device: npu" in result.output
         assert "Provider: QNNExecutionProvider" in result.output
+
+    @pytest.mark.parametrize(
+        ("device", "ep"),
+        [
+            ("cpu", "qnn"),
+            ("cpu", "dml"),
+            ("cpu", "vitisai"),
+            ("cpu", "migraphx"),
+            ("cpu", "nv_tensorrt_rtx"),
+            ("npu", "cpu"),
+            ("npu", "dml"),
+            ("npu", "migraphx"),
+            ("npu", "nv_tensorrt_rtx"),
+            ("gpu", "cpu"),
+            ("gpu", "vitisai"),
+        ],
+    )
+    def test_incompatible_pair_rejected(self, device, ep):
+        """Incompatible (device, ep) pairs raise ``click.UsageError`` instead
+        of silently overriding the user's intent (regression for #521)."""
+        import click
+
+        with pytest.raises(click.UsageError):
+            _resolve_compile_provider(device, ep)
+
+
+# Note: unknown / out-of-set devices are validated upstream by
+# ``resolve_device`` (called by the compile CLI before
+# ``_resolve_compile_provider``). The resolver itself trusts its caller to
+# pass a concrete device from ``{cpu, gpu, npu}``.
 
 
 # =============================================================================
@@ -186,10 +239,11 @@ class TestResolveQuantTypes:
         assert a == "uint8"
 
     def test_unknown_precision_uses_defaults(self):
-        """Unknown precision string falls through to defaults."""
-        w, a = _resolve_quant_types("fp16", None, None)
-        assert w == "uint8"
-        assert a == "uint8"
+        """Explicit non-quantized precision (e.g., fp16) is rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="not a supported quantization precision"):
+            _resolve_quant_types("fp16", None, None)
 
 
 class TestCompileDeviceDisplayLabel:
@@ -198,9 +252,9 @@ class TestCompileDeviceDisplayLabel:
     def test_device_flag_shown_in_output(self, tmp_path):
         """--device gpu must appear in the Device line regardless of the EP.
 
-        The old code used _EP_TO_DEVICE.get(provider, device) to infer the
-        device from the EP name. The new code always prints the user-supplied
-        --device flag directly, so the label is unambiguous.
+        The old code used an EP-to-device lookup to infer the device from
+        the EP name. The new code always prints the user-supplied --device
+        flag directly, so the label is unambiguous.
         """
         from click.testing import CliRunner
 
@@ -219,6 +273,20 @@ class TestCompileDeviceDisplayLabel:
             patch("winml.modelkit.commands.compile.is_compiled_onnx", return_value=False),
             patch("winml.modelkit.compiler.compile_onnx", return_value=mock_result),
             patch("winml.modelkit.compiler.WinMLCompileConfig"),
+            # Make resolve_device succeed under the test runner's empty EP env
+            # (it's the display label we're testing here, not EP resolution).
+            # resolve_device now reads _get_device_ep_map_from_ort; populate both NPU
+            # and GPU with QNN since --device gpu --ep qnn must be satisfiable.
+            patch(
+                "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+                return_value={
+                    "gpu": ("QNNExecutionProvider",),
+                },
+            ),
+            patch(
+                "winml.modelkit.sysinfo.device._get_available_eps",
+                return_value=frozenset({"QNNExecutionProvider"}),
+            ),
         ):
             result = CliRunner().invoke(
                 compile, ["-m", str(model_file), "--device", "gpu", "--ep", "qnn"]
@@ -457,3 +525,39 @@ class TestQuantizeConfigValidation:
         r = self._invoke(["-m", str(model), "--config", str(bc)])
         assert r.exit_code != 0
         assert "Build config must be a JSON object" in r.output
+
+
+class TestQuantizePrecisionValidation:
+    """Regression tests for issue #555.
+
+    `winml quantize --precision <unknown>` must reject the value before
+    running quantization, instead of silently falling back to uint8/uint8
+    and printing "Success!".
+    """
+
+    @staticmethod
+    def _invoke(args):
+        from click.testing import CliRunner
+
+        from winml.modelkit.commands.quantize import quantize as quantize_cmd
+
+        return CliRunner().invoke(quantize_cmd, args, obj={}, catch_exceptions=False)
+
+    @pytest.mark.parametrize(
+        "bad_precision",
+        ["banana", "w4a16", "int4", "fp64"],
+    )
+    def test_unknown_precision_rejected(self, tmp_path, bad_precision):
+        model, _ = TestQuantizeCliConfigPrecedence._setup(tmp_path)
+        ran: dict[str, bool] = {"called": False}
+
+        def fake_quantize(*_args, **_kwargs):
+            ran["called"] = True
+            raise AssertionError("quantize_onnx must not be called for invalid precision")
+
+        with patch("winml.modelkit.quant.quantize_onnx", side_effect=fake_quantize):
+            r = self._invoke(["-m", str(model), "--precision", bad_precision])
+
+        assert r.exit_code != 0, r.output
+        assert "not a supported quantization precision" in r.output
+        assert ran["called"] is False

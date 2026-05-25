@@ -176,20 +176,17 @@ class TestWinMLSessionProviders:
         """
         Test that session providers are valid and include CPU fallback.
 
-        With policy-based selection (PREFER_NPU), ORT dynamically selects
-        providers at session creation time. The key requirements are:
+        With device="auto", ``resolve_device`` walks the device priority list
+        (NPU > GPU > CPU) and picks the first one that has a compatible EP
+        available on this system. On a CPU-only runner this falls back to CPU.
+        The key requirements are:
         1. Session initializes successfully
         2. At least one provider is active
         3. CPUExecutionProvider is available as fallback
-
-        Note: WinML-registered EPs (like QNN) may be selected dynamically
-        via set_provider_selection_policy() even if not listed in
-        get_available_providers() beforehand.
         """
-        # Create session with NPU preference
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
-            device="npu",  # PREFER_NPU policy
+            device="auto",
         )
 
         # Run to trigger lazy init
@@ -366,6 +363,188 @@ class TestWinMLSessionMetadata:
         assert io_cfg["input_shapes"] == [[1, 4]]
 
 
+class TestWinMLSessionPrecisionDetection:
+    """Test `_get_precision` estimation across the detection ladder."""
+
+    @staticmethod
+    def _save(model, path: Path) -> Path:
+        from onnx import save
+
+        save(model, str(path))
+        return path
+
+    def test_precision_fp32_from_initializers(self, simple_matmul_onnx: Path):
+        """Float initializers (fp32) → 'fp32'."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="auto")
+        assert session.io_config["precision"] == "fp32"
+
+    def test_precision_fp16_from_initializers(self, tmp_path: Path):
+        """Float initializers (fp16) → 'fp16'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT16, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT16, [1, 4])
+        b_vals = np.random.randn(4, 4).astype(np.float16)
+        b = helper.make_tensor("B", TensorProto.FLOAT16, [4, 4], b_vals.tobytes(), raw=True)
+        node = helper.make_node("MatMul", ["A", "B"], ["C"])
+        graph = helper.make_graph([node], "fp16", [a], [c], [b])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "fp16.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "fp16"
+
+    def test_precision_int8_from_qdq(self, tmp_path: Path):
+        """QDQ pair with int8 zero_point on a weight initializer → 'int8'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+
+        w_q = helper.make_tensor(
+            "W_q",
+            TensorProto.INT8,
+            [4, 4],
+            np.zeros((4, 4), dtype=np.int8).tobytes(),
+            raw=True,
+        )
+        w_scale = helper.make_tensor("W_scale", TensorProto.FLOAT, [], [0.1])
+        w_zp = helper.make_tensor(
+            "W_zp", TensorProto.INT8, [], np.array([0], dtype=np.int8).tobytes(), raw=True
+        )
+
+        dq = helper.make_node("DequantizeLinear", ["W_q", "W_scale", "W_zp"], ["W"], name="dq")
+        matmul = helper.make_node("MatMul", ["A", "W"], ["C"], name="mm")
+
+        graph = helper.make_graph([dq, matmul], "qdq_int8", [a], [c], [w_q, w_scale, w_zp])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "qdq_int8.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "int8"
+
+    def test_precision_w8a16_mixed_qdq(self, tmp_path: Path):
+        """Activation quantized to uint16 + weight to int8 → 'w8a16'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+
+        # Activation Q→DQ with uint16 zero_point (dynamic input → activation side)
+        a_scale = helper.make_tensor("A_scale", TensorProto.FLOAT, [], [0.05])
+        a_zp = helper.make_tensor(
+            "A_zp",
+            TensorProto.UINT16,
+            [],
+            np.array([0], dtype=np.uint16).tobytes(),
+            raw=True,
+        )
+        q_act = helper.make_node("QuantizeLinear", ["A", "A_scale", "A_zp"], ["A_q"], name="q_act")
+        dq_act = helper.make_node(
+            "DequantizeLinear", ["A_q", "A_scale", "A_zp"], ["A_d"], name="dq_act"
+        )
+
+        # Weight DQ with int8 zero_point (initializer → weight side)
+        w_q = helper.make_tensor(
+            "W_q",
+            TensorProto.INT8,
+            [4, 4],
+            np.zeros((4, 4), dtype=np.int8).tobytes(),
+            raw=True,
+        )
+        w_scale = helper.make_tensor("W_scale", TensorProto.FLOAT, [], [0.1])
+        w_zp = helper.make_tensor(
+            "W_zp", TensorProto.INT8, [], np.array([0], dtype=np.int8).tobytes(), raw=True
+        )
+        dq_w = helper.make_node("DequantizeLinear", ["W_q", "W_scale", "W_zp"], ["W"], name="dq_w")
+
+        matmul = helper.make_node("MatMul", ["A_d", "W"], ["C"], name="mm")
+
+        graph = helper.make_graph(
+            [q_act, dq_act, dq_w, matmul],
+            "qdq_w8a16",
+            [a],
+            [c],
+            [a_scale, a_zp, w_q, w_scale, w_zp],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "qdq_w8a16.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "w8a16"
+
+    def test_precision_matmulnbits_w4a16(self, tmp_path: Path):
+        """MatMulNBits with bits=4 + fp16 initializers → 'w4a16'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT16, [1, 32])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT16, [1, 16])
+
+        # MatMulNBits packed-weight + scales (dummy shapes — schema doesn't validate)
+        w_packed = helper.make_tensor(
+            "W",
+            TensorProto.UINT8,
+            [16, 1, 16],
+            np.zeros((16, 1, 16), dtype=np.uint8).tobytes(),
+            raw=True,
+        )
+        scales = helper.make_tensor(
+            "scales",
+            TensorProto.FLOAT16,
+            [16],
+            np.ones(16, dtype=np.float16).tobytes(),
+            raw=True,
+        )
+
+        node = helper.make_node(
+            "MatMulNBits",
+            ["A", "W", "scales"],
+            ["C"],
+            domain="com.microsoft",
+            K=32,
+            N=16,
+            bits=4,
+            block_size=32,
+        )
+
+        graph = helper.make_graph([node], "mmnbits_w4", [a], [c], [w_packed, scales])
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 13),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "mmnbits_w4.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "w4a16"
+
+    def test_precision_no_signal_returns_none(self, tmp_path: Path):
+        """No QDQ ops, no MatMulNBits, no float initializers → None."""
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.INT64, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.INT64, [1, 4])
+
+        identity = helper.make_node("Identity", ["A"], ["C"])
+        graph = helper.make_graph([identity], "no_signal", [a], [c])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "no_signal.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] is None
+
+
 @pytest.mark.skip(reason="Re-batching not yet implemented")
 class TestWinMLSessionReBatching:
     """Test re-batching for static batch size models."""
@@ -526,7 +705,7 @@ class TestWinMLSessionExplicitProviders:
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device="cpu",
-            ep_config=EPConfig(provider="cpu", provider_options={"CPUExecutionProvider": {}}),
+            ep_config=EPConfig(provider="cpu"),
         )
 
         outputs = session.run(sample_input)
@@ -540,16 +719,86 @@ class TestWinMLSessionExplicitProviders:
         simple_matmul_onnx: Path,
         sample_input: dict[str, np.ndarray],
     ):
-        """Test ep_config.provider_options dict is passed correctly."""
-        # CPU provider doesn't need options, but we verify the parameter works
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="cpu",
-            ep_config=EPConfig(provider="cpu", provider_options={"CPUExecutionProvider": {}}),
-        )
+        """Verify ep_config.provider_options is forwarded to add_provider_for_devices."""
+        from unittest.mock import patch
 
-        outputs = session.run(sample_input)
+        import onnxruntime as ort
+
+        options = {"arbitrary_key": "arbitrary_value"}
+        captured: list[dict[str, str]] = []
+        real_method = ort.SessionOptions.add_provider_for_devices
+
+        def spy(self_sess, ep_devices, provider_opts):
+            captured.append(dict(provider_opts))
+            return real_method(self_sess, ep_devices, provider_opts)
+
+        with patch.object(ort.SessionOptions, "add_provider_for_devices", spy):
+            session = WinMLSession(
+                onnx_path=simple_matmul_onnx,
+                device="cpu",
+                ep_config=EPConfig(provider="cpu", provider_options=options),
+            )
+            outputs = session.run(sample_input)
+
+        assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
         assert "C" in outputs
+
+    def test_explicit_ep_and_device_both_required(self, simple_matmul_onnx: Path):
+        """Regression: ep=qnn + device=cpu must bind QNN-on-CPU, not QNN-on-NPU.
+
+        When both filters are set, ``add_ep_for_device`` must match ep_name
+        AND device_type. Previously the explicit-EP path ignored device, so
+        listing order in ``ort.get_ep_devices()`` decided the binding and
+        ``--ep qnn --device cpu`` could silently land on QNN-on-NPU.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        import onnxruntime as ort
+
+        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
+
+        # NPU listed first (the trap); CPU second (the correct pick).
+        npu_dev = SimpleNamespace(
+            ep_name="QNNExecutionProvider",
+            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.NPU),
+        )
+        cpu_dev = SimpleNamespace(
+            ep_name="QNNExecutionProvider",
+            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.CPU),
+        )
+        captured: list = []
+
+        def spy(self_so, devs, opts):
+            captured.append(devs[0].device.type)
+
+        _get_device_ep_map_from_ort.cache_clear()
+        try:
+            with (
+                patch("onnxruntime.get_ep_devices", return_value=[npu_dev, cpu_dev]),
+                patch(
+                    "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+                    return_value={
+                        "cpu": ("QNNExecutionProvider",),
+                        "npu": ("QNNExecutionProvider",),
+                    },
+                ),
+                patch.object(ort.SessionOptions, "add_provider_for_devices", spy),
+            ):
+                session = WinMLSession(
+                    onnx_path=simple_matmul_onnx,
+                    device="cpu",
+                    ep="qnn",
+                )
+                # Drive the binding without building a real InferenceSession,
+                # since the mock ep_devices would not load.
+                session._build_session_options("cpu")
+        finally:
+            _get_device_ep_map_from_ort.cache_clear()
+
+        assert captured == [ort.OrtHardwareDeviceType.CPU], (
+            f"binding picked the wrong device: {captured}"
+        )
 
 
 class TestWinMLSessionPerfTracking:
@@ -709,99 +958,6 @@ class TestWinMLSessionPerfTracking:
         assert stats.count == 3  # 5 - 2 warmup
         assert stats.mean_ms > 0
         assert stats.p99_ms > 0
-
-
-class TestFindEpDevice:
-    """Tests for WinMLSession._find_ep_device combined ep_name + device filter.
-
-    Regression guard: when both filters are set, both must match (AND logic).
-    Previously these were two separate methods and the explicit-EP path
-    ignored device, so `--ep qnn --device cpu` could return QNN-on-NPU.
-    """
-
-    @staticmethod
-    def _ep_dev(name: str, dev_type) -> object:
-        """Build a fake OrtEpDevice-like object."""
-        from types import SimpleNamespace
-
-        return SimpleNamespace(ep_name=name, device=SimpleNamespace(type=dev_type))
-
-    def _patch_devices(self, devices: list) -> object:
-        """Return a contextmanager that patches ort.get_ep_devices."""
-        from unittest.mock import patch
-
-        return patch(
-            "winml.modelkit.session.session.ort.get_ep_devices",
-            return_value=devices,
-        )
-
-    def test_ep_name_only(self) -> None:
-        """ep_name filter with device='auto' returns first matching name."""
-        import onnxruntime as ort
-
-        devs = [
-            self._ep_dev("DmlExecutionProvider", ort.OrtHardwareDeviceType.GPU),
-            self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(device="auto", ep_name="QNNExecutionProvider")
-        assert match is not None
-        assert match.ep_name == "QNNExecutionProvider"
-
-    def test_device_only(self) -> None:
-        """device filter alone returns first matching device type."""
-        import onnxruntime as ort
-
-        devs = [
-            self._ep_dev("CPUExecutionProvider", ort.OrtHardwareDeviceType.CPU),
-            self._ep_dev("DmlExecutionProvider", ort.OrtHardwareDeviceType.GPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(device="gpu")
-        assert match is not None
-        assert match.ep_name == "DmlExecutionProvider"
-
-    def test_ep_name_and_device_both_required(self) -> None:
-        """When both filters are set, both must match (AND logic)."""
-        import onnxruntime as ort
-
-        devs = [
-            # QNN-on-NPU comes first; user asks for QNN-on-CPU
-            self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU),
-            self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.CPU),
-        ]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(ep_name="QNNExecutionProvider", device="cpu")
-        assert match is not None
-        assert match.device.type == ort.OrtHardwareDeviceType.CPU
-
-    def test_no_match_returns_none(self) -> None:
-        """Non-matching combination returns None even if individual filters would match."""
-        import onnxruntime as ort
-
-        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(ep_name="QNNExecutionProvider", device="cpu")
-        assert match is None
-
-    def test_auto_device_acts_as_no_filter(self) -> None:
-        """device='auto' falls back to ep_name-only matching."""
-        import onnxruntime as ort
-
-        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
-        with self._patch_devices(devs):
-            match = WinMLSession._find_ep_device(ep_name="QNNExecutionProvider", device="auto")
-        assert match is not None
-        assert match.ep_name == "QNNExecutionProvider"
-
-    def test_ep_none_and_device_auto_returns_none(self) -> None:
-        """ep_name=None and device='auto' → None (no effective filter)."""
-        import onnxruntime as ort
-
-        devs = [self._ep_dev("QNNExecutionProvider", ort.OrtHardwareDeviceType.NPU)]
-        with self._patch_devices(devs):
-            assert WinMLSession._find_ep_device(device="auto") is None
-            assert WinMLSession._find_ep_device(device="auto", ep_name=None) is None
 
 
 @pytest.mark.ep("openvino")
