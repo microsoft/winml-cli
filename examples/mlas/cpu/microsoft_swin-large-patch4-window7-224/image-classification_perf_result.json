@@ -1,0 +1,53 @@
+{
+  "benchmark_info": {
+    "model_id": "microsoft/swin-large-patch4-window7-224",
+    "task": "image-classification",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T08:40:39.371575+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1000
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 187.85,
+    "min": 178.27,
+    "max": 193.25,
+    "p50": 189.87,
+    "p90": 193.25,
+    "p95": 193.25,
+    "p99": 193.25,
+    "std": 4.99
+  },
+  "throughput": {
+    "samples_per_sec": 5.32,
+    "batches_per_sec": 5.32
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

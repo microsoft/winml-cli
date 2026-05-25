@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "BAAI/bge-base-en-v1.5",
+    "task": "sentence-similarity",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T03:05:28.839639+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 5.38,
+    "min": 5.35,
+    "max": 5.42,
+    "p50": 5.37,
+    "p90": 5.42,
+    "p95": 5.42,
+    "p99": 5.42,
+    "std": 0.02
+  },
+  "throughput": {
+    "samples_per_sec": 185.99,
+    "batches_per_sec": 185.99
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

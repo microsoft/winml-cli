@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "openai/clip-vit-base-patch32",
+    "task": "feature-extraction",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T22:03:04.049032+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        77
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "text_embeds"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 1.14,
+    "min": 1.13,
+    "max": 1.16,
+    "p50": 1.14,
+    "p90": 1.16,
+    "p95": 1.16,
+    "p99": 1.16,
+    "std": 0.01
+  },
+  "throughput": {
+    "samples_per_sec": 878.98,
+    "batches_per_sec": 878.98
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+    "task": "sentence-similarity",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T11:10:16.854598+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 210.12,
+    "min": 204.7,
+    "max": 217.37,
+    "p50": 210.1,
+    "p90": 217.37,
+    "p95": 217.37,
+    "p99": 217.37,
+    "std": 3.5
+  },
+  "throughput": {
+    "samples_per_sec": 4.76,
+    "batches_per_sec": 4.76
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

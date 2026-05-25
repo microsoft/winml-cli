@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "ProsusAI/finbert",
+    "task": "text-classification",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T02:46:40.745659+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        3
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 209.85,
+    "min": 194.59,
+    "max": 219.58,
+    "p50": 212.63,
+    "p90": 219.58,
+    "p95": 219.58,
+    "p99": 219.58,
+    "std": 7.76
+  },
+  "throughput": {
+    "samples_per_sec": 4.77,
+    "batches_per_sec": 4.77
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

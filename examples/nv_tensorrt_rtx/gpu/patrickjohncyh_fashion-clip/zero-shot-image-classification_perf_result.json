@@ -1,0 +1,64 @@
+{
+  "benchmark_info": {
+    "model_id": "patrickjohncyh/fashion-clip",
+    "task": "zero-shot-image-classification",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T22:19:40.640306+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values",
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ],
+      [
+        1,
+        77
+      ]
+    ],
+    "input_types": [
+      "float32",
+      "int32"
+    ],
+    "output_names": [
+      "image_embeds",
+      "text_embeds"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ],
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 13.43,
+    "min": 13.35,
+    "max": 13.5,
+    "p50": 13.43,
+    "p90": 13.5,
+    "p95": 13.5,
+    "p99": 13.5,
+    "std": 0.05
+  },
+  "throughput": {
+    "samples_per_sec": 74.44,
+    "batches_per_sec": 74.44
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

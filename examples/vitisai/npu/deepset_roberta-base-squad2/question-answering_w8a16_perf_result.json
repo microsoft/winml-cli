@@ -1,0 +1,51 @@
+{
+  "benchmark_info": {
+    "model_id": "deepset/roberta-base-squad2",
+    "task": "question-answering",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "w8a16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T13:05:56.789485+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "start_logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 111.2,
+    "min": 104.86,
+    "max": 114.52,
+    "p50": 111.73,
+    "p90": 114.52,
+    "p95": 114.52,
+    "p99": 114.52,
+    "std": 2.41
+  },
+  "throughput": {
+    "samples_per_sec": 8.99,
+    "batches_per_sec": 8.99
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

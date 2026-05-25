@@ -1,0 +1,55 @@
+{
+  "benchmark_info": {
+    "model_id": "mattmdjaga/segformer_b2_clothes",
+    "task": "image-segmentation",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "w8a16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T18:55:33.506430+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        512,
+        512
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        18,
+        128,
+        128
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 545.79,
+    "min": 528.25,
+    "max": 564.27,
+    "p50": 546.32,
+    "p90": 564.27,
+    "p95": 564.27,
+    "p99": 564.27,
+    "std": 11.15
+  },
+  "throughput": {
+    "samples_per_sec": 1.83,
+    "batches_per_sec": 1.83
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+    "task": "token-classification",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T04:27:56.910876+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        9
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 759.46,
+    "min": 754.46,
+    "max": 766.75,
+    "p50": 759.67,
+    "p90": 766.75,
+    "p95": 766.75,
+    "p99": 766.75,
+    "std": 3.62
+  },
+  "throughput": {
+    "samples_per_sec": 1.32,
+    "batches_per_sec": 1.32
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

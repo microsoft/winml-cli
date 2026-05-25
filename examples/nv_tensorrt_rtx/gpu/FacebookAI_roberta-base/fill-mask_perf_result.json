@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "FacebookAI/roberta-base",
+    "task": "fill-mask",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T03:42:49.313180+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        50265
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 130.52,
+    "min": 130.34,
+    "max": 131.11,
+    "p50": 130.4,
+    "p90": 131.11,
+    "p95": 131.11,
+    "p99": 131.11,
+    "std": 0.27
+  },
+  "throughput": {
+    "samples_per_sec": 7.66,
+    "batches_per_sec": 7.66
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

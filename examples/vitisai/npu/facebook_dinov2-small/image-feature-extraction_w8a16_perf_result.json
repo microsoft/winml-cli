@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "facebook/dinov2-small",
+    "task": "image-feature-extraction",
+    "device": "npu",
+    "ep": "VitisAIExecutionProvider",
+    "precision": "w8a16",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T14:25:30.232920+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        257,
+        384
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 68.96,
+    "min": 66.0,
+    "max": 72.2,
+    "p50": 69.91,
+    "p90": 72.2,
+    "p95": 72.2,
+    "p99": 72.2,
+    "std": 2.16
+  },
+  "throughput": {
+    "samples_per_sec": 14.5,
+    "batches_per_sec": 14.5
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

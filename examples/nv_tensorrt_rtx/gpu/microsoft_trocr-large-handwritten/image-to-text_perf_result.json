@@ -1,0 +1,66 @@
+{
+  "benchmark_info": {
+    "model_id": "microsoft/trocr-large-handwritten",
+    "task": "image-to-text",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T21:11:39.330427+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "decoder_input_ids",
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        3,
+        384,
+        384
+      ]
+    ],
+    "input_types": [
+      "int32",
+      "float32"
+    ],
+    "output_names": [
+      "logits",
+      "encoder_hidden_states"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1,
+        50265
+      ],
+      [
+        1,
+        577,
+        1024
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 71.74,
+    "min": 71.56,
+    "max": 71.99,
+    "p50": 71.72,
+    "p90": 71.99,
+    "p95": 71.99,
+    "p99": 71.99,
+    "std": 0.13
+  },
+  "throughput": {
+    "samples_per_sec": 13.94,
+    "batches_per_sec": 13.94
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

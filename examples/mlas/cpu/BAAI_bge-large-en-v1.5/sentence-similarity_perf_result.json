@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "BAAI/bge-large-en-v1.5",
+    "task": "sentence-similarity",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T01:06:08.672525+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        1024
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 807.95,
+    "min": 787.18,
+    "max": 829.52,
+    "p50": 810.93,
+    "p90": 829.52,
+    "p95": 829.52,
+    "p99": 829.52,
+    "std": 13.21
+  },
+  "throughput": {
+    "samples_per_sec": 1.24,
+    "batches_per_sec": 1.24
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

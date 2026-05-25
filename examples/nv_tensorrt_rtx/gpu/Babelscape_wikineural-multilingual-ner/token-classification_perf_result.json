@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "Babelscape/wikineural-multilingual-ner",
+    "task": "token-classification",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T03:39:30.707504+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        9
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 3.41,
+    "min": 3.32,
+    "max": 3.74,
+    "p50": 3.34,
+    "p90": 3.74,
+    "p95": 3.74,
+    "p99": 3.74,
+    "std": 0.15
+  },
+  "throughput": {
+    "samples_per_sec": 293.2,
+    "batches_per_sec": 293.2
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

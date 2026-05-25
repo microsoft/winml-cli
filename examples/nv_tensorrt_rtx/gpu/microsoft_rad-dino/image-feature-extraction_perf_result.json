@@ -1,0 +1,54 @@
+{
+  "benchmark_info": {
+    "model_id": "microsoft/rad-dino",
+    "task": "image-feature-extraction",
+    "device": "gpu",
+    "ep": "NvTensorRTRTXExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T20:09:38.966042+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        518,
+        518
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        1370,
+        768
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 27.65,
+    "min": 24.29,
+    "max": 29.34,
+    "p50": 29.23,
+    "p90": 29.34,
+    "p95": 29.34,
+    "p99": 29.34,
+    "std": 2.21
+  },
+  "throughput": {
+    "samples_per_sec": 36.17,
+    "batches_per_sec": 36.17
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

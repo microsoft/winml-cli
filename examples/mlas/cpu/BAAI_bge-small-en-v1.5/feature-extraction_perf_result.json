@@ -1,0 +1,52 @@
+{
+  "benchmark_info": {
+    "model_id": "BAAI/bge-small-en-v1.5",
+    "task": "feature-extraction",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T01:25:34.845481+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "input_ids"
+    ],
+    "input_shapes": [
+      [
+        1,
+        512
+      ]
+    ],
+    "input_types": [
+      "int32"
+    ],
+    "output_names": [
+      "last_hidden_state"
+    ],
+    "output_shapes": [
+      [
+        1,
+        512,
+        384
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 89.99,
+    "min": 88.36,
+    "max": 91.87,
+    "p50": 90.71,
+    "p90": 91.87,
+    "p95": 91.87,
+    "p99": 91.87,
+    "std": 1.34
+  },
+  "throughput": {
+    "samples_per_sec": 11.11,
+    "batches_per_sec": 11.11
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}

@@ -1,0 +1,53 @@
+{
+  "benchmark_info": {
+    "model_id": "rizvandwiki/gender-classification",
+    "task": "image-classification",
+    "device": "cpu",
+    "ep": "MLASExecutionProvider",
+    "precision": "auto",
+    "iterations": 10,
+    "warmup": 2,
+    "batch_size": 1,
+    "timestamp": "2026-05-21T10:47:56.912434+00:00"
+  },
+  "model_info": {
+    "input_names": [
+      "pixel_values"
+    ],
+    "input_shapes": [
+      [
+        1,
+        3,
+        224,
+        224
+      ]
+    ],
+    "input_types": [
+      "float32"
+    ],
+    "output_names": [
+      "logits"
+    ],
+    "output_shapes": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  "latency_ms": {
+    "mean": 65.83,
+    "min": 63.71,
+    "max": 70.57,
+    "p50": 65.36,
+    "p90": 70.57,
+    "p95": 70.57,
+    "p99": 70.57,
+    "std": 2.02
+  },
+  "throughput": {
+    "samples_per_sec": 15.19,
+    "batches_per_sec": 15.19
+  },
+  "_source": "imported_from_e2e_coverage_2026-05-20"
+}
