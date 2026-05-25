@@ -32,14 +32,13 @@ logger = logging.getLogger(__name__)
 if sys.platform == "win32":
     import ctypes
     import msvcrt
-    from ctypes import wintypes
 
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _k32.GetStdHandle.argtypes = [wintypes.DWORD]
-    _k32.GetStdHandle.restype = wintypes.HANDLE
-    _k32.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
-    _k32.SetStdHandle.restype = wintypes.BOOL
-    _STD_ERROR_HANDLE = wintypes.DWORD(0xFFFFFFF4)
+    _k32.GetStdHandle.argtypes = [ctypes.wintypes.DWORD]
+    _k32.GetStdHandle.restype = ctypes.wintypes.HANDLE
+    _k32.SetStdHandle.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.HANDLE]
+    _k32.SetStdHandle.restype = ctypes.wintypes.BOOL
+    _STD_ERROR_HANDLE = ctypes.wintypes.DWORD(0xFFFFFFF4)
 
 
 # ---------------------------------------------------------------------------
