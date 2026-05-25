@@ -11,8 +11,8 @@
 
 | Precision | Models | Configs | Perf Pass | Eval Pass |
 |---|---|---|---|---|
-| fp16 | 48 | 56 | 1/56 (2%) | 26/56 (46%) |
-| w8a16 | 48 | 56 | 29/56 (52%) | 26/56 (46%) |
+| fp16 | 48 | 56 | 0/56 (0%) | 26/56 (46%) |
+| w8a16 | 48 | 56 | 30/56 (54%) | 26/56 (46%) |
 | w8a8 | 48 | 56 | 0/56 (0%) | 26/56 (46%) |
 
 ## Results
@@ -109,8 +109,8 @@
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | fp16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_fp16_config.json) | N/A | cosine_spearman=8.3614 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_fp16_eval_result.json)) |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | w8a16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a16_config.json) | 15.74ms, 63.5sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=-19.5126 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a16_eval_result.json)) |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | feature-extraction | w8a8 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a8_config.json) | N/A | cosine_spearman=-19.5126 ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/feature-extraction_w8a8_eval_result.json)) |
-| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification | fp16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_fp16_config.json) | 8.55ms, 117.0sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_fp16_perf_result.json)) | FAIL ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_fp16_eval_result.error.txt)) |
-| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification | w8a16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a16_config.json) | N/A | FAIL ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a16_eval_result.error.txt)) |
+| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification | fp16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_fp16_config.json) | N/A | FAIL ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_fp16_eval_result.error.txt)) |
+| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification | w8a16 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a16_config.json) | 8.55ms, 117.0sps ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a16_perf_result.json)) | FAIL ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a16_eval_result.error.txt)) |
 | laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification | w8a8 | [config](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a8_config.json) | N/A | FAIL ([metric](./laion_CLIP-ViT-B-32-laion2B-s34B-b79K/zero-shot-image-classification_w8a8_eval_result.error.txt)) |
 | laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification | fp16 | [config](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_fp16_config.json) | N/A | FAIL ([metric](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_fp16_eval_result.error.txt)) |
 | laion/CLIP-ViT-H-14-laion2B-s32B-b79K | zero-shot-image-classification | w8a16 | [config](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_w8a16_config.json) | N/A | FAIL ([metric](./laion_CLIP-ViT-H-14-laion2B-s32B-b79K/zero-shot-image-classification_w8a16_eval_result.error.txt)) |

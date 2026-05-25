@@ -4,8 +4,8 @@
 
 | EP | Models | Configs | Perf Pass | Eval Pass | Report |
 |----|--------|---------|-----------|-----------|--------|
-| AMD (VitisAI, NPU) - fp16 | 48 | 56 | 1/56 (2%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
-| AMD (VitisAI, NPU) - w8a16 | 48 | 56 | 29/56 (52%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - fp16 | 48 | 56 | 0/56 (0%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
+| AMD (VitisAI, NPU) - w8a16 | 48 | 56 | 30/56 (54%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
 | AMD (VitisAI, NPU) - w8a8 | 48 | 56 | 0/56 (0%) | 26/56 (46%) | [Report](vitisai/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - fp16 | 55 | 63 | 62/63 (98%) | 47/63 (75%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - w8a16 | 55 | 63 | 63/63 (100%) | 48/63 (76%) | [Report](qnn/npu/REPORT.md) |

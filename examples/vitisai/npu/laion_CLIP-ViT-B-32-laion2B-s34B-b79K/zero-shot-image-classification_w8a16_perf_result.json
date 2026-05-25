@@ -4,7 +4,7 @@
     "task": "zero-shot-image-classification",
     "device": "npu",
     "ep": "VitisAIExecutionProvider",
-    "precision": "fp16",
+    "precision": "w8a16",
     "iterations": 10,
     "warmup": 2,
     "batch_size": 1,
