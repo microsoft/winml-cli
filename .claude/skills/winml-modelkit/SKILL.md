@@ -19,12 +19,12 @@ ModelKit ships a CLI called `winml` that turns a source model — a Hugging Face
 
 When in doubt, include it — a five-line prereq block is cheaper than a stuck user.
 
-ModelKit pins **Python 3.10 exactly** (`>=3.10,<3.11`) — use `uv` to create an isolated venv so you don't pollute system Python or land on a 3.11+ environment that won't resolve.
+ModelKit pins **Python 3.11 exactly** (`>=3.11,<3.12`) — use `uv` to create an isolated venv so you don't pollute system Python or land on a 3.12+ environment that won't resolve.
 
-**1. Create a Python 3.10 environment**
+**1. Create a Python 3.11 environment**
 
 ```bash
-uv venv --python 3.10
+uv venv --python 3.11
 ```
 
 Activate it:
