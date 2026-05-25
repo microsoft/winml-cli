@@ -108,7 +108,11 @@ def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
             if device_name is not None:
                 result.setdefault(device_name.lower(), []).append(ep_device.ep_name)
     except Exception:
-        logger.debug("Failed to enumerate registered EP devices", exc_info=True)
+        # WARNING (not DEBUG): if ORT is installed but enumeration fails
+        # (driver bug, version mismatch, etc.) downstream code sees an empty
+        # map and raises "No execution providers detected" — the user needs
+        # the root cause visible at default verbosity to act on it.
+        logger.warning("Failed to enumerate registered EP devices", exc_info=True)
     return {dev: tuple(eps) for dev, eps in result.items()}
 
 
@@ -128,36 +132,16 @@ def _get_available_devices() -> tuple[str, ...]:
 
 @functools.lru_cache(maxsize=1)
 def _get_available_eps() -> frozenset[EPName]:
-    """Collect available EP names from WinML and ORT (cached).
+    """Return all EPs registered with ORT EP devices (cached).
 
-    Hardware and EPs do not change during a process lifetime,
-    so this result is cached via lru_cache.
-
-    Returns:
-        Frozenset of available EP name strings.
+    Derived from :func:`_get_device_ep_map_from_ort` so EP-availability checks
+    and error messages stay consistent — see the comment block at the top of
+    this module. Earlier implementations also queried WinMLEPRegistry and
+    ``ort.get_available_providers()``, but those can disagree with
+    ``ort.get_ep_devices()`` and produced contradictory diagnostics
+    ("EP X not available" while X appeared in the listed set).
     """
-    available_eps: set[EPName] = set()
-
-    try:
-        from ..session.ep_registry import WinMLEPRegistry
-
-        registry = WinMLEPRegistry.get_instance()
-        available_eps.update(registry.get_available_eps().keys())
-    except (ImportError, RuntimeError):
-        pass  # WinML not available
-    except Exception:
-        logger.warning("Unexpected error during WinML EP discovery", exc_info=True)
-
-    try:
-        import onnxruntime as ort
-
-        available_eps.update(ort.get_available_providers())
-    except (ImportError, RuntimeError):
-        pass  # ORT not installed
-    except Exception:
-        logger.warning("Unexpected error during ORT EP discovery", exc_info=True)
-
-    return frozenset(available_eps)
+    return frozenset(ep for eps in _get_device_ep_map_from_ort().values() for ep in eps)
 
 
 def resolve_device(

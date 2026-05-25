@@ -20,10 +20,16 @@ from winml.modelkit.sysinfo.device import (
 from winml.modelkit.utils.constants import EP_NAMES
 
 
-def _make_ep_device(device_type) -> MagicMock:
-    """Build a mock OrtEpDevice whose ``.device.type`` is ``device_type``."""
+def _make_ep_device(device_type, ep_name: str = "TestEP") -> MagicMock:
+    """Build a mock OrtEpDevice with ``.device.type`` and ``.ep_name`` set.
+
+    Both attributes matter to ``_get_device_ep_map_from_ort``: ``device.type``
+    keys the result map, and ``ep_name`` populates each value tuple. Tests
+    that don't care about the EP name can rely on the default.
+    """
     mock = MagicMock()
     mock.device.type = device_type
+    mock.ep_name = ep_name
     return mock
 
 
