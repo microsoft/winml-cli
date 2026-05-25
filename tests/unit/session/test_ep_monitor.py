@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -289,10 +290,13 @@ class TestPdhModule:
             pytest.skip("No NPU detected")
 
         query = build_npu_query(luid)
-        assert "utilization_pct" in query.counter_names
-        assert "running_time_ns" in query.counter_names
-        assert "memory_local_bytes" in query.counter_names
-        assert "memory_shared_bytes" in query.counter_names
+        names = query.counter_names
+        # build_npu_query registers one util_* and one running_time_* counter
+        # per Compute_* engine on the adapter, plus the shared memory pair.
+        assert any(n.startswith("util_Compute") for n in names)
+        assert any(n.startswith("running_time_Compute") for n in names)
+        assert "memory_local_bytes" in names
+        assert "memory_shared_bytes" in names
         query.close()
 
 
@@ -430,6 +434,67 @@ class TestPdhPoller:
         assert isinstance(result, list)
         for val in result:
             assert isinstance(val, float)
+
+    def test_poll_loop_takes_max_util_across_engines(self):
+        """`_poll_loop` must reduce per-engine ``util_*`` samples with max.
+
+        Pins the contract that multi-engine util collapses to the busiest
+        engine's reading -- a future swap to mean/sum would silently change
+        every perf summary, so guard it here.
+        """
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        poller = PdhPoller.__new__(PdhPoller)
+        poller._stop_event = threading.Event()
+        poller._lock = threading.Lock()
+        poller._poll_interval_s = 0.0
+        poller._util_samples = []
+        poller._memory_local_bytes = []
+        poller._memory_shared_bytes = []
+        poller._cpu_samples = []
+        poller._ram_used_bytes = []
+
+        sample = {
+            "util_Compute_0": 80.0,
+            "util_Compute_1": 30.0,
+            "util_3D": 10.0,
+            "memory_local_bytes": None,
+            "memory_shared_bytes": None,
+            "cpu_pct_raw": None,
+            "ram_working_set_bytes": None,
+        }
+
+        def collect_then_stop():
+            poller._stop_event.set()
+            return sample
+
+        poller._query = MagicMock()
+        poller._query._collect_once.side_effect = collect_then_stop
+
+        poller._poll_loop()
+
+        assert poller._util_samples == [80.0]
+
+    def test_running_time_delta_sums_across_engines(self):
+        """``running_time_delta_ns`` must add per-engine deltas.
+
+        Each engine's Running Time counter is independent wall-clock work,
+        so total adapter compute time is additive. A future swap to max
+        would silently halve numbers on multi-engine workloads.
+        """
+        from winml.modelkit.session.monitor._pdh import PdhPoller
+
+        poller = PdhPoller.__new__(PdhPoller)
+        poller._running_time_start_ns = {
+            "running_time_Compute_0": 1000,
+            "running_time_3D": 500,
+        }
+        poller._running_time_end_ns = {
+            "running_time_Compute_0": 1500,
+            "running_time_3D": 800,
+        }
+        # (1500 - 1000) + (800 - 500) = 800
+        assert poller.running_time_delta_ns == 800
 
 
 # ============================================================================
