@@ -28,7 +28,11 @@ from rich.console import Console
 
 
 logger = logging.getLogger(__name__)
+# `console` is stdout-bound — table/JSON output goes here.
+# `_stderr_console` is for banners and spinners so they never contaminate
+# stdout (important for `--format json` consumers parsing the output).
 console = Console()
+_stderr_console = Console(stderr=True, highlight=False)
 
 # File extensions that unambiguously indicate a local file path.
 # HF model IDs routinely contain dots in version numbers (Phi-3.5, Qwen2.5, …)
@@ -176,6 +180,15 @@ def inspect(
         if not _p.exists():
             raise click.ClickException(f"Local path '{model_id}' does not exist.")
 
+    # Print a banner BEFORE the heavy import chain / network calls so users
+    # see immediate feedback instead of ~14 s of silence and assume the
+    # command hung (see #543). Banner + spinner go to stderr so `--format
+    # json` consumers still get clean stdout. Suppressed in --quiet mode.
+    quiet = bool(ctx.obj and ctx.obj.get("quiet"))
+    target = model_id or model_type or model_class
+    if not quiet:
+        _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
+
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
     from ..inspect.formatter import output_json, output_table
 
@@ -188,13 +201,26 @@ def inspect(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     try:
-        result = _inspect_model_v2(
-            model_id=model_id,
-            task_override=task,
-            model_type_override=model_type,
-            model_class_override=model_class,
-            include_hierarchy=hierarchy,
-        )
+        if quiet:
+            result = _inspect_model_v2(
+                model_id=model_id,
+                task_override=task,
+                model_type_override=model_type,
+                model_class_override=model_class,
+                include_hierarchy=hierarchy,
+            )
+        else:
+            with _stderr_console.status(
+                f"[bold cyan]Resolving {target}…[/bold cyan]",
+                spinner="dots",
+            ):
+                result = _inspect_model_v2(
+                    model_id=model_id,
+                    task_override=task,
+                    model_type_override=model_type,
+                    model_class_override=model_class,
+                    include_hierarchy=hierarchy,
+                )
 
         if output_format.lower() == "json":
             click.echo(output_json(result, verbose=verbose))

@@ -14,8 +14,7 @@ from winml.modelkit.eval.image_to_text_evaluator import WinMLImageToTextEvaluato
 
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator with mocked dataset + pipeline."""
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {}
 
@@ -68,10 +67,11 @@ class TestAlignLabels:
 
 class TestRegistry:
     def test_registered(self):
-        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "image-to-text" in _EVALUATOR_REGISTRY
-        assert _EVALUATOR_REGISTRY["image-to-text"] is WinMLImageToTextEvaluator
+        # Registry stores "module:Class" strings now (lazy resolution).
+        assert get_evaluator_class("image-to-text") is WinMLImageToTextEvaluator
 
 
 class TestCompute:

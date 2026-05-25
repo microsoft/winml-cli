@@ -4,14 +4,16 @@
 # --------------------------------------------------------------------------
 from __future__ import annotations
 
-import sys
-import traceback
+import functools
+import logging
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
     from .utils.constants import EPName
 
+
+logger = logging.getLogger(__name__)
 
 _winml_instance: WinML | None = None
 
@@ -96,12 +98,12 @@ class WinML:
                     try:
                         module.register_execution_provider_library(name, path)
                         self._registered_eps[module.__name__].append(name)
-                    except Exception as e:
-                        print(
-                            f"Failed to register execution provider {name}: {e}",
-                            file=sys.stderr,
+                    except Exception:
+                        logger.exception(
+                            "Failed to register %s for module %s",
+                            name,
+                            module.__name__,
                         )
-                        traceback.print_exc()
         return self._registered_eps
 
 
@@ -119,16 +121,21 @@ def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> d
     return WinML().register_execution_providers(ort=ort, ort_genai=ort_genai)
 
 
-def get_registered_ep_devices() -> list[Any]:
+@functools.lru_cache(maxsize=1)
+def get_registered_ep_devices() -> tuple[Any, ...]:
     """Return ORT EP devices after ensuring WinML EPs are registered.
 
     This helper centralizes the common sequence used by callers that need the
     authoritative autoEP device list from ``onnxruntime.get_ep_devices()``.
+
+    Returns a tuple (not a list) because the result is cached via lru_cache —
+    a mutable container would let callers silently poison the cache for
+    every subsequent caller in the process.
     """
     import onnxruntime as ort
 
     register_execution_providers(ort=True)
-    return list(ort.get_ep_devices())
+    return tuple(ort.get_ep_devices())
 
 
 def add_ep_for_device(
@@ -136,7 +143,7 @@ def add_ep_for_device(
     ep_name: EPName,
     device_type: Any,
     ep_options: dict | None = None,
-) -> None:
+) -> bool:
     """Ensures correct EP device selection for WinML. NEVER modify this function.
 
     ep_name is one of:
@@ -158,8 +165,9 @@ def add_ep_for_device(
     ep_devices = ort.get_ep_devices()
     for ep_device in ep_devices:
         if ep_device.ep_name == ep_name and ep_device.device.type == device_type:
-            print(f"Adding {ep_name} for {device_type}")
+            logger.info("Adding %s for %s", ep_name, device_type)
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options
             )
-            break
+            return True
+    return False

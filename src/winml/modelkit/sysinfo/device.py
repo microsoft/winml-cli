@@ -10,7 +10,8 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
-from ..utils.constants import EP_SUPPORTED_DEVICES, EPName, normalize_ep_name
+from ..utils.constants import DEVICE_TYPE_TO_DEVICE, EP_SUPPORTED_DEVICES, EPName, normalize_ep_name
+from ..winml import get_registered_ep_devices
 
 
 if TYPE_CHECKING:
@@ -54,8 +55,12 @@ for _ep, _devices in EP_SUPPORTED_DEVICES.items():
     for _d in _devices:
         _DEVICE_EP_MAP.setdefault(_d, []).append(_ep)
 
-# Valid explicit device values
-_VALID_DEVICES = frozenset({"npu", "gpu", "cpu"})
+# Device priority for auto-selection. Order is significant — NPU is the
+# preferred accelerator, CPU is the safe fallback. Use this whenever an
+# ordered device list is needed; ``_VALID_DEVICES`` (below) is only for
+# fast membership checks.
+_DEVICE_PRIORITY: tuple[str, ...] = ("npu", "gpu", "cpu")
+_VALID_DEVICES = frozenset(_DEVICE_PRIORITY)
 
 
 def get_ep_device_map() -> dict[EPName, str]:
@@ -87,84 +92,56 @@ def get_device_ep_map() -> dict[str, list[EPName]]:
 
 
 @functools.lru_cache(maxsize=1)
+def _get_device_ep_map_from_ort() -> dict[str, tuple[EPName, ...]]:
+    """Return device -> EPs targeting it, derived from registered ORT EP devices.
+
+    Built from :func:`get_registered_ep_devices` (the authoritative ORT API
+    available in the Windows ML build). Single source of truth consumed by
+    :func:`_get_available_devices`, :func:`resolve_device`, and
+    :func:`resolve_eps`. Cached for the process lifetime since hardware/EPs
+    do not change at runtime.
+    """
+    result: dict[str, list[EPName]] = {}
+    try:
+        for ep_device in get_registered_ep_devices():
+            device_name = DEVICE_TYPE_TO_DEVICE.get(ep_device.device.type)
+            if device_name is not None:
+                result.setdefault(device_name.lower(), []).append(ep_device.ep_name)
+    except Exception:
+        # WARNING (not DEBUG): if ORT is installed but enumeration fails
+        # (driver bug, version mismatch, etc.) downstream code sees an empty
+        # map and raises "No execution providers detected" — the user needs
+        # the root cause visible at default verbosity to act on it.
+        logger.warning("Failed to enumerate registered EP devices", exc_info=True)
+    return {dev: tuple(eps) for dev, eps in result.items()}
+
+
+@functools.lru_cache(maxsize=1)
 def _get_available_devices() -> tuple[str, ...]:
     """Return prioritized tuple of available devices (cached).
 
-    Priority: NPU > GPU > CPU.
-    Always includes "cpu" as fallback.
-    Uses SysInfo hardware classes for detection.
-
-    Hardware does not change during a process lifetime, so this result is
-    cached via lru_cache (mirrors ``_get_available_eps``). Without this
-    cache, ``resolve_device`` calls within a single CLI invocation each
-    re-run Windows WMI/PowerShell subprocesses (~1.2s/call locally,
-    5-10x slower on cold CI), which on Windows CI runners has caused
-    user-facing commands like ``winml config -m <model> --device npu``
-    to balloon past 280s.
-
-    Returns a ``tuple`` (not ``list``) so the cached value is immutable
-    by construction — callers can't accidentally poison the cache.
-
-    This is an internal helper for :func:`resolve_device` and should not
-    be called directly by external code.
+    Derived from :func:`_get_device_ep_map`; only device types with at least
+    one registered EP appear. Priority order: NPU > GPU > CPU.
 
     Returns:
         Tuple like ("npu", "gpu", "cpu") with only available devices.
     """
-    devices: list[str] = []
-
-    try:
-        from .hardware import NPU
-
-        if NPU.get_all():
-            devices.append("npu")
-    except Exception:
-        logger.debug("NPU detection failed or unavailable")
-
-    try:
-        from .hardware import GPU
-
-        if GPU.get_all():
-            devices.append("gpu")
-    except Exception:
-        logger.debug("GPU detection failed or unavailable")
-
-    devices.append("cpu")  # CPU always available
-    return tuple(devices)
+    device_ep_map = _get_device_ep_map_from_ort()
+    return tuple(d for d in _DEVICE_PRIORITY if d in device_ep_map)
 
 
 @functools.lru_cache(maxsize=1)
 def _get_available_eps() -> frozenset[EPName]:
-    """Collect available EP names from WinML and ORT (cached).
+    """Return all EPs registered with ORT EP devices (cached).
 
-    Hardware and EPs do not change during a process lifetime,
-    so this result is cached via lru_cache.
-
-    Returns:
-        Frozenset of available EP name strings.
+    Derived from :func:`_get_device_ep_map_from_ort` so EP-availability checks
+    and error messages stay consistent — see the comment block at the top of
+    this module. Earlier implementations also queried WinMLEPRegistry and
+    ``ort.get_available_providers()``, but those can disagree with
+    ``ort.get_ep_devices()`` and produced contradictory diagnostics
+    ("EP X not available" while X appeared in the listed set).
     """
-    available_eps: set[EPName] = set()
-
-    try:
-        from ..session.ep_registry import WinMLEPRegistry
-
-        registry = WinMLEPRegistry.get_instance()
-        available_eps.update(registry.get_available_eps().keys())
-    except (ImportError, RuntimeError):
-        pass  # WinML not available
-    except Exception:
-        logger.warning("Unexpected error during WinML EP discovery", exc_info=True)
-
-    try:
-        import onnxruntime as ort
-
-        available_eps.update(ort.get_available_providers())
-    except (ImportError, RuntimeError):
-        pass  # ORT not installed
-    except Exception:
-        logger.warning("Unexpected error during ORT EP discovery", exc_info=True)
-
-    return frozenset(available_eps)
+    return frozenset(ep for eps in _get_device_ep_map_from_ort().values() for ep in eps)
 
 
 def resolve_device(
@@ -194,54 +171,39 @@ def resolve_device(
     if device != "auto" and device not in _VALID_DEVICES:
         raise ValueError(f"Unknown device '{device}'. Expected 'auto', 'npu', 'gpu', or 'cpu'.")
 
-    # Materialize cached tuple as a fresh list per call so that any
-    # caller mutation (e.g. `available.append(...)`) cannot poison the cache.
-    available_devices = list(_get_available_devices())
-    available_eps = _get_available_eps()
+    device_ep_map = dict(_get_device_ep_map_from_ort())
 
     if ep is not None:
         ep_full = normalize_ep_name(ep)
         if ep_full not in EP_SUPPORTED_DEVICES:
             raise ValueError(f"Unknown EP '{ep}'. Expected one of: {sorted(EP_SUPPORTED_DEVICES)}")
-        available_eps = available_eps & {ep_full}
-        if not available_eps:
+        device_ep_map = {dev: (ep_full,) for dev, eps in device_ep_map.items() if ep_full in eps}
+        if not device_ep_map:
             raise ValueError(
                 f"Requested EP '{ep}' is not available on this system. "
                 f"Available EPs: {sorted(_get_available_eps())}."
             )
 
-        ep_compatible_devices = set(EP_SUPPORTED_DEVICES[ep_full])
-        available_devices = [d for d in available_devices if d in ep_compatible_devices]
+    if not device_ep_map:
+        raise RuntimeError("No execution providers detected.")
 
-    if not available_eps:
-        logger.warning(
-            "No execution providers detected. Falling back to CPU. "
-            "Install onnxruntime or Windows App SDK for EP discovery."
-        )
+    available_devices = [d for d in _DEVICE_PRIORITY if d in device_ep_map]
 
     if device == "auto":
-        # Walk priority list, pick first device with a matching EP
-        for dev in available_devices:
-            compatible_eps = _DEVICE_EP_MAP.get(dev, [])
-            if any(ep_name in available_eps for ep_name in compatible_eps):
-                logger.info(
-                    "Auto-selected device '%s' with compatible EPs: %s for auto device",
-                    dev,
-                    sorted(ep_name for ep_name in compatible_eps if ep_name in available_eps),
-                )
-                return dev, available_devices
-        # Fallback: CPU is always valid
-        return "cpu", available_devices
+        chosen = available_devices[0]
+        logger.info(
+            "Auto-selected device '%s' with compatible EPs: %s for auto device",
+            chosen,
+            sorted(device_ep_map[chosen]),
+        )
+        return chosen, available_devices
 
     # Explicit device requested -- raise if no compatible EP is available.
-    # Falling through with a warning would write an unusable config that fails
-    # later at compile/inference time. (issue #431)
-    compatible_eps = _DEVICE_EP_MAP.get(device, [])
-    if not any(ep_name in available_eps for ep_name in compatible_eps):
+    if device not in device_ep_map:
         raise ValueError(
             f"Device '{device}' requested but no compatible EP is available. "
-            f"Compatible EPs: {compatible_eps}. "
-            f"Available EPs: {sorted(available_eps)}."
+            f"Compatible EPs: {_DEVICE_EP_MAP[device]}. "
+            f"Available EPs: {sorted(_get_available_eps())}."
         )
     return device, available_devices
 
@@ -258,5 +220,6 @@ def resolve_eps(resolved_device: str) -> list[EPName]:
         EPs from ``_DEVICE_EP_MAP[device]`` that are also currently
         advertised by ORT/WinML, in ``_DEVICE_EP_MAP`` priority order.
     """
-    available_eps = _get_available_eps()
-    return [ep for ep in _DEVICE_EP_MAP.get(resolved_device.lower(), []) if ep in available_eps]
+    device = resolved_device.lower()
+    available_eps = set(_get_device_ep_map_from_ort().get(device, ()))
+    return [ep for ep in _DEVICE_EP_MAP.get(device, []) if ep in available_eps]

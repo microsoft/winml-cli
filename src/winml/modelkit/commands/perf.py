@@ -828,16 +828,18 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             console.print(
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
-                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg"
+                f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
+                f"Mem: {ram.get('used_mb', 0):.0f} MB"
             )
             console.print(
-                f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB  |  "
-                f"Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
+                f"  Device Mem: {dev_mem.get('local_peak_mb', 0):.0f}/"
                 f"{dev_mem.get('shared_peak_mb', 0):.0f} MB (local/shared)"
             )
         else:
-            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg")
-            console.print(f"  Sys Mem: {ram.get('used_mb', 0):.0f} MB")
+            console.print(
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
+                f"Mem: {ram.get('used_mb', 0):.0f} MB"
+            )
 
     console.print()
 
