@@ -16,7 +16,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> dict[str, list[str]]:
+def register_execution_providers(
+    ort: bool = True, ort_genai: bool = False
+) -> dict[str, list[EPName]]:
     """Register WinML execution providers for ONNX Runtime and ONNX Runtime GenAI.
 
     Args:
@@ -24,19 +26,12 @@ def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> d
         ort_genai (bool): Whether to register for ONNX Runtime GenAI.
 
     Returns:
-        dict[str, list[str]]: Dictionary of registered execution provider names
+        dict[str, list[EPName]]: Dictionary of registered execution provider names
         by module.
     """
     from .session import WinMLEPRegistry
 
-    result = {}
-    if ort:
-        registry = WinMLEPRegistry.get_instance()
-        registered_eps = registry.register_to_ort()
-        result["onnxruntime"] = registered_eps
-    if ort_genai:
-        raise NotImplementedError("ONNX Runtime GenAI support is not yet implemented.")
-    return result
+    return WinMLEPRegistry.get_instance().register_execution_providers(ort=ort, ort_genai=ort_genai)
 
 
 @functools.lru_cache(maxsize=1)

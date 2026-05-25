@@ -52,7 +52,10 @@ class WinMLEPRegistry:
         self._initialized = True
 
         self._ep_paths: dict[EPName, str] = {}
-        self._registered_eps: list[EPName] = []
+        self._registered_eps: dict[str, list[EPName]] = {
+            "onnxruntime": [],
+            "onnxruntime_genai": [],
+        }
         self._winml_available = False
 
         self._discover_eps()
@@ -96,21 +99,47 @@ class WinMLEPRegistry:
             logger.warning("WinML not available, skipping EP registration")
             return []
 
-        import onnxruntime as ort
+        result = self.register_execution_providers(ort=True)
+        return result.get("onnxruntime", []).copy()
 
-        for name, dll_path in self._ep_paths.items():
-            if name in self._registered_eps:
-                continue
+    def register_execution_providers(
+        self, ort: bool = True, ort_genai: bool = False
+    ) -> dict[str, list[EPName]]:
+        """Register WinML execution providers for ONNX Runtime modules.
 
-            try:
-                # Use ORT's native EP registration API
-                ort.register_execution_provider_library(name, dll_path)
-                self._registered_eps.append(name)
-                logger.debug("Registered EP: %s -> %s", name, dll_path)
-            except Exception as e:
-                logger.warning("Failed to register EP %s: %s", name, e)
+        Args:
+            ort: Whether to register for ONNX Runtime.
+            ort_genai: Whether to register for ONNX Runtime GenAI.
 
-        return self._registered_eps.copy()
+        Returns:
+            Dictionary of registered execution provider names by module.
+        """
+        modules = []
+        if ort:
+            import onnxruntime
+
+            modules.append(onnxruntime)
+        if ort_genai:
+            import onnxruntime_genai  # type: ignore[import-not-found]
+
+            modules.append(onnxruntime_genai)
+        for name, path in self._ep_paths.items():
+            for module in modules:
+                if name not in self._registered_eps[module.__name__]:
+                    try:
+                        module.register_execution_provider_library(name, path)
+                        self._registered_eps[module.__name__].append(name)
+                        logger.debug(
+                            "Registered EP: %s from %s for module %s", name, path, module.__name__
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to register %s from %s for module %s",
+                            name,
+                            path,
+                            module.__name__,
+                        )
+        return self._registered_eps
 
     def get_ep_library_path(self, ep_name: EPName) -> str | None:
         """Get the library path for an EP."""
@@ -122,7 +151,7 @@ class WinMLEPRegistry:
 
     def get_registered_eps(self) -> list[EPName]:
         """Get list of EPs registered with ORT."""
-        return self._registered_eps.copy()
+        return self._registered_eps["onnxruntime"].copy()
 
     def is_ep_available(self, ep_name: EPName) -> bool:
         """Check if an EP is available."""
