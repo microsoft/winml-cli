@@ -1,11 +1,11 @@
 ---
-name: winml-modelkit
-description: Build, optimize, quantize, compile, and benchmark ONNX models for Windows ML using the `winml` CLI. Covers the Build-Your-Own-Model (BYOM) pipeline across NPU (Qualcomm QNN, Intel OpenVINO, AMD VitisAI), GPU, and CPU execution providers. Use this skill whenever the user wants to run a Hugging Face or ONNX model on a Windows AI PC, target an NPU, prepare a model for on-device inference, benchmark latency on Snapdragon X Elite / Intel Core Ultra / AMD Ryzen AI, or troubleshoot operator/EP compatibility — even when they don't say "ModelKit" or "winml" by name. If a user mentions running models on Windows hardware, NPU acceleration, or low-latency on-device inference, this skill applies. **Skip for generative models** — LLMs (GPT, LLaMA, Phi, Mistral), Stable Diffusion, Whisper, or any decoder-only / seq2seq architecture are out of scope (planned for late 2026).
+name: winml-cli
+description: Build, optimize, quantize, compile, and benchmark ONNX models for Windows ML using the `winml` CLI. Covers the Build-Your-Own-Model (BYOM) pipeline across NPU (Qualcomm QNN, Intel OpenVINO, AMD VitisAI), GPU, and CPU execution providers. Use this skill whenever the user wants to run a Hugging Face or ONNX model on a Windows AI PC, target an NPU, prepare a model for on-device inference, benchmark latency on Snapdragon X Elite / Intel Core Ultra / AMD Ryzen AI, or troubleshoot operator/EP compatibility — even when they don't say "winml" by name. If a user mentions running models on Windows hardware, NPU acceleration, or low-latency on-device inference, this skill applies. **Skip for generative models** — LLMs (GPT, LLaMA, Phi, Mistral), Stable Diffusion, Whisper, or any decoder-only / seq2seq architecture are out of scope (planned for late 2026).
 ---
 
-# WinML ModelKit
+# winml CLI
 
-ModelKit ships a CLI called `winml` that turns a source model — a Hugging Face ID or a local ONNX file — into a portable, performant artifact that runs on any Windows execution provider. This skill teaches you the *shape* of that workflow. The CLI is the source of truth for current commands and flags.
+`winml` is a CLI that turns a source model — a Hugging Face ID or a local ONNX file — into a portable, performant artifact that runs on any Windows execution provider. This skill teaches you the *shape* of that workflow. The CLI is the source of truth for current commands and flags.
 
 ## Installing the CLI
 
@@ -19,7 +19,7 @@ ModelKit ships a CLI called `winml` that turns a source model — a Hugging Face
 
 When in doubt, include it — a five-line prereq block is cheaper than a stuck user.
 
-ModelKit pins **Python 3.11 exactly** (`>=3.11,<3.12`) — use `uv` to create an isolated venv so you don't pollute system Python or land on a 3.12+ environment that won't resolve.
+`winml-cli` pins **Python 3.11 exactly** (`>=3.11,<3.12`) — use `uv` to create an isolated venv so you don't pollute system Python or land on a 3.12+ environment that won't resolve.
 
 **1. Create a Python 3.11 environment**
 
@@ -68,7 +68,7 @@ Inventing plausible-sounding flags (a `--preset`, `--profile`, `--mode=fast`) is
 
 ## The mental model
 
-ModelKit organizes work as a pipeline. Each stage is its own primitive command, and the output of one stage feeds the next:
+`winml` organizes work as a pipeline. Each stage is its own primitive command, and the output of one stage feeds the next:
 
 ```
 inspect → export → analyze → optimize → quantize → compile → perf
@@ -166,7 +166,7 @@ If you don't know what hardware the user has, ask, or run `winml sys` and read t
 
 **In scope.** Classic deep learning models — CNNs, encoders, vision transformers, NLP classifiers, NER, object detection, segmentation. Concretely: ResNet, ViT, Swin, ConvNeXT, BERT, RoBERTa, Table Transformer, SegFormer families. If the user passes one of these, the pipeline is designed to handle it.
 
-**Out of scope.** Generative and decoder-only architectures: GPT, LLaMA, Phi, Mistral, Stable Diffusion, any seq2seq generator. If a user asks ModelKit to handle one of these, **stop and say so** — the pipeline will fail mid-way and the error won't always make the cause obvious. LLM support (with LoRA) is on the public roadmap for late 2026; don't pretend it works today.
+**Out of scope.** Generative and decoder-only architectures: GPT, LLaMA, Phi, Mistral, Stable Diffusion, any seq2seq generator. If a user asks `winml` to handle one of these, **stop and say so** — the pipeline will fail mid-way and the error won't always make the cause obvious. LLM support (with LoRA) is on the public roadmap for late 2026; don't pretend it works today.
 
 If you're genuinely unsure whether a model is in scope, the inspect command is the source of truth. Trust its verdict over your guess.
 
@@ -181,7 +181,7 @@ If you're genuinely unsure whether a model is in scope, the inspect command is t
 
 ## When things go sideways
 
-Read the error before suggesting a next step. ModelKit error messages are usually specific (op name, EP, stage). When you don't know what to do:
+Read the error before suggesting a next step. `winml` error messages are usually specific (op name, EP, stage). When you don't know what to do:
 
 1. `winml <failing-command> --help` to confirm you used real flags.
 2. `winml sys --list-ep` to confirm the EP is actually registered on this machine.
