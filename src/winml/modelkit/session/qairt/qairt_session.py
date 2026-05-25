@@ -232,7 +232,7 @@ class WinMLQairtSession(WinMLSession):
         """Create ORT InferenceSession from EPContext model."""
         import onnxruntime as ort
 
-        sess_options = self._build_session_options(self._device)
+        sess_options, _, _ = self._build_session_options(self._device)
         self._session = ort.InferenceSession(str(self._ctx_path), sess_options=sess_options)
         self._state = SessionState.COMPILED
 

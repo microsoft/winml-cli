@@ -12,8 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval import EvalResult, WinMLEvaluationConfig
+from winml.modelkit.eval import DatasetConfig, EvalResult, WinMLEvaluationConfig
 
 
 class TestEvaluationConfig:
@@ -86,11 +85,25 @@ class TestGetEvaluatorClass:
     """Tests for get_evaluator_class registry lookup."""
 
     def test_registered_task_returns_class(self):
-        from winml.modelkit.eval import get_evaluator_class
+        from winml.modelkit.eval import WinMLEvaluator, get_evaluator_class
         from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
 
-        for task, expected_cls in _EVALUATOR_REGISTRY.items():
-            assert get_evaluator_class(task) is expected_cls
+        # _EVALUATOR_REGISTRY stores "module_path:ClassName" strings so that
+        # selecting one task does not eagerly import unrelated heavy
+        # evaluators (e.g. fill-mask, zero-shot-classification, which pull
+        # torch + transformers). Verify each entry resolves to a real
+        # WinMLEvaluator subclass.
+        for task, spec in _EVALUATOR_REGISTRY.items():
+            assert isinstance(spec, str) and ":" in spec, (
+                f"Registry value for {task!r} must be a 'module:Class' string."
+            )
+            cls = get_evaluator_class(task)
+            assert isinstance(cls, type)
+            assert issubclass(cls, WinMLEvaluator)
+            # The resolved class must match the qualified name in the spec.
+            module_path, class_name = spec.rsplit(":", 1)
+            assert cls.__module__ == module_path
+            assert cls.__name__ == class_name
 
     def test_unsupported_task_raises_value_error(self):
         from winml.modelkit.eval import get_evaluator_class
@@ -157,10 +170,12 @@ class TestEvaluate:
         with (
             patch.object(eval_mod, "_resolve_task", return_value="text-classification"),
             patch.object(eval_mod, "_load_model", return_value=MagicMock()),
+            # _EVALUATOR_REGISTRY now stores "module:Class" strings; patch the
+            # public resolver instead of injecting a callable into the dict.
             patch.object(
                 eval_mod,
-                "_EVALUATOR_REGISTRY",
-                {"text-classification": lambda *a: mock_evaluator},
+                "get_evaluator_class",
+                return_value=lambda *a: mock_evaluator,
             ),
         ):
             eval_mod.evaluate(config)
