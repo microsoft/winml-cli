@@ -89,6 +89,52 @@ TASK_ABBREV: dict[str, str] = {
 }
 
 
+# Canonical set of task names recognized by `winml inspect`.
+# Hand-coded so that `winml inspect --list-tasks` does not need to import
+# optimum.exporters (which transitively imports transformers and costs ~10s).
+# Synced with optimum.exporters.tasks.TasksManager.get_all_tasks() plus our
+# own HF_TASK_DEFAULTS entries; add new tasks here when optimum gains them.
+KNOWN_TASKS: frozenset[str] = frozenset(
+    {
+        "audio-classification",
+        "audio-frame-classification",
+        "audio-xvector",
+        "automatic-speech-recognition",
+        "depth-estimation",
+        "document-question-answering",
+        "feature-extraction",
+        "fill-mask",
+        "image-classification",
+        "image-feature-extraction",
+        "image-segmentation",
+        "image-text-to-text",
+        "image-to-image",
+        "image-to-text",
+        "inpainting",
+        "keypoint-detection",
+        "mask-generation",
+        "masked-im",
+        "multiple-choice",
+        "next-sentence-prediction",
+        "object-detection",
+        "question-answering",
+        "reinforcement-learning",
+        "semantic-segmentation",
+        "sentence-similarity",
+        "text-classification",
+        "text-generation",
+        "text-to-audio",
+        "text-to-image",
+        "text2text-generation",
+        "time-series-forecasting",
+        "token-classification",
+        "visual-question-answering",
+        "zero-shot-image-classification",
+        "zero-shot-object-detection",
+    }
+)
+
+
 # =============================================================================
 # Model Class Resolution
 # Lookup: MODEL_CLASS_MAPPING -> HF_TASK_DEFAULTS -> TasksManager default

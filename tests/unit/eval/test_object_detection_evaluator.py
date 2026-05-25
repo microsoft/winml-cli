@@ -8,8 +8,7 @@
 import pytest
 from datasets import ClassLabel, Dataset, Features, Sequence, Value
 
-from winml.modelkit.datasets import DatasetConfig
-from winml.modelkit.eval import WinMLEvaluator, WinMLObjectDetectionEvaluator
+from winml.modelkit.eval import DatasetConfig, WinMLEvaluator, WinMLObjectDetectionEvaluator
 from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 

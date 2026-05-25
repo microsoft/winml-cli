@@ -21,8 +21,7 @@ from winml.modelkit.eval import SpearmanCorrelationMetric, WinMLFeatureExtractio
 
 def make_evaluator(columns_mapping=None):
     """Instantiate evaluator by patching external dependencies."""
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {
         "input_column_1": "sentence1",
@@ -203,8 +202,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -236,8 +234,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_padding_without_tokenizer(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10

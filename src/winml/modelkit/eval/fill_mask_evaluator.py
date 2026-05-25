@@ -15,22 +15,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import torch
-import torch.nn.functional as F
 from tqdm import tqdm
-from transformers import AutoTokenizer
 
 from .base_evaluator import WinMLEvaluator
-from .metrics import PseudoPerplexityMetric
 
 
 if TYPE_CHECKING:
+    import torch
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
-    from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 
 class WinMLFillMaskEvaluator(WinMLEvaluator):
@@ -41,6 +37,8 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
+        from transformers import AutoTokenizer
+
         from ..utils.eval_utils import get_default
 
         mapping = config.dataset.columns_mapping
@@ -83,6 +81,9 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
         positions: list[int],
     ) -> torch.Tensor:
         """Return log P(original | context) at each position (one forward per position)."""
+        import torch
+        import torch.nn.functional as F
+
         input_ids = encoding["input_ids"]
         mask_id = self._tokenizer.mask_token_id
         log_probs: list[torch.Tensor] = []
@@ -99,6 +100,10 @@ class WinMLFillMaskEvaluator(WinMLEvaluator):
 
     def compute(self) -> dict[str, Any]:
         """Run pseudo-perplexity evaluation over the dataset."""
+        import torch
+
+        from .metrics import PseudoPerplexityMetric
+
         tok = self._tokenizer
         if tok.mask_token_id is None:
             raise RuntimeError(f"Tokenizer for {self.config.model_id} has no mask token.")
