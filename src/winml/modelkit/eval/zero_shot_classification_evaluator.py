@@ -33,9 +33,8 @@ if TYPE_CHECKING:
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
-    from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 
 class _FixedShapeZeroShotPipeline(ZeroShotClassificationPipeline):

@@ -78,7 +78,7 @@ def _build_dataset_config(ds_dict: dict, num_samples: int):
     The registry uses a "dataset" key (normalised from "path" by
     dataset_config.py).  DatasetConfig uses "path".
     """
-    from winml.modelkit.datasets.config import DatasetConfig
+    from winml.modelkit.eval.config import DatasetConfig
 
     columns_mapping = ds_dict.get("columns_mapping", {})
     if isinstance(columns_mapping, str):
