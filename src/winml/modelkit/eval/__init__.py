@@ -16,13 +16,6 @@ from typing import TYPE_CHECKING, Any
 from .base_evaluator import WinMLEvaluator
 from .config import DatasetConfig, WinMLEvaluationConfig
 from .evaluate import EvalResult, evaluate, get_evaluator_class
-from .metrics.classification import ClassificationMetric
-from .metrics.knn_accuracy import KNNAccuracyMetric
-from .metrics.mean_average_precision import MAPMetric
-from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
-from .metrics.pseudo_perplexity import PseudoPerplexityMetric
-from .metrics.spearman_correlation import SpearmanCorrelationMetric
-from .metrics.top_k_accuracy import TopKAccuracyMetric
 
 
 if TYPE_CHECKING:
@@ -31,6 +24,13 @@ if TYPE_CHECKING:
     from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
     from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
     from .image_to_text_evaluator import WinMLImageToTextEvaluator
+    from .metrics.classification import ClassificationMetric
+    from .metrics.knn_accuracy import KNNAccuracyMetric
+    from .metrics.mean_average_precision import MAPMetric
+    from .metrics.mean_iou import IGNORE_INDEX, MeanIoUMetric
+    from .metrics.pseudo_perplexity import PseudoPerplexityMetric
+    from .metrics.spearman_correlation import SpearmanCorrelationMetric
+    from .metrics.top_k_accuracy import TopKAccuracyMetric
     from .object_detection_evaluator import WinMLObjectDetectionEvaluator
     from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
     from .text_classification_evaluator import WinMLTextClassificationEvaluator
@@ -63,6 +63,23 @@ _LAZY_ATTRS: dict[str, str] = {
         ".zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator":
         ".zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
+    # Metrics (defer numpy / scipy / torch / torchmetrics until first use)
+    "ClassificationMetric":
+        ".metrics.classification:ClassificationMetric",
+    "IGNORE_INDEX":
+        ".metrics.mean_iou:IGNORE_INDEX",
+    "KNNAccuracyMetric":
+        ".metrics.knn_accuracy:KNNAccuracyMetric",
+    "MAPMetric":
+        ".metrics.mean_average_precision:MAPMetric",
+    "MeanIoUMetric":
+        ".metrics.mean_iou:MeanIoUMetric",
+    "PseudoPerplexityMetric":
+        ".metrics.pseudo_perplexity:PseudoPerplexityMetric",
+    "SpearmanCorrelationMetric":
+        ".metrics.spearman_correlation:SpearmanCorrelationMetric",
+    "TopKAccuracyMetric":
+        ".metrics.top_k_accuracy:TopKAccuracyMetric",
 }
 
 
