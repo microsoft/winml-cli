@@ -150,21 +150,21 @@ class TestWinMLSessionCompilation:
         assert session.state == SessionState.COMPILED
         assert session._session is first_session
 
-    def test_run_uses_epcontext_after_compile(self, simple_matmul_onnx: Path):
-        """Test that run() uses EPContext if compile() was called first."""
+    def test_run_succeeds_after_compile(self, simple_matmul_onnx: Path):
+        """Test that run() works after compile() was called first."""
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device="auto",
         )
 
-        # Pre-compile to create EPContext
         session.compile()
+        assert session.state == SessionState.COMPILED
+        assert session.is_compiled
 
-        # Run should use EPContext and create session
         sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
+        outputs = session.run(sample_input)
 
-        # Now session should be compiled
+        assert "C" in outputs
         assert session.is_compiled
         assert session.state == SessionState.COMPILED
 
