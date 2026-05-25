@@ -17,9 +17,12 @@ seconds on warm cache). These tests pin the gating logic:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from winml.modelkit.inspect.resolver import resolve_processor
+from winml.modelkit.inspect.resolver import (
+    _resolve_processor_from_auto_classes,
+    resolve_processor,
+)
 
 
 def _all_filled_hub_result() -> tuple[str, str, str, str]:
@@ -97,3 +100,67 @@ class TestResolveProcessorStrategy2Gating:
         assert kwargs["try_feature_extractor"] is True
         assert info.processor_class == "P"
         assert info.feature_extractor_class == "F"
+
+
+class TestAutoProcessorGatedOnTryProcessor:
+    """When ``try_processor=False`` we skip AutoProcessor entirely.
+
+    AutoProcessor.from_pretrained is the most expensive single Auto* call
+    (~3.5s warm), so callers that already know ``processor_class`` from
+    earlier strategies should not pay for it just to get sub-pieces.
+    """
+
+    def test_try_processor_false_skips_autoprocessor(self) -> None:
+        """try_processor=False → AutoProcessor.from_pretrained is NOT called."""
+        with (
+            patch("transformers.AutoProcessor.from_pretrained") as mock_ap,
+            patch("transformers.AutoTokenizer.from_pretrained") as mock_at,
+            patch("transformers.AutoImageProcessor.from_pretrained") as mock_aip,
+            patch("transformers.AutoFeatureExtractor.from_pretrained") as mock_afe,
+        ):
+            # Make the sub-callers succeed so we can verify they ran instead
+            mock_at.return_value = MagicMock(__class__=type("FakeTokenizer", (), {}))
+            mock_aip.return_value = MagicMock(__class__=type("FakeImgProc", (), {}))
+            mock_afe.return_value = MagicMock(__class__=type("FakeFeatExt", (), {}))
+
+            _resolve_processor_from_auto_classes(
+                "some/model",
+                try_processor=False,
+                try_tokenizer=True,
+                try_image_processor=True,
+                try_feature_extractor=True,
+            )
+
+        assert mock_ap.call_count == 0, (
+            "AutoProcessor.from_pretrained must be skipped when try_processor=False"
+        )
+        # The standalone Auto* calls still run for the fields we need
+        assert mock_at.call_count == 1
+        assert mock_aip.call_count == 1
+        assert mock_afe.call_count == 1
+
+    def test_try_processor_true_still_calls_autoprocessor(self) -> None:
+        """try_processor=True → AutoProcessor.from_pretrained runs as before."""
+        # Build a fake processor that does NOT supply sub-pieces, so the
+        # standalone Auto* calls below still fire for any field we need.
+        fake_processor = MagicMock(spec=[])  # no .tokenizer / .image_processor / etc.
+        fake_processor.__class__ = type("FakeProcessor", (), {})
+
+        with (
+            patch(
+                "transformers.AutoProcessor.from_pretrained",
+                return_value=fake_processor,
+            ) as mock_ap,
+            patch("transformers.AutoTokenizer.from_pretrained"),
+            patch("transformers.AutoImageProcessor.from_pretrained"),
+            patch("transformers.AutoFeatureExtractor.from_pretrained"),
+        ):
+            _resolve_processor_from_auto_classes(
+                "some/model",
+                try_processor=True,
+                try_tokenizer=False,
+                try_image_processor=False,
+                try_feature_extractor=False,
+            )
+
+        assert mock_ap.call_count == 1

@@ -1043,17 +1043,19 @@ def _resolve_processor_from_auto_classes(
     image_processor_class: str | None = None
     feature_extractor_class: str | None = None
 
-    # Try AutoProcessor first - for multimodal models.
-    # AutoProcessor's wrapper can supply tokenizer / image_processor /
-    # feature_extractor as a side effect, so we also run it when one of
-    # those is still needed even though the processor itself isn't.
-    if try_processor or try_tokenizer or try_image_processor or try_feature_extractor:
+    # Try AutoProcessor only when the processor class itself is needed.
+    # AutoProcessor.from_pretrained is the single most expensive Auto* call
+    # (~3.5s warm). When the caller only needs sub-pieces (tokenizer /
+    # image_processor / feature_extractor) we fall through to the standalone
+    # Auto* calls below, which are individually cheaper. AutoProcessor can
+    # still fill those sub-fields as a side effect on success — that's
+    # preserved here when ``try_processor`` is True.
+    if try_processor:
         try:
             from transformers import AutoProcessor
 
             processor = AutoProcessor.from_pretrained(model_id, use_fast=True)
-            if try_processor:
-                processor_class = type(processor).__name__
+            processor_class = type(processor).__name__
 
             # AutoProcessor may wrap tokenizer and image_processor
             if (
