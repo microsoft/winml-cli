@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 
@@ -57,6 +58,11 @@ _DEVICE_KINDS = ("npu", "gpu", "cpu", "auto")
 # ---------------------------------------------------------------------------
 _PDH_FMT_DOUBLE = 0x00000200
 _PDH_FMT_LARGE = 0x00000400
+# Disable PDH's default cap of percentage counters at 100. Required so that
+# `\Process V2(...)\% Processor Time` can return its true 0..N*100 range on
+# multi-core systems; without it a process saturating multiple cores reads
+# as a flat 100 and the per-CPU normalization underreports usage.
+_PDH_FMT_NOCAP100 = 0x00008000
 
 _pdh = ctypes.windll.pdh
 
@@ -174,7 +180,10 @@ class PdhQuery:
             if entry.fmt == _PDH_FMT_DOUBLE:
                 val = _PdhFmtDouble()
                 s = _pdh.PdhGetFormattedCounterValue(
-                    entry.handle, _PDH_FMT_DOUBLE, ctypes.byref(ct), ctypes.byref(val)
+                    entry.handle,
+                    _PDH_FMT_DOUBLE | _PDH_FMT_NOCAP100,
+                    ctypes.byref(ct),
+                    ctypes.byref(val),
                 )
                 values[entry.name] = (
                     val.doubleValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
@@ -232,27 +241,32 @@ class PdhQuery:
 
 def build_adapter_query(
     luid: str,
-    engine_type: str = "Compute",
+    engine_types: tuple[str, ...] = ("Compute",),
     *,
     pid: int | None = None,
 ) -> PdhQuery:
     """Build a PdhQuery for any GPU/NPU adapter.
 
-    Generic builder that works for NPU (Compute engine), GPU (3D engine),
-    or any other adapter type.
+    Registers per-process Utilization Percentage and Running Time counters
+    for *every* engine on the adapter whose engtype starts with one of
+    *engine_types*. NPUs typically expose several ``Compute_*`` engines and
+    the runtime may schedule work on any of them; GPUs run DML on either the
+    ``3D`` engine or a ``Compute_*`` engine depending on the operator. Names
+    are suffixed with the engtype (``util_Compute_0``, ``running_time_3D``,
+    ...) so callers can aggregate (e.g. max utilization) across engines.
 
     Args:
         luid: Adapter LUID string (e.g. ``"0x00000000_0x00015A33"``).
-        engine_type: Engine type to monitor (e.g. ``"Compute"`` for NPU,
-            ``"3D"`` for GPU). Must match an engine type on the adapter.
+        engine_types: Engtype prefixes to register. An engine is included
+            when its engtype starts with any of these strings.
         pid: Process ID to monitor. Defaults to current process.
 
     Returns:
-        An opened PdhQuery with utilization, running time, and memory
-        counters registered.
+        An opened PdhQuery with util/running-time counters for every matched
+        engine plus the adapter's per-process memory counters.
 
     Raises:
-        ValueError: If the LUID or engine type is not found.
+        ValueError: If the LUID is unknown or no engtype matches.
     """
     if pid is None:
         pid = os.getpid()
@@ -262,37 +276,35 @@ def build_adapter_query(
     if adapter_info is None:
         raise ValueError(f"LUID {luid} not found in adapter enumeration")
 
-    # Find the matching engine type
-    matched_engine = None
-    for et in sorted(adapter_info.engine_types):
-        if et.startswith(engine_type):
-            matched_engine = et
-            break
-    if matched_engine is None:
+    matched_engines = [
+        et
+        for et in sorted(adapter_info.engine_types)
+        if any(et.startswith(prefix) for prefix in engine_types)
+    ]
+    if not matched_engines:
         raise ValueError(
-            f"Engine type '{engine_type}' not found on adapter {luid}. "
+            f"No engtype matching {engine_types!r} on adapter {luid}. "
             f"Available: {sorted(adapter_info.engine_types)}"
         )
-    eng_num = adapter_info.engine_map[matched_engine][0]
 
     query = PdhQuery()
     query.open()
 
-    # Per-process engine counters
-    query.add_counter(
-        "utilization_pct",
-        rf"\GPU Engine(pid_{pid}_luid_{luid}"
-        rf"_phys_0_eng_{eng_num}_engtype_{matched_engine})\Utilization Percentage",
-        fmt="double",
-    )
-    query.add_counter(
-        "running_time_ns",
-        rf"\GPU Engine(pid_{pid}_luid_{luid}"
-        rf"_phys_0_eng_{eng_num}_engtype_{matched_engine})\Running Time",
-        fmt="large",
-    )
+    for engtype in matched_engines:
+        eng_num = adapter_info.engine_map[engtype][0]
+        query.add_counter(
+            f"util_{engtype}",
+            rf"\GPU Engine(pid_{pid}_luid_{luid}"
+            rf"_phys_0_eng_{eng_num}_engtype_{engtype})\Utilization Percentage",
+            fmt="double",
+        )
+        query.add_counter(
+            f"running_time_{engtype}",
+            rf"\GPU Engine(pid_{pid}_luid_{luid}"
+            rf"_phys_0_eng_{eng_num}_engtype_{engtype})\Running Time",
+            fmt="large",
+        )
 
-    # Per-process memory
     query.add_counter(
         "memory_local_bytes",
         rf"\GPU Process Memory(pid_{pid}_luid_{luid}_phys_0)\Local Usage",
@@ -308,7 +320,7 @@ def build_adapter_query(
 
 
 def build_npu_query(npu_luid: str, pid: int | None = None) -> PdhQuery:
-    """Convenience wrapper: build a query for the NPU (Compute engine).
+    """Convenience wrapper: build a query for every Compute engine on the NPU.
 
     Args:
         npu_luid: NPU LUID string.
@@ -317,11 +329,15 @@ def build_npu_query(npu_luid: str, pid: int | None = None) -> PdhQuery:
     Returns:
         An opened PdhQuery configured for NPU monitoring.
     """
-    return build_adapter_query(npu_luid, engine_type="Compute", pid=pid)
+    # Neural: OpenVINO NPU
+    return build_adapter_query(npu_luid, engine_types=("Compute", "Neural"), pid=pid)
 
 
 def build_gpu_query(gpu_luid: str, pid: int | None = None) -> PdhQuery:
-    """Convenience wrapper: build a query for the GPU (3D engine).
+    """Convenience wrapper: build a query for the GPU's 3D + Compute engines.
+
+    DML can dispatch to either the 3D engine or a Compute engine depending on
+    operator/driver, so both are registered and aggregated by ``PdhPoller``.
 
     Args:
         gpu_luid: GPU LUID string.
@@ -330,16 +346,19 @@ def build_gpu_query(gpu_luid: str, pid: int | None = None) -> PdhQuery:
     Returns:
         An opened PdhQuery configured for GPU monitoring.
     """
-    return build_adapter_query(gpu_luid, engine_type="3D", pid=pid)
+    # Compute: OpenVINO GPU
+    return build_adapter_query(gpu_luid, engine_types=("3D", "Compute"), pid=pid)
 
 
 # ---------------------------------------------------------------------------
 # PdhPoller — reusable background polling component
 # ---------------------------------------------------------------------------
 class PdhPoller:
-    """Reusable background PDH polling component.
+    r"""Reusable background PDH polling component.
 
-    Monitors CPU, RAM, and optionally NPU/GPU metrics via Windows PDH counters.
+    Monitors per-process CPU, RAM, and optionally NPU/GPU metrics via Windows
+    PDH counters. CPU and RAM are scoped to the current process via the
+    ``\Process V2(<exe>:<pid>)`` counter set (Windows 11 / Server 2022+).
     Handles: discover NPU/GPU LUID, register counters, background thread,
     sample collection, cleanup.
 
@@ -388,8 +407,12 @@ class PdhPoller:
         self._memory_shared_bytes: list[int] = []
         self._cpu_samples: list[float] = []
         self._ram_used_bytes: list[int] = []
-        self._running_time_start_ns: int | None = None
-        self._running_time_end_ns: int | None = None
+        # Per-engtype snapshots of the monotonic Running Time counter. Stored
+        # as dicts because an adapter exposes multiple engines (e.g. several
+        # Compute_* on an NPU; 3D + Compute_* on a GPU) and the total adapter
+        # time is the sum of per-engine deltas.
+        self._running_time_start_ns: dict[str, int] = {}
+        self._running_time_end_ns: dict[str, int] = {}
 
     def start(self) -> None:
         """Resolve target device, register PDH counters, start background thread.
@@ -435,24 +458,31 @@ class PdhPoller:
                 self._query = PdhQuery()
                 self._query.open()
 
-            # System-wide counters (always available)
+            # Per-process CPU and RAM via Process V2 (Windows 11 / Server 2022+).
+            # The `name:pid` instance is unambiguous, unlike classic
+            # `\Process(name)` which uses fragile `_#N` suffixes for duplicates.
+            pid = os.getpid()
+            exe = Path(sys.executable).stem
+            proc_instance = f"{exe}:{pid}"
             self._query.add_counter(
-                "cpu_pct",
-                r"\Processor(_Total)\% Processor Time",
+                "cpu_pct_raw",
+                rf"\Process V2({proc_instance})\% Processor Time",
                 fmt="double",
             )
             self._query.add_counter(
-                "ram_committed_bytes",
-                r"\Memory\Committed Bytes",
+                "ram_working_set_bytes",
+                rf"\Process V2({proc_instance})\Working Set",
                 fmt="large",
             )
 
             self._query.prime()
 
             initial = self._query.collect(interval=0.05)
-            rt = initial.get("running_time_ns")
-            if rt is not None:
-                self._running_time_start_ns = rt
+            self._running_time_start_ns = {
+                k: v
+                for k, v in initial.items()
+                if k.startswith("running_time_") and v is not None
+            }
 
             self._stop_event.clear()
             self._thread = threading.Thread(
@@ -478,9 +508,11 @@ class PdhPoller:
         if self._query is not None:
             try:
                 final = self._query._collect_once()
-                rt = final.get("running_time_ns")
-                if rt is not None:
-                    self._running_time_end_ns = rt
+                self._running_time_end_ns = {
+                    k: v
+                    for k, v in final.items()
+                    if k.startswith("running_time_") and v is not None
+                }
             except Exception:
                 pass
             self._query.close()
@@ -496,14 +528,27 @@ class PdhPoller:
 
     def _poll_loop(self) -> None:
         """Background thread: poll PDH counters at fixed interval."""
+        # Process V2 \% Processor Time scales 0..N*100 on N logical CPUs;
+        # normalize so cpu_pct stays 0..100 across machines.
+        cpu_divisor = float(os.cpu_count() or 1)
         while not self._stop_event.is_set():
             try:
                 values = self._query._collect_once()
-                util = values.get("utilization_pct")
+                # util_* counters are per-engine ratios over the same sample
+                # window, so max reports the most-loaded engine on the adapter.
+                # Don't sum — that would exceed 100% and duplicate what the
+                # additive running-time delta already measures.
+                util_vals = [
+                    v
+                    for k, v in values.items()
+                    if k.startswith("util_") and v is not None
+                ]
+                util = max(util_vals) if util_vals else None
                 mem_local = values.get("memory_local_bytes")
                 mem_shared = values.get("memory_shared_bytes")
-                cpu = values.get("cpu_pct")
-                ram = values.get("ram_committed_bytes")
+                cpu_raw = values.get("cpu_pct_raw")
+                cpu = cpu_raw / cpu_divisor if cpu_raw is not None else None
+                ram = values.get("ram_working_set_bytes")
                 with self._lock:
                     if util is not None:
                         self._util_samples.append(util)
@@ -659,7 +704,7 @@ class PdhPoller:
 
     @property
     def ram_used_mb(self) -> float:
-        """Latest committed RAM in MB."""
+        """Latest process working-set RAM in MB."""
         with self._lock:
             if not self._ram_used_bytes:
                 return 0.0
@@ -667,7 +712,7 @@ class PdhPoller:
 
     @property
     def peak_ram_used_mb(self) -> float:
-        """Peak committed RAM in MB during polling period."""
+        """Peak process working-set RAM in MB during polling period."""
         with self._lock:
             valid = [s for s in self._ram_used_bytes if s is not None]
         if not valid:
@@ -682,10 +727,20 @@ class PdhPoller:
 
     @property
     def running_time_delta_ns(self) -> int:
-        """Total adapter (NPU/GPU) running time delta in nanoseconds."""
-        if self._running_time_start_ns is None or self._running_time_end_ns is None:
-            return 0
-        return max(0, self._running_time_end_ns - self._running_time_start_ns)
+        """Total adapter (NPU/GPU) running time delta in nanoseconds.
+
+        Per-engine deltas are summed: Running Time is wall-clock ns each
+        engine was busy, and engines are independent HW resources that can
+        run in parallel, so total adapter compute time is additive. (This is
+        the opposite of util — see :meth:`_poll_loop`.)
+        """
+        total = 0
+        for key, end in self._running_time_end_ns.items():
+            start = self._running_time_start_ns.get(key)
+            if start is None:
+                continue
+            total += max(0, end - start)
+        return total
 
     @staticmethod
     def is_npu_available() -> bool:

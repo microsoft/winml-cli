@@ -266,6 +266,7 @@ def export(
         console.print(f"[dim]Shape overrides: {shape_overrides}[/dim]")
 
     # Always auto-resolve input/output tensors via loader + Optimum
+    from ..export import ONNXConfigNotFoundError
     try:
         from ..export import resolve_export_config as resolve_cfg
 
@@ -284,6 +285,19 @@ def export(
             console.print(
                 f"[dim]Auto-resolved output specs: {[t.name for t in output_tensors]}[/dim]"
             )
+    except ONNXConfigNotFoundError as e:
+        # model_type is not registered in Optimum's TasksManager (e.g. CLIP/SigLIP
+        # sub-encoder variants like clip-text-model / clip-vision-model that only
+        # live in MODEL_BUILD_CONFIGS, or a model_type from a newer transformers
+        # release we don't know yet). Fall through: downstream MODEL_BUILD_CONFIGS
+        # lookup or user-supplied --input-specs takes over.
+        logger.debug("I/O tensor auto-resolution unavailable: %s", e)
+    except ValueError as e:
+        # Mirrors `winml config`: surface (model, task) incompatibility raised by
+        # Optimum's TasksManager as a clean usage error instead of letting it fall
+        # through to a misleading "Unrecognized configuration class" traceback
+        # later in load_hf_model.
+        raise click.UsageError(str(e)) from e
     except Exception as e:
         logger.debug("I/O tensor auto-resolution failed: %s", e)
 
