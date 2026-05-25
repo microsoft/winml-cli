@@ -289,10 +289,13 @@ class TestPdhModule:
             pytest.skip("No NPU detected")
 
         query = build_npu_query(luid)
-        assert "utilization_pct" in query.counter_names
-        assert "running_time_ns" in query.counter_names
-        assert "memory_local_bytes" in query.counter_names
-        assert "memory_shared_bytes" in query.counter_names
+        names = query.counter_names
+        # build_npu_query registers one util_* and one running_time_* counter
+        # per Compute_* engine on the adapter, plus the shared memory pair.
+        assert any(n.startswith("util_Compute") for n in names)
+        assert any(n.startswith("running_time_Compute") for n in names)
+        assert "memory_local_bytes" in names
+        assert "memory_shared_bytes" in names
         query.close()
 
 
