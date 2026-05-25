@@ -56,3 +56,23 @@ def configure_logging(
         stream=sys.stderr,
         force=True,
     )
+
+
+def flush_ort_startup_logs() -> None:
+    """Replay ORT stderr messages captured during onnxruntime import.
+
+    onnxruntime is imported lazily (when a command module is first loaded),
+    which happens after :func:`configure_logging` has already run.  This
+    function must therefore be called from the command-dispatch path — after
+    the command module import but before the command handler runs — so that
+    the messages are replayed against the already-configured logger.
+
+    Messages are emitted at DEBUG level (visible with ``-vv`` / ``--debug``).
+    The buffer is drained on first call; subsequent calls are no-ops.
+    """
+    try:
+        from winml.modelkit.utils.native_stderr import replay_ort_startup_logs
+    except ImportError:
+        return
+
+    replay_ort_startup_logs()

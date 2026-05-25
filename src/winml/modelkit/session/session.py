@@ -17,7 +17,7 @@ import onnxruntime as ort
 
 from ..core.onnx_utils import get_io_config
 from ..onnx import is_compiled_onnx
-from ..utils.constants import _suppress_ep_registration_stderr
+from ..utils.native_stderr import suppress_ep_registration_stderr
 from .ep_registry import WinMLEPRegistry
 from .stats import PerfStats
 
@@ -122,7 +122,7 @@ class WinMLSession:
         try:
             registry = WinMLEPRegistry.get_instance()
             if registry.winml_available:
-                with _suppress_ep_registration_stderr():
+                with suppress_ep_registration_stderr():
                     registered = registry.register_to_ort()
                 logger.info("WinML EPs registered: %s", registered)
         except Exception as e:
@@ -231,7 +231,8 @@ class WinMLSession:
                         str(self._onnx_path),
                         embed_compiled_data_into_model=self._embed_context,
                     )
-                    model_compiler.compile_to_file(str(ctx_path))
+                    with suppress_ep_registration_stderr(logging.INFO, use_startup_buffer=False):
+                        model_compiler.compile_to_file(str(ctx_path))
 
                     # Use compiled model if it was created
                     if ctx_path.exists():
@@ -248,7 +249,8 @@ class WinMLSession:
             # registry, e.g. QNN) or left to ORT's device policy (fallback).
             # Never pass providers= — WinML-registered EPs don't support it.
             sess_options = self._build_session_options(target_device)
-            session = ort.InferenceSession(str(model_path), sess_options=sess_options)
+            with suppress_ep_registration_stderr(logging.INFO, use_startup_buffer=False):
+                session = ort.InferenceSession(str(model_path), sess_options=sess_options)
 
         except Exception as ep_err:
             self._state = SessionState.ERROR

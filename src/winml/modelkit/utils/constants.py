@@ -6,77 +6,16 @@
 
 from __future__ import annotations
 
-import logging
-import os
-import re
 import sys
-from contextlib import contextmanager
 from typing import Literal, TypeAlias, get_args
 
 
-logger = logging.getLogger(__name__)
+if sys.platform == "win32":
+    from .native_stderr import suppress_ep_registration_stderr
 
-# Matches ANSI SGR escape sequences (e.g. the colour codes ORT emits).
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-# ORT messages captured before any logging handler is configured are buffered
-# here so callers can replay them once the logging infrastructure is ready.
-_ort_startup_logs: list[str] = []
-
-
-@contextmanager
-def _suppress_ep_registration_stderr():
-    """Capture native stderr during ORT initialization and re-emit as debug logs.
-
-    ORT native code writes "Init provider bridge failed." directly to native
-    stderr (fd 2 / Win32 STD_ERROR_HANDLE), bypassing Python's logging system.
-    Captures the output via a pipe and re-emits each line as
-    ``logger.debug("[ORT] <line>")``.
-
-    Restore order matters on Windows: Win32 STD_ERROR_HANDLE is restored
-    *before* os.dup2 so that the pipe write HANDLE is not already closed by
-    CRT when SetStdHandle releases its reference.
-    """
-    read_fd, write_fd = os.pipe()
-    old_fd = os.dup(2)
-    os.dup2(write_fd, 2)
-    os.close(write_fd)
-    old_w32 = None
-    if sys.platform == "win32":
-        import ctypes
-        import msvcrt
-
-        k32 = ctypes.WinDLL("kernel32")
-        _std_error_handle = ctypes.c_uint32(0xFFFFFFF4)
-        old_w32 = k32.GetStdHandle(_std_error_handle)
-        k32.SetStdHandle(_std_error_handle, msvcrt.get_osfhandle(2))
-    try:
-        yield
-    finally:
-        # 1. Restore Win32 handle first so SetStdHandle releases the pipe
-        #    write HANDLE before CRT closes it via dup2.
-        if old_w32 is not None:
-            k32.SetStdHandle(_std_error_handle, old_w32)
-        # 2. Restore CRT fd 2; this closes the last reference to the pipe
-        #    write end, so the subsequent read will reach EOF without blocking.
-        os.dup2(old_fd, 2)
-        os.close(old_fd)
-        # 3. Read all captured output and log each line at DEBUG level.
-        chunks: list[bytes] = []
-        try:
-            while chunk := os.read(read_fd, 4096):
-                chunks.append(chunk)
-        finally:
-            os.close(read_fd)
-        captured = b"".join(chunks).decode("utf-8", errors="replace")
-        for line in captured.splitlines():
-            line = _ANSI_RE.sub("", line).strip()
-            if line:
-                _ort_startup_logs.append(line)
-                logger.debug("[ORT] %s", line)
-
-
-with _suppress_ep_registration_stderr():
+    with suppress_ep_registration_stderr():
+        import onnxruntime as ort
+else:
     import onnxruntime as ort
 
 
