@@ -112,7 +112,7 @@
     }
   ],
   "eval": {
-    "task": "unknown",
+    "task": "zero-shot-image-classification",
     "device": "npu",
     "dataset": {
       "path": "zalando-datasets/fashion_mnist",
@@ -124,3 +124,4 @@
     }
   }
 }
+
