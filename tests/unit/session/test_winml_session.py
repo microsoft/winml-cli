@@ -743,6 +743,63 @@ class TestWinMLSessionExplicitProviders:
         assert options in captured, f"provider_options not forwarded; got calls with: {captured}"
         assert "C" in outputs
 
+    def test_explicit_ep_and_device_both_required(self, simple_matmul_onnx: Path):
+        """Regression: ep=qnn + device=cpu must bind QNN-on-CPU, not QNN-on-NPU.
+
+        When both filters are set, ``add_ep_for_device`` must match ep_name
+        AND device_type. Previously the explicit-EP path ignored device, so
+        listing order in ``ort.get_ep_devices()`` decided the binding and
+        ``--ep qnn --device cpu`` could silently land on QNN-on-NPU.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        import onnxruntime as ort
+
+        from winml.modelkit.sysinfo.device import _get_device_ep_map_from_ort
+
+        # NPU listed first (the trap); CPU second (the correct pick).
+        npu_dev = SimpleNamespace(
+            ep_name="QNNExecutionProvider",
+            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.NPU),
+        )
+        cpu_dev = SimpleNamespace(
+            ep_name="QNNExecutionProvider",
+            device=SimpleNamespace(type=ort.OrtHardwareDeviceType.CPU),
+        )
+        captured: list = []
+
+        def spy(self_so, devs, opts):
+            captured.append(devs[0].device.type)
+
+        _get_device_ep_map_from_ort.cache_clear()
+        try:
+            with (
+                patch("onnxruntime.get_ep_devices", return_value=[npu_dev, cpu_dev]),
+                patch(
+                    "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
+                    return_value={
+                        "cpu": ("QNNExecutionProvider",),
+                        "npu": ("QNNExecutionProvider",),
+                    },
+                ),
+                patch.object(ort.SessionOptions, "add_provider_for_devices", spy),
+            ):
+                session = WinMLSession(
+                    onnx_path=simple_matmul_onnx,
+                    device="cpu",
+                    ep="qnn",
+                )
+                # Drive the binding without building a real InferenceSession,
+                # since the mock ep_devices would not load.
+                session._build_session_options("cpu")
+        finally:
+            _get_device_ep_map_from_ort.cache_clear()
+
+        assert captured == [ort.OrtHardwareDeviceType.CPU], (
+            f"binding picked the wrong device: {captured}"
+        )
+
 
 class TestWinMLSessionPerfTracking:
     """Test WinMLSession performance tracking with context manager."""
