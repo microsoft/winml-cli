@@ -25,7 +25,7 @@ Note:
     See docs/design/loader/hf.md for design details.
 """
 
-from .config import WinMLLoaderConfig, resolve_loader_config
+from .config import WinMLLoaderConfig, resolve_loader_config, validate_task_supported_for_model
 from .task import (
     HF_TASK_DEFAULTS,
     get_supported_tasks,
@@ -45,6 +45,7 @@ __all__ = [
     "resolve_hf_model_class",
     "resolve_loader_config",
     "resolve_task_and_model_class",
+    "validate_task_supported_for_model",
 ]
 
 

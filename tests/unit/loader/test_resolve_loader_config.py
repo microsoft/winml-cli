@@ -15,7 +15,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.loader import WinMLLoaderConfig, resolve_loader_config
+from winml.modelkit.loader import (
+    WinMLLoaderConfig,
+    resolve_loader_config,
+    validate_task_supported_for_model,
+)
 
 
 # =============================================================================
@@ -247,6 +251,118 @@ class TestResolveLoaderConfig:
 
         mock_resolve.assert_called_once()
         assert mock_resolve.call_args.kwargs["model_class"] == "BertForMaskedLM"
+
+
+class TestValidateTaskSupportedForModel:
+    """Tests for validate_task_supported_for_model preflight helper."""
+
+    def test_raises_for_task_model_mismatch(self) -> None:
+        """Incompatible task/model combinations raise a clear ValueError."""
+        mock_config = MagicMock()
+        mock_config.model_type = "resnet"
+
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["image-classification", "image-feature-extraction"],
+            ),
+            patch("winml.modelkit.loader.task.normalize_task", side_effect=lambda t: t),
+            pytest.raises(
+                ValueError,
+                match=r"config\.loader\.task='text-generation' is not supported",
+            ),
+        ):
+            validate_task_supported_for_model(
+                model_id="microsoft/resnet-50",
+                task="text-generation",
+                task_field_name="config.loader.task",
+            )
+
+    def test_accepts_supported_task(self) -> None:
+        """A supported task should pass without raising."""
+        mock_config = MagicMock()
+        mock_config.model_type = "resnet"
+
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["image-classification", "image-feature-extraction"],
+            ),
+            patch("winml.modelkit.loader.task.normalize_task", side_effect=lambda t: t),
+        ):
+            validate_task_supported_for_model(
+                model_id="microsoft/resnet-50",
+                task="image-classification",
+            )
+
+    def test_ensure_hf_models_registered_called_before_lookup(self) -> None:
+        """ensure_hf_models_registered() is called to populate the ONNX registry
+        before get_supported_tasks, so models like resnet return the correct tasks."""
+        mock_config = MagicMock()
+        mock_config.model_type = "resnet"
+
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.export.io.ensure_hf_models_registered") as mock_ensure,
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["feature-extraction", "image-classification"],
+            ),
+            patch("winml.modelkit.loader.task.normalize_task", side_effect=lambda t: t),
+            pytest.raises(ValueError, match=r"text-generation.*is not supported"),
+        ):
+            validate_task_supported_for_model(
+                model_id="microsoft/resnet-50",
+                task="text-generation",
+                task_field_name="config.loader.task",
+            )
+        mock_ensure.assert_called_once()
+
+    def test_defers_when_registry_still_empty_after_registration(self) -> None:
+        """When get_supported_tasks returns [] even after registry population,
+        validation defers to the downstream loader without raising."""
+        mock_config = MagicMock()
+        mock_config.model_type = "custom-model"
+
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch("winml.modelkit.export.io.ensure_hf_models_registered"),
+            patch("winml.modelkit.loader.task.get_supported_tasks", return_value=[]),
+        ):
+            # Should NOT raise — defer to downstream loader
+            validate_task_supported_for_model(
+                model_id="org/custom-model",
+                task="text-generation",
+            )
+
+    def test_error_message_format(self) -> None:
+        """Error message has task/model/architecture on line 1, Supported tasks on line 2."""
+        mock_config = MagicMock()
+        mock_config.model_type = "resnet"
+
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch(
+                "winml.modelkit.loader.task.get_supported_tasks",
+                return_value=["image-classification"],
+            ),
+            patch("winml.modelkit.loader.task.normalize_task", side_effect=lambda t: t),
+            patch("winml.modelkit.export.io.ensure_hf_models_registered"),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            validate_task_supported_for_model(
+                model_id="microsoft/resnet-50",
+                task="text-generation",
+                task_field_name="config.loader.task",
+            )
+
+        msg = str(exc_info.value)
+        lines = msg.splitlines()
+        assert len(lines) == 2
+        assert lines[0].endswith("(architecture: resnet).")
+        assert lines[1].startswith("Supported tasks:")
 
 
 # =============================================================================

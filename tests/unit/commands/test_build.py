@@ -60,6 +60,20 @@ def mock_resolve_device():
         yield
 
 
+@pytest.fixture(autouse=True)
+def mock_task_model_compatibility_validator():
+    """Default to no-op for preflight task/model compatibility checks.
+
+    Most build command unit tests are CLI plumbing tests and should not hit
+    HuggingFace config resolution paths.
+    """
+    with patch(
+        "winml.modelkit.commands.build.validate_task_supported_for_model",
+        return_value=None,
+    ):
+        yield
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a CLI test runner."""
@@ -338,6 +352,34 @@ class TestBuildArgValidation:
         result = _invoke(["-c", str(arr_path), "-o", str(tmp_path / "out")])
         assert result.exit_code != 0
         assert "object" in result.output.lower()
+
+    def test_rejects_incompatible_config_task_and_model(self, tmp_path: Path):
+        """config.loader.task + --model mismatch fails before pipeline starts."""
+        cfg = _make_minimal_config_file(tmp_path, task="text-generation")
+        msg = (
+            "config.loader.task='text-generation' is not supported for "
+            "--model microsoft/resnet-50 (architecture: resnet). "
+            "Supported tasks: image-classification, image-feature-extraction."
+        )
+
+        with (
+            patch(
+                "winml.modelkit.commands.build.validate_task_supported_for_model",
+                side_effect=ValueError(msg),
+            ) as mock_validate,
+            patch("winml.modelkit.commands.build._run_single_build") as mock_run,
+        ):
+            result = _invoke(["-c", cfg, "-m", "microsoft/resnet-50", "-o", str(tmp_path / "out")])
+
+        assert result.exit_code != 0
+        assert msg in result.output
+        mock_validate.assert_called_once_with(
+            model_id="microsoft/resnet-50",
+            task="text-generation",
+            task_field_name="config.loader.task",
+            trust_remote_code=False,
+        )
+        mock_run.assert_not_called()
 
     def test_help_lists_all_options(self):
         """``--help`` must surface every behavior-bearing option."""

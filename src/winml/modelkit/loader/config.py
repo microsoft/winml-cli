@@ -251,6 +251,71 @@ def resolve_loader_config(
     return loader_config, resolved_hf_config, resolved_class
 
 
+def validate_task_supported_for_model(
+    model_id: str,
+    task: str,
+    *,
+    task_field_name: str = "task",
+    trust_remote_code: bool = False,
+    library_name: str = "transformers",
+) -> None:
+    """Validate that a task is supported for a model's architecture.
+
+    This is a lightweight preflight check used by CLI entrypoints when
+    task and model are supplied from independent sources (for example,
+    config JSON + ``--model``). It loads only HuggingFace config metadata
+    and validates against ``TasksManager`` supported-task mapping.
+
+    Args:
+        model_id: HuggingFace model ID or local path.
+        task: Requested task name.
+        task_field_name: Field label used in user-facing error messages.
+        trust_remote_code: Whether to trust remote/custom code while loading config.
+        library_name: Source library for TasksManager lookup.
+
+    Raises:
+        ValueError: If the task is not supported for the model architecture.
+    """
+    from transformers import AutoConfig
+
+    from .task import get_supported_tasks, normalize_task
+
+    hf_config = AutoConfig.from_pretrained(
+        model_id,
+        trust_remote_code=trust_remote_code,
+    )
+    model_type = getattr(hf_config, "model_type", None)
+    if not model_type:
+        return
+
+    # Ensure optimum.exporters.onnx.model_configs is imported before querying
+    # the registry. TasksManager._SUPPORTED_MODEL_TYPE is populated lazily
+    # when optimum's ONNX model_configs module is first imported (triggered by
+    # any import of optimum.exporters.onnx). Without this, get_supported_tasks
+    # returns [] for models like resnet that are registered there, not in the
+    # winml custom registry.
+    from ..export.io import ensure_hf_models_registered
+
+    ensure_hf_models_registered()
+
+    supported_tasks = get_supported_tasks(model_type, library_name=library_name)
+    # If the upstream registry has no task list for this architecture,
+    # defer to downstream loader resolution instead of hard-failing here.
+    if not supported_tasks:
+        return
+
+    normalized_supported = {normalize_task(t) for t in supported_tasks}
+    if normalize_task(task) in normalized_supported:
+        return
+
+    supported_list = ", ".join(supported_tasks)
+    raise ValueError(
+        f"{task_field_name}='{task}' is not supported for --model {model_id} "
+        f"(architecture: {model_type}).\n"
+        f"Supported tasks: {supported_list}."
+    )
+
+
 def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
     """Create a default HF config from a model class (no network access).
 

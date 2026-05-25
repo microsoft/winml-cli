@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 import click
 from rich.logging import RichHandler
 
+from ..loader import validate_task_supported_for_model
 from ..utils import cli as cli_utils
 from ..utils.console import (
     detect_model_source,
@@ -222,6 +223,37 @@ def _build_modules(
         results.append(result)
 
     return results
+
+
+def _validate_loader_tasks_for_model(
+    *,
+    model_id: str | None,
+    configs: list[WinMLBuildConfig],
+    trust_remote_code: bool,
+) -> None:
+    """Validate config loader task(s) against --model architecture.
+
+    This runs at command entry before setup/stage output so incompatible
+    config/model combinations fail with an actionable one-line error.
+    """
+    if model_id is None:
+        return
+
+    from .config import _is_onnx_file
+
+    if _is_onnx_file(model_id):
+        return
+
+    tasks = {
+        cfg.loader.task for cfg in configs if cfg.loader is not None and cfg.loader.task is not None
+    }
+    for task in sorted(tasks):
+        validate_task_supported_for_model(
+            model_id=model_id,
+            task=task,
+            task_field_name="config.loader.task",
+            trust_remote_code=trust_remote_code,
+        )
 
 
 # =============================================================================
@@ -475,6 +507,12 @@ def build(
                 _cfg.validate()
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
+
+        _validate_loader_tasks_for_model(
+            model_id=model_id,
+            configs=_configs_to_validate,
+            trust_remote_code=trust_remote_code,
+        )
 
         # Build extra kwargs for pipeline control
         extra_kwargs: dict[str, Any] = {}
