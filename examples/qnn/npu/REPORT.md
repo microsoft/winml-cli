@@ -7,6 +7,14 @@
 - Perf Pass: 188/189 (99%)
 - Eval Pass: 143/189 (76%)
 
+### Per-precision breakdown
+
+| Precision | Models | Configs | Perf Pass | Eval Pass |
+|---|---|---|---|---|
+| fp16 | 55 | 63 | 62/63 (98%) | 47/63 (75%) |
+| w8a16 | 55 | 63 | 63/63 (100%) | 48/63 (76%) |
+| w8a8 | 55 | 63 | 63/63 (100%) | 48/63 (76%) |
+
 ## Results
 
 | Model | Task | Precision | Config | Perf | Eval |
