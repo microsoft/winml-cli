@@ -288,8 +288,11 @@ def _inspect_model_v2(
     )
 
     # =========================================================================
-    # STEP 1: Preserve parent hf_config before resolve_loader_config narrows it
-    #         for multimodal models (e.g., CLIPConfig → CLIPTextConfig)
+    # STEP 1: Load parent hf_config once and feed it into resolve_loader_config
+    #         to avoid a duplicate AutoConfig.from_pretrained round-trip.
+    #         The parent (e.g., CLIPConfig) is preserved here because step 4
+    #         inside resolve_loader_config may narrow it to a sub-config
+    #         (e.g., CLIPTextConfig) for multimodal models.
     # =========================================================================
     parent_hf_config = None
     if model_id and not model_type_override:
@@ -309,6 +312,7 @@ def _inspect_model_v2(
             task=task_override,
             model_type=model_type_override,
             model_class=model_class_override,
+            hf_config=parent_hf_config,
         )
     except RepositoryNotFoundError as e:
         # Direct HF Hub 404 — keep full message (includes private-repo hint).
