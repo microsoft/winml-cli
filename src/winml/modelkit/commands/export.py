@@ -192,13 +192,12 @@ def export(
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
-    _build_export_cfg = None
+    _build_export_dict: dict = {}
     if config_file is not None:
-        build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.export:
-            _build_export_cfg = build_cfg.export
+        _, raw_cfg = cli_utils.load_build_config(config_file)
         lc = raw_cfg.get("loader") or {}
         ec = raw_cfg.get("export") or {}
+        _build_export_dict = ec
         if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
             task = lc["task"]
         if not cli_utils.is_cli_provided(ctx, "no_hierarchy") and "enable_hierarchy_tags" in ec:
@@ -320,8 +319,7 @@ def export(
     # Build WinMLExportConfig from loaded settings
     config_kwargs = {}
     # Layer 1: build config defaults (lowest precedence)
-    if _build_export_cfg is not None:
-        config_kwargs.update(_build_export_cfg.to_dict())
+    config_kwargs.update(_build_export_dict)
     # Layer 2: --export-config file overrides
     config_kwargs.update(export_config_dict)
     # Layer 3: explicit CLI options (highest precedence)
