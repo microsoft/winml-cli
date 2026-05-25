@@ -75,7 +75,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             onnx_path: Path to ONNX model file
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
             device: Target device ("auto", "npu", "gpu", "cpu")
-            session_options: ORT SessionOptions (e.g., for graph_optimization_level)
+            session_options: Factory returning an ORT SessionOptions (e.g., for
+                graph_optimization_level). Called fresh per ORT session.
             ep: Explicit EP short name (e.g., "dml", "qnn"). Forwarded to WinMLSession.
         """
         self._onnx_path = Path(onnx_path)
