@@ -25,6 +25,10 @@ parameters:
     displayName: 'Skip already-evaluated models (--continue)'
     type: boolean
     default: true
+  - name: retryFailed
+    displayName: 'Retry previously failed models (--retry-failed)'
+    type: boolean
+    default: false
   - name: qnnAgentName
     displayName: 'QNN: self-hosted agent name (Agent.Name)'
     type: string
@@ -68,6 +72,7 @@ stages:
           agentSuffix: qnn
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.qnnPairs }}
 
   - stage: NPU_OV
@@ -80,6 +85,7 @@ stages:
           agentSuffix: ov
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.ovPairs }}
 
   - stage: NPU_AMD
@@ -92,4 +98,5 @@ stages:
           agentSuffix: amd
           evalDate: ${{ parameters.evalDate }}
           continueRun: ${{ parameters.continueRun }}
+          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.amdPairs }}

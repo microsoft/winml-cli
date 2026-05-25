@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 
@@ -57,6 +58,11 @@ _DEVICE_KINDS = ("npu", "gpu", "cpu", "auto")
 # ---------------------------------------------------------------------------
 _PDH_FMT_DOUBLE = 0x00000200
 _PDH_FMT_LARGE = 0x00000400
+# Disable PDH's default cap of percentage counters at 100. Required so that
+# `\Process V2(...)\% Processor Time` can return its true 0..N*100 range on
+# multi-core systems; without it a process saturating multiple cores reads
+# as a flat 100 and the per-CPU normalization underreports usage.
+_PDH_FMT_NOCAP100 = 0x00008000
 
 _pdh = ctypes.windll.pdh
 
@@ -174,7 +180,10 @@ class PdhQuery:
             if entry.fmt == _PDH_FMT_DOUBLE:
                 val = _PdhFmtDouble()
                 s = _pdh.PdhGetFormattedCounterValue(
-                    entry.handle, _PDH_FMT_DOUBLE, ctypes.byref(ct), ctypes.byref(val)
+                    entry.handle,
+                    _PDH_FMT_DOUBLE | _PDH_FMT_NOCAP100,
+                    ctypes.byref(ct),
+                    ctypes.byref(val),
                 )
                 values[entry.name] = (
                     val.doubleValue if _pdh_ok(s) and _pdh_ok(val.CStatus) else None
@@ -337,9 +346,11 @@ def build_gpu_query(gpu_luid: str, pid: int | None = None) -> PdhQuery:
 # PdhPoller — reusable background polling component
 # ---------------------------------------------------------------------------
 class PdhPoller:
-    """Reusable background PDH polling component.
+    r"""Reusable background PDH polling component.
 
-    Monitors CPU, RAM, and optionally NPU/GPU metrics via Windows PDH counters.
+    Monitors per-process CPU, RAM, and optionally NPU/GPU metrics via Windows
+    PDH counters. CPU and RAM are scoped to the current process via the
+    ``\Process V2(<exe>:<pid>)`` counter set (Windows 11 / Server 2022+).
     Handles: discover NPU/GPU LUID, register counters, background thread,
     sample collection, cleanup.
 
@@ -435,15 +446,20 @@ class PdhPoller:
                 self._query = PdhQuery()
                 self._query.open()
 
-            # System-wide counters (always available)
+            # Per-process CPU and RAM via Process V2 (Windows 11 / Server 2022+).
+            # The `name:pid` instance is unambiguous, unlike classic
+            # `\Process(name)` which uses fragile `_#N` suffixes for duplicates.
+            pid = os.getpid()
+            exe = Path(sys.executable).stem
+            proc_instance = f"{exe}:{pid}"
             self._query.add_counter(
-                "cpu_pct",
-                r"\Processor(_Total)\% Processor Time",
+                "cpu_pct_raw",
+                rf"\Process V2({proc_instance})\% Processor Time",
                 fmt="double",
             )
             self._query.add_counter(
-                "ram_committed_bytes",
-                r"\Memory\Committed Bytes",
+                "ram_working_set_bytes",
+                rf"\Process V2({proc_instance})\Working Set",
                 fmt="large",
             )
 
@@ -496,14 +512,18 @@ class PdhPoller:
 
     def _poll_loop(self) -> None:
         """Background thread: poll PDH counters at fixed interval."""
+        # Process V2 \% Processor Time scales 0..N*100 on N logical CPUs;
+        # normalize so cpu_pct stays 0..100 across machines.
+        cpu_divisor = float(os.cpu_count() or 1)
         while not self._stop_event.is_set():
             try:
                 values = self._query._collect_once()
                 util = values.get("utilization_pct")
                 mem_local = values.get("memory_local_bytes")
                 mem_shared = values.get("memory_shared_bytes")
-                cpu = values.get("cpu_pct")
-                ram = values.get("ram_committed_bytes")
+                cpu_raw = values.get("cpu_pct_raw")
+                cpu = cpu_raw / cpu_divisor if cpu_raw is not None else None
+                ram = values.get("ram_working_set_bytes")
                 with self._lock:
                     if util is not None:
                         self._util_samples.append(util)
@@ -659,7 +679,7 @@ class PdhPoller:
 
     @property
     def ram_used_mb(self) -> float:
-        """Latest committed RAM in MB."""
+        """Latest process working-set RAM in MB."""
         with self._lock:
             if not self._ram_used_bytes:
                 return 0.0
@@ -667,7 +687,7 @@ class PdhPoller:
 
     @property
     def peak_ram_used_mb(self) -> float:
-        """Peak committed RAM in MB during polling period."""
+        """Peak process working-set RAM in MB during polling period."""
         with self._lock:
             valid = [s for s in self._ram_used_bytes if s is not None]
         if not valid:

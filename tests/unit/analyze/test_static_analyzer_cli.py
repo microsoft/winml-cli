@@ -44,6 +44,22 @@ def _mock_local_ep_device_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
         "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
         lambda: list(SIMULATED_LOCAL_EP_DEVICE_PAIRS),
     )
+    # Defensive mocks: the analyze command derives devices/eps from local_pairs
+    # in auto mode, but other code paths (and any future code) may still call
+    # these helpers — keep them consistent with the simulated local matrix so
+    # tests stay environment-independent.
+    simulated_devices = tuple(sorted({d for _, d in SIMULATED_LOCAL_EP_DEVICE_PAIRS}))
+    # Sort eps so iteration order is deterministic across runs (the real helper
+    # returns a frozenset whose iteration depends on PYTHONHASHSEED).
+    simulated_eps = tuple(sorted({e for e, _ in SIMULATED_LOCAL_EP_DEVICE_PAIRS}))
+    monkeypatch.setattr(
+        "winml.modelkit.sysinfo.device._get_available_devices",
+        lambda: simulated_devices,
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.sysinfo.device._get_available_eps",
+        lambda: simulated_eps,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -642,7 +658,7 @@ class TestAnalyzeCommandOutput:
         config_file = tmp_path / "optim.json"
 
         mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
-            "ep": "QNNExecutionProvider"
+            "gelu_fusion": True,
         }
         mock_instance = Mock()
         mock_instance.analyze.return_value = mock_analyzer_result
@@ -665,7 +681,7 @@ class TestAnalyzeCommandOutput:
         assert result.exit_code == 0
         assert config_file.exists()
         content = json.loads(config_file.read_text())
-        assert "ep" in content
+        assert content == {"gelu_fusion": True}
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_optim_config_creates_parent_dirs(
@@ -681,7 +697,7 @@ class TestAnalyzeCommandOutput:
         config_file = tmp_path / "nested" / "dir" / "optim.json"
 
         mock_analyzer_result.get_optimization_config.return_value.to_dict.return_value = {
-            "ep": "QNNExecutionProvider"
+            "gelu_fusion": True,
         }
         mock_instance = Mock()
         mock_instance.analyze.return_value = mock_analyzer_result
@@ -828,7 +844,7 @@ class TestAnalyzeEPDeviceValidation:
     def test_dml_cpu_rejected_with_only_supports(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """DML + CPU should be rejected when local target combination is unavailable."""
+        """DML + CPU should be rejected: DML does not support CPU per EP_SUPPORTED_DEVICES."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -837,13 +853,12 @@ class TestAnalyzeEPDeviceValidation:
             ["--model", str(model_file), "--ep", "dml", "--device", "CPU"],
         )
         assert result.exit_code == 2
-        assert "no rule data found" in result.output.lower()
-        assert "--run-unknown-op" in result.output
+        assert "no ep/device combination matched" in result.output.lower()
 
     def test_cpu_ep_npu_rejected(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """CPUExecutionProvider + NPU should be rejected when unavailable locally."""
+        """CPU EP + NPU should be rejected: CPU EP does not support NPU."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -852,8 +867,7 @@ class TestAnalyzeEPDeviceValidation:
             ["--model", str(model_file), "--ep", "cpu", "--device", "NPU"],
         )
         assert result.exit_code == 2
-        assert "no rule data found" in result.output.lower()
-        assert "--run-unknown-op" in result.output
+        assert "no ep/device combination matched" in result.output.lower()
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     @patch(
@@ -886,44 +900,44 @@ class TestAnalyzeEPDeviceValidation:
     def test_ep_alias_cpu_resolves(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """'cpu' alias should resolve to CPUExecutionProvider."""
+        """'cpu' alias resolves to CPUExecutionProvider, which doesn't support GPU."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
-        # CPU EP + GPU is not in local available targets.
         result = runner.invoke(
             analyze,
             ["--model", str(model_file), "--ep", "cpu", "--device", "GPU"],
         )
         assert result.exit_code == 2
-        assert "no rule data found" in result.output.lower()
-        assert "--run-unknown-op" in result.output
+        assert "no ep/device combination matched" in result.output.lower()
 
     def test_ep_alias_dml_resolves(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """'dml' alias should resolve to DmlExecutionProvider."""
+        """'dml' alias resolves to DmlExecutionProvider, which doesn't support NPU."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
-        # DML EP + NPU is not in local available targets.
         result = runner.invoke(
             analyze,
             ["--model", str(model_file), "--ep", "dml", "--device", "NPU"],
         )
         assert result.exit_code == 2
-        assert "no rule data found" in result.output.lower()
-        assert "--run-unknown-op" in result.output
+        assert "no ep/device combination matched" in result.output.lower()
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_ep_without_device_auto_requires_local_rule_data(
+    def test_ep_without_device_auto_resolves_local_device(
         self,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """When --device is omitted, EP must have local targets with rule data."""
+        """With --device auto and a specific EP, analyze runs on the matching local device.
+
+        Rule-data availability no longer gates execution — the per-pair OP CHECK
+        section just renders an "Op check skipped — no rule data" row inline.
+        """
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -931,22 +945,21 @@ class TestAnalyzeEPDeviceValidation:
         mock_instance.analyze.return_value = mock_analyzer_result
         mock_analyzer_class.return_value = mock_instance
 
-        # dml is locally available on GPU in the fixture, but has no rule data.
+        # dml is locally available on GPU per the fixture; auto picks GPU.
         result = runner.invoke(
             analyze,
             ["--model", str(model_file), "--ep", "dml"],
         )
-        assert result.exit_code == 2
-        assert "no rule data found" in result.output.lower()
-        assert "--run-unknown-op" in result.output
-        assert not mock_instance.analyze.called
+        assert result.exit_code == 0
+        mock_instance.analyze.assert_called_once()
+        call_kwargs = mock_instance.analyze.call_args.kwargs
+        assert call_kwargs["ep"] == "DmlExecutionProvider"
+        assert call_kwargs["device"] == "GPU"
 
-    @patch("winml.modelkit.commands.analyze._render_analysis_summary")
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_ep_without_device_auto_run_unknown_op_executes_no_rule_data_pair(
         self,
         mock_analyzer_class: MagicMock,
-        mock_summary: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
         mock_analyzer_result: Mock,
@@ -970,11 +983,6 @@ class TestAnalyzeEPDeviceValidation:
         assert call_kwargs["ep"] == "DmlExecutionProvider"
         assert call_kwargs["device"] == "GPU"
 
-        assert mock_summary.called
-        summary_kwargs = mock_summary.call_args.kwargs
-        pair_hints = summary_kwargs["pair_hints"]
-        assert pair_hints[("DmlExecutionProvider", "GPU")] == ["no rule data"]
-
 
 class TestAnalyzeEPDeviceSelectionMatrix:
     """Matrix tests for EP/device resolution with fixed local availability."""
@@ -982,6 +990,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
     @pytest.mark.parametrize(
         ("ep_arg", "device_arg", "expect_exit", "expect_calls", "expect_error"),
         [
+            # Both auto: filter to local_pairs. Output sorted by EP_SUPPORTED_DEVICES.
             (
                 None,
                 None,
@@ -990,27 +999,46 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "NPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
+                    ("DmlExecutionProvider", "GPU"),
+                    ("CPUExecutionProvider", "CPU"),
                 ],
                 None,
             ),
+            # ep=auto, device=gpu: warn about non-local but run all eps that support GPU.
             (
                 None,
                 "gpu",
                 0,
-                [("NvTensorRTRTXExecutionProvider", "GPU")],
+                [
+                    ("NvTensorRTRTXExecutionProvider", "GPU"),
+                    ("OpenVINOExecutionProvider", "GPU"),
+                    ("DmlExecutionProvider", "GPU"),
+                ],
                 None,
             ),
+            # ep=openvino, device=auto: warn about non-local pairs, run all 3.
             (
                 "openvino",
                 None,
                 0,
                 [
                     ("OpenVINOExecutionProvider", "NPU"),
+                    ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
                 ],
                 None,
             ),
-            ("qnn", None, 2, [], "local machine does not support"),
+            # ep=qnn, device=auto: QNN is not local, but we warn (not filter) and run.
+            (
+                "qnn",
+                None,
+                0,
+                [
+                    ("QNNExecutionProvider", "NPU"),
+                    ("QNNExecutionProvider", "GPU"),
+                ],
+                None,
+            ),
             (
                 "qnn",
                 "all",
@@ -1022,17 +1050,23 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                 None,
             ),
             ("openvino", "gpu", 0, [("OpenVINOExecutionProvider", "GPU")], None),
+            # ep=all, device=all: every (ep, device) combo allowed by EP_SUPPORTED_DEVICES.
             (
                 "all",
                 "all",
                 0,
                 [
                     ("NvTensorRTRTXExecutionProvider", "GPU"),
+                    ("CUDAExecutionProvider", "GPU"),
+                    ("MIGraphXExecutionProvider", "GPU"),
+                    ("VitisAIExecutionProvider", "NPU"),
                     ("QNNExecutionProvider", "NPU"),
                     ("QNNExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "NPU"),
                     ("OpenVINOExecutionProvider", "GPU"),
                     ("OpenVINOExecutionProvider", "CPU"),
+                    ("DmlExecutionProvider", "GPU"),
+                    ("CPUExecutionProvider", "CPU"),
                 ],
                 None,
             ),
@@ -1104,105 +1138,59 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             assert expect_error in result.output.lower()
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_no_rule_data_pair_requires_run_unknown_op(
+    def test_no_rule_data_pair_runs_with_inline_skip_marker(
         self,
         mock_analyzer_class: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
+        mock_analyzer_result: Mock,
     ) -> None:
-        """A pair without rule data should fail with --run-unknown-op guidance."""
+        """A pair without rule data still runs — OP CHECK renders 'skipped' inline."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
 
         result = runner.invoke(
             analyze,
             ["--model", str(model_file), "--ep", "dml", "--device", "gpu"],
         )
-        assert result.exit_code == 2
-        assert "no rule data found" in result.output.lower()
-        assert "--run-unknown-op" in result.output
-        assert not mock_analyzer_class.return_value.analyze.called
+        assert result.exit_code == 0
+        mock_instance.analyze.assert_called_once()
+        call_kwargs = mock_instance.analyze.call_args.kwargs
+        assert call_kwargs["ep"] == "DmlExecutionProvider"
+        assert call_kwargs["device"] == "GPU"
 
-    def test_qnn_auto_shows_device_all_guidance(self, runner: CliRunner, tmp_path: Path) -> None:
-        """qnn + auto device should fail with local support guidance, not run-unknown hint."""
+    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
+    def test_qnn_auto_warns_about_non_local_pairs(
+        self,
+        mock_analyzer_class: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+        mock_analyzer_result: Mock,
+    ) -> None:
+        """qnn + auto device: QNN isn't locally supported but we warn (not error) and run."""
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
+
+        mock_instance = Mock()
+        mock_instance.analyze.return_value = mock_analyzer_result
+        mock_analyzer_class.return_value = mock_instance
 
         result = runner.invoke(analyze, ["--model", str(model_file), "--ep", "qnn"])
-        assert result.exit_code == 2
-        assert "local machine does not support" in result.output.lower()
-        assert "--device all" in result.output
-        assert "--run-unknown-op" not in result.output
-
-    @patch("winml.modelkit.commands.analyze._render_analysis_summary")
-    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_openvino_gpu_has_local_not_supported_hint(
-        self,
-        mock_analyzer_class: MagicMock,
-        mock_summary: MagicMock,
-        runner: CliRunner,
-        tmp_path: Path,
-        mock_analyzer_result: Mock,
-    ) -> None:
-        """openvino + gpu should execute and carry local-not-supported hint into summary."""
-        model_file = tmp_path / "test.onnx"
-        model_file.write_bytes(b"dummy")
-
-        mock_instance = Mock()
-        mock_instance.analyze.return_value = mock_analyzer_result
-        mock_analyzer_class.return_value = mock_instance
-
-        result = runner.invoke(
-            analyze,
-            ["--model", str(model_file), "--ep", "openvino", "--device", "gpu"],
-        )
         assert result.exit_code == 0
-        assert mock_instance.analyze.called
-        assert mock_summary.called
+        assert "not available on this machine" in result.output.lower()
+        actual_calls = [
+            (call.kwargs["ep"], call.kwargs["device"])
+            for call in mock_instance.analyze.call_args_list
+        ]
+        assert actual_calls == [
+            ("QNNExecutionProvider", "NPU"),
+            ("QNNExecutionProvider", "GPU"),
+        ]
 
-        summary_kwargs = mock_summary.call_args.kwargs
-        pair_hints = summary_kwargs["pair_hints"]
-        assert pair_hints[("OpenVINOExecutionProvider", "GPU")] == ["local machine not supported"]
-
-    @patch("winml.modelkit.commands.analyze._render_analysis_summary")
-    @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
-    def test_run_unknown_op_sets_no_rule_data_hint(
-        self,
-        mock_analyzer_class: MagicMock,
-        mock_summary: MagicMock,
-        runner: CliRunner,
-        tmp_path: Path,
-        mock_analyzer_result: Mock,
-    ) -> None:
-        """--run-unknown-op should allow execution and carry no-rule-data hint."""
-        model_file = tmp_path / "test.onnx"
-        model_file.write_bytes(b"dummy")
-
-        mock_instance = Mock()
-        mock_instance.analyze.return_value = mock_analyzer_result
-        mock_analyzer_class.return_value = mock_instance
-
-        result = runner.invoke(
-            analyze,
-            [
-                "--model",
-                str(model_file),
-                "--ep",
-                "dml",
-                "--device",
-                "gpu",
-                "--run-unknown-op",
-            ],
-        )
-        assert result.exit_code == 0
-        assert mock_instance.analyze.called
-        assert mock_summary.called
-
-        summary_kwargs = mock_summary.call_args.kwargs
-        pair_hints = summary_kwargs["pair_hints"]
-        assert pair_hints[("DmlExecutionProvider", "GPU")] == ["no rule data"]
-
-    @patch("winml.modelkit.commands.analyze._render_analysis_summary")
     @patch(
         "winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep",
         return_value=False,
@@ -1212,12 +1200,17 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         self,
         mock_analyzer_class: MagicMock,
         _mock_has_rule: Mock,
-        mock_summary: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
         mock_analyzer_result: Mock,
     ) -> None:
-        """auto + specific device should run local parsed pairs when --run-unknown-op is set."""
+        """ep=auto + specific device should run all locally-eligible (ep, device) pairs.
+
+        With ep=auto and device specified, no local filter is applied — pairs the
+        local machine doesn't support are kept (a warning is emitted) and analysis
+        runs for each. has_rule_data_for_ep returning False here only affects
+        per-pair OP CHECK rendering (op-check-skipped), not which pairs run.
+        """
         model_file = tmp_path / "test.onnx"
         model_file.write_bytes(b"dummy")
 
@@ -1230,7 +1223,6 @@ class TestAnalyzeEPDeviceSelectionMatrix:
             ["--model", str(model_file), "--device", "gpu", "--run-unknown-op"],
         )
         assert result.exit_code == 0
-        assert mock_instance.analyze.call_count == 2
 
         actual_calls = [
             (call.kwargs["ep"], call.kwargs["device"])
@@ -1238,14 +1230,9 @@ class TestAnalyzeEPDeviceSelectionMatrix:
         ]
         assert actual_calls == [
             ("NvTensorRTRTXExecutionProvider", "GPU"),
+            ("OpenVINOExecutionProvider", "GPU"),
             ("DmlExecutionProvider", "GPU"),
         ]
-
-        assert mock_summary.called
-        summary_kwargs = mock_summary.call_args.kwargs
-        pair_hints = summary_kwargs["pair_hints"]
-        assert pair_hints[("NvTensorRTRTXExecutionProvider", "GPU")] == ["no rule data"]
-        assert pair_hints[("DmlExecutionProvider", "GPU")] == ["no rule data"]
 
 
 class TestQDQNodeDisplayMapping:
@@ -1344,10 +1331,10 @@ class TestQDQNodeDisplayMapping:
 
         assert result.exit_code == 0
         # After the fix, 'Conv (QDQ)' is keyed as 'Conv' in instance_counts.
-        # ep_instance_counts['QNNExecutionProvider@NPU']['Conv'] must be populated
+        # ep_instance_counts[("QNNExecutionProvider", "NPU")]['Conv'] must be populated
         # (not 'Conv (QDQ)') so the Conv row shows counts instead of '...'.
         assert mock_summary.called
-        qnn_counts = captured_ep_counts.get("QNNExecutionProvider@NPU", {})
+        qnn_counts = captured_ep_counts.get(("QNNExecutionProvider", "NPU"), {})
         assert "Conv" in qnn_counts, "Conv (QDQ) results must be stored under 'Conv'"
         assert "Conv (QDQ)" not in qnn_counts, "QDQ suffix must be stripped"
         assert qnn_counts["Conv"] == {"supported": 2}
@@ -1377,7 +1364,6 @@ class TestAnalyzeSummaryRendering:
             ep="DmlExecutionProvider",
             device="GPU",
             no_data_eps={("DmlExecutionProvider", "GPU")},
-            pair_hints={("DmlExecutionProvider", "GPU"): ["no rule data"]},
         )
 
         output = console.export_text()
