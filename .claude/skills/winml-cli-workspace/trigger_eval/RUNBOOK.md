@@ -36,7 +36,7 @@ Three actions to consider, in priority order:
 | Action | When |
 |---|---|
 | **Add new queries** | The current set feels too easy, or you want to lock in coverage of an edge case the description might not handle. |
-| **Edit description** in `.claude/skills/winml-modelkit/SKILL.md` (YAML frontmatter) | The eval shows specific over/under-triggers and the description is the lever. |
+| **Edit description** in `.claude/skills/winml-cli/SKILL.md` (YAML frontmatter) | The eval shows specific over/under-triggers and the description is the lever. |
 | **Both** | Often together — add the case that exposes a gap, then fix description to pass it. |
 
 ### Step 3a — Add a query
@@ -58,7 +58,7 @@ Design rules for good queries:
 
 ### Step 3b — Edit description
 
-Open `.claude/skills/winml-modelkit/SKILL.md`. Edit the `description:` line in the YAML frontmatter at the top. Keep it pushy ("Use this skill whenever the user mentions...") because agents tend to under-trigger by default.
+Open `.claude/skills/winml-cli/SKILL.md`. Edit the `description:` line in the YAML frontmatter at the top. Keep it pushy ("Use this skill whenever the user mentions...") because agents tend to under-trigger by default.
 
 ### Step 4 — Open a new run
 

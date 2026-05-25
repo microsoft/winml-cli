@@ -37,7 +37,7 @@ Look at which assertions failed. Each failure is one of:
 
 ### Step 3 — Edit SKILL.md body
 
-`.claude/skills/winml-modelkit/SKILL.md` — everything below the YAML frontmatter is the body. The `description` field belongs to Pillar 1 (Trigger); don't change it as part of a response run unless you explicitly want to.
+`.claude/skills/winml-cli/SKILL.md` — everything below the YAML frontmatter is the body. The `description` field belongs to Pillar 1 (Trigger); don't change it as part of a response run unless you explicitly want to.
 
 ### Step 4 — Set up the next run directory
 
@@ -97,7 +97,7 @@ If skill-creator tooling is available:
 
 ```bash
 cd <path-to-skill-creator>
-python -m scripts.aggregate_benchmark <workspace>/response_eval/runs/<new-UTC-datetime> --skill-name winml-modelkit
+python -m scripts.aggregate_benchmark <workspace>/response_eval/runs/<new-UTC-datetime> --skill-name winml-cli
 ```
 
 Otherwise build benchmark.md by hand:

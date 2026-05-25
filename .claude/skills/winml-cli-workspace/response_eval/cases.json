@@ -1,5 +1,5 @@
 {
-  "skill_name": "winml-modelkit",
+  "skill_name": "winml-cli",
   "evals": [
     {
       "id": 1,

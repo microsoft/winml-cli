@@ -1,10 +1,10 @@
-# WinML ModelKit — Bug Bash
+# winml CLI — Bug Bash
 
 ## What this skill does
 
-`winml-modelkit` teaches a coding-assistant agent (Claude Code, GitHub Copilot, Cursor, etc.) how to drive the `winml` CLI to build, optimize, quantize, compile, and benchmark ONNX models for Windows AI PCs — across NPU (Qualcomm QNN, Intel OpenVINO, AMD VitisAI), GPU (NV TRT-RTX, DirectML), and CPU execution providers. Users describe what they want in plain language ("benchmark resnet on my Snapdragon NPU", "build a QNN-compiled model for CI"); the agent reads SKILL.md and drives the CLI without the user looking up flags.
+`winml-cli` teaches a coding-assistant agent (Claude Code, GitHub Copilot, Cursor, etc.) how to drive the `winml` CLI to build, optimize, quantize, compile, and benchmark ONNX models for Windows AI PCs — across NPU (Qualcomm QNN, Intel OpenVINO, AMD VitisAI), GPU (NV TRT-RTX, DirectML), and CPU execution providers. Users describe what they want in plain language ("benchmark resnet on my Snapdragon NPU", "build a QNN-compiled model for CI"); the agent reads SKILL.md and drives the CLI without the user looking up flags.
 
-Skill is at `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit/SKILL.md`. Eval baseline at [`reports/20260520-135348.md`](reports/20260520-135348.md).
+Skill is at `C:/repo/WinML-ModelKit/.claude/skills/winml-cli/SKILL.md`. Eval baseline at [`reports/20260520-135348.md`](reports/20260520-135348.md).
 
 ## How to file bugs
 
@@ -70,7 +70,7 @@ The skill's description is the only thing the host agent sees when deciding whet
 | E4 | "i'm using onnxruntime-genai to run microsoft/phi-3-mini-4k-instruct on my snapdragon. how do i benchmark this?" | Skill should NOT load — ORT-GenAI is a different runtime. (If it does load, that's an over-trigger bug.) |
 | E5 | "how do i call Phi Silica from my WinUI 3 app to summarize text?" | Skill should NOT load. Phi Silica is an OS-bundled model, not BYOM. |
 
-If you're unsure whether the skill loaded, ask the agent "did you read the winml-modelkit skill?" — it should be able to tell you.
+If you're unsure whether the skill loaded, ask the agent "did you read the winml-cli skill?" — it should be able to tell you.
 
 ---
 
@@ -90,7 +90,7 @@ If you're unsure whether the skill loaded, ask the agent "did you read the winml
 
 **Refusal hedging.** "Out of scope" should be a clear refusal, not "might work, try and see." Check D-series scenarios for this.
 
-**Over-trigger.** If you type any E-series query and the agent loads the winml-modelkit skill body or recommends `winml` commands, that's an over-trigger bug — the description failed to filter.
+**Over-trigger.** If you type any E-series query and the agent loads the winml-cli skill body or recommends `winml` commands, that's an over-trigger bug — the description failed to filter.
 
 ---
 

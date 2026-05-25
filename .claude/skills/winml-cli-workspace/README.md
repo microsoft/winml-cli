@@ -1,4 +1,4 @@
-# winml-modelkit eval workspace
+# winml-cli eval workspace
 
 Dev-only infrastructure for iterating + validating the skill. Three pillars, each with its own runbook the driving agent should follow:
 

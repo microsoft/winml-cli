@@ -1,15 +1,15 @@
 ---
-description: Run the winml-modelkit skill's E2E eval suite on this machine
+description: Run the winml-cli skill's E2E eval suite on this machine
 ---
 
-You are running the Pillar 3 E2E eval for the `winml-modelkit` skill. Follow these steps exactly.
+You are running the Pillar 3 E2E eval for the `winml-cli` skill. Follow these steps exactly.
 
 ## Workspace
 
-- Cases:        `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit-workspace/e2e_eval/cases.json`
-- Grader:       `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit-workspace/e2e_eval/grade_case.py`
-- Scratch root: `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit-workspace/e2e_eval/scratch/`
-- Skill being tested: `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit/SKILL.md`
+- Cases:        `C:/repo/WinML-ModelKit/.claude/skills/winml-cli-workspace/e2e_eval/cases.json`
+- Grader:       `C:/repo/WinML-ModelKit/.claude/skills/winml-cli-workspace/e2e_eval/grade_case.py`
+- Scratch root: `C:/repo/WinML-ModelKit/.claude/skills/winml-cli-workspace/e2e_eval/scratch/`
+- Skill being tested: `C:/repo/WinML-ModelKit/.claude/skills/winml-cli/SKILL.md`
 
 ## Procedure
 
@@ -46,7 +46,7 @@ You are running the Pillar 3 E2E eval for the `winml-modelkit` skill. Follow the
    - Registered EPs on this machine: <list from step 1>
 
    **Skill**
-   Read first: `C:/repo/WinML-ModelKit/.claude/skills/winml-modelkit/SKILL.md`. Follow its guidance.
+   Read first: `C:/repo/WinML-ModelKit/.claude/skills/winml-cli/SKILL.md`. Follow its guidance.
 
    **Done when**
    <case-specific done criteria — extract from expected_outcomes>
@@ -79,7 +79,7 @@ You are running the Pillar 3 E2E eval for the `winml-modelkit` skill. Follow the
    ```json
    {
      "host": "<from `hostname` command>",
-     "skill_commit": "<from `git rev-parse HEAD:.claude/skills/winml-modelkit/SKILL.md` — null if not in git>",
+     "skill_commit": "<from `git rev-parse HEAD:.claude/skills/winml-cli/SKILL.md` — null if not in git>",
      "winml_version": "<from `uv run winml --version`>",
      "registered_eps": [<from step 1>],
      "started_at_utc": "<recorded at start of step 1>"
