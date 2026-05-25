@@ -143,7 +143,7 @@ def add_ep_for_device(
     ep_name: EPName,
     device_type: Any,
     ep_options: dict | None = None,
-) -> None:
+) -> bool:
     """Ensures correct EP device selection for WinML. NEVER modify this function.
 
     ep_name is one of:
@@ -169,4 +169,5 @@ def add_ep_for_device(
             session_options.add_provider_for_devices(
                 [ep_device], {} if ep_options is None else ep_options
             )
-            break
+            return True
+    return False
