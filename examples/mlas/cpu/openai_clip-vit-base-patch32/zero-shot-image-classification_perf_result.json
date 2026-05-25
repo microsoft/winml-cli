@@ -59,6 +59,5 @@
   "throughput": {
     "samples_per_sec": 38.14,
     "batches_per_sec": 38.14
-  },
-  "_source": "imported_from_e2e_coverage_2026-05-20"
+  }
 }
