@@ -113,3 +113,27 @@ class TestWinMLSessionEPSpecific:
             assert len(non_cpu) > 0, f"Expected non-CPU EP for device={device}, got: {providers}"
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
+
+    def test_auto_device_runtime_smoke(
+        self,
+        simple_matmul_onnx: Path,
+        sample_input: dict[str, np.ndarray],
+    ):
+        """``device="auto"`` resolves an EP and runs inference end to end.
+
+        Covers the full ``resolve_device`` -> ``add_provider_for_devices``
+        -> ``ort.InferenceSession`` path that #708 introduced. Lives in
+        e2e because on a hardware-less runner the WinML EP registry can
+        advertise phantom NPU/GPU EP devices that crash natively when
+        bound (#726) — so this is only meaningful when invoked on a
+        machine with at least one real-hardware EP available.
+        """
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="auto")
+
+        outputs = session.run(sample_input)
+
+        assert session.is_compiled
+        assert "C" in outputs
+        assert outputs["C"].shape == (1, 4)
+        # `device="auto"` must end up resolving to a concrete device label.
+        assert session.device in {"npu", "gpu", "cpu"}

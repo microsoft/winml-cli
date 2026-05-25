@@ -150,63 +150,9 @@ class TestWinMLSessionCompilation:
         assert session.state == SessionState.COMPILED
         assert session._session is first_session
 
-    def test_run_uses_epcontext_after_compile(self, simple_matmul_onnx: Path):
-        """Test that run() uses EPContext if compile() was called first."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Pre-compile to create EPContext
-        session.compile()
-
-        # Run should use EPContext and create session
-        sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
-
-        # Now session should be compiled
-        assert session.is_compiled
-        assert session.state == SessionState.COMPILED
-
 
 class TestWinMLSessionProviders:
     """Test that session providers match WinML EP registry."""
-
-    def test_providers_are_valid_and_include_fallback(self, simple_matmul_onnx: Path):
-        """
-        Test that session providers are valid and include CPU fallback.
-
-        With device="auto", ``resolve_device`` walks the device priority list
-        (NPU > GPU > CPU) and picks the first one that has a compatible EP
-        available on this system. On a CPU-only runner this falls back to CPU.
-        The key requirements are:
-        1. Session initializes successfully
-        2. At least one provider is active
-        3. CPUExecutionProvider is available as fallback
-        """
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Run to trigger lazy init
-        sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
-
-        # Get actual providers used by session
-        actual_providers = session._session.get_providers()
-
-        # Must have at least one provider
-        assert len(actual_providers) > 0, "Session must have at least one provider"
-
-        # CPUExecutionProvider should always be present as fallback
-        assert "CPUExecutionProvider" in actual_providers, (
-            f"CPUExecutionProvider not in providers: {actual_providers}"
-        )
-
-        # Log which providers are being used (useful for debugging)
-        # On NPU-capable systems, should see QNNExecutionProvider or similar
-        print(f"Active providers: {actual_providers}")
 
     def test_cpu_provider_always_available(self, simple_matmul_onnx: Path):
         """Test that CPUExecutionProvider is always available as fallback."""
@@ -226,44 +172,6 @@ class TestWinMLSessionProviders:
 class TestWinMLSessionInference:
     """Test WinMLSession inference execution."""
 
-    def test_basic_inference(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test basic inference with MatMul model."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Run inference (auto-compiles)
-        outputs = session.run(sample_input)
-
-        # Check output
-        assert "C" in outputs
-        assert outputs["C"].shape == (1, 4)
-        assert outputs["C"].dtype == np.float32
-
-    def test_inference_auto_compiles(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test that run() auto-compiles if not compiled."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        assert not session.is_compiled
-
-        # Run should trigger auto-compile
-        outputs = session.run(sample_input)
-
-        assert session.is_compiled
-        assert "C" in outputs
-
     def test_inference_with_torch_tensor(
         self,
         simple_matmul_onnx: Path,
@@ -274,7 +182,7 @@ class TestWinMLSessionInference:
 
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
-            device="auto",
+            device="cpu",
         )
 
         # Create torch tensor input
@@ -295,51 +203,6 @@ class TestWinMLSessionInference:
 
         with pytest.raises(ValueError, match="inputs cannot be empty"):
             session.run({})
-
-
-class TestWinMLSessionStateManagement:
-    """Test WinMLSession state machine."""
-
-    def test_state_transitions(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test state transitions: INITIALIZED -> COMPILED -> INFERRING -> COMPILED."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Initial state
-        assert session.state == SessionState.INITIALIZED
-
-        # After run (lazy init triggers session creation)
-        session.run(sample_input)
-        assert session.state == SessionState.COMPILED
-
-        # Run again (should return to COMPILED)
-        session.run(sample_input)
-        assert session.state == SessionState.COMPILED
-
-    def test_reset_returns_to_initialized(
-        self,
-        simple_matmul_onnx: Path,
-        sample_input: dict[str, np.ndarray],
-    ):
-        """Test that reset() returns session to INITIALIZED state."""
-        session = WinMLSession(
-            onnx_path=simple_matmul_onnx,
-            device="auto",
-        )
-
-        # Run to create session
-        session.run(sample_input)
-        assert session.is_compiled
-
-        session.reset()
-        assert session.state == SessionState.INITIALIZED
-        assert not session.is_compiled
 
 
 class TestWinMLSessionMetadata:
