@@ -1,4 +1,4 @@
-name: ModelKit CI
+name: WinML CLI CI
 
 on:
   pull_request:
