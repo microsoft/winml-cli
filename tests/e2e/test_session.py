@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 
 from winml.modelkit.session import WinMLEPRegistry, WinMLSession
@@ -19,8 +20,6 @@ from winml.modelkit.session import WinMLEPRegistry, WinMLSession
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import numpy as np
 
 
 class TestWinMLRegistryEPDiscovery:
@@ -127,13 +126,59 @@ class TestWinMLSessionEPSpecific:
         advertise phantom NPU/GPU EP devices that crash natively when
         bound (#726) — so this is only meaningful when invoked on a
         machine with at least one real-hardware EP available.
+
+        Aggregates the assertions previously held by the deleted unit
+        tests (basic inference, lazy-compile transition, state machine,
+        second-run state preservation, reset, EPContext-after-compile).
         """
+        from winml.modelkit.session import SessionState
+
         session = WinMLSession(onnx_path=simple_matmul_onnx, device="auto")
 
-        outputs = session.run(sample_input)
+        # State machine: INITIALIZED before any work, lazy-compile contract
+        assert session.state == SessionState.INITIALIZED
+        assert not session.is_compiled
 
+        # First run triggers compile -> COMPILED
+        outputs = session.run(sample_input)
+        assert session.is_compiled
+        assert session.state == SessionState.COMPILED
+        assert "C" in outputs
+        assert outputs["C"].shape == (1, 4)
+        assert outputs["C"].dtype == np.float32
+
+        # `device="auto"` must end up resolving to a concrete device label.
+        assert session.device in {"npu", "gpu", "cpu"}
+
+        # Second run keeps COMPILED state (no implicit re-init)
+        outputs = session.run(sample_input)
+        assert session.state == SessionState.COMPILED
+
+        # reset() returns to INITIALIZED
+        session.reset()
+        assert session.state == SessionState.INITIALIZED
+        assert not session.is_compiled
+
+    def test_auto_device_explicit_compile_writes_epcontext(
+        self,
+        simple_matmul_onnx: Path,
+        sample_input: dict[str, np.ndarray],
+    ):
+        """Explicit ``compile()`` + ``run()`` exercises the EPContext path.
+
+        Replaces the deleted ``test_run_uses_epcontext_after_compile``
+        unit test. The EPContext path goes through ``ort.ModelCompiler``
+        for EPs that support compilation; ``device="auto"`` lets the
+        underlying EP pick whether/how to materialize the context file.
+        """
+        from winml.modelkit.session import SessionState
+
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="auto")
+
+        session.compile()
+        assert session.state == SessionState.COMPILED
+
+        outputs = session.run(sample_input)
         assert session.is_compiled
         assert "C" in outputs
         assert outputs["C"].shape == (1, 4)
-        # `device="auto"` must end up resolving to a concrete device label.
-        assert session.device in {"npu", "gpu", "cpu"}
