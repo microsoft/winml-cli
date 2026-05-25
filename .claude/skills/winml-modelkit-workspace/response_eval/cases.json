@@ -69,10 +69,10 @@
     {
       "id": 7,
       "name": "install-setup",
-      "prompt": "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.11 is already on the system. give me the actual install commands i should run to get going before i can do anything else.",
+      "prompt": "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.10 is already on the system. give me the actual install commands i should run to get going before i can do anything else.",
       "assertions": [
-        {"id": "python-3-10-required", "text": "Recommends Python 3.10 specifically, and calls out that the user's existing 3.11 will NOT work (winml-cli wheel pins >=3.10,<3.11)."},
-        {"id": "uses-uv-venv", "text": "Uses `uv venv --python 3.10` (or an equivalent isolated venv command) rather than installing into system Python or a 3.11 environment."},
+        {"id": "python-3-11-required", "text": "Recommends Python 3.11 specifically, and calls out that the user's existing 3.10 will NOT work (winml-cli wheel pins >=3.11,<3.12)."},
+        {"id": "uses-uv-venv", "text": "Uses `uv venv --python 3.11` (or an equivalent isolated venv command) rather than installing into system Python or a 3.10 environment."},
         {"id": "points-to-correct-source", "text": "Recommends installing from PyPI via `uv pip install winml-cli` (or `pip install winml-cli`). Uses the correct package name `winml-cli` — does NOT install a generic `winml` package."},
         {"id": "verifies-after-install", "text": "Includes a post-install verification step (e.g., `winml --help` or `winml sys --list-ep`) so the user can confirm the install worked before moving on."}
       ]
