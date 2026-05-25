@@ -150,11 +150,14 @@ def inspect(
         # List all known tasks
         winml inspect --list-tasks
     """
-    # Handle --list-tasks (no model required)
+    # Handle --list-tasks (no model required).
+    # Import the hand-coded KNOWN_TASKS directly from loader.task to keep this
+    # branch fast — going through inspect.resolver pulls in ..models which
+    # transitively imports transformers and costs ~10s on a warm cache.
     if list_tasks:
-        from ..inspect.resolver import get_known_tasks
+        from ..loader.task import KNOWN_TASKS
 
-        for t in sorted(get_known_tasks()):
+        for t in sorted(KNOWN_TASKS):
             click.echo(t)
         return
 
@@ -288,8 +291,11 @@ def _inspect_model_v2(
     )
 
     # =========================================================================
-    # STEP 1: Preserve parent hf_config before resolve_loader_config narrows it
-    #         for multimodal models (e.g., CLIPConfig → CLIPTextConfig)
+    # STEP 1: Load parent hf_config once and feed it into resolve_loader_config
+    #         to avoid a duplicate AutoConfig.from_pretrained round-trip.
+    #         The parent (e.g., CLIPConfig) is preserved here because step 4
+    #         inside resolve_loader_config may narrow it to a sub-config
+    #         (e.g., CLIPTextConfig) for multimodal models.
     # =========================================================================
     parent_hf_config = None
     if model_id and not model_type_override:
@@ -309,6 +315,7 @@ def _inspect_model_v2(
             task=task_override,
             model_type=model_type_override,
             model_class=model_class_override,
+            hf_config=parent_hf_config,
         )
     except RepositoryNotFoundError as e:
         # Direct HF Hub 404 — keep full message (includes private-repo hint).

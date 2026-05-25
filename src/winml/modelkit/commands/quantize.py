@@ -19,7 +19,6 @@ Examples:
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -158,8 +157,8 @@ def quantize(
     # Apply build config defaults (CLI explicit options take precedence).
     # Only read the JSON for what explicitly specified in config file.
     if config_file is not None:
-        cli_utils.load_build_config(config_file)  # validate; raises click.UsageError
-        qc = (json.loads(config_file.read_text()) or {}).get("quant") or {}
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        qc = raw_cfg.get("quant") or {}
         if not cli_utils.is_cli_provided(ctx, "samples") and "samples" in qc:
             samples = qc["samples"]
         if not cli_utils.is_cli_provided(ctx, "method") and "calibration_method" in qc:
