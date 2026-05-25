@@ -11,9 +11,9 @@ from typing import Literal, TypeAlias, get_args
 
 
 if sys.platform == "win32":
-    from .native_stderr import suppress_ep_registration_stderr
+    from .native_stderr import suppress_native_stderr
 
-    with suppress_ep_registration_stderr():
+    with suppress_native_stderr():
         import onnxruntime as ort
 else:
     import onnxruntime as ort
