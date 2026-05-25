@@ -26,7 +26,7 @@ Five categories. Pick scenarios that match your hardware — anything marked **(
 
 | # | Hardware | Prompt | What to verify |
 |---|---|---|---|
-| A1 | any (fresh machine) | "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.11 is already on the system. give me the actual install commands i should run." | Agent should call out Python 3.11 won't work → recommend `uv venv --python 3.10`. Should point at AITK cache wheel, **not** a fabricated `pip install winml-cli` (that doesn't ship on PyPI yet). Should include `winml --help` / `winml sys --list-ep` verify step. |
+| A1 | any (fresh machine) | "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.11 is already on the system. give me the actual install commands i should run." | Agent should call out Python 3.11 won't work → recommend `uv venv --python 3.10`. Should install from PyPI via `uv pip install winml-cli`. Should include `winml --help` / `winml sys --list-ep` verify step. |
 | A2 | any | "is winml on my path? what version do I have?" | Agent should run `winml --version` (or `--help`) and report. Should not hallucinate a version. |
 
 ### B. Happy-path NPU builds

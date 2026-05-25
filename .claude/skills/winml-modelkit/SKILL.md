@@ -37,15 +37,7 @@ Activate it:
 source .venv/Scripts/activate
 ```
 
-**2. Install the `winml-cli` wheel**
-
-Today the wheel ships locally with AI Toolkit (AITK), not from PyPI. Install it from the AITK cache:
-
-```powershell
-uv pip install "$env:USERPROFILE\.aitk\bin\model_lab_runtime\cache\winml_cli-0.0.3-py3-none-any.whl"
-```
-
-When `winml-cli` is published to PyPI (planned), replace step 2 with:
+**2. Install `winml-cli` from PyPI**
 
 ```bash
 uv pip install winml-cli
