@@ -874,23 +874,20 @@ class TestEvalCli:
         assert "bogus_ep" in result.output.lower() or "invalid" in result.output.lower()
 
     def test_cli_ep_from_build_config(self, tmp_path):
-        """When --ep is omitted, ep is read from build_cfg.compile.ep_config.provider."""
+        """When --ep is omitted, ep is read from raw build-config JSON."""
         from winml.modelkit.commands.eval import eval as eval_cmd
 
         config_file = tmp_path / "build.yaml"
         config_file.touch()
 
-        fake_build_cfg = MagicMock()
-        fake_build_cfg.loader = None
-        fake_build_cfg.compile.ep_config.provider = "dml"
-        fake_build_cfg.quant = None
+        raw_cfg = {"compile": {"execution_provider": "dml"}}
 
         runner = CliRunner()
         with (
             patch("winml.modelkit.sysinfo.resolve_device", return_value=("gpu", ["gpu", "cpu"])),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
-                return_value=(fake_build_cfg, {}),
+                return_value=(MagicMock(), raw_cfg),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
@@ -922,17 +919,14 @@ class TestEvalCli:
         config_file = tmp_path / "build.yaml"
         config_file.touch()
 
-        fake_build_cfg = MagicMock()
-        fake_build_cfg.loader = None
-        fake_build_cfg.compile.ep_config.provider = "dml"
-        fake_build_cfg.quant = None
+        raw_cfg = {"compile": {"execution_provider": "dml"}}
 
         runner = CliRunner()
         with (
             patch("winml.modelkit.sysinfo.resolve_device", return_value=("npu", ["npu", "cpu"])),
             patch(
                 "winml.modelkit.utils.cli.load_build_config",
-                return_value=(fake_build_cfg, {}),
+                return_value=(MagicMock(), raw_cfg),
             ),
             patch("winml.modelkit.eval.evaluate") as mock_evaluate,
         ):
