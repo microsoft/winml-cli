@@ -1,0 +1,42 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "prompt": "i have a ViT model (google/vit-base-patch16-224) and im trying to decide whether to ship the NPU version or just use CPU. running on a snapdragon x elite. whats the cleanest way to get apples-to-apples latency numbers from both?",
+  "assertions": [
+    {
+      "id": "inspect-first",
+      "text": "Recommends `winml inspect` (or equivalent inspection step) before any build/benchmark work.",
+      "rationale": ""
+    },
+    {
+      "id": "identifies-qnn",
+      "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+      "rationale": ""
+    },
+    {
+      "id": "build-once-perf-twice",
+      "text": "Recommends building the model once and then running `winml perf` twice \u2014 once on NPU, once on CPU \u2014 rather than building two separate pipelines.",
+      "rationale": ""
+    },
+    {
+      "id": "cpu-uses-pre-compile",
+      "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact.",
+      "rationale": ""
+    },
+    {
+      "id": "ep-locked-warning",
+      "text": "Warns that EP-compiled artifacts are EP-locked / can't be run on a different EP and produce nonsense numbers.",
+      "rationale": ""
+    },
+    {
+      "id": "no-fabricated-flags",
+      "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "rationale": ""
+    },
+    {
+      "id": "includes-install-prereq",
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) \u2014 the user's prompt does not signal prior winml usage, so the default-include-install rule applies.",
+      "rationale": ""
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "prompt": "I have an AMD Ryzen AI laptop and I want to know the fastest way to see how fast facebook/convnext-tiny-224 runs on my NPU. I don't really care about the artifact, just the number.",
+  "assertions": [
+    {
+      "id": "identifies-vitisai",
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "rationale": ""
+    },
+    {
+      "id": "single-perf-command",
+      "text": "Recommends a single `winml perf` invocation as the primary action.",
+      "rationale": ""
+    },
+    {
+      "id": "no-full-pipeline",
+      "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate steps.",
+      "rationale": ""
+    },
+    {
+      "id": "inspect-as-sanity-check",
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "rationale": ""
+    },
+    {
+      "id": "no-fabricated-flags",
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "rationale": ""
+    },
+    {
+      "id": "includes-install-prereq",
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) \u2014 the user said \"I have a Ryzen AI laptop\" with no signal of prior winml usage, so the default-include-install rule applies.",
+      "rationale": ""
+    }
+  ]
+}

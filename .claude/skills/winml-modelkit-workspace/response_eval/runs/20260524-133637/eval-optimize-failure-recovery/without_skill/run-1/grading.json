@@ -1,0 +1,43 @@
+{
+  "eval_id": 6,
+  "eval_name": "optimize-failure-recovery",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step.",
+      "passed": false,
+      "evidence": "Baseline doesn't know about winml analyze. Recommends generic ORT-level debugging."
+    },
+    {
+      "text": "Explains that analyze's linter will name the offending op pattern per EP (i.e., tells the user what analyze will tell THEM).",
+      "passed": false,
+      "evidence": "Baseline doesn't surface analyze's per-EP linter; suggests reading raw error or trying different opset."
+    },
+    {
+      "text": "Does NOT recommend hand-editing the ONNX graph.",
+      "passed": true,
+      "evidence": "Baseline doesn't recommend graph hand-editing -- mostly suggests opset changes / re-export."
+    },
+    {
+      "text": "Suggests either trying a different optim/quant config to dodge the unsupported pattern OR escalating to \"this model isn't a fit for this EP\". Avoids dead-ending.",
+      "passed": true,
+      "evidence": "Baseline does suggest config / quant changes as a recovery path -- partial credit; the recovery is generic but exists."
+    },
+    {
+      "text": "Encourages reading the actual error message (which names op/EP/stage) before guessing -- doesn't jump to generic advice.",
+      "passed": true,
+      "evidence": "Baseline does encourage reading the raw error."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.6667,
+    "passed": 4,
+    "failed": 2,
+    "total": 6
+  }
+}

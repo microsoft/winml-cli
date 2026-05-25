@@ -1,0 +1,53 @@
+{
+  "eval_id": 11,
+  "eval_name": "ambiguous-run-intent",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recognizes the prompt is ambiguous between 'just get a latency number' and 'produce a deployable artifact' -- either asks the user to clarify, OR explicitly presents both paths with a reasoned recommendation. Does NOT silently pick one path without acknowledging the other exists.",
+      "passed": true,
+      "evidence": "Section 'Quick clarifier' explicitly enumerates three intents (artifact / number / both) with the right command for each. Picks 'a deployable artifact, then benchmark it' as the default while telling the user how to skip to just-perf."
+    },
+    {
+      "text": "Does NOT instruct the user to run `winml perf` first, then `winml build`, then `winml perf` again -- that sequence wastes the on-the-fly build that perf already did.",
+      "passed": true,
+      "evidence": "Closing 'Just want the latency number?' section explicitly: 'If you later decide you want a deployable model, you'll have to run build separately (it won't cost double if cache is warm, but the artifact only becomes \"yours\" via build -o).' No perf->build->perf sequence anywhere."
+    },
+    {
+      "text": "If the response includes both a build step and a perf step, the order is `winml build` BEFORE `winml perf`, never perf before build.",
+      "passed": true,
+      "evidence": "Section 'Quick clarifier' line: 'You want both -> winml build first to produce the artifact, then winml perf against the built artifact.' Order is build->perf."
+    },
+    {
+      "text": "Recommends `winml inspect` before other pipeline commands.",
+      "passed": true,
+      "evidence": "Step 1 'Inspect first (always)' runs `winml inspect -m microsoft/resnet-50`."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite.",
+      "passed": true,
+      "evidence": "Quote: 'Snapdragon X Elite has a Qualcomm Hexagon NPU, which winml drives via the QNN execution provider'."
+    },
+    {
+      "text": "Either points the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Multiple 'check ... --help' nudges; closing troubleshooting bullet: 'Any flag I quoted above doesn't exist -> run winml <command> --help and use the real one.'"
+    },
+    {
+      "text": "Includes an install/prereq block -- the prompt gives no signal of prior winml usage.",
+      "passed": true,
+      "evidence": "Section 'Prereq: install the winml CLI' with uv venv + AITK wheel + smoke test."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 8,
+    "failed": 0,
+    "total": 8
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "eval_id": 11,
+  "eval_name": "ambiguous-run-intent",
+  "prompt": "i want to run resnet-50 on my snapdragon x elite. how do i do that with winml?",
+  "assertions": [
+    {
+      "id": "disambiguates-intent",
+      "text": "Recognizes the prompt is ambiguous between 'just get a latency number' and 'produce a deployable artifact' — either asks the user to clarify, OR explicitly presents both paths with a reasoned recommendation. Does NOT silently pick one path without acknowledging the other exists.",
+      "rationale": ""
+    },
+    {
+      "id": "no-perf-build-perf-sequence",
+      "text": "Does NOT instruct the user to run `winml perf` first, then `winml build`, then `winml perf` again — that sequence wastes the on-the-fly build that perf already did.",
+      "rationale": ""
+    },
+    {
+      "id": "correct-order-if-both-steps",
+      "text": "If the response includes both a build step and a perf step, the order is `winml build` BEFORE `winml perf`, never perf before build.",
+      "rationale": ""
+    },
+    {
+      "id": "inspect-first",
+      "text": "Recommends `winml inspect` before other pipeline commands.",
+      "rationale": ""
+    },
+    {
+      "id": "identifies-qnn",
+      "text": "Identifies QNN as the EP for Snapdragon X Elite.",
+      "rationale": ""
+    },
+    {
+      "id": "no-fabricated-flags",
+      "text": "Either points the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "rationale": ""
+    },
+    {
+      "id": "includes-install-prereq",
+      "text": "Includes an install/prereq block — the prompt gives no signal of prior winml usage.",
+      "rationale": ""
+    }
+  ]
+}

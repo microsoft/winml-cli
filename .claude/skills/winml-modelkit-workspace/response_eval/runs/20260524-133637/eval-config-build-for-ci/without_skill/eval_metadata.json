@@ -1,0 +1,32 @@
+{
+  "eval_id": 9,
+  "eval_name": "config-build-for-ci",
+  "prompt": "we want to add a CI job that rebuilds an optimized resnet50 (targeting qnn) every time the model config changes. i want one json config that lives in the repo and a reproducible build step. how should i set this up?",
+  "assertions": [
+    {
+      "id": "recommends-config-plus-build",
+      "text": "Recommends the `winml config` \u2192 `winml build` two-step (the shortcut/pipeline path), not chained primitives (export/optimize/quantize/compile).",
+      "rationale": ""
+    },
+    {
+      "id": "config-committed-to-git",
+      "text": "States or strongly implies the JSON output of `winml config` is the artifact to commit / version-control \u2014 it's the single source of truth for the build.",
+      "rationale": ""
+    },
+    {
+      "id": "cli-precedence-not-reversed",
+      "text": "If precedence is mentioned at all, correctly states that explicit CLI flags override config-file defaults (per every primitive's --help: \"Provides defaults; explicit CLI options take precedence\"). Does NOT claim the config overrides CLI.",
+      "rationale": ""
+    },
+    {
+      "id": "reproducibility-or-rebuild",
+      "text": "Addresses how to make the build repeatable in CI \u2014 either by mentioning that re-running `winml build -c config.json` against the same config produces the same artifact, OR by pointing at the `--rebuild` / `--use-cache` flags.",
+      "rationale": ""
+    },
+    {
+      "id": "ci-includes-install-step",
+      "text": "The CI workflow / runbook includes a winml-cli install step (pinned wheel today, PyPI later) \u2014 not just the build invocation. A fresh CI runner won't have winml; the workflow must install it.",
+      "rationale": ""
+    }
+  ]
+}

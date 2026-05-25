@@ -1,0 +1,27 @@
+{
+  "eval_id": 8,
+  "eval_name": "local-onnx-file",
+  "prompt": "i already have a resnet50.onnx file on disk from a previous export \u2014 about 100MB. how do i get it benchmarked on my intel core ultra NPU without re-downloading anything from huggingface?",
+  "assertions": [
+    {
+      "id": "identifies-openvino",
+      "text": "Identifies OpenVINO as the correct EP for Intel Core Ultra NPU.",
+      "rationale": ""
+    },
+    {
+      "id": "accepts-local-onnx-input",
+      "text": "Recognizes that winml commands accept local `.onnx` files directly via `-m` / `--model` \u2014 no re-export needed.",
+      "rationale": ""
+    },
+    {
+      "id": "skips-export",
+      "text": "Does NOT walk the user through `winml export` or any HuggingFace download \u2014 the model is already on disk.",
+      "rationale": ""
+    },
+    {
+      "id": "no-fabricated-flags",
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "rationale": ""
+    }
+  ]
+}

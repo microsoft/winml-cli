@@ -1,0 +1,43 @@
+{
+  "eval_id": 6,
+  "eval_name": "optimize-failure-recovery",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step.",
+      "passed": true,
+      "evidence": "Section 1 'Read the error literally, then run analyze against the exported ONNX' runs `winml analyze -m <path-to-your-exported-swin.onnx> --ep QNN`."
+    },
+    {
+      "text": "Explains that analyze's linter will name the offending op pattern per EP (i.e., tells the user what analyze will tell THEM).",
+      "passed": true,
+      "evidence": "Quote: 'The linter classifies every operator as supported / partial / unsupported per EP. It will almost always either confirm what the optimize error already named, or surface a related pattern nearby in the graph.'"
+    },
+    {
+      "text": "Does NOT recommend hand-editing the ONNX graph.",
+      "passed": true,
+      "evidence": "Quote: 'The skill's explicit guidance for this exact situation: don't hand-edit the ONNX graph. Try a different optim or quantization configuration to dodge the unsupported pattern.'"
+    },
+    {
+      "text": "Suggests either trying a different optim/quant config to dodge the unsupported pattern OR escalating to \"this model isn't a fit for this EP\". Avoids dead-ending.",
+      "passed": true,
+      "evidence": "Section 2 dodges via different optim config; Section 3 escalates ('Two reasonable moves: fall back to DML/CPU, or swap to a smaller Swin variant')."
+    },
+    {
+      "text": "Encourages reading the actual error message (which names op/EP/stage) before guessing -- doesn't jump to generic advice.",
+      "passed": true,
+      "evidence": "Section 1 opens with 'Read the error literally' and 'look at the actual op pattern the optimize step is complaining about and write it down'."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}

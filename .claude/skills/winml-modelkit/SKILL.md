@@ -93,6 +93,23 @@ Together they replace the seven primitives with two.
 
 The names above (`inspect`, `export`, `analyze`, `optimize`, `quantize`, `compile`, `perf`, plus the config/build pair) are stable concepts — they map to subcommands of `winml`. Confirm exact spelling and current flags via `winml --help` before you write any command.
 
+## Outputs are explicit; cache is opaque
+
+Every `winml` command has a **published output** — what `-o` writes or what it prints to stdout — and that is the only thing you can hand to a user or downstream command. What a command does *internally* (cached intermediate builds, temp graphs, EP context blobs in a private folder) is not a supported output. Don't try to fish artifacts out of cache, don't assume one command's internal byproducts can feed another.
+
+This is the easiest way to pick the right command for a goal: **map the goal to a published output, not to a side effect.**
+
+- `inspect`, `sys`, `analyze`, `hub` print to stdout (no `-o` artifact).
+- `export`, `optimize`, `quantize`, `compile`, `build` write transformed model artifacts to `-o`.
+- `perf` writes a **metrics JSON** to `-o` — not a model.
+- `config` writes the **config JSON** to `-o` — the input to `build`.
+
+When you find yourself thinking "command X probably builds something internally that I can grab" — stop. You've picked the wrong entry point. Use the command whose published output is the thing you actually want.
+
+One concrete failure this guards against: `perf` builds an artifact internally to benchmark it, but only the metrics JSON is published; the build lives in cache and is opaque. If a user wants both a deployable model *and* a latency number, `perf` alone won't get them the model, and chaining `perf → build → perf` just pays the build cost twice — the first `perf` produced nothing they could keep. The right shape is to enter at the command whose `-o` is the artifact (`build`), then run `perf` against that artifact for the number.
+
+The same logic applies wherever a goal doesn't match a command's published output: `inspect`'s JSON isn't a build input (use `config`); `analyze`'s linter output isn't a graph rewrite (use a different optim/quant config); and so on.
+
 ## The golden rule: inspect first
 
 Before any other command, run the inspect subcommand on the user's model. Per `winml inspect --help`, it reads the model configuration *without downloading weights* and shows the loader, exporter, WinML inference class, I/O specs, and the build resolution the pipeline will use. Pass `-f json` for machine-readable output.
@@ -110,6 +127,18 @@ Once inspect passes, pick one of two paths based on what the user is trying to d
 **Config + build — two commands for the whole thing.** Right when the user wants a clean, reproducible, end-to-end build for production, CI, or sharing with a teammate. The generated config is the single source of truth — they edit it to override defaults, version-control it, and replay deterministically.
 
 If the user is unsure, default to config + build unless they say "I want to try different settings" or "something failed and I need to debug a specific stage."
+
+## Mapping "I want to run X" to a command
+
+"I want to run resnet" / "can I try this model" / "let me use this on my NPU" is the most common ambiguous prompt. Apply the published-output rule from the previous section: figure out what the user actually wants, then pick the command whose `-o` is that thing.
+
+| User actually wants | Command whose `-o` is that thing |
+|---|---|
+| A latency / throughput number | `winml perf` (writes metrics JSON) |
+| A deployable `.onnx` they can ship or load from code | `winml config` then `winml build -o <dir>` (build writes the artifact) |
+| Both | `winml build -o <dir>` first, then `winml perf` against the built artifact |
+
+If the user's intent isn't clear from their prompt, ask one short question — "do you want a usable artifact, or just a latency number?" — before quoting commands.
 
 ## Hardware and execution providers
 

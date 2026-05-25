@@ -1,0 +1,32 @@
+{
+  "eval_id": 6,
+  "eval_name": "optimize-failure-recovery",
+  "prompt": "i'm building microsoft/swin-large-patch4-window7-224 for QNN on snapdragon x elite. inspect and export went through fine but winml optimize keeps erroring with something about an unsupported op pattern. what do i do?",
+  "assertions": [
+    {
+      "id": "run-analyze",
+      "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step.",
+      "rationale": ""
+    },
+    {
+      "id": "analyze-names-op",
+      "text": "Explains that analyze's linter will name the offending op pattern per EP (i.e., tells the user what analyze will tell THEM).",
+      "rationale": ""
+    },
+    {
+      "id": "no-hand-edit-onnx",
+      "text": "Does NOT recommend hand-editing the ONNX graph.",
+      "rationale": ""
+    },
+    {
+      "id": "try-different-config-or-escalate",
+      "text": "Suggests either trying a different optim/quant config to dodge the unsupported pattern OR escalating to \"this model isn't a fit for this EP\". Avoids dead-ending.",
+      "rationale": ""
+    },
+    {
+      "id": "reads-error-message",
+      "text": "Encourages reading the actual error message (which names op/EP/stage) before guessing \u2014 doesn't jump to generic advice.",
+      "rationale": ""
+    }
+  ]
+}

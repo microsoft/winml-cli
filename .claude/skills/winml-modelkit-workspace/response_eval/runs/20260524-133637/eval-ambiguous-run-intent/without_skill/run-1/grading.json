@@ -1,0 +1,53 @@
+{
+  "eval_id": 11,
+  "eval_name": "ambiguous-run-intent",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recognizes the prompt is ambiguous between 'just get a latency number' and 'produce a deployable artifact' -- either asks the user to clarify, OR explicitly presents both paths with a reasoned recommendation. Does NOT silently pick one path without acknowledging the other exists.",
+      "passed": false,
+      "evidence": "Baseline silently picks one path (raw onnxruntime-qnn Python integration) -- never acknowledges the benchmark-only vs deployable-artifact fork."
+    },
+    {
+      "text": "Does NOT instruct the user to run `winml perf` first, then `winml build`, then `winml perf` again -- that sequence wastes the on-the-fly build that perf already did.",
+      "passed": true,
+      "evidence": "Baseline never uses winml perf/build at all (trivially passes)."
+    },
+    {
+      "text": "If the response includes both a build step and a perf step, the order is `winml build` BEFORE `winml perf`, never perf before build.",
+      "passed": true,
+      "evidence": "Vacuous -- baseline includes neither winml build nor winml perf, so the order constraint doesn't trigger."
+    },
+    {
+      "text": "Recommends `winml inspect` before other pipeline commands.",
+      "passed": false,
+      "evidence": "Baseline never uses winml inspect (or any winml CLI command). Goes straight to onnxruntime-qnn + raw Python."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite.",
+      "passed": true,
+      "evidence": "Quote: 'ONNX Runtime with the QNN Execution Provider (which is how you actually reach the Snapdragon NPU)'."
+    },
+    {
+      "text": "Either points the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Baseline doesn't quote any winml commands -- no fabricated winml flags. Uses real ORT QNN provider options."
+    },
+    {
+      "text": "Includes an install/prereq block -- the prompt gives no signal of prior winml usage.",
+      "passed": false,
+      "evidence": "Baseline installs `onnxruntime-qnn` + `onnx` + `numpy` -- not the winml CLI. User explicitly said 'with winml' in the prompt, which the baseline ignored."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.625,
+    "passed": 5,
+    "failed": 3,
+    "total": 8
+  }
+}

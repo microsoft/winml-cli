@@ -1,0 +1,53 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` (or equivalent inspection step) before any build/benchmark work.",
+      "passed": true,
+      "evidence": "Step 1 'inspect first' runs `winml inspect -m google/vit-base-patch16-224`."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+      "passed": true,
+      "evidence": "Quote: 'Snapdragon X Elite means the QNN execution provider is Ready'."
+    },
+    {
+      "text": "Recommends building the model once and then running `winml perf` twice -- once on NPU, once on CPU -- rather than building two separate pipelines.",
+      "passed": true,
+      "evidence": "Step 3 'build once, perf twice' \u2014 single config + build emits both compiled and optimized artifacts; perfs twice."
+    },
+    {
+      "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact.",
+      "passed": true,
+      "evidence": "Quote: 'CPU number \u2014 perf the pre-compile optimized ONNX against the CPU EP. Do not point CPU at the QNN-compiled file.'"
+    },
+    {
+      "text": "Warns that EP-compiled artifacts are EP-locked / can't be run on a different EP and produce nonsense numbers.",
+      "passed": true,
+      "evidence": "Quote: 'compiled artifacts are tied to the EP they were compiled for and the number you'd get back would be meaningless'."
+    },
+    {
+      "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Multiple 'confirm exact flag spelling with winml perf --help' nudges; closing line: 'Run winml perf --help and winml build --help before pasting commands to confirm current flag spellings'."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user's prompt does not signal prior winml usage, so the default-include-install rule applies.",
+      "passed": true,
+      "evidence": "'Prereq: install winml' block with uv venv + AITK wheel + verify."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 8,
+    "failed": 0,
+    "total": 8
+  }
+}
