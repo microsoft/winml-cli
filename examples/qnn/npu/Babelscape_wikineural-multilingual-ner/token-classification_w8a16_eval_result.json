@@ -1,0 +1,50 @@
+{
+  "model_id": "Babelscape/wikineural-multilingual-ner",
+  "task": "token-classification",
+  "device": "npu",
+  "ep": "qnn",
+  "dataset": {
+    "split": "validation",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "BramVanroy/conll2003",
+    "columns_mapping": {
+      "label_column": "ner_tags"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\Babelscape_wikineural-multilingual-ner\\token-classification_w8a16_eval_result.json",
+  "metrics": {
+    "LOC": {
+      "precision": 0.75,
+      "recall": 0.75,
+      "f1": 0.75,
+      "number": 4
+    },
+    "MISC": {
+      "precision": 0.2,
+      "recall": 0.5,
+      "f1": 0.28571428571428575,
+      "number": 2
+    },
+    "ORG": {
+      "precision": 1.0,
+      "recall": 0.6666666666666666,
+      "f1": 0.8,
+      "number": 3
+    },
+    "PER": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "number": 3
+    },
+    "overall_precision": 0.6428571428571429,
+    "overall_recall": 0.75,
+    "overall_f1": 0.6923076923076924,
+    "overall_accuracy": 0.917910447761194,
+    "total_time_in_seconds": 0.3705712999944808,
+    "samples_per_second": 26.985360172654865,
+    "latency_in_seconds": 0.03705712999944808
+  }
+}
