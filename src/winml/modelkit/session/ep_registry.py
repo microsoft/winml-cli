@@ -54,7 +54,6 @@ class WinMLEPRegistry:
         self._ep_paths: dict[EPName, str] = {}
         self._registered_eps: list[EPName] = []
         self._winml_available = False
-        self._catalog = None
 
         self._discover_eps()
 
@@ -75,33 +74,17 @@ class WinMLEPRegistry:
         """Load EP catalog from WinML."""
         from windowsml import EpCatalog
 
-        self._catalog = EpCatalog()
-        providers = self._catalog.find_all_providers()
-
-        for provider in providers:
-            try:
-                provider.ensure_ready()
-            except Exception as e:
-                logger.debug("Failed to ensure EP %s is ready: %s", provider.name, e)
-                continue
-            if provider.library_path == "":
-                continue
-            self._ep_paths[cast("EPName", provider.name)] = provider.library_path
-            logger.debug("Found EP: %s at %s", provider.name, provider.library_path)
-
-        # Workaround: WinMLEpCatalogRelease (called by EpCatalog.close() /
-        # EpCatalog.__del__) crashes with ACCESS_VIOLATION (0xC0000005) on some
-        # QNN NPU driver configurations — a Windows SEH exception that Python
-        # try/except cannot catch.  All provider paths have been extracted
-        # above, so the catalog handle is no longer needed.  Null it out
-        # immediately so that EpCatalog.close() becomes a no-op for the
-        # remainder of the process lifetime, whether invoked from a background
-        # thread or interpreter shutdown.  Native resources are reclaimed by
-        # the OS when the process exits.
-        # TODO: Remove once windowsml fixes WinMLEpCatalogRelease to be safe
-        # during process teardown on all QNN NPU driver configurations.
-        if hasattr(self._catalog, "_handle"):
-            self._catalog._handle = None
+        with EpCatalog() as catalog:
+            for provider in catalog.find_all_providers():
+                try:
+                    provider.ensure_ready()
+                except Exception as e:
+                    logger.debug("Failed to ensure EP %s is ready: %s", provider.name, e)
+                    continue
+                if provider.library_path == "":
+                    continue
+                self._ep_paths[cast("EPName", provider.name)] = provider.library_path
+                logger.debug("Found EP: %s at %s", provider.name, provider.library_path)
 
     def register_to_ort(self) -> list[EPName]:
         """Register discovered EPs to ONNX Runtime.
@@ -149,16 +132,6 @@ class WinMLEPRegistry:
     def winml_available(self) -> bool:
         """Whether WinML is available."""
         return self._winml_available
-
-    def __del__(self) -> None:
-        """Cleanup EP catalog."""
-        catalog = getattr(self, "_catalog", None)
-        if catalog is not None:
-            try:
-                catalog.close()
-            except Exception as e:
-                logger.debug("Error cleaning up EP catalog: %s", e)
-            self._catalog = None
 
     @classmethod
     def get_instance(cls) -> WinMLEPRegistry:
