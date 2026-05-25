@@ -240,6 +240,7 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_question_answering(self, runner: CliRunner, tmp_path: Path) -> None:
+        require_ep("qnn")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "distilbert/distilbert-base-cased-distilled-squad",
@@ -249,13 +250,10 @@ class TestEvalPerTask:
         ])
         data = _assert_metrics_present(out, ["exact_match", "f1"])
         # distilbert-squad full SQuAD v1: EM ≈ 77, F1 ≈ 85 (percentages).
-        # Floors are intentionally 0.0 here: this is a CLI smoke test that
-        # the eval pipeline produces a finite metric in the natural range.
-        # Auto-device picks NPU on hosts where the EP under-performs on
-        # extractive QA with N=10; accuracy regression is covered by
-        # scripts/e2e_eval/run_eval.py against a baseline.
-        _assert_in_range(data["metrics"], "exact_match", 0.0, 100.0)
-        _assert_in_range(data["metrics"], "f1", 0.0, 100.0)
+        # Both are harsh on N=10 (heavy per-sample variance with seed=42).
+        # Loose floors guard against degenerate output, not magnitude.
+        _assert_in_range(data["metrics"], "exact_match", 5.0, 100.0)
+        _assert_in_range(data["metrics"], "f1", 5.0, 100.0)
 
     def test_feature_extraction(self, runner: CliRunner, tmp_path: Path) -> None:
         out = tmp_path / "result.json"
@@ -352,6 +350,7 @@ class TestEvalPerTask:
     def test_zero_shot_classification(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        require_ep("qnn")
         # Zero-shot uses ClassificationMetric → accuracy + f1.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -361,13 +360,11 @@ class TestEvalPerTask:
             "-o", str(out),
         ])
         data = _assert_metrics_present(out, ["accuracy", "f1"])
-        # Floors are intentionally 0.0 here: this is a CLI smoke test that
-        # the eval pipeline produces a finite metric in [0, 1]. Auto-device
-        # may pick an EP (e.g. OpenVINO NPU) that under-performs on NLI
-        # with N=10; accuracy regression is covered by
-        # scripts/e2e_eval/run_eval.py against a baseline.
-        _assert_in_range(data["metrics"], "accuracy", 0.0, 1.0)
-        _assert_in_range(data["metrics"], "f1", 0.0, 1.0)
+        # nli-deberta-v3-small zero-shot on AG News, N=10. 4-class random
+        # baseline = 0.25; tiny-N variance can push real models below
+        # baseline. Use a very loose floor here.
+        _assert_in_range(data["metrics"], "accuracy", 0.1, 1.0)
+        _assert_in_range(data["metrics"], "f1", 0.1, 1.0)
 
     def test_zero_shot_image_classification(
         self, runner: CliRunner, tmp_path: Path,

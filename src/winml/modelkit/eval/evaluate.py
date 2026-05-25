@@ -215,12 +215,16 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
         if config.model_id is None:
             raise ValueError("Cannot infer task without model_id. Provide --task.")
 
+        console = Console()
+        console.print("[bold]Detecting model task...[/bold]")
+
         from transformers import AutoConfig
 
         from ..loader.task import _detect_task_from_config
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         task = _detect_task_from_config(hf_config)
+        console.print(f"[dim]Detected task:[/dim] {task}")
 
     if task not in _EVALUATOR_REGISTRY:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
