@@ -252,14 +252,18 @@ def trust_remote_code_option(optional_message: str | None = None):
     )
 
 
-def load_build_config(config_path: Path) -> WinMLBuildConfig:
+def load_build_config(config_path: Path) -> tuple[WinMLBuildConfig, dict]:
     """Load a WinMLBuildConfig from a JSON file.
 
     Args:
         config_path: Path to JSON config file.
 
     Returns:
-        Parsed WinMLBuildConfig.
+        Tuple ``(build_cfg, raw_dict)``. ``raw_dict`` is the unmodified
+        parsed JSON object, returned alongside the dataclass so callers can
+        distinguish "key explicitly set in JSON" from "key absent" — a
+        distinction the dataclass alone cannot preserve, because
+        ``from_dict`` substitutes dataclass defaults for missing keys.
 
     Raises:
         click.UsageError: If file is empty or invalid JSON.
@@ -277,7 +281,7 @@ def load_build_config(config_path: Path) -> WinMLBuildConfig:
     if not isinstance(data, dict):
         raise click.UsageError(f"Build config must be a JSON object, got {type(data).__name__}")
 
-    return WinMLBuildConfig.from_dict(data)
+    return WinMLBuildConfig.from_dict(data), data
 
 
 def is_cli_provided(ctx: click.Context, param_name: str) -> bool:

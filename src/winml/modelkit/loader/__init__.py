@@ -28,6 +28,7 @@ Note:
 from .config import WinMLLoaderConfig, resolve_loader_config, validate_task_supported_for_model
 from .task import (
     HF_TASK_DEFAULTS,
+    KNOWN_TASKS,
     get_supported_tasks,
     get_task_abbrev,
     normalize_task,
@@ -37,6 +38,7 @@ from .task import (
 
 __all__ = [
     "HF_TASK_DEFAULTS",
+    "KNOWN_TASKS",
     "WinMLLoaderConfig",
     "get_supported_tasks",
     "get_task_abbrev",

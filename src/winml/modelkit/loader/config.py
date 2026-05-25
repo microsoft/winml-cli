@@ -121,6 +121,7 @@ def resolve_loader_config(
     model_type: str | None = None,
     trust_remote_code: bool = False,
     library_name: str = "transformers",
+    hf_config: PretrainedConfig | None = None,
 ) -> tuple[WinMLLoaderConfig, PretrainedConfig, type]:
     """Resolve all loader concerns from raw user inputs.
 
@@ -154,6 +155,10 @@ def resolve_loader_config(
             When provided without task, the first supported task is used.
         trust_remote_code: Whether to trust remote/custom code.
         library_name: Source library for TasksManager lookup.
+        hf_config: Pre-loaded HF config to reuse instead of fetching again.
+            When supplied, step 1's ``AutoConfig.from_pretrained`` is skipped.
+            Use this when the caller already has the parent config (e.g.,
+            inspect needs the un-narrowed config for I/O introspection).
 
     Returns:
         Tuple of:
@@ -177,7 +182,10 @@ def resolve_loader_config(
         warn_trust_remote_code()
 
     # 1. Load hf_config (depends on: model_id, model_type, or model_class)
-    if model_id is not None:
+    if hf_config is not None:
+        # Caller supplied a pre-loaded config — skip the round-trip.
+        pass
+    elif model_id is not None:
         hf_config = AutoConfig.from_pretrained(
             model_id,
             trust_remote_code=trust_remote_code,

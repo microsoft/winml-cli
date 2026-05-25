@@ -266,31 +266,19 @@ def _build_eval_config(
 
     # ── Config file layer (only explicitly-present keys) ──
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
+        _, raw = cli_utils.load_build_config(config_file)
 
         # Loader task as lowest-priority fallback
-        if build_cfg.loader and build_cfg.loader.task:
-            cfg.task = build_cfg.loader.task
+        loader_section = raw.get("loader") or {}
+        if "task" in loader_section:
+            cfg.task = loader_section["task"]
 
         # Compile EP as fallback for --ep
-        if build_cfg.compile and build_cfg.compile.ep_config:
-            cfg.ep = build_cfg.compile.ep_config.provider
+        compile_section = raw.get("compile") or {}
+        if "execution_provider" in compile_section:
+            cfg.ep = compile_section["execution_provider"]
 
-        # Quant fields as fallback
-        if build_cfg.quant:
-            quant_overrides: dict = {}
-            if build_cfg.quant.samples != 100:  # non-default
-                quant_overrides.setdefault("dataset", {})["samples"] = build_cfg.quant.samples
-            if build_cfg.quant.dataset_name:
-                quant_overrides.setdefault("dataset", {})["name"] = build_cfg.quant.dataset_name
-            if quant_overrides:
-                cfg = merge_config(cfg, quant_overrides)
-
-        # Eval section overrides quant/loader (read raw JSON for this)
-        try:
-            raw = json.loads(config_file.read_text())
-        except (json.JSONDecodeError, OSError):
-            raw = {}
+        # Eval section overrides loader/compile fallbacks
         eval_data = raw.get("eval")
         if eval_data:
             cfg = merge_config(cfg, eval_data)

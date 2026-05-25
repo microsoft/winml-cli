@@ -190,18 +190,20 @@ def export(
     if ctx.obj.get("debug"):
         verbose = True
 
-    # Apply build config defaults (CLI explicit options take precedence)
-    _build_export_cfg = None
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
+    _build_export_dict: dict = {}
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.export:
-            _build_export_cfg = build_cfg.export
-        if build_cfg.loader and not cli_utils.is_cli_provided(ctx, "task"):
-            task = build_cfg.loader.task
-        if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "no_hierarchy"):
-            no_hierarchy = not _build_export_cfg.enable_hierarchy_tags
-        if _build_export_cfg and not cli_utils.is_cli_provided(ctx, "dynamo"):
-            dynamo = _build_export_cfg.dynamo
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        lc = raw_cfg.get("loader") or {}
+        ec = raw_cfg.get("export") or {}
+        _build_export_dict = ec
+        if not cli_utils.is_cli_provided(ctx, "task") and "task" in lc:
+            task = lc["task"]
+        if not cli_utils.is_cli_provided(ctx, "no_hierarchy") and "enable_hierarchy_tags" in ec:
+            no_hierarchy = not ec["enable_hierarchy_tags"]
+        if not cli_utils.is_cli_provided(ctx, "dynamo") and "dynamo" in ec:
+            dynamo = ec["dynamo"]
 
     from ..export import InputTensorSpec, OutputTensorSpec, WinMLExportConfig
     from ..export import export_pytorch as export_onnx
@@ -331,8 +333,7 @@ def export(
     # Build WinMLExportConfig from loaded settings
     config_kwargs = {}
     # Layer 1: build config defaults (lowest precedence)
-    if _build_export_cfg is not None:
-        config_kwargs.update(_build_export_cfg.to_dict())
+    config_kwargs.update(_build_export_dict)
     # Layer 2: --export-config file overrides
     config_kwargs.update(export_config_dict)
     # Layer 3: explicit CLI options (highest precedence)
