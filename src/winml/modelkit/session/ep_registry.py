@@ -100,8 +100,8 @@ class WinMLEPRegistry:
         # the OS when the process exits.
         # TODO: Remove once windowsml fixes WinMLEpCatalogRelease to be safe
         # during process teardown on all QNN NPU driver configurations.
-        if hasattr(self._catalog, "_handle"):
-            self._catalog._handle = None
+        # if hasattr(self._catalog, "_handle"):
+        #     self._catalog._handle = None
 
     def register_to_ort(self) -> list[EPName]:
         """Register discovered EPs to ONNX Runtime.

@@ -29,7 +29,7 @@ import click
 from . import __version__
 from .telemetry import ActionGroup
 from .telemetry import telemetry as _telemetry_mod
-from .utils.logging import configure_logging
+from .utils.logging import configure_logging, flush_ort_startup_logs
 
 
 logger = logging.getLogger(__name__)
@@ -271,6 +271,12 @@ def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
         verbose = max(verbose, 2)
 
     configure_logging(verbosity=verbose, quiet=quiet)
+
+    # Replay ORT native stderr captured during onnxruntime import.
+    # onnxruntime is imported at module level in constants.py (before configure_logging
+    # runs), so any native C++ messages are buffered.  Flushing here — after
+    # configure_logging — ensures they are emitted at the correct log level.
+    flush_ort_startup_logs()
 
     # Store verbosity in context for subcommands
     ctx.ensure_object(dict)

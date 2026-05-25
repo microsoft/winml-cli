@@ -718,12 +718,6 @@ def sysinfo(
     pkg_logger.addHandler(rich_handler)
     pkg_logger.propagate = False
 
-    # Replay ORT messages that were captured before logging was configured.
-    from ..utils.constants import _ort_startup_logs
-
-    for _msg in _ort_startup_logs:
-        logging.getLogger("winml.modelkit.utils.constants").debug("[ORT] %s", _msg)
-
     try:
         use_json = output_format.lower() == "json"
 

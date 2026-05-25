@@ -335,7 +335,7 @@ def _detect_task_and_class_from_config(config: PretrainedConfig) -> tuple[str, t
         # TasksManager may return a generic AutoModel* class that differs from
         # config.architectures. Surface that choice because it can affect export.
         if model_class.__name__ != arch_name:
-            logger.warning(
+            logger.info(
                 "TasksManager returned %s, but config.architectures specifies %s. "
                 "Honoring TasksManager's choice.",
                 model_class.__name__,

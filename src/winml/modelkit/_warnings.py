@@ -142,6 +142,16 @@ def _configure() -> None:
 
     logging.getLogger("py.warnings").addFilter(_HFSymlinksInfoFilter())
 
+    # Suppress the huggingface_hub symlinks warning at the Python warnings level
+    # so it is hidden even before captureWarnings(True) is activated in build.py.
+    # When captureWarnings(True) is active, _HFSymlinksInfoFilter above handles
+    # the same message for loggers that need it at INFO (e.g. with --verbose).
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*huggingface_hub.*cache-system.*symlinks.*",
+        category=UserWarning,
+    )
+
     class _TasksManagerFilter(logging.Filter):
         """Downgrade optimum TasksManager architecture-mismatch notice to INFO.
 
@@ -160,19 +170,16 @@ def _configure() -> None:
     logging.getLogger("optimum.exporters.tasks").addFilter(_TasksManagerFilter())
 
     class _TransformersWeightsFilter(logging.Filter):
-        """Downgrade the transformers "weights not used" notice from WARNING to INFO.
+        """Suppress the transformers "weights not used" notice.
 
         When loading a checkpoint, transformers warns about pooler or other
         weights that are intentionally absent in the target architecture.
         This is expected (e.g. RobertaForSequenceClassification drops the
-        pooler from a base checkpoint) and is purely informational.
+        pooler from a base checkpoint) and is purely cosmetic noise.
         """
 
         def filter(self, record: logging.LogRecord) -> bool:
-            if "were not used when initializing" in record.getMessage():
-                record.levelno = logging.INFO
-                record.levelname = "INFO"
-            return True
+            return "were not used when initializing" not in record.getMessage()
 
     logging.getLogger("transformers.modeling_utils").addFilter(_TransformersWeightsFilter())
 
