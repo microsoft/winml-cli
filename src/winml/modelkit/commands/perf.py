@@ -329,7 +329,13 @@ class PerfBenchmark:
 
         model_id = self.config.model_id
         model_path = Path(model_id)
-        is_onnx = model_path.suffix.lower() == ".onnx" and model_path.exists()
+        is_onnx = model_path.suffix.lower() == ".onnx"
+        if is_onnx and not model_path.exists():
+            # Surface a clear error for programmatic callers. The CLI guards
+            # this earlier, but without this check from_pretrained would fall
+            # through to HF loading and produce a confusing "not a valid JSON
+            # file" error from AutoConfig.
+            raise FileNotFoundError(f"ONNX file not found: {model_path}")
 
         # Only override config when user explicitly passes --no-quantize
         override = None
