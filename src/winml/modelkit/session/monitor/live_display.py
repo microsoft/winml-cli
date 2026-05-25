@@ -218,7 +218,7 @@ class HWLiveDisplay:
         cpu_now = cpu_samples[-1] if cpu_samples else 0.0
         ram_mb = self._hw.ram_used_mb
         cpu_cell = f"CPU: {cpu_now:.1f}%"
-        ram_cell = f"RAM: {ram_mb:.0f} MB"
+        ram_cell = f"Mem: {ram_mb:.0f} MB"
 
         if not self._show_adapter:
             return f"  {cpu_cell:<12}| {ram_cell}"

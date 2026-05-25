@@ -1449,9 +1449,9 @@ class TestLiveMonitorDisplay:
             cpu_pct=12.5,
             ram_mb=8000.0,
         )
-        # Adapter line / device-memory line gone; CPU + Sys Mem remain.
+        # Adapter line / device-memory line gone; CPU + Mem remain.
         assert "CPU: 12.5%" in status
-        assert "Sys Mem: 8000 MB" in status
+        assert "Mem: 8000 MB" in status
         assert "NPU:" not in status
         assert "GPU:" not in status
         assert "Adapter:" not in status
