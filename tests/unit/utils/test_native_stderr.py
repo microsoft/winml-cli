@@ -34,7 +34,7 @@ class TestSuppressNativeStderr:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Win32 only")
     def test_win32_std_error_handle_restored(self):
-        import ctypes
+        import ctypes.wintypes
 
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         k32.GetStdHandle.argtypes = [ctypes.wintypes.DWORD]

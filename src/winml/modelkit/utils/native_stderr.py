@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 if sys.platform == "win32":
-    import ctypes
+    import ctypes.wintypes
     import msvcrt
 
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
