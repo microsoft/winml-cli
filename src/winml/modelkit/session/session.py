@@ -22,7 +22,7 @@ from .stats import PerfStats
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
     import onnx
 
@@ -135,7 +135,7 @@ class WinMLSession:
         ep_config: EPConfig | None = None,
         *,
         ep: EPNameOrAlias | None = None,
-        session_options: ort.SessionOptions | None = None,
+        session_options: Callable[[], ort.SessionOptions] | None = None,
     ) -> None:
         """Initialize WinMLSession.
 
@@ -151,8 +151,11 @@ class WinMLSession:
             ep: Explicit EP short name (e.g., "migraphx", "nv_tensorrt_rtx").
                 When set, bypasses policy-based selection and uses
                 add_provider_for_devices to force the specific EP.
-            session_options: ORT SessionOptions. If None, creates default with
-                policy based on device parameter.
+            session_options: Factory returning an ``ort.SessionOptions``.
+                Called once per ``_build_session_options`` invocation so each
+                ORT session gets a fresh, un-poisoned options object
+                (``add_provider_for_devices`` mutates the options and cannot
+                be replayed). Defaults to ``ort.SessionOptions``.
         """
         WinMLSession._init_winml_eps_once()
 
@@ -167,10 +170,9 @@ class WinMLSession:
         self._embed_context = ep_config.embed_context if ep_config else False
         self._provider_options = ep_config.provider_options if ep_config else {}
 
-        # Create session_options with device policy
-        if session_options is None:
-            session_options = ort.SessionOptions()
-        self._session_options = session_options
+        self._session_options_factory: Callable[[], ort.SessionOptions] = (
+            session_options or ort.SessionOptions
+        )
 
         # State management
         self._state = SessionState.INITIALIZED
@@ -361,9 +363,11 @@ class WinMLSession:
             pass  # Suppress errors during interpreter shutdown
 
     def _build_session_options(self, device: str) -> tuple[ort.SessionOptions, str, EPName]:
-        """Build ORT SessionOptions from instance session_options and device.
+        """Build ORT SessionOptions from the session_options factory and device.
 
-        Returns a **fresh** SessionOptions.
+        Returns a **fresh** SessionOptions produced by ``self._session_options_factory``
+        on every call so each ORT session gets an un-poisoned options object —
+        ``add_provider_for_devices`` cannot be replayed on the same instance.
         """
         from ..sysinfo.device import resolve_device, resolve_eps
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE, normalize_ep_name
@@ -373,7 +377,7 @@ class WinMLSession:
         resolved_ep = normalize_ep_name(self._ep) if self._ep else resolve_eps(resolved_device)[0]
         device_type = DEVICE_TO_DEVICE_TYPE.get(resolved_device.upper())
 
-        opts = ort.SessionOptions()
+        opts = self._session_options_factory()
         if add_ep_for_device(opts, resolved_ep, device_type, self._provider_options):
             logger.info(
                 "Built SessionOptions with EP: %s (%s) device=%s -> %s",
