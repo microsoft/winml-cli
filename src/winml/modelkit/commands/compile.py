@@ -144,21 +144,21 @@ def compile(
     if ctx.obj and ctx.obj.get("debug"):
         verbose = True
 
-    # Apply build config defaults (CLI explicit options take precedence)
+    # Apply build config defaults (CLI explicit options take precedence).
+    # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
-        build_cfg = cli_utils.load_build_config(config_file)
-        if build_cfg.compile:
-            cc = build_cfg.compile
-            if not cli_utils.is_cli_provided(ctx, "ep"):
-                ep = cc.ep_config.provider
-            if not cli_utils.is_cli_provided(ctx, "compiler"):
-                compiler = cc.ep_config.compiler
-            if not cli_utils.is_cli_provided(ctx, "embed"):
-                embed = cc.ep_config.embed_context
-            if not cli_utils.is_cli_provided(ctx, "validate"):
-                validate = cc.validate
-            if not cli_utils.is_cli_provided(ctx, "verbose"):
-                verbose = cc.verbose
+        _, raw_cfg = cli_utils.load_build_config(config_file)
+        cc = raw_cfg.get("compile") or {}
+        if not cli_utils.is_cli_provided(ctx, "ep") and "execution_provider" in cc:
+            ep = cc["execution_provider"]
+        if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
+            compiler = cc["compiler"]
+        if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
+            embed = cc["embed_context"]
+        if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
+            validate = cc["validate"]
+        if not cli_utils.is_cli_provided(ctx, "verbose") and "verbose" in cc:
+            verbose = cc["verbose"]
 
     configure_logging(verbose=verbose)
 
