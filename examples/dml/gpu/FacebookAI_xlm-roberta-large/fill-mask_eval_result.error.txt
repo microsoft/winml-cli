@@ -1,0 +1,18 @@
+[0;93m2026-05-22 19:06:36.2264097 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
+[2026-05-22T19:07:32] WARNING: Class WinMLModelForMaskedLM not implemented for task 'fill-mask', using generic fallback
+[2026-05-22T19:07:32] WARNING: Failed to register EP OpenVINOExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : Error loading "C:\Program Files\WindowsApps\MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.15.0_x64__8wekyb3d8bbwe\ExecutionProvider\onnxruntime_providers_openvino_plugin.dll" which depends on "onnxruntime_providers_shared.dll" which is missing. (Error 126: "The specified module could not be found.")
+
+Generating test split:   0%|          | 0/4358 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 4358/4358 [00:00<00:00, 71038.79 examples/s]
+
+Generating train split:   0%|          | 0/36718 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 36718/36718 [00:00<00:00, 913860.15 examples/s]
+
+Generating validation split:   0%|          | 0/3760 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 3760/3760 [00:00<00:00, 577317.53 examples/s]
+
+Evaluating fill-mask (PPPL):   0%|          | 0/100 [00:00<?, ?it/s][2026-05-22T19:07:46] WARNING: EP 'openvino' (OpenVINOExecutionProvider) not found for device 'gpu'
+
+Evaluating fill-mask (PPPL):   1%|          | 1/100 [00:00<00:15,  6.33it/s]
+Error: Evaluation failed: Failed to compile for gpu | Context: device=gpu, onnx_path=C:\Users\qiowu\.cache\winml\artifacts\FacebookAI_xlm-roberta-large\mask_08ff04f5b1658a6d_model.onnx, error=[ONNXRuntimeError] : 1 : FAIL : Load model from C:\Users\qiowu\.cache\winml\artifacts\FacebookAI_xlm-roberta-large\mask_08ff04f5b1658a6d_model.onnx failed:C:\__w\1\s\win-onnxruntime\onnxruntime\core\graph\model.cc:166 onnxruntime::Model::Model ModelProto does not have a graph.
+ | Suggestion: Verify GPU drivers and ONNX Runtime GPU package are installed

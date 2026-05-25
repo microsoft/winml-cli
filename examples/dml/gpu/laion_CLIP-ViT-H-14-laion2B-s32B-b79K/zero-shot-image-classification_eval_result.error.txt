@@ -1,0 +1,20 @@
+00:00, 101.57it/s]
+[2026-05-22T21:14:17] WARNING: Failed to register EP OpenVINOExecutionProvider: [ONNXRuntimeError] : 1 : FAIL : Error loading "C:\Program Files\WindowsApps\MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_1.8.15.0_x64__8wekyb3d8bbwe\ExecutionProvider\onnxruntime_providers_openvino_plugin.dll" which depends on "onnxruntime_providers_shared.dll" which is missing. (Error 126: "The specified module could not be found.")
+[2026-05-22T21:14:17] WARNING: EP 'OpenVINOExecutionProvider' (OpenVINOExecutionProvider) not found for device 'gpu'
+[libprotobuf ERROR C:\__w\_temp\protobuf\src\v3.21.12-d75addb106.clean\src\google\protobuf\message_lite.cc:402] onnx.ModelProto exceeded maximum protobuf size of 2GB: 2528648992
+[2026-05-22T21:14:21] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Protobuf serialization failed when generating EPContext model "C:\\Users\\qiowu\\.cache\\winml\\artifacts\\laion_CLIP-ViT-H-14-laion2B-s32B-b79K\\imgfeat_fbb5f0b52ea19310_optimized_gpu_ctx.onnx"
+[2026-05-22T21:14:21] WARNING: EP 'OpenVINOExecutionProvider' (OpenVINOExecutionProvider) not found for device 'gpu'
+
+Generating train split:   0%|          | 0/50000 [00:00<?, ? examples/s]
+Generating train split:   0%|          | 100/50000 [00:00<01:14, 666.59 examples/s]
+Generating train split:  33%|███▎      | 16400/50000 [00:00<00:00, 79504.26 examples/s]
+Generating train split:  63%|██████▎   | 31600/50000 [00:00<00:00, 108659.22 examples/s]
+Generating train split:  93%|█████████▎| 46400/50000 [00:00<00:00, 122727.47 examples/s]
+Generating train split: 100%|██████████| 50000/50000 [00:00<00:00, 105662.70 examples/s]
+
+Generating test split:   0%|          | 0/10000 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 10000/10000 [00:00<00:00, 136864.80 examples/s]
+
+Evaluating:   0%|          | 0/1000 [00:00<?, ?sample/s]
+Evaluating:   0%|          | 0/1000 [00:00<?, ?sample/s]
+Error: Evaluation failed: list index out of range

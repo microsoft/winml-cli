@@ -10,6 +10,6 @@
 | OpenVINO (Intel, NPU) | - | - | - | - | - |
 | OpenVINO (Intel, CPU) | - | - | - | - | - |
 | OpenVINO (Intel, GPU) | - | - | - | - | - |
-| DML (GPU) | - | - | - | - | - |
+| DML (GPU) | 55 | 63 | 54/63 (86%) | 38/63 (60%) | [Report](dml/gpu/REPORT.md) |
 | MLAS (CPU) | - | - | - | - | - |
 | NVIDIA TensorRT RTX (GPU) | - | - | - | - | - |

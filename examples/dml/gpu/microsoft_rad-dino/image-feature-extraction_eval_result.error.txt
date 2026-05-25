@@ -1,0 +1,22 @@
+ould not be found.")
+
+Generating train split:   0%|          | 0/4077 [00:00<?, ? examples/s]
+Generating train split:  61%|██████▏   | 2500/4077 [00:00<00:00, 21211.76 examples/s]
+Generating train split: 100%|██████████| 4077/4077 [00:00<00:00, 22508.44 examples/s]
+
+Generating validation split:   0%|          | 0/1165 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 1165/1165 [00:00<00:00, 20804.73 examples/s]
+
+Generating test split:   0%|          | 0/582 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 582/582 [00:00<00:00, 18104.51 examples/s]
+
+Embedding images:   0%|          | 0/582 [00:00<?, ?img/s][2026-05-22T21:20:04] WARNING: EP 'openvino' (OpenVINOExecutionProvider) not found for device 'gpu'
+
+Embedding images:   0%|          | 1/582 [00:04<44:32,  4.60s/img][1;31m2026-05-22 21:20:08.5843880 [E:onnxruntime:, sequential_executor.cc:572 onnxruntime::ExecuteKernel] Non-zero status code returned while running DmlFusedNode_0_0 node. Name:'DmlFusedNode_0_0' Status Message: C:\__w\1\s\win-onnxruntime\onnxruntime\core\providers\dml\DmlExecutionProvider\src\DmlGraphFusionHelper.cpp(1077)\onnxruntime_pybind11_state.pyd!00007FF9F518B53B: (caller: 00007FF9F52263C1) Exception(2) tid(b350) 887A0006 The GPU will not respond to more commands, most likely because of an invalid command passed by the calling application.
+
+[m
+
+Embedding images:   0%|          | 1/582 [00:04<44:47,  4.63s/img]
+Error: Evaluation failed: Inference failed | Context: error=[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running DmlFusedNode_0_0 node. Name:'DmlFusedNode_0_0' Status Message: C:\__w\1\s\win-onnxruntime\onnxruntime\core\providers\dml\DmlExecutionProvider\src\DmlGraphFusionHelper.cpp(1077)\onnxruntime_pybind11_state.pyd!00007FF9F518B53B: (caller: 00007FF9F52263C1) Exception(2) tid(b350) 887A0006 The GPU will not respond to more commands, most likely because of an invalid command passed by the calling application.
+
+
