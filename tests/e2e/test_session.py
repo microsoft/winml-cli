@@ -151,7 +151,7 @@ class TestWinMLSessionEPSpecific:
         assert session.device in {"npu", "gpu", "cpu"}
 
         # Second run keeps COMPILED state (no implicit re-init)
-        outputs = session.run(sample_input)
+        session.run(sample_input)
         assert session.state == SessionState.COMPILED
 
         # reset() returns to INITIALIZED
