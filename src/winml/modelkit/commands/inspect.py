@@ -146,11 +146,14 @@ def inspect(
         # List all known tasks
         winml inspect --list-tasks
     """
-    # Handle --list-tasks (no model required)
+    # Handle --list-tasks (no model required).
+    # Import the hand-coded KNOWN_TASKS directly from loader.task to keep this
+    # branch fast — going through inspect.resolver pulls in ..models which
+    # transitively imports transformers and costs ~10s on a warm cache.
     if list_tasks:
-        from ..inspect.resolver import get_known_tasks
+        from ..loader.task import KNOWN_TASKS
 
-        for t in sorted(get_known_tasks()):
+        for t in sorted(KNOWN_TASKS):
             click.echo(t)
         return
 
