@@ -1,0 +1,29 @@
+0, 470.56it/s]
+ 79%|███████▉  | 291/368 [00:00<00:00, 435.30it/s]
+ 91%|█████████ | 335/368 [00:00<00:00, 404.35it/s]
+100%|██████████| 368/368 [00:00<00:00, 420.81it/s]
+[2026-05-21T02:02:48] WARNING: analyze_onnx called with ep=None — results will aggregate all EPs. For the build pipeline, always pass an explicit ep.
+[2026-05-21T02:02:54] ERROR: Evaluation failed
+Traceback (most recent call last):
+  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 227, in eval
+    result = evaluate(cfg)
+             ^^^^^^^^^^^^^
+  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 245, in evaluate
+    task_evaluator = cls(config, model)
+                     ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 50, in __init__
+    self.data = self.prepare_data()
+                ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 103, in prepare_data
+    dataset = load_dataset(
+              ^^^^^^^^^^^^^
+  File "c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\datasets\load.py", line 1688, in load_dataset
+    builder_instance = load_dataset_builder(
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\datasets\load.py", line 1315, in load_dataset_builder
+    dataset_module = dataset_module_factory(
+                     ^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\datasets\load.py", line 1209, in dataset_module_factory
+    raise FileNotFoundError(f"Couldn't find any data file at {relative_to_absolute_path(path)}.")
+FileNotFoundError: Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_fairface.
+Error: Evaluation failed: Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_fairface.

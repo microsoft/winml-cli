@@ -1,0 +1,24 @@
+Env] Init provider bridge failed.[m
+WARNING: trust_remote_code is enabled - custom Python from the model repository
+will be downloaded and executed. Proceed only if you trust the publisher.
+[2026-05-22T15:02:43] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/442 [00:00<?, ?it/s]
+ 16%|█▋        | 72/442 [00:00<00:00, 632.28it/s]
+ 35%|███▍      | 154/442 [00:00<00:00, 684.10it/s]
+ 52%|█████▏    | 231/442 [00:00<00:00, 681.74it/s]
+ 73%|███████▎  | 324/442 [00:00<00:00, 736.57it/s]
+ 94%|█████████▍| 416/442 [00:00<00:00, 764.46it/s]
+100%|██████████| 442/442 [00:00<00:00, 737.66it/s]
+[2026-05-22T15:02:54] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 18%|█▊        | 70/395 [00:00<00:00, 629.97it/s]
+ 37%|███▋      | 146/395 [00:00<00:00, 696.50it/s]
+ 58%|█████▊    | 228/395 [00:00<00:00, 728.81it/s]
+ 76%|███████▌  | 301/395 [00:00<00:00, 716.78it/s]
+ 96%|█████████▌| 380/395 [00:00<00:00, 733.35it/s]
+100%|██████████| 395/395 [00:00<00:00, 726.16it/s]
+[2026-05-22T15:02:55] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-22T15:03:05] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.

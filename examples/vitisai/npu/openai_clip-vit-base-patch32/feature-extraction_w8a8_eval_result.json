@@ -1,0 +1,22 @@
+{
+  "model_id": "openai/clip-vit-base-patch32",
+  "task": "feature-extraction",
+  "device": "npu",
+  "ep": "vitisai",
+  "dataset": {
+    "split": "test",
+    "samples": 10,
+    "shuffle": true,
+    "seed": 42,
+    "path": "mteb/stsbenchmark-sts",
+    "columns_mapping": {
+      "input_column_1": "sentence1",
+      "input_column_2": "sentence2",
+      "score_column": "score"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\vitisai\\npu\\openai_clip-vit-base-patch32\\feature-extraction_w8a8_eval_result.json",
+  "metrics": {
+    "cosine_spearman": -6.7074
+  }
+}

@@ -1,0 +1,24 @@
+.95 examples/s]
+Generating test split:  22%|██▏       | 1100/5000 [00:00<00:00, 4573.65 examples/s]
+Generating test split:  36%|███▌      | 1800/5000 [00:00<00:00, 5015.41 examples/s]
+Generating test split:  52%|█████▏    | 2600/5000 [00:00<00:00, 4539.78 examples/s]
+Generating test split:  66%|██████▌   | 3300/5000 [00:00<00:00, 4843.93 examples/s]
+Generating test split:  78%|███████▊  | 3900/5000 [00:00<00:00, 4800.67 examples/s]
+Generating test split:  88%|████████▊ | 4400/5000 [00:00<00:00, 4531.22 examples/s]
+Generating test split: 100%|██████████| 5000/5000 [00:01<00:00, 4765.85 examples/s]
+Generating test split: 100%|██████████| 5000/5000 [00:01<00:00, 4682.59 examples/s]
+
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 100/100 [00:00<00:00, 2109.39 examples/s]
+
+Filter:   0%|          | 0/100 [00:00<?, ? examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 310.69 examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 272.44 examples/s]
+Fast image processor class <class 'transformers.models.vit.image_processing_vit_fast.ViTImageProcessorFast'> is available for this model. Using slow image processor class. To use the fast image processor class set `use_fast=True`.
+
+Downloading builder script: 0.00B [00:00, ?B/s]
+Downloading builder script: 4.20kB [00:00, ?B/s]
+c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\sklearn\metrics\_classification.py:98: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_true = type_of_target(y_true, input_name="y_true")
+c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\sklearn\metrics\_classification.py:99: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_pred = type_of_target(y_pred, input_name="y_pred")

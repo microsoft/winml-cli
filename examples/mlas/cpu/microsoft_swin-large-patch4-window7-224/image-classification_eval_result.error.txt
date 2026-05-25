@@ -1,0 +1,26 @@
+ing validation split: 100%|██████████| 10000/10000 [00:01<00:00, 5131.41 examples/s]
+Generating validation split: 100%|██████████| 10000/10000 [00:01<00:00, 5245.22 examples/s]
+
+Generating test split:   0%|          | 0/5000 [00:00<?, ? examples/s]
+Generating test split:   8%|▊         | 400/5000 [00:00<00:01, 2676.32 examples/s]
+Generating test split:  22%|██▏       | 1100/5000 [00:00<00:00, 4040.59 examples/s]
+Generating test split:  36%|███▌      | 1800/5000 [00:00<00:00, 4685.36 examples/s]
+Generating test split:  52%|█████▏    | 2600/5000 [00:00<00:00, 4641.92 examples/s]
+Generating test split:  70%|███████   | 3500/5000 [00:00<00:00, 5216.89 examples/s]
+Generating test split:  88%|████████▊ | 4400/5000 [00:00<00:00, 4943.88 examples/s]
+Generating test split: 100%|██████████| 5000/5000 [00:01<00:00, 5162.61 examples/s]
+Generating test split: 100%|██████████| 5000/5000 [00:01<00:00, 4851.91 examples/s]
+
+Aligning the labels:   0%|          | 0/100 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 100/100 [00:00<00:00, 880.63 examples/s]
+
+Filter:   0%|          | 0/100 [00:00<?, ? examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 286.96 examples/s]
+Filter: 100%|██████████| 100/100 [00:00<00:00, 274.62 examples/s]
+
+Downloading builder script: 0.00B [00:00, ?B/s]
+Downloading builder script: 4.20kB [00:00, ?B/s]
+c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\sklearn\metrics\_classification.py:98: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_true = type_of_target(y_true, input_name="y_true")
+c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\sklearn\metrics\_classification.py:99: UserWarning: The number of unique classes is greater than 50% of the number of samples. `y` could represent a regression problem, not a classification problem.
+  type_pred = type_of_target(y_pred, input_name="y_pred")

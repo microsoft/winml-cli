@@ -1,0 +1,38 @@
+█████████▍| 712/759 [00:01<00:00, 410.32it/s]
+100%|██████████| 759/759 [00:01<00:00, 398.38it/s]
+
+  0%|          | 0/759 [00:00<?, ?it/s]
+  7%|▋         | 52/759 [00:00<00:01, 478.13it/s]
+ 14%|█▎        | 103/759 [00:00<00:01, 467.99it/s]
+ 20%|█▉        | 150/759 [00:00<00:01, 421.46it/s]
+ 26%|██▌       | 196/759 [00:00<00:01, 420.07it/s]
+ 31%|███▏      | 239/759 [00:00<00:01, 409.32it/s]
+ 38%|███▊      | 291/759 [00:00<00:01, 423.94it/s]
+ 45%|████▍     | 340/759 [00:00<00:00, 436.20it/s]
+ 51%|█████     | 385/759 [00:00<00:00, 427.46it/s]
+ 56%|█████▋    | 428/759 [00:01<00:00, 415.50it/s]
+ 62%|██████▏   | 474/759 [00:01<00:00, 416.00it/s]
+ 69%|██████▉   | 527/759 [00:01<00:00, 436.00it/s]
+ 75%|███████▌  | 571/759 [00:01<00:00, 389.97it/s]
+ 81%|████████▏ | 618/759 [00:01<00:00, 401.66it/s]
+ 87%|████████▋ | 660/759 [00:01<00:00, 406.46it/s]
+ 93%|█████████▎| 706/759 [00:01<00:00, 421.03it/s]
+100%|█████████▉| 757/759 [00:01<00:00, 446.28it/s]
+100%|██████████| 759/759 [00:01<00:00, 426.47it/s]
+[2026-05-20T17:17:22] WARNING: analyze_onnx called with ep=None — results will aggregate all EPs. For the build pipeline, always pass an explicit ep.
+[2026-05-20T17:17:34] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
+
+Generating train split:   0%|          | 0/14041 [00:00<?, ? examples/s]
+Generating train split: 100%|██████████| 14041/14041 [00:00<00:00, 147612.13 examples/s]
+
+Generating validation split:   0%|          | 0/3250 [00:00<?, ? examples/s]
+Generating validation split: 100%|██████████| 3250/3250 [00:00<00:00, 67210.11 examples/s]
+
+Generating test split:   0%|          | 0/3453 [00:00<?, ? examples/s]
+Generating test split: 100%|██████████| 3453/3453 [00:00<00:00, 71994.57 examples/s]
+
+Map:   0%|          | 0/100 [00:00<?, ? examples/s]
+Map: 100%|██████████| 100/100 [00:00<00:00, 1023.61 examples/s]
+
+Downloading builder script: 0.00B [00:00, ?B/s]
+Downloading builder script: 6.34kB [00:00, ?B/s]

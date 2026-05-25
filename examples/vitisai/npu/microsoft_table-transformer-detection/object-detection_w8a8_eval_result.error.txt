@@ -1,0 +1,39 @@
+onnxruntime_pybind11_state
+(unknown)
+_PyArg_CheckPositional
+PyObject_Vectorcall
+[m
+[2026-05-22T20:51:09] ERROR: Validation inference failed: [ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Non-zero status code returned while running VitisAIExecutionProvider_7921125256550310601_1 node. Name:'VitisAIExecutionProvider_VitisAIExecutionProvider_7921125256550310601_1_1' Status Message: public: int __cdecl vaip_core::TarWriter::write(class vaip_core::IStreamReader const & __ptr64,class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const & __ptr64) __ptr64
+xir_deserialize_cif
+xir_deserialize_cif
+xir_deserialize_cif
+RtlCaptureContext2
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+vaiml_register_dynamic_custom_op_by_schema
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+public: class vaip_core::TryFuseProto * __ptr64 __cdecl vaip_core::DpuSubgraphEntryProto::mutable_try_fuse(void) __ptr64
+morphizen_main
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+PyInit_onnxruntime_pybind11_state
+(unknown)
+_PyArg_CheckPositional
+PyObject_Vectorcall
+
+Error: Evaluation failed: Failed to load model 'microsoft/table-transformer-detection'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task object-detection' to see supported role=path model options.

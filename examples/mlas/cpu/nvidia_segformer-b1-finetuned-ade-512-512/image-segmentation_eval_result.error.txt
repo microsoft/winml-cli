@@ -1,0 +1,27 @@
+96%|█████████▌| 361/378 [00:06<00:00, 44.29it/s]
+ 99%|█████████▉| 376/378 [00:06<00:00, 26.91it/s]
+100%|██████████| 378/378 [00:07<00:00, 51.87it/s]
+[2026-05-21T00:01:18] WARNING: analyze_onnx called with ep=None — results will aggregate all EPs. For the build pipeline, always pass an explicit ep.
+
+Generating test split:   0%|          | 0/3352 [00:00<?, ? examples/s]
+Generating test split:  18%|█▊        | 600/3352 [00:00<00:00, 3974.65 examples/s]
+Generating test split:  60%|█████▉    | 2000/3352 [00:00<00:00, 8137.85 examples/s]
+Generating test split:  95%|█████████▌| 3200/3352 [00:00<00:00, 8684.82 examples/s]
+Generating test split: 100%|██████████| 3352/3352 [00:00<00:00, 8438.10 examples/s]
+
+Generating validation split:   0%|          | 0/2000 [00:00<?, ? examples/s]
+Generating validation split:  50%|█████     | 1000/2000 [00:00<00:00, 8508.16 examples/s]
+Generating validation split: 100%|██████████| 2000/2000 [00:00<00:00, 11393.76 examples/s]
+
+Generating train split:   0%|          | 0/20210 [00:00<?, ? examples/s]
+Generating train split:   4%|▍         | 900/20210 [00:00<00:03, 6410.30 examples/s]
+Generating train split:  12%|█▏        | 2500/20210 [00:00<00:01, 10379.91 examples/s]
+Generating train split:  22%|██▏       | 4400/20210 [00:00<00:01, 13096.58 examples/s]
+Generating train split:  29%|██▉       | 5900/20210 [00:00<00:01, 12719.24 examples/s]
+Generating train split:  42%|████▏     | 8500/20210 [00:00<00:00, 13678.23 examples/s]
+Generating train split:  50%|█████     | 10205/20210 [00:00<00:00, 12804.52 examples/s]
+Generating train split:  60%|██████    | 12205/20210 [00:00<00:00, 14008.44 examples/s]
+Generating train split:  73%|███████▎  | 14805/20210 [00:01<00:00, 16287.10 examples/s]
+Generating train split:  85%|████████▌ | 17205/20210 [00:01<00:00, 15852.83 examples/s]
+Generating train split:  97%|█████████▋| 19505/20210 [00:01<00:00, 16824.73 examples/s]
+Generating train split: 100%|██████████| 20210/20210 [00:01<00:00, 14593.83 examples/s]

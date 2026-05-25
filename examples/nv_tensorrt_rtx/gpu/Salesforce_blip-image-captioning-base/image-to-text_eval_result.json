@@ -1,0 +1,22 @@
+{
+  "model_id": "Salesforce/blip-image-captioning-base",
+  "task": "image-to-text",
+  "device": "gpu",
+  "dataset": {
+    "split": "test",
+    "samples": 500,
+    "shuffle": true,
+    "seed": 42,
+    "path": "lmms-lab/flickr30k",
+    "columns_mapping": {
+      "input_column": "image",
+      "label_column": "caption"
+    }
+  },
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\nv_tensorrt_rtx\\gpu\\Salesforce_blip-image-captioning-base\\image-to-text_eval_result.json",
+  "metrics": {
+    "cer": 0.6886,
+    "cider": 0.394,
+    "n_samples": 500
+  }
+}
