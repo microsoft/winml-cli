@@ -114,3 +114,45 @@ class TestInspectListTasks:
         assert result.exit_code == 0
         lines = [line.strip() for line in result.output.splitlines() if line.strip()]
         assert lines == sorted(lines), "Task list is not sorted"
+
+
+# ===========================================================================
+# Progress feedback (banner + spinner) — fixes #543's 14s silence
+# ===========================================================================
+
+
+class TestInspectProgressFeedback:
+    """Banner must print to stderr before heavy work; stdout must stay clean."""
+
+    def test_banner_appears_on_stderr_for_model_type(self) -> None:
+        """`winml inspect --model-type bert` prints an "Inspecting…" banner on stderr."""
+        result = _run("--model-type", "bert")
+        assert result.exit_code == 0
+        assert "Inspecting" in result.stderr
+        assert "bert" in result.stderr
+
+    def test_json_stdout_is_clean(self) -> None:
+        """--format json output on stdout must be parseable JSON with no banner."""
+        import json
+
+        result = _run("--model-type", "bert", "--format", "json")
+        assert result.exit_code == 0
+        # Banner must not contaminate stdout — JSON consumers parse this directly.
+        assert "Inspecting" not in result.stdout
+        # And stdout must in fact be valid JSON.
+        json.loads(result.stdout)
+
+    def test_quiet_suppresses_banner(self) -> None:
+        """The --quiet flag must suppress the inspect banner on stderr."""
+        from click.testing import CliRunner
+
+        from winml.modelkit.cli import main
+
+        # Use the top-level `main` group so --quiet (a group option) is parsed.
+        result = CliRunner().invoke(
+            main,
+            ["--quiet", "inspect", "--model-type", "bert", "--format", "json"],
+            obj={},
+        )
+        assert result.exit_code == 0
+        assert "Inspecting" not in result.stderr
