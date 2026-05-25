@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import sys
 import traceback
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 
@@ -36,20 +35,13 @@ class WinML:
             return
         self._initialized = True
 
-        self._fix_winrt_runtime()
-        import winui3.microsoft.windows.ai.machinelearning as winml
-        from winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap import (
-            InitializeOptions,
-            initialize,
-        )
+        from windowsml import EpCatalog
 
-        self._win_app_sdk_handle = initialize(options=InitializeOptions.ON_NO_MATCH_SHOW_UI)
-        self._win_app_sdk_handle.__enter__()
-        catalog = winml.ExecutionProviderCatalog.get_default()
-        self._providers = catalog.find_all_providers()
+        self._catalog = EpCatalog()
+        self._providers = self._catalog.find_all_providers()
         self._ep_paths: dict[str, str] = {}
         for provider in self._providers:
-            provider.ensure_ready_async().get()
+            provider.ensure_ready()
             if provider.library_path == "":
                 continue
             self._ep_paths[provider.name] = provider.library_path
@@ -58,22 +50,24 @@ class WinML:
             "onnxruntime_genai": [],
         }
 
+        # Workaround: WinMLEpCatalogRelease (called by EpCatalog.close() /
+        # EpCatalog.__del__) crashes with ACCESS_VIOLATION (0xC0000005) on some
+        # QNN NPU driver configurations — a Windows SEH exception that Python
+        # try/except cannot catch.  All provider paths have been extracted
+        # above, so the catalog handle is no longer needed.  Null it out
+        # immediately so that EpCatalog.close() becomes a no-op for the
+        # remainder of the process lifetime, whether invoked from a background
+        # thread or interpreter shutdown.  Native resources are reclaimed by
+        # the OS when the process exits.
+        # TODO: Remove once windowsml fixes WinMLEpCatalogRelease to be safe
+        # during process teardown on all QNN NPU driver configurations.
+        if hasattr(self._catalog, "_handle"):
+            self._catalog._handle = None
+
     def __del__(self) -> None:
         """Clean up WinML resources."""
         self._providers = None
-        self._win_app_sdk_handle.__exit__(None, None, None)
-
-    def _fix_winrt_runtime(self) -> None:
-        """This function removes the msvcp140.dll from the winrt-runtime package.
-
-        So it does not cause issues with other libraries.
-        """
-        from importlib import metadata
-
-        site_packages_path = Path(str(metadata.distribution("winrt-runtime").locate_file("")))
-        dll_path = site_packages_path / "winrt" / "msvcp140.dll"
-        if dll_path.exists():
-            dll_path.unlink()
+        self._catalog = None
 
     def register_execution_providers(
         self, ort: bool = True, ort_genai: bool = False
@@ -123,6 +117,18 @@ def register_execution_providers(ort: bool = True, ort_genai: bool = False) -> d
         by module.
     """
     return WinML().register_execution_providers(ort=ort, ort_genai=ort_genai)
+
+
+def get_registered_ep_devices() -> list[Any]:
+    """Return ORT EP devices after ensuring WinML EPs are registered.
+
+    This helper centralizes the common sequence used by callers that need the
+    authoritative autoEP device list from ``onnxruntime.get_ep_devices()``.
+    """
+    import onnxruntime as ort
+
+    register_execution_providers(ort=True)
+    return list(ort.get_ep_devices())
 
 
 def add_ep_for_device(

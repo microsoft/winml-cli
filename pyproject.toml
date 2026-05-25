@@ -4,25 +4,25 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.0.3"
+version = "0.0.4"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.11,<3.12"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 dependencies = [
-  "click>=8.1.8",
+  "click>=8.4",
   "colorama>=0.4.6",
   "datasets>=4.1.1",
   "diffusers>=0.36",
@@ -36,7 +36,7 @@ dependencies = [
   "numpy>=2.2,<2.3",
   "onnx==1.18",
   "onnx-ir>=0.1",
-  "onnxruntime-windowsml>=1.23.2,<1.24.0",
+  "onnxruntime-windowsml==1.24.5.202604171637",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -60,11 +60,7 @@ dependencies = [
   "torchvision>=0.24",
   "transformers>=4.57",
   "uvicorn[standard]>=0.42.0",
-  "wasdk-microsoft-windows-ai-machinelearning>=1.8.251106002,<2",
-  "wasdk-microsoft-windows-applicationmodel-dynamicdependency-bootstrap>=1.8.251106002,<2",
-  "winrt-runtime>=3.2.1",
-  "winrt-windows-foundation>=3.2.1",
-  "winrt-windows-foundation-collections>=3.2.1",
+  "windowsml==2.0.300",
 ]
 
 optional-dependencies.dev = [
@@ -200,7 +196,7 @@ lint.select = [
   "TID", # flake8-tidy-imports (import hygiene)
   # === Exception Handling ===
   "TRY", # tryceratops (exception handling best practices)
-  "UP",  # pyupgrade (Python 3.10+ syntax)
+  "UP",  # pyupgrade (Python 3.11+ syntax)
 
   "W", # pycodestyle warnings (PEP 8)
 ]
@@ -424,7 +420,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 
 # === Strict Mode ===
 strict = true

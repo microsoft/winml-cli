@@ -12,7 +12,9 @@ All testing uses pytest with code-generated results. Never create standalone tes
 
 ### 3. Mandatory Test Verification
 
-Run `uv run pytest tests/` after every implementation or test revision. Never assume tests pass without verification.
+Run the **necessary pytest scope** after every implementation or test revision (for example, affected test files/modules/cases).
+Run full suite `uv run pytest tests/` only when explicitly requested, before merge/release, or when impact is broad/unclear.
+Never assume tests pass without verification.
 
 ### 4. Never Skip Failing Tests
 

@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
@@ -196,14 +195,12 @@ class WinMLSession:
         """
         # If already compiled, ignore (idempotent)
         if self._session is not None:
-            if self._is_verbose():
-                logger.info("Already compiled for %s", self._device)
+            logger.debug("Already compiled for %s", self._device)
             return
 
         target_device = self._device
 
-        if self._is_verbose():
-            logger.info("Compiling for device: %s", target_device)
+        logger.debug("Compiling for device: %s", target_device)
 
         # Determine model path (original or EPContext)
         ctx_path = self._onnx_path.parent / f"{self._onnx_path.stem}_{target_device}_ctx.onnx"
@@ -366,10 +363,6 @@ class WinMLSession:
             self._session = None
         except Exception:
             pass  # Suppress errors during interpreter shutdown
-
-    def _is_verbose(self) -> bool:
-        """Check if verbose logging is enabled via environment variable."""
-        return os.getenv("WINMLSESSION_VERBOSE", "").lower() in ("1", "true", "yes")
 
     def _build_session_options(self, device: str) -> ort.SessionOptions:
         """Build ORT SessionOptions from instance session_options and device.
@@ -686,6 +679,9 @@ class WinMLSession:
                 - output_names: list of output tensor names
                 - output_shapes: list of output shapes
                 - output_types: list of numpy dtypes for outputs
+                - precision: best-effort precision label (e.g. "fp16",
+                  "int8", "w8a16"), or ``None`` when no signal could be
+                  derived from the graph
         """
         if self._io_config is None:
             from ..onnx import load_onnx
@@ -694,6 +690,7 @@ class WinMLSession:
             self._io_config = get_io_config(model)
             # Enrich with value_range from build config if available
             self._io_config["input_value_ranges"] = self._load_input_value_ranges()
+            self._io_config["precision"] = self._get_precision(model)
         return self._io_config
 
     def _load_input_value_ranges(self) -> dict[str, list[int]]:
@@ -736,6 +733,122 @@ class WinMLSession:
                     logger.debug("Could not read build config %s: %s", cfg_path, exc)
 
         return value_ranges
+
+    @staticmethod
+    def _get_precision(model_proto: onnx.ModelProto) -> str | None:
+        """Best-effort estimate of a model's numeric precision.
+
+        Returns one of: ``"fp32"``, ``"fp16"``, ``"bf16"``, ``"int4"``,
+        ``"int8"``, ``"int16"``, ``"w{w}a{a}"`` (mixed), or ``None`` when
+        no signal can be derived.
+
+        Detection is purely operator-schema-based (no model-architecture
+        or naming assumptions). The ladder, first match wins:
+
+        1. QDQ (``QuantizeLinear`` / ``DequantizeLinear``): dominant
+           ``zero_point`` initializer bit width per side. A pair is
+           weight-side when its source tensor is an initializer,
+           activation-side otherwise.
+        2. Block-wise quant (``MatMulNBits`` / ``GatherBlockQuantized``):
+           schema ``bits`` attribute + dominant float bit width for
+           activations → ``w{w}a{a}``.
+        3. No quant markers → dominant float dtype among initializers.
+        4. No signal → ``None``.
+        """
+        from onnx import TensorProto
+
+        graph = model_proto.graph
+        init_dtypes: dict[str, int] = {init.name: init.data_type for init in graph.initializer}
+        init_names = set(init_dtypes)
+        op_types = {n.op_type for n in graph.node}
+
+        int_bits: dict[int, int] = {
+            int(TensorProto.UINT4): 4,
+            int(TensorProto.INT4): 4,
+            int(TensorProto.UINT8): 8,
+            int(TensorProto.INT8): 8,
+            int(TensorProto.UINT16): 16,
+            int(TensorProto.INT16): 16,
+            int(TensorProto.UINT32): 32,
+            int(TensorProto.INT32): 32,
+        }
+
+        def _label(w_bits: int, a_bits: int) -> str:
+            return f"int{w_bits}" if w_bits == a_bits else f"w{w_bits}a{a_bits}"
+
+        # (1) QDQ — dominant zero_point bit width per side.
+        if op_types & {"QuantizeLinear", "DequantizeLinear"}:
+            weight_counts: dict[int, int] = {}
+            act_counts: dict[int, int] = {}
+            for node in graph.node:
+                if node.op_type not in ("QuantizeLinear", "DequantizeLinear"):
+                    continue
+                if len(node.input) < 3:
+                    continue
+                zp_dtype = init_dtypes.get(node.input[2])
+                if zp_dtype is None:
+                    continue
+                bits = int_bits.get(zp_dtype)
+                if bits is None:
+                    continue
+                target = weight_counts if node.input[0] in init_names else act_counts
+                target[bits] = target.get(bits, 0) + 1
+
+            if weight_counts or act_counts:
+                w = (
+                    max(weight_counts, key=lambda k: weight_counts[k])
+                    if weight_counts
+                    else max(act_counts, key=lambda k: act_counts[k])
+                )
+                a = max(act_counts, key=lambda k: act_counts[k]) if act_counts else w
+                return _label(w, a)
+
+        # (2) Block-wise quantization carries a schema-defined `bits` attr.
+        nbits: set[int] = set()
+        for node in graph.node:
+            if node.op_type in ("MatMulNBits", "GatherBlockQuantized"):
+                for attr in node.attribute:
+                    if attr.name == "bits":
+                        nbits.add(attr.i)
+        if nbits:
+            w_bits = min(nbits)
+            a_bits = WinMLSession._dominant_float_bits(graph) or 16
+            return _label(w_bits, a_bits)
+
+        # (3) Float-only model — dominant initializer dtype.
+        dom = WinMLSession._dominant_float_bits(graph)
+        if dom == 32:
+            return "fp32"
+        if dom == 16:
+            has_bf16 = any(init.data_type == TensorProto.BFLOAT16 for init in graph.initializer)
+            has_fp16 = any(init.data_type == TensorProto.FLOAT16 for init in graph.initializer)
+            if has_bf16 and not has_fp16:
+                return "bf16"
+            return "fp16"
+
+        # (4) No signal.
+        return None
+
+    @staticmethod
+    def _dominant_float_bits(graph: onnx.GraphProto) -> int | None:
+        """Return 32 or 16 — whichever float dtype dominates initializer count.
+
+        ``None`` if no float initializers are present.
+        """
+        from onnx import TensorProto
+
+        counts: dict[int, int] = {}
+        for init in graph.initializer:
+            if init.data_type in (
+                TensorProto.FLOAT,
+                TensorProto.FLOAT16,
+                TensorProto.BFLOAT16,
+            ):
+                counts[init.data_type] = counts.get(init.data_type, 0) + 1
+        if not counts:
+            return None
+        dominant = max(counts, key=lambda k: counts[k])
+        return 32 if dominant == TensorProto.FLOAT else 16
 
     def is_compatible(
         self,

@@ -15,27 +15,6 @@ from ..utils.constants import EPNameOrAlias
 
 
 @dataclass
-class SchemaColumn:
-    """Describes one expected dataset column for --schema output.
-
-    Attributes:
-        name: Default column name in the dataset.
-        type: HF feature type (e.g. "Image", "ClassLabel").
-        override: CLI --column key that maps to this column (e.g. "label_column").
-        required: Whether the column is mandatory.
-        description: Short human-readable description.
-        children: Nested columns for dict-type features.
-    """
-
-    name: str
-    type: str
-    override: str | None = None
-    required: bool = True
-    description: str = ""
-    children: list[SchemaColumn] = field(default_factory=list)
-
-
-@dataclass
 class WinMLEvaluationConfig:
     """Configuration for model evaluation.
 

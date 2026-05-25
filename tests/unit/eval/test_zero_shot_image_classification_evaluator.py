@@ -167,12 +167,6 @@ class TestEvaluatorSetup:
         result = ev.align_labels(mock_ds, MagicMock())
         assert result is mock_ds
 
-    def test_schema_has_image_and_label(self):
-        schema = WinMLZeroShotImageClassificationEvaluator.schema_info()
-        names = [col.name for col in schema]
-        assert "image" in names
-        assert "label" in names
-
 
 class TestEvaluatorCompute:
     def test_compute_perfect_accuracy(self):

@@ -12,6 +12,7 @@ from datasets import Dataset, Features, Image, Value
 from PIL import Image as PILImage
 
 from winml.modelkit.eval import IGNORE_INDEX, MeanIoUMetric, WinMLImageSegmentationEvaluator
+from winml.modelkit.utils.eval_utils import DatasetValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -40,8 +41,10 @@ def make_evaluator(label2id=None, columns_mapping=None, num_labels=5):
     """Create evaluator without triggering __init__ data loading."""
     ev = object.__new__(WinMLImageSegmentationEvaluator)
     ev.model = MockModel(label2id, num_labels)
+    ev._image_col = "image"
     ev._annotation_col = "annotation"
     if columns_mapping:
+        ev._image_col = columns_mapping.get("input_column", "image")
         ev._annotation_col = columns_mapping.get("annotation_column", "annotation")
     return ev
 
@@ -89,7 +92,7 @@ class TestValidateSchema:
     def test_missing_image_column_raises(self):
         ev = make_evaluator()
         ds = Dataset.from_dict({"text": ["hello"], "annotation": ["a"]})
-        with pytest.raises(ValueError, match="missing 'image' column"):
+        with pytest.raises(DatasetValidationError, match="missing 'image' column"):
             ev._validate_schema(ds)
 
     def test_missing_annotation_column_raises(self):
@@ -97,7 +100,7 @@ class TestValidateSchema:
         features = Features({"image": Image(mode="RGB"), "label": Value("int64")})
         img = create_dummy_image(4, 3)
         ds = Dataset.from_dict({"image": [img], "label": [0]}, features=features)
-        with pytest.raises(ValueError, match="missing annotation column"):
+        with pytest.raises(DatasetValidationError, match="missing annotation column"):
             ev._validate_schema(ds)
 
     def test_custom_annotation_column(self):

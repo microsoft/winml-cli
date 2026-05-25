@@ -227,13 +227,13 @@ class TestCompileCommand:
         assert "(e.g. qnn, openvino)" in result.output
 
     @patch("winml.modelkit.compiler.compile_onnx")
-    def test_ep_trtrtx_propagates_gpu_device_type(
+    def test_ep_nvtensorrtrtx_propagates_gpu_device_type(
         self,
         mock_compile_onnx: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Test --device gpu --ep trtrtx no longer injects provider_options[device_type]."""
+        """Test --device gpu --ep nvtensorrtrtx no longer injects provider_options[device_type]."""
         model_path = tmp_path / "model.onnx"
         self._create_simple_onnx(model_path)
 
@@ -246,7 +246,7 @@ class TestCompileCommand:
 
         result = runner.invoke(
             main,
-            ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "trtrtx"],
+            ["compile", "-m", str(model_path), "--device", "gpu", "--ep", "nvtensorrtrtx"],
         )
 
         assert result.exit_code == 0, result.output

@@ -366,6 +366,188 @@ class TestWinMLSessionMetadata:
         assert io_cfg["input_shapes"] == [[1, 4]]
 
 
+class TestWinMLSessionPrecisionDetection:
+    """Test `_get_precision` estimation across the detection ladder."""
+
+    @staticmethod
+    def _save(model, path: Path) -> Path:
+        from onnx import save
+
+        save(model, str(path))
+        return path
+
+    def test_precision_fp32_from_initializers(self, simple_matmul_onnx: Path):
+        """Float initializers (fp32) → 'fp32'."""
+        session = WinMLSession(onnx_path=simple_matmul_onnx, device="auto")
+        assert session.io_config["precision"] == "fp32"
+
+    def test_precision_fp16_from_initializers(self, tmp_path: Path):
+        """Float initializers (fp16) → 'fp16'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT16, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT16, [1, 4])
+        b_vals = np.random.randn(4, 4).astype(np.float16)
+        b = helper.make_tensor("B", TensorProto.FLOAT16, [4, 4], b_vals.tobytes(), raw=True)
+        node = helper.make_node("MatMul", ["A", "B"], ["C"])
+        graph = helper.make_graph([node], "fp16", [a], [c], [b])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "fp16.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "fp16"
+
+    def test_precision_int8_from_qdq(self, tmp_path: Path):
+        """QDQ pair with int8 zero_point on a weight initializer → 'int8'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+
+        w_q = helper.make_tensor(
+            "W_q",
+            TensorProto.INT8,
+            [4, 4],
+            np.zeros((4, 4), dtype=np.int8).tobytes(),
+            raw=True,
+        )
+        w_scale = helper.make_tensor("W_scale", TensorProto.FLOAT, [], [0.1])
+        w_zp = helper.make_tensor(
+            "W_zp", TensorProto.INT8, [], np.array([0], dtype=np.int8).tobytes(), raw=True
+        )
+
+        dq = helper.make_node("DequantizeLinear", ["W_q", "W_scale", "W_zp"], ["W"], name="dq")
+        matmul = helper.make_node("MatMul", ["A", "W"], ["C"], name="mm")
+
+        graph = helper.make_graph([dq, matmul], "qdq_int8", [a], [c], [w_q, w_scale, w_zp])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "qdq_int8.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "int8"
+
+    def test_precision_w8a16_mixed_qdq(self, tmp_path: Path):
+        """Activation quantized to uint16 + weight to int8 → 'w8a16'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+
+        # Activation Q→DQ with uint16 zero_point (dynamic input → activation side)
+        a_scale = helper.make_tensor("A_scale", TensorProto.FLOAT, [], [0.05])
+        a_zp = helper.make_tensor(
+            "A_zp",
+            TensorProto.UINT16,
+            [],
+            np.array([0], dtype=np.uint16).tobytes(),
+            raw=True,
+        )
+        q_act = helper.make_node("QuantizeLinear", ["A", "A_scale", "A_zp"], ["A_q"], name="q_act")
+        dq_act = helper.make_node(
+            "DequantizeLinear", ["A_q", "A_scale", "A_zp"], ["A_d"], name="dq_act"
+        )
+
+        # Weight DQ with int8 zero_point (initializer → weight side)
+        w_q = helper.make_tensor(
+            "W_q",
+            TensorProto.INT8,
+            [4, 4],
+            np.zeros((4, 4), dtype=np.int8).tobytes(),
+            raw=True,
+        )
+        w_scale = helper.make_tensor("W_scale", TensorProto.FLOAT, [], [0.1])
+        w_zp = helper.make_tensor(
+            "W_zp", TensorProto.INT8, [], np.array([0], dtype=np.int8).tobytes(), raw=True
+        )
+        dq_w = helper.make_node("DequantizeLinear", ["W_q", "W_scale", "W_zp"], ["W"], name="dq_w")
+
+        matmul = helper.make_node("MatMul", ["A_d", "W"], ["C"], name="mm")
+
+        graph = helper.make_graph(
+            [q_act, dq_act, dq_w, matmul],
+            "qdq_w8a16",
+            [a],
+            [c],
+            [a_scale, a_zp, w_q, w_scale, w_zp],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "qdq_w8a16.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "w8a16"
+
+    def test_precision_matmulnbits_w4a16(self, tmp_path: Path):
+        """MatMulNBits with bits=4 + fp16 initializers → 'w4a16'."""
+        import numpy as np
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.FLOAT16, [1, 32])
+        c = helper.make_tensor_value_info("C", TensorProto.FLOAT16, [1, 16])
+
+        # MatMulNBits packed-weight + scales (dummy shapes — schema doesn't validate)
+        w_packed = helper.make_tensor(
+            "W",
+            TensorProto.UINT8,
+            [16, 1, 16],
+            np.zeros((16, 1, 16), dtype=np.uint8).tobytes(),
+            raw=True,
+        )
+        scales = helper.make_tensor(
+            "scales",
+            TensorProto.FLOAT16,
+            [16],
+            np.ones(16, dtype=np.float16).tobytes(),
+            raw=True,
+        )
+
+        node = helper.make_node(
+            "MatMulNBits",
+            ["A", "W", "scales"],
+            ["C"],
+            domain="com.microsoft",
+            K=32,
+            N=16,
+            bits=4,
+            block_size=32,
+        )
+
+        graph = helper.make_graph([node], "mmnbits_w4", [a], [c], [w_packed, scales])
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 13),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "mmnbits_w4.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] == "w4a16"
+
+    def test_precision_no_signal_returns_none(self, tmp_path: Path):
+        """No QDQ ops, no MatMulNBits, no float initializers → None."""
+        from onnx import TensorProto, helper
+
+        a = helper.make_tensor_value_info("A", TensorProto.INT64, [1, 4])
+        c = helper.make_tensor_value_info("C", TensorProto.INT64, [1, 4])
+
+        identity = helper.make_node("Identity", ["A"], ["C"])
+        graph = helper.make_graph([identity], "no_signal", [a], [c])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        model.ir_version = 7
+        path = self._save(model, tmp_path / "no_signal.onnx")
+
+        session = WinMLSession(onnx_path=path, device="auto")
+        assert session.io_config["precision"] is None
+
+
 @pytest.mark.skip(reason="Re-batching not yet implemented")
 class TestWinMLSessionReBatching:
     """Test re-batching for static batch size models."""

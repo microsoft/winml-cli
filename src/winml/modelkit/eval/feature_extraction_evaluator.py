@@ -43,41 +43,19 @@ logger = logging.getLogger(__name__)
 class WinMLFeatureExtractionEvaluator(WinMLEvaluator):
     """Evaluator for text feature extraction using Spearman correlation."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for sentence similarity evaluation."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn(
-                "sentence1",
-                "Value(string)",
-                "input_column_1",
-                description="first sentence of the pair",
-            ),
-            SchemaColumn(
-                "sentence2",
-                "Value(string)",
-                "input_column_2",
-                description="second sentence of the pair",
-            ),
-            SchemaColumn(
-                "score",
-                "Value(float64)",
-                "score_column",
-                description="ground-truth similarity score (e.g. [0, 5] for STS-B)",
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
         mapping = config.dataset.columns_mapping
-        self._input_col_1 = mapping.get("input_column_1", "sentence1")
-        self._input_col_2 = mapping.get("input_column_2", "sentence2")
-        self._score_col = mapping.get("score_column", "score")
+        from ..utils.eval_utils import get_default
+
+        mapping = config.dataset.columns_mapping
+        task = "feature-extraction"
+        self._input_col_1 = mapping.get("input_column_1", get_default(task, "input_column_1"))
+        self._input_col_2 = mapping.get("input_column_2", get_default(task, "input_column_2"))
+        self._score_col = mapping.get("score_column", get_default(task, "score_column"))
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:

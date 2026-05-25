@@ -22,21 +22,6 @@ class WinMLTokenClassificationEvaluator(WinMLEvaluator):
     Configures tokenizer padding to match the ONNX model's fixed sequence length.
     """
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for token classification."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("tokens", "list[str]", "input_column", description="tokenized words"),
-            SchemaColumn(
-                "ner_tags",
-                "Sequence(ClassLabel)",
-                "label_column",
-                description="tag IDs per token",
-            ),
-        ]
-
     def prepare_pipeline(self) -> Pipeline:
         """Create pipeline and set tokenizer padding for fixed-shape ONNX."""
         pipe = super().prepare_pipeline()

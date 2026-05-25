@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import click
 from rich.console import Console
 
-from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES, SUPPORTED_DEVICES_WITH_AUTO
+from .constants import ALL_EP_NAMES, SUPPORTED_DEVICES
 
 
 if TYPE_CHECKING:
@@ -135,12 +135,14 @@ def ep_option(required=True, optional_message=None):
     if optional_message:
         help_text = f"{help_text}. {optional_message}"
 
+    ep_choices = [name for name in ALL_EP_NAMES if name not in ("cuda", "CUDAExecutionProvider")]
+
     return click.option(
         "--ep",
         "--execution-provider",
         required=required,
         default=None,
-        type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
+        type=click.Choice(ep_choices, case_sensitive=False),
         help=help_text,
     )
 
@@ -160,7 +162,8 @@ def device_option(required=True, optional_message=None, default="NPU", include_a
     Returns:
         Decorator function
     """
-    choices = SUPPORTED_DEVICES_WITH_AUTO if include_auto else SUPPORTED_DEVICES
+    device_choices = [device.lower() for device in SUPPORTED_DEVICES]
+    choices = ["auto", *device_choices] if include_auto else device_choices
     help_text = f"Target device type ({', '.join(choices)})"
     if optional_message:
         help_text = f"{help_text}. {optional_message}"

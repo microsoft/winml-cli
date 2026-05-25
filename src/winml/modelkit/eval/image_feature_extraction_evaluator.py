@@ -40,26 +40,17 @@ if TYPE_CHECKING:
 class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
     """Evaluator for image feature extraction using kNN classification accuracy."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for image feature extraction evaluation."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", "input_column", description="PIL Image"),
-            SchemaColumn(
-                "label", "ClassLabel", "label_column",
-                description="integer class label",
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
+        from ..utils.eval_utils import get_default
+
         mapping = config.dataset.columns_mapping
-        self._label_col = mapping.get("label_column", "label")
+        task = "image-feature-extraction"
+        self._image_col = mapping.get("input_column", get_default(task, "input_column"))
+        self._label_col = mapping.get("label_column", get_default(task, "label_column"))
         super().__init__(config, model)
 
     def prepare_pipeline(self) -> Pipeline:
@@ -86,7 +77,7 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
         labels: list[int] = []
 
         for sample in tqdm(self.data, desc="Embedding images", unit="img"):
-            image = sample.get("image")
+            image = sample.get(self._image_col)
             label = sample.get(self._label_col)
 
             if image is None or label is None:
