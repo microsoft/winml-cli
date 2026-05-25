@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
+from rich.console import Console
 
 from ..utils import cli as cli_utils
 from ..utils.eval_utils import TASK_SCHEMAS, TaskSchema
@@ -241,8 +242,7 @@ def _build_eval_config(
     are applied (avoids overriding with dataclass defaults).
     Uses ``collect_cli_overrides`` for automatic CLI-to-field mapping.
     """
-    from ..datasets import DatasetConfig
-    from ..eval import WinMLEvaluationConfig
+    from ..eval import DatasetConfig, WinMLEvaluationConfig
     from ..utils.config_utils import merge_config
 
     # Initialize config object from CLI ctx params.
@@ -337,10 +337,16 @@ def _resolve_model(
 
 def _resolve_device(cfg: object) -> None:
     """Resolve ``'auto'`` → concrete device string on *cfg* in place."""
+    if cfg.device and cfg.device.lower() != "auto":
+        return
+
     from ..sysinfo import resolve_device
 
+    console = Console()
+    console.print("[bold]Detecting available devices...[/bold]")
     resolved, _ = resolve_device(cfg.device)
     cfg.device = resolved
+    console.print(f"[dim]Using device:[/dim] {resolved}")
 
 
 def _resolve_label_mapping(cfg: object) -> None:
@@ -377,7 +383,7 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
 
     cmd = [sys.executable, str(script_path), "--output", str(Path(cfg.dataset.path).expanduser())]
 
-    logger.info("Building dataset via %s ...", script_path.name)
+    Console().print(f"[bold]Building dataset via {script_path.name}...[/bold]")
     result = subprocess.run(  # noqa: S603
         cmd,
         capture_output=True,
@@ -393,8 +399,6 @@ def _run_dataset_script(cfg: object, trust_remote_code: bool) -> None:
 
 def _write_and_display(result: object, output_path: Path | None) -> None:
     """Display evaluation results and optionally save to JSON."""
-    from rich.console import Console
-
     console = Console()
     display_eval_report(result, console)
 

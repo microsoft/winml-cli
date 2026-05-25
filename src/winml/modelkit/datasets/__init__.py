@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 from onnxruntime.quantization import CalibrationDataReader
 
 from .base import BaseTaskDataset
-from .config import DatasetConfig
 from .data_utils import format_data
 from .image import ImageDataset
 from .image_segmentation import ImageSegmentationDataset
@@ -269,7 +268,6 @@ __all__ = [  # noqa: RUF022
     # Calibration reader
     "DatasetCalibrationReader",
     # Config
-    "DatasetConfig",
     "DEFAULT_OBJECT_DETECTION_SIZE",
     # Dataset classes
     "BaseTaskDataset",
