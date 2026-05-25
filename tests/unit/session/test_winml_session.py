@@ -155,18 +155,26 @@ class TestWinMLSessionProviders:
     """Test that session providers match WinML EP registry."""
 
     def test_cpu_provider_always_available(self, simple_matmul_onnx: Path):
-        """Test that CPUExecutionProvider is always available as fallback."""
+        """CPUExecutionProvider is available, run() auto-compiles, output dtype is fp32.
+
+        Also pins the `not is_compiled` -> run() -> `is_compiled` transition
+        and the output dtype check (assertions ported from deleted
+        device='auto' tests; no other test pins these on device='cpu').
+        """
         session = WinMLSession(
             onnx_path=simple_matmul_onnx,
             device="cpu",
         )
+        assert not session.is_compiled
 
-        # Run to trigger lazy init
+        # Run triggers lazy compile
         sample_input = {"A": np.random.randn(1, 4).astype(np.float32)}
-        session.run(sample_input)
+        outputs = session.run(sample_input)
 
+        assert session.is_compiled
         providers = session._session.get_providers()
         assert "CPUExecutionProvider" in providers
+        assert outputs["C"].dtype == np.float32
 
 
 class TestWinMLSessionInference:
