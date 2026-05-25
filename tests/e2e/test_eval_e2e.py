@@ -34,6 +34,7 @@ import pytest
 from winml.modelkit.commands.eval import eval as eval_cmd
 
 from .conftest import find_cache_dir
+from .require_ep import require_ep
 
 
 if TYPE_CHECKING:
@@ -239,6 +240,7 @@ class TestEvalPerTask:
         _assert_in_range(data["metrics"], "mean_iou", 0.0, 1.0)
 
     def test_question_answering(self, runner: CliRunner, tmp_path: Path) -> None:
+        require_ep("qnn")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "distilbert/distilbert-base-cased-distilled-squad",
@@ -348,6 +350,7 @@ class TestEvalPerTask:
     def test_zero_shot_classification(
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
+        require_ep("qnn")
         # Zero-shot uses ClassificationMetric → accuracy + f1.
         out = tmp_path / "result.json"
         _invoke(runner, [
@@ -535,6 +538,7 @@ class TestEvalDeviceAndEp:
         self, runner: CliRunner, tmp_path: Path,
     ) -> None:
         # Combined --device + --ep.
+        require_ep("qnn")
         out = tmp_path / "result.json"
         _invoke(runner, [
             "-m", "google/vit-base-patch16-224",

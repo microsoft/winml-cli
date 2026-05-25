@@ -64,7 +64,7 @@ def make_evaluator(
     pipe: MagicMock | None = None,
 ) -> WinMLZeroShotClassificationEvaluator:
     """Construct an evaluator without going through HF loading."""
-    from winml.modelkit.datasets import DatasetConfig
+    from winml.modelkit.eval import DatasetConfig
 
     mapping = columns_mapping or {"input_column": "text", "label_column": "label"}
 
@@ -109,11 +109,11 @@ def make_evaluator(
 
 class TestRegistry:
     def test_evaluator_registered(self) -> None:
-        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY
+        from winml.modelkit.eval.evaluate import _EVALUATOR_REGISTRY, get_evaluator_class
 
         assert "zero-shot-classification" in _EVALUATOR_REGISTRY
         assert (
-            _EVALUATOR_REGISTRY["zero-shot-classification"] is WinMLZeroShotClassificationEvaluator
+            get_evaluator_class("zero-shot-classification") is WinMLZeroShotClassificationEvaluator
         )
 
     def test_default_dataset_registered(self) -> None:
@@ -213,7 +213,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_sets_model_max_length_from_io_config(self, mock_load_ds, mock_pipeline) -> None:
-        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import DatasetConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 2
@@ -247,7 +247,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_filters_tokenizer_input_names(self, mock_load_ds, mock_pipeline) -> None:
-        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import DatasetConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 2
@@ -286,7 +286,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_tokenizer_change_without_io_config(self, mock_load_ds, mock_pipeline) -> None:
-        from winml.modelkit.datasets import DatasetConfig
+        from winml.modelkit.eval import DatasetConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 2

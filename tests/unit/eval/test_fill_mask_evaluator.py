@@ -33,8 +33,7 @@ def _make_tokenizer(vocab_size=50, pad_token_id=0, mask_token_id=103):
 
 
 def _make_evaluator(model=None, max_length=None):
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mock_ds = MagicMock()
     mock_ds.__len__ = lambda self: 5

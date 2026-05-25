@@ -26,9 +26,8 @@ from .base_evaluator import WinMLEvaluator
 if TYPE_CHECKING:
     from datasets import Dataset
 
-    from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 class WinMLZeroShotImageClassificationEvaluator(WinMLEvaluator):
     """Evaluator for zero-shot image classification using top-k accuracy."""
