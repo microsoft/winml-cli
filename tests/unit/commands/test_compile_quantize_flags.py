@@ -275,10 +275,10 @@ class TestCompileDeviceDisplayLabel:
             patch("winml.modelkit.compiler.WinMLCompileConfig"),
             # Make resolve_device succeed under the test runner's empty EP env
             # (it's the display label we're testing here, not EP resolution).
-            # resolve_device now reads _get_device_ep_map; populate both NPU
+            # resolve_device now reads _get_device_ep_map_from_ort; populate both NPU
             # and GPU with QNN since --device gpu --ep qnn must be satisfiable.
             patch(
-                "winml.modelkit.sysinfo.device._get_device_ep_map",
+                "winml.modelkit.sysinfo.device._get_device_ep_map_from_ort",
                 return_value={
                     "gpu": ("QNNExecutionProvider",),
                 },
