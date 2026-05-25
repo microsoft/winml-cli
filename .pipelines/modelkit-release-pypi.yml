@@ -6,6 +6,14 @@ parameters:
 - name: OFFICIAL_BUILD_ID
   displayName: 'Specify which official build run to use (pipeline build ID)'
   type: string
+- name: ESRP_OWNERS
+  displayName: 'ESRP owner emails (comma-separated)'
+  type: string
+  default: ''
+- name: ESRP_APPROVERS
+  displayName: 'ESRP approver emails (comma-separated)'
+  type: string
+  default: ''
 
 resources:
   repositories:
@@ -26,8 +34,7 @@ extends:
     stages:
     - stage: Publish
       displayName: 'Publish to PyPI'
-      # TEMP: branch gate disabled for pipeline validation. Re-enable before going live.
-      # condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
+      condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
       jobs:
       - job: Prepare
         displayName: 'Prepare PyPI Artifacts'
@@ -107,7 +114,7 @@ extends:
           displayName: 'Verify staged artifacts before publishing to PyPI'
           timeoutInMinutes: 1440 # 24 hours
           inputs:
-            notifyUsers: 'zhiwang@microsoft.com'
+            notifyUsers: '${{ parameters.ESRP_OWNERS }}'
             instructions: |
               Review the Prepare job logs (staged wheel + sdist filenames, version check).
               Approve to invoke ESRP Release - ESRP will then trigger its own approval flow.
@@ -142,12 +149,12 @@ extends:
             signcertname: 'modelkit-tss-sign'
             clientid: 'e80da4f8-3154-4198-9ad6-8f8988263b02'
             intent: 'PackageDistribution'
-            contenttype: 'npm'
+            contenttype: 'PyPi'
             contentsource: 'Folder'
             folderlocation: '$(Build.SourcesDirectory)/pyPackage'
             waitforreleasecompletion: true
-            owners: 'zhiwang@microsoft.com'
-            approvers: 'zhiwang@microsoft.com'
+            owners: '${{ parameters.ESRP_OWNERS }}'
+            approvers: '${{ parameters.ESRP_APPROVERS }}'
             serviceendpointurl: 'https://api.esrp.microsoft.com'
             mainpublisher: 'ESRPRELPACMAN'
             domaintenantid: '975f013f-7f24-47e8-a7d3-abc4752bf346'
