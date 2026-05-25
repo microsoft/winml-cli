@@ -367,24 +367,24 @@ class WinMLSession:
         """
         from ..sysinfo.device import resolve_device, resolve_eps
         from ..utils.constants import DEVICE_TO_DEVICE_TYPE, normalize_ep_name
+        from ..winml import add_ep_for_device
 
         resolved_device, _ = resolve_device(device, ep=self._ep)
         resolved_ep = normalize_ep_name(self._ep) if self._ep else resolve_eps(resolved_device)[0]
         device_type = DEVICE_TO_DEVICE_TYPE.get(resolved_device.upper())
 
         opts = ort.SessionOptions()
-        for ep_dev in ort.get_ep_devices():
-            if ep_dev.ep_name == resolved_ep and ep_dev.device.type == device_type:
-                opts.add_provider_for_devices([ep_dev], self._provider_options)
-                logger.info(
-                    "Create session with EP: %s (%s) device=%s -> %s",
-                    resolved_ep,
-                    self._ep,
-                    device,
-                    resolved_device,
-                )
-                return opts, resolved_device, resolved_ep
+        if add_ep_for_device(opts, resolved_ep, device_type, self._provider_options):
+            logger.info(
+                "Built SessionOptions with EP: %s (%s) device=%s -> %s",
+                resolved_ep,
+                self._ep,
+                device,
+                resolved_device,
+            )
+            return opts, resolved_device, resolved_ep
 
+        # Defensive: should not be reachable unless the EP enumeration races.
         raise DeviceNotAvailableError(
             message=f"No available provider found for device '{device}' and EP '{self._ep}'"
         )
