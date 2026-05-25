@@ -143,18 +143,16 @@ def test_fmt_model_id_with_org():
 
 
 def test_fmt_model_id_org_prefix_dimmed():
-    """Org prefix should be visually de-emphasized so the model name stands out."""
+    """Full model ID should be rendered in uniform cyan bold."""
     t = _fmt_model_id("openai/clip-vit-base-patch32")
-    # The org span (first 7 chars = "openai/") should use dim style
     spans = list(t._spans)
-    org_span = spans[0]
-    assert org_span.end == len("openai/")
-    assert "dim" in str(org_span.style)
-    # The model-name span should use cyan bold
-    name_span = spans[1]
-    assert name_span.start == len("openai/")
-    assert "cyan" in str(name_span.style)
-    assert "bold" in str(name_span.style)
+    # Single span covers the entire model ID in cyan bold
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.start == 0
+    assert span.end == len("openai/clip-vit-base-patch32")
+    assert "cyan" in str(span.style)
+    assert "bold" in str(span.style)
 
 
 def test_fmt_model_id_no_org():
