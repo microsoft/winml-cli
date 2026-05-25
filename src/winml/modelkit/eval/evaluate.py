@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -14,55 +15,63 @@ from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 
-from .base_evaluator import WinMLEvaluator
 from .config import WinMLEvaluationConfig
-from .feature_extraction_evaluator import WinMLFeatureExtractionEvaluator
-from .fill_mask_evaluator import WinMLFillMaskEvaluator
-from .image_feature_extraction_evaluator import WinMLImageFeatureExtractionEvaluator
-from .image_segmentation_evaluator import WinMLImageSegmentationEvaluator
-from .image_to_text_evaluator import WinMLImageToTextEvaluator
-from .object_detection_evaluator import WinMLObjectDetectionEvaluator
-from .question_answering_evaluator import WinMLQuestionAnsweringEvaluator
-from .text_classification_evaluator import WinMLTextClassificationEvaluator
-from .token_classification_evaluator import WinMLTokenClassificationEvaluator
-from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
-from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
 
 if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
+    from .base_evaluator import WinMLEvaluator
 
 logger = logging.getLogger(__name__)
 
-_EVALUATOR_REGISTRY: dict[str, type[WinMLEvaluator]] = {
-    "image-classification": WinMLEvaluator,
-    "text-classification": WinMLTextClassificationEvaluator,
-    "sequence-classification": WinMLTextClassificationEvaluator,
-    "next-sentence-prediction": WinMLTextClassificationEvaluator,
-    "token-classification": WinMLTokenClassificationEvaluator,
-    "object-detection": WinMLObjectDetectionEvaluator,
-    "image-segmentation": WinMLImageSegmentationEvaluator,
-    "question-answering": WinMLQuestionAnsweringEvaluator,
-    "feature-extraction": WinMLFeatureExtractionEvaluator,
-    "sentence-similarity": WinMLFeatureExtractionEvaluator,
-    "image-feature-extraction": WinMLImageFeatureExtractionEvaluator,
-    "image-to-text": WinMLImageToTextEvaluator,
-    "fill-mask": WinMLFillMaskEvaluator,
-    "zero-shot-classification": WinMLZeroShotClassificationEvaluator,
-    "zero-shot-image-classification": WinMLZeroShotImageClassificationEvaluator,
+# Map task -> "module_path:ClassName"; modules are imported lazily by
+# get_evaluator_class() to improve command latency.
+_EVALUATOR_REGISTRY: dict[str, str] = {
+    "image-classification":
+        "winml.modelkit.eval.base_evaluator:WinMLEvaluator",
+    "text-classification":
+        "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
+    "sequence-classification":
+        "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
+    "next-sentence-prediction":
+        "winml.modelkit.eval.text_classification_evaluator:WinMLTextClassificationEvaluator",
+    "token-classification":
+        "winml.modelkit.eval.token_classification_evaluator:WinMLTokenClassificationEvaluator",
+    "object-detection":
+        "winml.modelkit.eval.object_detection_evaluator:WinMLObjectDetectionEvaluator",
+    "image-segmentation":
+        "winml.modelkit.eval.image_segmentation_evaluator:WinMLImageSegmentationEvaluator",
+    "question-answering":
+        "winml.modelkit.eval.question_answering_evaluator:WinMLQuestionAnsweringEvaluator",
+    "feature-extraction":
+        "winml.modelkit.eval.feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
+    "sentence-similarity":
+        "winml.modelkit.eval.feature_extraction_evaluator:WinMLFeatureExtractionEvaluator",
+    "image-feature-extraction":
+        "winml.modelkit.eval.image_feature_extraction_evaluator:WinMLImageFeatureExtractionEvaluator",
+    "image-to-text":
+        "winml.modelkit.eval.image_to_text_evaluator:WinMLImageToTextEvaluator",
+    "fill-mask":
+        "winml.modelkit.eval.fill_mask_evaluator:WinMLFillMaskEvaluator",
+    "zero-shot-classification":
+        "winml.modelkit.eval.zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator",
+    "zero-shot-image-classification":
+        "winml.modelkit.eval.zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator",
 }
 
 
 def get_evaluator_class(task: str) -> type[WinMLEvaluator]:
     """Return the evaluator class for *task*, or raise ValueError if unsupported."""
-    cls = _EVALUATOR_REGISTRY.get(task)
-    if cls is None:
+    spec = _EVALUATOR_REGISTRY.get(task)
+    if spec is None:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
         raise ValueError(
             f"Task '{task}' is not supported by `winml eval`. "
             f"Supported tasks: {supported}."
         )
-    return cls
+    module_path, class_name = spec.rsplit(":", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
 
 _FE_DEFAULT = {
     "path": "mteb/stsbenchmark-sts",
@@ -206,12 +215,16 @@ def _resolve_task(config: WinMLEvaluationConfig) -> str:
         if config.model_id is None:
             raise ValueError("Cannot infer task without model_id. Provide --task.")
 
+        console = Console()
+        console.print("[bold]Detecting model task...[/bold]")
+
         from transformers import AutoConfig
 
         from ..loader.task import _detect_task_from_config
 
         hf_config = AutoConfig.from_pretrained(config.model_id)
         task = _detect_task_from_config(hf_config)
+        console.print(f"[dim]Detected task:[/dim] {task}")
 
     if task not in _EVALUATOR_REGISTRY:
         supported = ", ".join(sorted(_EVALUATOR_REGISTRY))
@@ -243,7 +256,9 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
         )
 
     print_config(config)
+    console = Console()
 
+    console.print("\n[bold]Loading model...[/bold]")
     try:
         model = _load_model(config)
     except Exception as error:
@@ -258,6 +273,7 @@ def evaluate(config: WinMLEvaluationConfig) -> EvalResult:
 
     cls = get_evaluator_class(config.task)
     try:
+        console.print("[bold]Loading dataset and evaluating...[/bold]")
         task_evaluator = cls(config, model)
         metrics = task_evaluator.compute()
     except DatasetValidationError as error:

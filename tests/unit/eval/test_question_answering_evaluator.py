@@ -24,8 +24,7 @@ from winml.modelkit.eval import WinMLQuestionAnsweringEvaluator
 
 def make_evaluator(io_config=None, columns_mapping=None):
     """Create evaluator without triggering __init__ data loading."""
-    from winml.modelkit.datasets import DatasetConfig
-    from winml.modelkit.eval import WinMLEvaluationConfig
+    from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
     mapping = columns_mapping or {
         "question_column": "question",
@@ -67,8 +66,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_sets_padding_when_io_config_present(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -100,8 +98,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_padding_without_tokenizer(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -131,8 +128,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_no_padding_without_shapes(self, mock_load_ds, mock_pipeline):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
@@ -162,8 +158,7 @@ class TestPreparePipeline:
     @patch("transformers.pipeline")
     @patch("datasets.load_dataset")
     def test_logs_warning_without_shapes(self, mock_load_ds, mock_pipeline, caplog):
-        from winml.modelkit.datasets import DatasetConfig
-        from winml.modelkit.eval import WinMLEvaluationConfig
+        from winml.modelkit.eval import DatasetConfig, WinMLEvaluationConfig
 
         mock_ds = MagicMock()
         mock_ds.__len__ = lambda self: 10
