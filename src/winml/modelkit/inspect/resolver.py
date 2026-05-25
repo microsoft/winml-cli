@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from ..loader.task import (
     HF_TASK_DEFAULTS,
+    KNOWN_TASKS,
     _detect_task_from_config,
     _get_custom_model_class,
 )
@@ -57,34 +58,34 @@ _STAGE_TO_FILENAME = {
 
 
 def get_known_tasks() -> set[str]:
-    """Collect all known task strings from internal mappings and TasksManager.
+    """Return the canonical set of task names recognized by inspect.
 
-    Returns:
-        Set of known task strings.
+    Combines the hand-coded :data:`KNOWN_TASKS` with locally registered tasks
+    so any future entries in :data:`HF_TASK_DEFAULTS` or
+    :data:`HF_MODEL_CLASS_MAPPING` are picked up automatically. Does not
+    import ``optimum.exporters`` — that import costs ~10s due to its
+    transitive ``transformers`` import and would make ``--list-tasks`` slow.
+
+    Note on the dual path:
+        ``winml inspect --list-tasks`` deliberately bypasses this helper and
+        reads :data:`KNOWN_TASKS` directly. Going through ``..inspect.resolver``
+        would import ``..models`` (which transitively imports ``transformers``)
+        and re-introduce the latency this module's hand-coded constant exists
+        to avoid. The two paths therefore see slightly different sets:
+
+        * ``--list-tasks``     ->  :data:`KNOWN_TASKS`
+        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus ``HF_TASK_DEFAULTS``
+                                  keys plus ``HF_MODEL_CLASS_MAPPING`` task
+                                  entries
+
+        ``tests/unit/loader/test_known_tasks.py`` asserts ``KNOWN_TASKS``
+        is a superset of the local registries, so anything ``validate_task``
+        accepts also appears in ``--list-tasks``. Drift is a CI failure, not
+        a silent break.
     """
-    tasks: set[str] = set()
-
-    # From HF_MODEL_CLASS_MAPPING values (task part of each (model_type, task) key).
-    # Some entries use task=None as a sentinel for the per-model-type default task;
-    # skip those so sorted() in callers never receives a None value.
-    for _model_type, task in HF_MODEL_CLASS_MAPPING:
-        if task is not None:
-            tasks.add(task)
-
-    # From HF_TASK_DEFAULTS keys
+    tasks: set[str] = set(KNOWN_TASKS)
     tasks.update(HF_TASK_DEFAULTS.keys())
-
-    # From optimum TasksManager if available
-    try:
-        from optimum.exporters.tasks import TasksManager
-
-        if hasattr(TasksManager, "_TASKS_TO_LIBRARY"):
-            tasks.update(TasksManager._TASKS_TO_LIBRARY.keys())
-        if hasattr(TasksManager, "_TASKS_TO_AUTOMODELS"):
-            tasks.update(TasksManager._TASKS_TO_AUTOMODELS.keys())
-    except Exception:
-        pass
-
+    tasks.update(task for _, task in HF_MODEL_CLASS_MAPPING if task is not None)
     return tasks
 
 
