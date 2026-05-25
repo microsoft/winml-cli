@@ -91,7 +91,7 @@ Every `winml` command has a **published output** — what `-o` writes or what it
 
 This is the easiest way to pick the right command for a goal: **map the goal to a published output, not to a side effect.**
 
-- `inspect`, `sys`, `analyze`, `hub` print to stdout (no `-o` artifact).
+- `inspect`, `sys`, `analyze`, `catalog` print to stdout (no `-o` artifact).
 - `export`, `optimize`, `quantize`, `compile`, `build` write transformed model artifacts to `-o`.
 - `perf` writes a **metrics JSON** to `-o` — not a model.
 - `config` writes the **config JSON** to `-o` — the input to `build`.
@@ -134,21 +134,11 @@ If the user's intent isn't clear from their prompt, ask one short question — "
 
 ## Hardware and execution providers
 
-The right execution provider depends on the user's machine. Status as of 2026-05-20:
+The right execution provider depends on the user's hardware. See the **README's Supported Hardware** table for the current hardware-to-EP matrix and Ready/Planned status — that's the canonical source, and it changes between releases. Don't reproduce the matrix here; it goes stale.
 
-| Hardware | Execution provider | Status |
-|---|---|---|
-| Qualcomm NPU (Snapdragon X Elite) | QNN | 🟢 Ready |
-| Intel NPU (Meteor Lake / Lunar Lake / Core Ultra) | OpenVINO | 🟢 Ready |
-| AMD NPU (Ryzen AI: Phoenix / Hawk Point / Strix) | VitisAI | 🟢 Ready |
-| NVIDIA discrete GPU | NvTensorRTRTX | 🟢 Ready |
-| Hardware-agnostic GPU | DirectML (Dml) | 🟢 Ready |
-| AMD discrete GPU | MIGraphX | 🔶 Planned |
-| CPU | CPU EP | ⚪ Always available |
+Ground truth for what's actually working on this machine is always `winml sys --list-ep`. Run it; trust its output over anything else. If the user's hardware needs an EP that isn't in the listed output (whether the README marks it Ready or Planned), recommend CPU or DML as the working fallback rather than pretending the missing EP works.
 
-If the user has hardware whose EP is **Planned** (currently only MIGraphX for AMD discrete GPUs), say so — recommend CPU or DML as the working fallback rather than pretending the planned EP is ready. The README's Supported Hardware table may lag behind this status; trust `winml sys --list-ep` on the user's machine for what's actually registered.
-
-For the **current flag spelling, supported status, and device-selection options** (including any auto-pick mode), consult `winml <command> --help` and `winml sys`. Don't hardcode flag values from this skill into your suggestions — read them live.
+For exact flag spellings and device-selection options, consult `winml <command> --help` and `winml sys`. Don't hardcode flag values from this skill — read them live.
 
 If you don't know what hardware the user has, ask, or run `winml sys` and read the output.
 
@@ -175,7 +165,7 @@ If you're genuinely unsure whether a model is in scope, the inspect command is t
 - **Confirm the target EP is registered before compiling.** Run `winml sys --list-ep` first; if your `--ep <foo>` isn't in the list, compile won't produce a usable artifact for that EP. Compile also runs validation by default (see `--validate / --no-validate` in `winml compile --help`).
 - **Compile defaults to external EP-context storage.** Per `winml compile --help`, the default writes EP context to a `.bin` file co-located with the output `.onnx`; pass `--embed` to inline it instead. If you move a non-embedded artifact, move the `.bin` alongside.
 - **CLI flags override the config file, not the other way around.** Every primitive that accepts `-c, --config` says so in its `--help`: "Provides defaults; explicit CLI options take precedence." For repeatable builds, edit the JSON; for one-off overrides, pass the flag at build time.
-- **Output paths are explicit on the pipeline-building commands.** `export`, `optimize`, `quantize`, `compile`, `perf`, `config`, and `build` each take an `-o` / `--output` (or `--output-dir`). There's no implicit "current directory" convention — tell the user where files will land. `inspect`, `sys`, and `hub` print to stdout and don't require an output path.
+- **Output paths are explicit on the pipeline-building commands.** `export`, `optimize`, `quantize`, `compile`, `perf`, `config`, and `build` each take an `-o` / `--output` (or `--output-dir`). There's no implicit "current directory" convention — tell the user where files will land. `inspect`, `sys`, `analyze`, and `catalog` print to stdout and don't require an output path.
 - **EP-compiled models are tied to their target EP.** Don't try to perf a QNN-compiled artifact against the CPU EP — the result is at best meaningless. For cross-EP comparison, use the pre-compile optimized ONNX.
 - **Don't fabricate flags.** If a flag isn't in `winml <command> --help`, it doesn't exist. Find a real one or change approach.
 
