@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from ..loader.task import (
     HF_TASK_DEFAULTS,
+    KNOWN_TASKS,
     _detect_task_from_config,
     _get_custom_model_class,
 )
@@ -57,34 +58,34 @@ _STAGE_TO_FILENAME = {
 
 
 def get_known_tasks() -> set[str]:
-    """Collect all known task strings from internal mappings and TasksManager.
+    """Return the canonical set of task names recognized by inspect.
 
-    Returns:
-        Set of known task strings.
+    Combines the hand-coded :data:`KNOWN_TASKS` with locally registered tasks
+    so any future entries in :data:`HF_TASK_DEFAULTS` or
+    :data:`HF_MODEL_CLASS_MAPPING` are picked up automatically. Does not
+    import ``optimum.exporters`` — that import costs ~10s due to its
+    transitive ``transformers`` import and would make ``--list-tasks`` slow.
+
+    Note on the dual path:
+        ``winml inspect --list-tasks`` deliberately bypasses this helper and
+        reads :data:`KNOWN_TASKS` directly. Going through ``..inspect.resolver``
+        would import ``..models`` (which transitively imports ``transformers``)
+        and re-introduce the latency this module's hand-coded constant exists
+        to avoid. The two paths therefore see slightly different sets:
+
+        * ``--list-tasks``     ->  :data:`KNOWN_TASKS`
+        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus ``HF_TASK_DEFAULTS``
+                                  keys plus ``HF_MODEL_CLASS_MAPPING`` task
+                                  entries
+
+        ``tests/unit/loader/test_known_tasks.py`` asserts ``KNOWN_TASKS``
+        is a superset of the local registries, so anything ``validate_task``
+        accepts also appears in ``--list-tasks``. Drift is a CI failure, not
+        a silent break.
     """
-    tasks: set[str] = set()
-
-    # From HF_MODEL_CLASS_MAPPING values (task part of each (model_type, task) key).
-    # Some entries use task=None as a sentinel for the per-model-type default task;
-    # skip those so sorted() in callers never receives a None value.
-    for _model_type, task in HF_MODEL_CLASS_MAPPING:
-        if task is not None:
-            tasks.add(task)
-
-    # From HF_TASK_DEFAULTS keys
+    tasks: set[str] = set(KNOWN_TASKS)
     tasks.update(HF_TASK_DEFAULTS.keys())
-
-    # From optimum TasksManager if available
-    try:
-        from optimum.exporters.tasks import TasksManager
-
-        if hasattr(TasksManager, "_TASKS_TO_LIBRARY"):
-            tasks.update(TasksManager._TASKS_TO_LIBRARY.keys())
-        if hasattr(TasksManager, "_TASKS_TO_AUTOMODELS"):
-            tasks.update(TasksManager._TASKS_TO_AUTOMODELS.keys())
-    except Exception:
-        pass
-
+    tasks.update(task for _, task in HF_MODEL_CLASS_MAPPING if task is not None)
     return tasks
 
 
@@ -885,31 +886,45 @@ def resolve_processor(
     except Exception as e:
         logger.debug("Failed to resolve processors from hub configs: %s", e)
 
-    # Strategy 2: Use Auto classes to fill in any missing information
-    # This approach actually loads the processors, so it's slower but more reliable
-    try:
-        (
-            auto_processor,
-            auto_tokenizer,
-            auto_image_processor,
-            auto_feature_extractor,
-        ) = _resolve_processor_from_auto_classes(model_id)
+    # Strategy 2: Use Auto classes to fill in any missing information.
+    # Skip entirely when Strategies 0 + 1 already populated every field —
+    # each Auto* instantiation does its own HF Hub I/O plus class init
+    # (AutoProcessor and AutoFeatureExtractor are several seconds each).
+    need_processor = processor_class is None
+    need_tokenizer = tokenizer_class is None
+    need_image_processor = image_processor_class is None
+    need_feature_extractor = feature_extractor_class is None
 
-        # Fill in missing values from auto classes
-        if processor_class is None and auto_processor:
-            processor_class = auto_processor
-            processor_source = "auto_class"
-        if tokenizer_class is None and auto_tokenizer:
-            tokenizer_class = auto_tokenizer
-            tokenizer_source = "auto_class"
-        if image_processor_class is None and auto_image_processor:
-            image_processor_class = auto_image_processor
-            image_processor_source = "auto_class"
-        if feature_extractor_class is None and auto_feature_extractor:
-            feature_extractor_class = auto_feature_extractor
-            feature_extractor_source = "auto_class"
-    except Exception as e:
-        logger.debug("Failed to resolve processors from auto classes: %s", e)
+    if need_processor or need_tokenizer or need_image_processor or need_feature_extractor:
+        try:
+            (
+                auto_processor,
+                auto_tokenizer,
+                auto_image_processor,
+                auto_feature_extractor,
+            ) = _resolve_processor_from_auto_classes(
+                model_id,
+                try_processor=need_processor,
+                try_tokenizer=need_tokenizer,
+                try_image_processor=need_image_processor,
+                try_feature_extractor=need_feature_extractor,
+            )
+
+            # Fill in missing values from auto classes
+            if need_processor and auto_processor:
+                processor_class = auto_processor
+                processor_source = "auto_class"
+            if need_tokenizer and auto_tokenizer:
+                tokenizer_class = auto_tokenizer
+                tokenizer_source = "auto_class"
+            if need_image_processor and auto_image_processor:
+                image_processor_class = auto_image_processor
+                image_processor_source = "auto_class"
+            if need_feature_extractor and auto_feature_extractor:
+                feature_extractor_class = auto_feature_extractor
+                feature_extractor_source = "auto_class"
+        except Exception as e:
+            logger.debug("Failed to resolve processors from auto classes: %s", e)
 
     return ProcessorInfo(
         processor_class=processor_class,
@@ -999,6 +1014,11 @@ def _resolve_processor_from_hub_configs(
 
 def _resolve_processor_from_auto_classes(
     model_id: str,
+    *,
+    try_processor: bool = True,
+    try_tokenizer: bool = True,
+    try_image_processor: bool = True,
+    try_feature_extractor: bool = True,
 ) -> tuple[str | None, str | None, str | None, str | None]:
     """Resolve processor classes by instantiating HuggingFace Auto classes.
 
@@ -1007,38 +1027,65 @@ def _resolve_processor_from_auto_classes(
 
     Args:
         model_id: HuggingFace model identifier
+        try_processor: When False, skip ``AutoProcessor.from_pretrained``.
+            AutoProcessor is the most expensive single call (several seconds
+            even on warm cache), so callers that already know all four classes
+            should pass False for every flag to skip Strategy 2 entirely.
+        try_tokenizer: When False, skip ``AutoTokenizer.from_pretrained``.
+        try_image_processor: When False, skip ``AutoImageProcessor.from_pretrained``.
+        try_feature_extractor: When False, skip ``AutoFeatureExtractor.from_pretrained``.
 
     Returns:
-        Tuple of (processor_class, tokenizer_class, image_processor_class, feature_extractor_class)
+        Tuple of (processor_class, tokenizer_class, image_processor_class, feature_extractor_class).
+        Each element is None when the corresponding lookup was skipped or failed.
     """
     processor_class: str | None = None
     tokenizer_class: str | None = None
     image_processor_class: str | None = None
     feature_extractor_class: str | None = None
 
-    # Try AutoProcessor first - for multimodal models
-    try:
-        from transformers import AutoProcessor
+    # Try AutoProcessor only when the processor class itself is needed.
+    # AutoProcessor.from_pretrained is the single most expensive Auto* call
+    # (~3.5s warm). When the caller only needs sub-pieces (tokenizer /
+    # image_processor / feature_extractor) we fall through to the standalone
+    # Auto* calls below, which are individually cheaper. AutoProcessor can
+    # still fill those sub-fields as a side effect on success — that's
+    # preserved here when ``try_processor`` is True.
+    if try_processor:
+        try:
+            from transformers import AutoProcessor
 
-        processor = AutoProcessor.from_pretrained(model_id, use_fast=True)
-        processor_class = type(processor).__name__
+            processor = AutoProcessor.from_pretrained(model_id, use_fast=True)
+            processor_class = type(processor).__name__
 
-        # AutoProcessor may wrap tokenizer and image_processor
-        if hasattr(processor, "tokenizer") and processor.tokenizer is not None:
-            tokenizer_class = type(processor.tokenizer).__name__
+            # AutoProcessor may wrap tokenizer and image_processor
+            if (
+                try_tokenizer
+                and hasattr(processor, "tokenizer")
+                and processor.tokenizer is not None
+            ):
+                tokenizer_class = type(processor.tokenizer).__name__
 
-        if hasattr(processor, "image_processor") and processor.image_processor is not None:
-            image_processor_class = type(processor.image_processor).__name__
+            if (
+                try_image_processor
+                and hasattr(processor, "image_processor")
+                and processor.image_processor is not None
+            ):
+                image_processor_class = type(processor.image_processor).__name__
 
-        # Some older models use feature_extractor instead of image_processor
-        if hasattr(processor, "feature_extractor") and processor.feature_extractor is not None:
-            feature_extractor_class = type(processor.feature_extractor).__name__
+            # Some older models use feature_extractor instead of image_processor
+            if (
+                try_feature_extractor
+                and hasattr(processor, "feature_extractor")
+                and processor.feature_extractor is not None
+            ):
+                feature_extractor_class = type(processor.feature_extractor).__name__
 
-    except Exception as e:
-        logger.debug("AutoProcessor failed for %s: %s", model_id, e)
+        except Exception as e:
+            logger.debug("AutoProcessor failed for %s: %s", model_id, e)
 
     # Try AutoTokenizer if we don't have tokenizer yet
-    if tokenizer_class is None:
+    if try_tokenizer and tokenizer_class is None:
         try:
             from transformers import AutoTokenizer
 
@@ -1048,7 +1095,7 @@ def _resolve_processor_from_auto_classes(
             logger.debug("AutoTokenizer failed for %s: %s", model_id, e)
 
     # Try AutoImageProcessor if we don't have image_processor yet
-    if image_processor_class is None:
+    if try_image_processor and image_processor_class is None:
         try:
             from transformers import AutoImageProcessor
 
@@ -1058,7 +1105,7 @@ def _resolve_processor_from_auto_classes(
             logger.debug("AutoImageProcessor failed for %s: %s", model_id, e)
 
     # Try AutoFeatureExtractor if we don't have feature_extractor yet
-    if feature_extractor_class is None:
+    if try_feature_extractor and feature_extractor_class is None:
         try:
             from transformers import AutoFeatureExtractor
 
