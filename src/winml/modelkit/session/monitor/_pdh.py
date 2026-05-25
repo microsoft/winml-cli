@@ -534,9 +534,10 @@ class PdhPoller:
         while not self._stop_event.is_set():
             try:
                 values = self._query._collect_once()
-                # Take the max across all engines for this adapter — the
-                # workload can land on any of the registered engtypes and only
-                # the active one reports non-zero utilization.
+                # util_* counters are per-engine ratios over the same sample
+                # window, so max reports the most-loaded engine on the adapter.
+                # Don't sum — that would exceed 100% and duplicate what the
+                # additive running-time delta already measures.
                 util_vals = [
                     v
                     for k, v in values.items()
@@ -728,9 +729,10 @@ class PdhPoller:
     def running_time_delta_ns(self) -> int:
         """Total adapter (NPU/GPU) running time delta in nanoseconds.
 
-        Sums per-engine deltas because the Running Time counter is
-        engine-scoped and a single workload can use several engines in
-        parallel — total adapter compute time is their sum, not the max.
+        Per-engine deltas are summed: Running Time is wall-clock ns each
+        engine was busy, and engines are independent HW resources that can
+        run in parallel, so total adapter compute time is additive. (This is
+        the opposite of util — see :meth:`_poll_loop`.)
         """
         total = 0
         for key, end in self._running_time_end_ns.items():
