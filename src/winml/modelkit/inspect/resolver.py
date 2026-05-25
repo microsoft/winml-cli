@@ -65,6 +65,23 @@ def get_known_tasks() -> set[str]:
     :data:`HF_MODEL_CLASS_MAPPING` are picked up automatically. Does not
     import ``optimum.exporters`` — that import costs ~10s due to its
     transitive ``transformers`` import and would make ``--list-tasks`` slow.
+
+    Note on the dual path:
+        ``winml inspect --list-tasks`` deliberately bypasses this helper and
+        reads :data:`KNOWN_TASKS` directly. Going through ``..inspect.resolver``
+        would import ``..models`` (which transitively imports ``transformers``)
+        and re-introduce the latency this module's hand-coded constant exists
+        to avoid. The two paths therefore see slightly different sets:
+
+        * ``--list-tasks``     ->  :data:`KNOWN_TASKS`
+        * ``validate_task()``  ->  ``KNOWN_TASKS`` plus ``HF_TASK_DEFAULTS``
+                                  keys plus ``HF_MODEL_CLASS_MAPPING`` task
+                                  entries
+
+        ``tests/unit/loader/test_known_tasks.py`` asserts ``KNOWN_TASKS``
+        is a superset of the local registries, so anything ``validate_task``
+        accepts also appears in ``--list-tasks``. Drift is a CI failure, not
+        a silent break.
     """
     tasks: set[str] = set(KNOWN_TASKS)
     tasks.update(HF_TASK_DEFAULTS.keys())
