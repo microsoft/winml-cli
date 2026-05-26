@@ -837,8 +837,7 @@ def display_console_report(result: BenchmarkResult, console: Console) -> None:
             )
         else:
             console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"Mem: {ram.get('used_mb', 0):.0f} MB"
+                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  Mem: {ram.get('used_mb', 0):.0f} MB"
             )
 
     console.print()
@@ -1181,6 +1180,7 @@ def _run_onnx_benchmark(
     type=click.Choice(["basic", "detail"], case_sensitive=False),
     default=None,
     help="Enable operator-level profiling (requires onnxruntime-qnn)",
+    hidden=True,  # Not ready, so hide from --help for now
 )
 @click.option(
     "--verbose",
