@@ -46,7 +46,9 @@ pytestmark = [pytest.mark.e2e, pytest.mark.network]
 def _mock_resolve_device():
     """Mock hardware detection to avoid failures in CI/test environments."""
 
-    def _resolve_device_mock(device: str = "auto") -> tuple[str, list[str]]:
+    def _resolve_device_mock(
+        device: str = "auto", *, ep: str | None = None
+    ) -> tuple[str, list[str]]:
         # Keep tests deterministic while preserving explicit device requests.
         normalized = (device or "auto").lower()
         if normalized in {"cpu", "gpu", "npu"}:
