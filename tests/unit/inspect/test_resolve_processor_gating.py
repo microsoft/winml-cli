@@ -25,9 +25,16 @@ from winml.modelkit.inspect.resolver import (
 )
 
 
-def _all_filled_hub_result() -> tuple[str, str, str, str]:
-    """Strategy 1 returns all four processor types."""
-    return ("BertProcessor", "BertTokenizer", "BertImageProcessor", "BertFeatureExtractor")
+def _all_filled_hub_result() -> tuple[str, str, str, str, bool, bool]:
+    """Strategy 1 returns all four processor types + both config files present."""
+    return (
+        "BertProcessor",
+        "BertTokenizer",
+        "BertImageProcessor",
+        "BertFeatureExtractor",
+        True,
+        True,
+    )
 
 
 class TestResolveProcessorStrategy2Gating:
@@ -56,7 +63,14 @@ class TestResolveProcessorStrategy2Gating:
     def test_strategy2_called_with_per_field_flags(self) -> None:
         """Only the fields still missing after Strategy 1 should have try_*=True."""
         # Strategy 1 fills only image_processor and feature_extractor.
-        hub_result = (None, None, "ConvNextImageProcessor", "ConvNextFeatureExtractor")
+        hub_result = (
+            None,
+            None,
+            "ConvNextImageProcessor",
+            "ConvNextFeatureExtractor",
+            True,
+            True,
+        )
 
         with (
             patch(
@@ -82,7 +96,7 @@ class TestResolveProcessorStrategy2Gating:
         with (
             patch(
                 "winml.modelkit.inspect.resolver._resolve_processor_from_hub_configs",
-                return_value=(None, None, None, None),
+                return_value=(None, None, None, None, True, True),
             ),
             # Block Strategy 0 (HF registry) by passing no model_type below
             patch(
@@ -100,6 +114,40 @@ class TestResolveProcessorStrategy2Gating:
         assert kwargs["try_feature_extractor"] is True
         assert info.processor_class == "P"
         assert info.feature_extractor_class == "F"
+
+    def test_missing_preprocessor_config_skips_image_and_feature(self) -> None:
+        """preprocessor_config.json absent → skip AutoImageProcessor & AutoFeatureExtractor.
+
+        Text-only models (RoBERTa, BERT, GPT, ...) don't ship a
+        preprocessor_config.json. Without this gate, Strategy 2 spends
+        ~2s confirming 404s for both AutoImageProcessor and
+        AutoFeatureExtractor. The hub_configs helper now reports the
+        file's existence so the caller can skip those lookups.
+        """
+        hub_result = (None, None, None, None, False, True)  # no preprocessor_config
+
+        with (
+            patch(
+                "winml.modelkit.inspect.resolver._resolve_processor_from_hub_configs",
+                return_value=hub_result,
+            ),
+            patch(
+                "winml.modelkit.inspect.resolver._resolve_processor_from_auto_classes",
+                return_value=(None, None, None, None),
+            ) as mock_auto,
+        ):
+            resolve_processor("text/model")
+
+        assert mock_auto.call_count == 1
+        kwargs = mock_auto.call_args.kwargs
+        assert kwargs["try_processor"] is True
+        assert kwargs["try_tokenizer"] is True
+        assert kwargs["try_image_processor"] is False, (
+            "Must skip AutoImageProcessor when preprocessor_config.json is absent"
+        )
+        assert kwargs["try_feature_extractor"] is False, (
+            "Must skip AutoFeatureExtractor when preprocessor_config.json is absent"
+        )
 
 
 class TestAutoProcessorGatedOnTryProcessor:
@@ -164,3 +212,119 @@ class TestAutoProcessorGatedOnTryProcessor:
             )
 
         assert mock_ap.call_count == 1
+
+
+class TestAutoProcessorLeafClassDetection:
+    """``AutoProcessor.from_pretrained`` may return a leaf processor.
+
+    For text-only models (RoBERTa, BERT, ...) ``AutoProcessor`` returns
+    the tokenizer directly — e.g. ``RobertaTokenizerFast``. Without
+    recognising this we would re-load the tokenizer via the standalone
+    ``AutoTokenizer.from_pretrained`` below at ~2s of extra cost.
+    """
+
+    @staticmethod
+    def _make_leaf_instance(class_name: str) -> object:
+        """Build an instance whose ``type(obj).__name__`` is ``class_name``.
+
+        Plain instance — no ``.tokenizer`` / ``.image_processor`` /
+        ``.feature_extractor`` attributes — so the leaf-class detection
+        branch is what matches.
+        """
+        return type(class_name, (), {})()
+
+    def test_autoprocessor_returns_tokenizer_fills_tokenizer_class(self) -> None:
+        """When AutoProcessor returns a *Tokenizer*, tokenizer_class is populated
+        and standalone AutoTokenizer is NOT called.
+        """
+        fake = self._make_leaf_instance("RobertaTokenizerFast")
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=fake),
+            patch("transformers.AutoTokenizer.from_pretrained") as mock_at,
+            patch("transformers.AutoImageProcessor.from_pretrained"),
+            patch("transformers.AutoFeatureExtractor.from_pretrained"),
+        ):
+            proc, tok, _img, _feat = _resolve_processor_from_auto_classes(
+                "some/text-model",
+                try_processor=True,
+                try_tokenizer=True,
+                try_image_processor=False,
+                try_feature_extractor=False,
+            )
+
+        assert proc == "RobertaTokenizerFast"
+        assert tok == "RobertaTokenizerFast"
+        assert mock_at.call_count == 0, (
+            "Standalone AutoTokenizer must be skipped when AutoProcessor "
+            "already returned a *Tokenizer* leaf class"
+        )
+
+    def test_autoprocessor_returns_image_processor_fills_image_class(self) -> None:
+        """AutoProcessor returning a *ImageProcessor* fills image_processor_class."""
+        fake = self._make_leaf_instance("ConvNextImageProcessor")
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=fake),
+            patch("transformers.AutoImageProcessor.from_pretrained") as mock_aip,
+        ):
+            proc, _, img, _ = _resolve_processor_from_auto_classes(
+                "some/vision-model",
+                try_processor=True,
+                try_tokenizer=False,
+                try_image_processor=True,
+                try_feature_extractor=False,
+            )
+
+        assert proc == "ConvNextImageProcessor"
+        assert img == "ConvNextImageProcessor"
+        assert mock_aip.call_count == 0
+
+    def test_autoprocessor_returns_feature_extractor_fills_feature_class(self) -> None:
+        """AutoProcessor returning a *FeatureExtractor* fills feature_extractor_class."""
+        fake = self._make_leaf_instance("Wav2Vec2FeatureExtractor")
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=fake),
+            patch("transformers.AutoFeatureExtractor.from_pretrained") as mock_afe,
+        ):
+            proc, _, _, feat = _resolve_processor_from_auto_classes(
+                "some/audio-model",
+                try_processor=True,
+                try_tokenizer=False,
+                try_image_processor=False,
+                try_feature_extractor=True,
+            )
+
+        assert proc == "Wav2Vec2FeatureExtractor"
+        assert feat == "Wav2Vec2FeatureExtractor"
+        assert mock_afe.call_count == 0
+
+    def test_autoprocessor_with_wrapped_pieces_uses_attributes(self) -> None:
+        """Multimodal AutoProcessor (real ProcessorMixin) wins over name suffix."""
+
+        class CLIPTokenizer:
+            pass
+
+        class CLIPProcessor:
+            def __init__(self) -> None:
+                self.tokenizer = CLIPTokenizer()
+
+        with (
+            patch(
+                "transformers.AutoProcessor.from_pretrained",
+                return_value=CLIPProcessor(),
+            ),
+            patch("transformers.AutoTokenizer.from_pretrained") as mock_at,
+        ):
+            proc, tok, _, _ = _resolve_processor_from_auto_classes(
+                "openai/clip-vit-base-patch32",
+                try_processor=True,
+                try_tokenizer=True,
+                try_image_processor=False,
+                try_feature_extractor=False,
+            )
+
+        assert proc == "CLIPProcessor"
+        assert tok == "CLIPTokenizer"
+        assert mock_at.call_count == 0
