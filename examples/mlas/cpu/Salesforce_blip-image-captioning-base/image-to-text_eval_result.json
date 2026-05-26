@@ -13,7 +13,7 @@
       "label_column": "caption"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\Salesforce_blip-image-captioning-base\\image-to-text_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\Salesforce_blip-image-captioning-base\\image-to-text_eval_result.json",
   "metrics": {
     "cer": 0.6891,
     "cider": 0.3965,

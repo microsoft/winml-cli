@@ -14,7 +14,7 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\sentence-similarity_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2\\sentence-similarity_eval_result.json",
   "metrics": {
     "cosine_spearman": 84.5004
   }

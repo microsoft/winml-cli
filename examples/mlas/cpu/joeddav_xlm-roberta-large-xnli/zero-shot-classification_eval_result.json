@@ -15,7 +15,7 @@
       "hypothesis_template": "This text is about {}."
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\joeddav_xlm-roberta-large-xnli\\zero-shot-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\joeddav_xlm-roberta-large-xnli\\zero-shot-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.56,
     "f1": 0.5577611990456027

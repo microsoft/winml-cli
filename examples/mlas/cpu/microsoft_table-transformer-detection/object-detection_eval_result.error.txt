@@ -1,27 +1,20 @@
- WARNING: analyze_onnx called with ep=None — results will aggregate all EPs. For the build pipeline, always pass an explicit ep.
-[2026-05-20T22:46:19] ERROR: Evaluation failed
-Traceback (most recent call last):
-  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 227, in eval
-    result = evaluate(cfg)
-             ^^^^^^^^^^^^^
-  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\evaluate.py", line 245, in evaluate
-    task_evaluator = cls(config, model)
-                     ^^^^^^^^^^^^^^^^^^
-  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\object_detection_evaluator.py", line 88, in __init__
-    super().__init__(config, model)
-  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 50, in __init__
-    self.data = self.prepare_data()
-                ^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\zhangchao\project\WinML-ModelKit\src\winml\modelkit\eval\base_evaluator.py", line 103, in prepare_data
-    dataset = load_dataset(
-              ^^^^^^^^^^^^^
-  File "c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\datasets\load.py", line 1688, in load_dataset
-    builder_instance = load_dataset_builder(
-                       ^^^^^^^^^^^^^^^^^^^^^
-  File "c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\datasets\load.py", line 1315, in load_dataset_builder
-    dataset_module = dataset_module_factory(
-                     ^^^^^^^^^^^^^^^^^^^^^^^
-  File "c:\Users\zhangchao\project\WinML-ModelKit\.venv\Lib\site-packages\datasets\load.py", line 1209, in dataset_module_factory
-    raise FileNotFoundError(f"Couldn't find any data file at {relative_to_absolute_path(path)}.")
-FileNotFoundError: Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_pubtables1m_detection.
-Error: Evaluation failed: Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_pubtables1m_detection.
+00:02<00:02, 177.51it/s]
+ 42%|████▏     | 296/713 [00:03<00:01, 211.48it/s]
+ 47%|████▋     | 336/713 [00:03<00:01, 245.88it/s]
+ 51%|█████     | 365/713 [00:03<00:01, 248.24it/s]
+ 56%|█████▌    | 398/713 [00:03<00:01, 259.51it/s]
+ 61%|██████▏   | 438/713 [00:03<00:00, 288.96it/s]
+ 67%|██████▋   | 475/713 [00:03<00:00, 309.56it/s]
+ 72%|███████▏  | 512/713 [00:03<00:00, 325.69it/s]
+ 77%|███████▋  | 547/713 [00:03<00:00, 324.41it/s]
+ 82%|████████▏ | 588/713 [00:03<00:00, 335.75it/s]
+ 89%|████████▉ | 635/713 [00:04<00:00, 359.21it/s]
+ 94%|█████████▍| 673/713 [00:04<00:00, 352.53it/s]
+100%|█████████▉| 712/713 [00:04<00:00, 350.00it/s]
+100%|██████████| 713/713 [00:04<00:00, 166.03it/s]
+[2026-05-25T20:38:00] WARNING: analyze_onnx called with ep=None — results will aggregate all EPs. For the build pipeline, always pass an explicit ep.
+[2026-05-25T20:38:00] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-25T20:38:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-25T20:38:08] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-25T20:38:12] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' is not compatible with task 'object-detection': Failed to load dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' (name=None, split='validation'): Couldn't find any data file at C:\Users\zhangchao\.cache\winml\eval_datasets\build_pubtables1m_detection.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task object-detection' to see the expected schema.

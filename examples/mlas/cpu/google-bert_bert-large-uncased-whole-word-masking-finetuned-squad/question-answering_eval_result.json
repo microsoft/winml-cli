@@ -15,12 +15,12 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad\\question-answering_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\google-bert_bert-large-uncased-whole-word-masking-finetuned-squad\\question-answering_eval_result.json",
   "metrics": {
     "exact_match": 88.0,
     "f1": 93.65259740259738,
-    "total_time_in_seconds": 91.63636490004137,
-    "samples_per_second": 1.091269826221084,
-    "latency_in_seconds": 0.9163636490004138
+    "total_time_in_seconds": 76.65787970001111,
+    "samples_per_second": 1.3044973379297042,
+    "latency_in_seconds": 0.766578797000111
   }
 }

@@ -13,7 +13,7 @@
       "label_column": "text"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\microsoft_trocr-base-handwritten\\image-to-text_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\microsoft_trocr-base-handwritten\\image-to-text_eval_result.json",
   "metrics": {
     "cer": 0.0475,
     "cider": 7.757,

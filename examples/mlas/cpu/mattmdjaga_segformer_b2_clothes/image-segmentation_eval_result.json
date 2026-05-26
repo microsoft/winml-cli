@@ -12,7 +12,7 @@
       "annotation_column": "mask"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\mattmdjaga_segformer_b2_clothes\\image-segmentation_eval_result.json",
   "metrics": {
     "mean_iou": 0.7031683921813965,
     "overall_accuracy": 0.9638512134552002,

@@ -9,7 +9,7 @@
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\facebook_dino-vits16\\image-feature-extraction_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\facebook_dino-vits16\\image-feature-extraction_eval_result.json",
   "metrics": {
     "knn_top1_accuracy": 79.7,
     "knn_top5_accuracy": 94.5

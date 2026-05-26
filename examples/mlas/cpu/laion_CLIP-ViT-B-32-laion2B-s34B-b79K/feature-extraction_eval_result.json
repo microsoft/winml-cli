@@ -14,7 +14,7 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\laion_CLIP-ViT-B-32-laion2B-s34B-b79K\\feature-extraction_eval_result.json",
   "metrics": {
     "cosine_spearman": 75.4619
   }

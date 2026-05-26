@@ -9,11 +9,11 @@
     "seed": 42,
     "path": "timm/mini-imagenet"
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\google_vit-base-patch16-224\\image-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.7,
-    "total_time_in_seconds": 10.46166330005508,
-    "samples_per_second": 9.558709464437984,
-    "latency_in_seconds": 0.1046166330005508
+    "total_time_in_seconds": 8.984357000037562,
+    "samples_per_second": 11.13045708219096,
+    "latency_in_seconds": 0.08984357000037561
   }
 }

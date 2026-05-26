@@ -12,7 +12,7 @@
       "input_column": "image"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\patrickjohncyh_fashion-clip\\zero-shot-image-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\patrickjohncyh_fashion-clip\\zero-shot-image-classification_eval_result.json",
   "metrics": {
     "top1_accuracy": 74.3,
     "top5_accuracy": 99.8

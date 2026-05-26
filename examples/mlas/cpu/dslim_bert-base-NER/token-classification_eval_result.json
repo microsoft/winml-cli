@@ -12,7 +12,7 @@
       "label_column": "ner_tags"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\dslim_bert-base-NER\\token-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\dslim_bert-base-NER\\token-classification_eval_result.json",
   "metrics": {
     "LOC": {
       "precision": 1.0,
@@ -42,8 +42,8 @@
     "overall_recall": 0.9717514124293786,
     "overall_f1": 0.9745042492917847,
     "overall_accuracy": 0.9967341606792945,
-    "total_time_in_seconds": 15.764983600005507,
-    "samples_per_second": 6.343171838121358,
-    "latency_in_seconds": 0.15764983600005508
+    "total_time_in_seconds": 20.53744619997451,
+    "samples_per_second": 4.869154568990379,
+    "latency_in_seconds": 0.20537446199974513
   }
 }

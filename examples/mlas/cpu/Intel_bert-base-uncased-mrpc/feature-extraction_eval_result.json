@@ -14,7 +14,7 @@
       "score_column": "score"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\Intel_bert-base-uncased-mrpc\\feature-extraction_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\Intel_bert-base-uncased-mrpc\\feature-extraction_eval_result.json",
   "metrics": {
     "cosine_spearman": 42.985
   }

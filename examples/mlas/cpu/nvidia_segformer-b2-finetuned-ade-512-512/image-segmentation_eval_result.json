@@ -165,7 +165,7 @@
     },
     "label_mapping_file": "scripts/e2e_eval/datasets/ade20k_gt_to_model_label.json"
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\nvidia_segformer-b2-finetuned-ade-512-512\\image-segmentation_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\nvidia_segformer-b2-finetuned-ade-512-512\\image-segmentation_eval_result.json",
   "metrics": {
     "mean_iou": 0.38725513219833374,
     "overall_accuracy": 0.8145941495895386,

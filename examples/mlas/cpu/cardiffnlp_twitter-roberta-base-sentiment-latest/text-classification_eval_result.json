@@ -13,11 +13,11 @@
       "input_column": "text"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\cardiffnlp_twitter-roberta-base-sentiment-latest\\text-classification_eval_result.json",
   "metrics": {
     "accuracy": 0.81,
-    "total_time_in_seconds": 15.955873899976723,
-    "samples_per_second": 6.267284426216597,
-    "latency_in_seconds": 0.15955873899976725
+    "total_time_in_seconds": 20.71041649999097,
+    "samples_per_second": 4.828488118529321,
+    "latency_in_seconds": 0.20710416499990972
   }
 }

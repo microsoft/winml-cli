@@ -12,7 +12,7 @@
       "label_column": "ner_tags"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\Babelscape_wikineural-multilingual-ner\\token-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\Babelscape_wikineural-multilingual-ner\\token-classification_eval_result.json",
   "metrics": {
     "LOC": {
       "precision": 0.85,
@@ -42,8 +42,8 @@
     "overall_recall": 0.7966101694915254,
     "overall_f1": 0.815028901734104,
     "overall_accuracy": 0.9673416067929458,
-    "total_time_in_seconds": 15.593079999904148,
-    "samples_per_second": 6.4131011962110565,
-    "latency_in_seconds": 0.1559307999990415
+    "total_time_in_seconds": 22.63182880001841,
+    "samples_per_second": 4.418555870302388,
+    "latency_in_seconds": 0.2263182880001841
   }
 }

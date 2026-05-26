@@ -12,7 +12,7 @@
       "label_column": "ner_tags"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\dbmdz_bert-large-cased-finetuned-conll03-english\\token-classification_eval_result.json",
   "metrics": {
     "LOC": {
       "precision": 1.0,
@@ -42,8 +42,8 @@
     "overall_recall": 0.9943502824858758,
     "overall_f1": 0.9915492957746479,
     "overall_accuracy": 0.883736120182887,
-    "total_time_in_seconds": 51.09186559997033,
-    "samples_per_second": 1.957258730439823,
-    "latency_in_seconds": 0.5109186559997033
+    "total_time_in_seconds": 75.76439299999038,
+    "samples_per_second": 1.3198812270562599,
+    "latency_in_seconds": 0.7576439299999037
   }
 }

@@ -15,7 +15,7 @@
       "label_column": "answers"
     }
   },
-  "output_path": "C:\\Users\\zhangchao\\project\\WinML-ModelKit\\examples\\mlas\\cpu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_eval_result.json",
+  "output_path": "C:\\Users\\zhangchao\\project\\winml-cli\\examples\\mlas\\cpu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_eval_result.json",
   "metrics": {
     "exact": 88.0,
     "f1": 89.85,
@@ -30,8 +30,8 @@
     "best_exact_thresh": 0.9954809546470642,
     "best_f1": 89.85,
     "best_f1_thresh": 0.9954809546470642,
-    "total_time_in_seconds": 51.804298200062476,
-    "samples_per_second": 1.9303417568521255,
-    "latency_in_seconds": 0.5180429820006247
+    "total_time_in_seconds": 76.75405620003585,
+    "samples_per_second": 1.3028627404313429,
+    "latency_in_seconds": 0.7675405620003585
   }
 }
