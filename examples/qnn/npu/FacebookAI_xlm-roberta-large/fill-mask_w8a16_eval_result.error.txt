@@ -1,0 +1,28 @@
+se.weight']
+- This IS expected if you are initializing XLMRobertaForMaskedLM from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing XLMRobertaForMaskedLM from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+[2026-05-25T22:03:38] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/870 [00:00<?, ?it/s]
+ 13%|█▎        | 116/870 [00:00<00:00, 1154.48it/s]
+ 28%|██▊       | 240/870 [00:00<00:00, 1202.74it/s]
+ 42%|████▏     | 364/870 [00:00<00:00, 1216.97it/s]
+ 56%|█████▌    | 487/870 [00:00<00:00, 1218.98it/s]
+ 70%|███████   | 609/870 [00:00<00:00, 1119.98it/s]
+ 83%|████████▎ | 723/870 [00:00<00:00, 1113.97it/s]
+ 98%|█████████▊| 852/870 [00:00<00:00, 1167.24it/s]
+100%|██████████| 870/870 [00:00<00:00, 1100.33it/s]
+[2026-05-25T22:04:38] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/772 [00:00<?, ?it/s]
+  7%|▋         | 57/772 [00:00<00:01, 563.55it/s]
+ 16%|█▋        | 126/772 [00:00<00:01, 636.59it/s]
+ 25%|██▍       | 190/772 [00:00<00:00, 616.50it/s]
+ 35%|███▍      | 270/772 [00:00<00:00, 683.37it/s]
+ 47%|████▋     | 365/772 [00:00<00:00, 775.16it/s]
+ 59%|█████▉    | 456/772 [00:00<00:00, 820.31it/s]
+ 71%|███████   | 548/772 [00:00<00:00, 851.35it/s]
+ 83%|████████▎ | 640/772 [00:00<00:00, 869.62it/s]
+ 95%|█████████▍| 733/772 [00:00<00:00, 883.73it/s]
+100%|██████████| 772/772 [00:01<00:00, 725.93it/s]
+[2026-05-25T22:04:39] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.

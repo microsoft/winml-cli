@@ -1,17 +1,17 @@
 untime:, qnn_model.cc:240 onnxruntime::qnn::QnnModel::FinalizeGraphs] Failed to finalize QNN graph. Error code: 1002[m
-[2026-05-25T08:32:34] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph.
+[2026-05-26T07:44:48] WARNING: ModelCompiler failed, using original: [ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph.
 DSP_INFO UNSUPPORTED_KEY: 49
 DSP_INFO UNSUPPORTED_KEY: 50
 DSP_INFO UNSUPPORTED_KEY: 49
 DSP_INFO UNSUPPORTED_KEY: 50
-[0;93m2026-05-25 08:32:35.9328423 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
+[0;93m2026-05-26 07:44:50.1437768 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
 [m
 DSP_INFO UNSUPPORTED_KEY: 49
 DSP_INFO UNSUPPORTED_KEY: 50
-[0;93m2026-05-25 08:32:44.5407770 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
+[0;93m2026-05-26 07:44:57.4626783 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
 [m
-[0;93m2026-05-25 08:32:53.8545373 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
+[0;93m2026-05-26 07:45:05.0191157 [W:onnxruntime:, qnn_model_wrapper.cc:478 onnxruntime::qnn::QnnModelWrapper::CreateQnnNode] QNN.backendValidateOpConfig() failed for node `/text_decoder/bert/Cast_ort_qnn_ep_convert` of type `Convert` with error code 3110
 [m
-[1;31m2026-05-25 08:33:09.3189142 [E:onnxruntime:, qnn_model.cc:240 onnxruntime::qnn::QnnModel::FinalizeGraphs] Failed to finalize QNN graph. Error code: 1002[m
-[2026-05-25T08:33:09] ERROR: Compilation failed: Failed to compile for npu | Context: device=npu, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\Salesforce_blip-image-captioning-base\txt2txt_3e9eedd6a71ef705_quantized.onnx, error=[ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph. | Suggestion: Verify NPU drivers and runtime are properly installed
+[1;31m2026-05-26 07:45:16.6038063 [E:onnxruntime:, qnn_model.cc:240 onnxruntime::qnn::QnnModel::FinalizeGraphs] Failed to finalize QNN graph. Error code: 1002[m
+[2026-05-26T07:45:16] ERROR: Compilation failed: Failed to compile for npu | Context: device=npu, onnx_path=C:\Users\shzhen\.cache\winml\artifacts\Salesforce_blip-image-captioning-base\txt2txt_3e9eedd6a71ef705_quantized.onnx, error=[ONNXRuntimeError] : 11 : EP_FAIL : Failed to finalize QNN graph. | Suggestion: Verify NPU drivers and runtime are properly installed
 Error: Evaluation failed: Failed to load model 'Salesforce/blip-image-captioning-base'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task image-to-text' to see supported role=path model options.

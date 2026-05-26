@@ -1,4 +1,22 @@
-[0;93m2026-05-24 16:10:06.8602599 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
-WARNING: trust_remote_code is enabled - custom Python from the model repository
-will be downloaded and executed. Proceed only if you trust the publisher.
-Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' is not compatible with task 'object-detection': Failed to load dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' (name=None, split='validation'): Couldn't find any data file at C:\Users\shzhen\.cache\winml\eval_datasets\build_pubtables1m_detection.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task object-detection' to see the expected schema.
+▌   | 467/713 [00:05<00:01, 171.99it/s]
+ 68%|██████▊   | 487/713 [00:05<00:01, 178.15it/s]
+ 73%|███████▎  | 518/713 [00:05<00:00, 213.05it/s]
+ 76%|███████▌  | 540/713 [00:06<00:00, 196.09it/s]
+ 79%|███████▉  | 562/713 [00:06<00:00, 195.73it/s]
+ 82%|████████▏ | 587/713 [00:06<00:00, 192.85it/s]
+ 86%|████████▌ | 610/713 [00:06<00:00, 188.28it/s]
+ 89%|████████▉ | 638/713 [00:06<00:00, 200.68it/s]
+ 93%|█████████▎| 661/713 [00:06<00:00, 191.31it/s]
+ 96%|█████████▌| 681/713 [00:06<00:00, 189.82it/s]
+ 98%|█████████▊| 701/713 [00:06<00:00, 191.82it/s]
+100%|██████████| 713/713 [00:06<00:00, 102.49it/s]
+[2026-05-25T23:39:39] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+c:\repo\WinML-ModelKit\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\shzhen\.cache\huggingface\hub\datasets--timm--mini-imagenet. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map:  30%|███       | 3/10 [00:00<00:00, 28.49 examples/s]
+Map:  70%|███████   | 7/10 [00:00<00:00, 31.82 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 19.36 examples/s]

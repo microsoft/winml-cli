@@ -1,5 +1,28 @@
-[0;93m2026-05-25 08:58:10.6231939 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
-WARNING: trust_remote_code is enabled - custom Python from the model repository
-will be downloaded and executed. Proceed only if you trust the publisher.
-[2026-05-25T08:59:59] WARNING: Class WinMLModelForTokenClassification not implemented for task 'token-classification', using generic fallback
-Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' is not compatible with task 'token-classification': Failed to load dataset '~/.cache/winml/eval_datasets/build_indonlu_posp' (name=None, split='validation'): Couldn't find any data file at C:\Users\shzhen\.cache\winml\eval_datasets\build_indonlu_posp.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task token-classification' to see the expected schema.
+https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+[2026-05-26T08:03:19] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/442 [00:00<?, ?it/s]
+ 10%|█         | 45/442 [00:00<00:00, 446.23it/s]
+ 21%|██        | 92/442 [00:00<00:00, 456.74it/s]
+ 33%|███▎      | 146/442 [00:00<00:00, 493.44it/s]
+ 45%|████▌     | 199/442 [00:00<00:00, 505.78it/s]
+ 58%|█████▊    | 255/442 [00:00<00:00, 523.65it/s]
+ 70%|██████▉   | 308/442 [00:00<00:00, 502.44it/s]
+ 81%|████████  | 359/442 [00:00<00:00, 480.54it/s]
+ 92%|█████████▏| 408/442 [00:00<00:00, 475.19it/s]
+100%|██████████| 442/442 [00:00<00:00, 474.27it/s]
+[2026-05-26T08:03:42] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/395 [00:00<?, ?it/s]
+ 10%|█         | 40/395 [00:00<00:00, 389.22it/s]
+ 21%|██        | 82/395 [00:00<00:00, 402.89it/s]
+ 33%|███▎      | 129/395 [00:00<00:00, 431.04it/s]
+ 44%|████▍     | 173/395 [00:00<00:00, 426.08it/s]
+ 55%|█████▍    | 217/395 [00:00<00:00, 430.95it/s]
+ 66%|██████▌   | 261/395 [00:00<00:00, 396.77it/s]
+ 78%|███████▊  | 308/395 [00:00<00:00, 417.91it/s]
+ 89%|████████▉ | 353/395 [00:00<00:00, 426.79it/s]
+100%|██████████| 395/395 [00:00<00:00, 411.68it/s]
+[2026-05-26T08:03:43] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+[2026-05-26T08:03:46] WARNING: Task 'token-classification' not in supported tasks ['image-classification', 'image-feature-extraction', 'object-detection', 'text-classification', 'text-feature-extraction', 'feature-extraction', 'sentence-similarity', 'next-sentence-prediction', 'fill-mask', 'zero-shot-classification', 'image-segmentation', 'random'], falling back to RandomDataset

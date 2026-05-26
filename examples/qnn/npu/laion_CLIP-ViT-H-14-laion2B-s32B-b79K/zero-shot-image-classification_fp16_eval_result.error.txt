@@ -1,2 +1,24 @@
-[0;93m2026-05-24 15:38:17.8064225 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
-Error: Evaluation failed: Task 'unknown' is not supported. Supported tasks: feature-extraction, fill-mask, image-classification, image-feature-extraction, image-segmentation, image-to-text, next-sentence-prediction, object-detection, question-answering, sentence-similarity, sequence-classification, text-classification, token-classification, zero-shot-classification, zero-shot-image-classification.
+1<00:01, 394.23it/s]
+ 55%|█████▍    | 532/969 [00:01<00:01, 401.75it/s]
+ 59%|█████▉    | 573/969 [00:01<00:00, 402.13it/s]
+ 64%|██████▎   | 616/969 [00:01<00:00, 409.35it/s]
+ 68%|██████▊   | 658/969 [00:01<00:00, 410.84it/s]
+ 72%|███████▏  | 700/969 [00:01<00:00, 367.73it/s]
+ 77%|███████▋  | 747/969 [00:01<00:00, 394.66it/s]
+ 81%|████████▏ | 788/969 [00:02<00:00, 392.22it/s]
+ 86%|████████▌ | 829/969 [00:02<00:00, 396.98it/s]
+ 90%|████████▉ | 870/969 [00:02<00:00, 396.64it/s]
+ 94%|█████████▍| 913/969 [00:02<00:00, 404.83it/s]
+ 98%|█████████▊| 954/969 [00:02<00:00, 399.86it/s]
+100%|██████████| 969/969 [00:02<00:00, 394.09it/s]
+[2026-05-25T23:07:03] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+c:\repo\WinML-ModelKit\.venv\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\shzhen\.cache\huggingface\hub\datasets--timm--mini-imagenet. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 567.96 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 90.11 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 64.10 examples/s]

@@ -10,9 +10,9 @@ nML-ModelKit\src\winml\modelkit\telemetry\click_group.py", line 69, in wrapped_i
   File "c:\repo\WinML-ModelKit\.venv\Lib\site-packages\click\decorators.py", line 34, in new_func
     return f(get_current_context(), *args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 211, in eval
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 212, in eval
     _run_dataset_script(cfg, trust_remote_code)
-  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 381, in _run_dataset_script
+  File "C:\repo\WinML-ModelKit\src\winml\modelkit\commands\eval.py", line 387, in _run_dataset_script
     result = subprocess.run(  # noqa: S603
              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "C:\Users\shzhen\AppData\Roaming\uv\python\cpython-3.11-windows-x86_64-none\Lib\subprocess.py", line 550, in run

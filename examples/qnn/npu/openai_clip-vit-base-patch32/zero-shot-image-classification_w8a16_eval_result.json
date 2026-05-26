@@ -1,0 +1,21 @@
+{
+  "model_id": "openai/clip-vit-base-patch32",
+  "task": "zero-shot-image-classification",
+  "device": "npu",
+  "dataset": {
+    "split": "test",
+    "samples": 1000,
+    "shuffle": true,
+    "seed": 42,
+    "path": "uoft-cs/cifar100",
+    "columns_mapping": {
+      "input_column": "img",
+      "label_column": "fine_label"
+    }
+  },
+  "output_path": "C:\\repo\\WinML-ModelKit\\examples\\qnn\\npu\\openai_clip-vit-base-patch32\\zero-shot-image-classification_w8a16_eval_result.json",
+  "metrics": {
+    "top1_accuracy": 60.7,
+    "top5_accuracy": 87.1
+  }
+}

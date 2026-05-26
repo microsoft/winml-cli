@@ -1,0 +1,31 @@
+odelKit\.venv\Lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: vision-encoder-decoder doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: image-to-text, image-to-text-with-past, feature-extraction, text2text-generation.
+[2026-05-26T04:34:46] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+[2026-05-26T04:35:02] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/702 [00:00<?, ?it/s]
+  6%|▋         | 44/702 [00:00<00:01, 431.66it/s]
+ 13%|█▎        | 89/702 [00:00<00:01, 428.81it/s]
+ 20%|█▉        | 138/702 [00:00<00:01, 456.04it/s]
+ 26%|██▋       | 185/702 [00:00<00:01, 458.65it/s]
+ 33%|███▎      | 231/702 [00:00<00:01, 432.98it/s]
+ 41%|████      | 285/702 [00:00<00:00, 444.54it/s]
+ 47%|████▋     | 330/702 [00:00<00:00, 443.60it/s]
+ 54%|█████▎    | 376/702 [00:00<00:00, 448.39it/s]
+ 60%|█████▉    | 421/702 [00:00<00:00, 444.29it/s]
+ 66%|██████▋   | 466/702 [00:01<00:00, 438.64it/s]
+ 73%|███████▎  | 510/702 [00:01<00:00, 426.03it/s]
+ 79%|███████▉  | 557/702 [00:01<00:00, 436.24it/s]
+ 86%|████████▌ | 604/702 [00:01<00:00, 445.97it/s]
+ 92%|█████████▏| 649/702 [00:01<00:00, 443.75it/s]
+ 99%|█████████▉| 695/702 [00:01<00:00, 446.44it/s]
+100%|██████████| 702/702 [00:01<00:00, 440.47it/s]
+[2026-05-26T04:35:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 230.76 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 85.80 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 52.79 examples/s]

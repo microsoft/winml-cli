@@ -1,4 +1,13 @@
-[0;93m2026-05-24 16:16:21.4669623 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
-WARNING: trust_remote_code is enabled - custom Python from the model repository
-will be downloaded and executed. Proceed only if you trust the publisher.
-Error: Evaluation failed: Dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' is not compatible with task 'object-detection': Failed to load dataset '~/.cache/winml/eval_datasets/build_pubtables1m_detection' (name=None, split='validation'): Couldn't find any data file at C:\Users\shzhen\.cache\winml\eval_datasets\build_pubtables1m_detection.. Use --dataset to specify a different dataset, or run 'winml eval --schema --task object-detection' to see the expected schema.
+Error(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)')))"), '(Request ID: 63c08dd7-f264-4428-9864-14442df4c25e)')' thrown while requesting GET https://huggingface.co/datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet
+Retrying in 1s [Retry 1/5].
+[2026-05-25T23:45:27] WARNING: Retrying in 1s [Retry 1/5].
+'(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)')))"), '(Request ID: 0357db8c-ad1a-4a1d-afe7-932c492c78a5)')' thrown while requesting GET https://huggingface.co/datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet
+[2026-05-25T23:45:35] WARNING: '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)')))"), '(Request ID: 0357db8c-ad1a-4a1d-afe7-932c492c78a5)')' thrown while requesting GET https://huggingface.co/datasets/timm/mini-imagenet/resolve/bd8779f9d33c061ea6e75fdd3bce4e43dd679060/data/train-00000-of-00013.parquet
+Retrying in 1s [Retry 1/5].
+[2026-05-25T23:45:35] WARNING: Retrying in 1s [Retry 1/5].
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map:  40%|████      | 4/10 [00:00<00:00, 29.80 examples/s]
+Map:  80%|████████  | 8/10 [00:00<00:00, 33.88 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 19.84 examples/s]
