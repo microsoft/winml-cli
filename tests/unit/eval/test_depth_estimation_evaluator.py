@@ -83,42 +83,51 @@ def make_depth_dataset(images, depth_maps, depth_col: str = "depth_map"):
 class TestRegistry:
     def test_depth_estimation_registered(self):
         assert "depth-estimation" in _EVALUATOR_REGISTRY
-        assert _EVALUATOR_REGISTRY["depth-estimation"] is WinMLDepthEstimationEvaluator
+        spec = _EVALUATOR_REGISTRY["depth-estimation"]
+        assert spec == (
+            "winml.modelkit.eval.depth_estimation_evaluator:WinMLDepthEstimationEvaluator"
+        )
+
+    def test_depth_estimation_get_evaluator_class(self):
+        from winml.modelkit.eval import get_evaluator_class
+
+        assert get_evaluator_class("depth-estimation") is WinMLDepthEstimationEvaluator
 
 
 # ---------------------------------------------------------------------------
-# Schema info
+# Task schema
 # ---------------------------------------------------------------------------
 
 
-class TestSchemaInfo:
-    def test_schema_info_contains_image_and_depth(self):
-        cols = WinMLDepthEstimationEvaluator.schema_info()
-        names = [c.name for c in cols]
-        assert "image" in names
-        assert "depth_map" in names
+class TestTaskSchema:
+    def test_schema_registered_in_task_schemas(self):
+        from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
 
-    def test_schema_info_input_and_depth_marked_required(self):
-        cols = {c.name: c for c in WinMLDepthEstimationEvaluator.schema_info()}
-        # Required columns expose their --column override key.
-        assert cols["image"].override == "input_column"
-        assert cols["depth_map"].override == "depth_column"
-        assert cols["image"].required is True
-        assert cols["depth_map"].required is True
+        assert "depth-estimation" in TASK_SCHEMAS
 
-    def test_schema_info_exposes_align_and_depth_kind_options(self):
-        cols = {c.override: c for c in WinMLDepthEstimationEvaluator.schema_info()}
-        assert "align" in cols
-        assert "depth_kind" in cols
-        assert cols["align"].type == "option"
-        assert cols["depth_kind"].type == "option"
-        assert cols["align"].required is False
-        assert cols["depth_kind"].required is False
+    def test_schema_columns_have_image_and_depth(self):
+        from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
 
-    def test_schema_info_default_align_is_affine(self):
-        cols = {c.override: c for c in WinMLDepthEstimationEvaluator.schema_info()}
-        assert cols["align"].name == "affine"
-        assert cols["depth_kind"].name == "depth"
+        schema = TASK_SCHEMAS["depth-estimation"]
+        col_names = [c.name for c in schema.columns]
+        assert "input_column" in col_names
+        assert "depth_column" in col_names
+
+    def test_schema_column_defaults(self):
+        from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
+
+        cols = {c.name: c for c in TASK_SCHEMAS["depth-estimation"].columns}
+        assert cols["input_column"].default == "image"
+        assert cols["depth_column"].default == "depth_map"
+
+    def test_schema_exposes_align_and_depth_kind_params(self):
+        from winml.modelkit.utils.eval_utils import TASK_SCHEMAS
+
+        params = {p.name: p for p in TASK_SCHEMAS["depth-estimation"].params}
+        assert "align" in params
+        assert "depth_kind" in params
+        assert params["align"].default == "affine"
+        assert params["depth_kind"].default == "depth"
 
 
 # ---------------------------------------------------------------------------
@@ -135,17 +144,21 @@ class TestValidateSchema:
         ev._validate_schema(ds)  # should not raise
 
     def test_missing_image_column_raises(self):
+        from winml.modelkit.utils.eval_utils import DatasetValidationError
+
         ev = make_evaluator()
         ds = Dataset.from_dict({"text": ["hello"], "depth_map": ["a"]})
-        with pytest.raises(ValueError, match="missing input column 'image'"):
+        with pytest.raises(DatasetValidationError, match="missing input column 'image'"):
             ev._validate_schema(ds)
 
     def test_missing_depth_column_raises(self):
+        from winml.modelkit.utils.eval_utils import DatasetValidationError
+
         ev = make_evaluator()
         features = Features({"image": Image(mode="RGB"), "label": Value("int64")})
         img = create_rgb_image(4, 3)
         ds = Dataset.from_dict({"image": [img], "label": [0]}, features=features)
-        with pytest.raises(ValueError, match="missing depth column 'depth_map'"):
+        with pytest.raises(DatasetValidationError, match="missing depth column 'depth_map'"):
             ev._validate_schema(ds)
 
     def test_custom_columns_mapping(self):
@@ -326,10 +339,12 @@ class TestAlignLabels:
         assert len(result) == len(ds)
 
     def test_align_labels_invalid_schema_raises(self):
+        from winml.modelkit.utils.eval_utils import DatasetValidationError
+
         ev = make_evaluator()
         bad = Dataset.from_dict({"foo": [1]})
         ds_config = type("Cfg", (), {"label_mapping": None})()
-        with pytest.raises(ValueError, match="missing input column"):
+        with pytest.raises(DatasetValidationError, match="missing input column"):
             ev.align_labels(bad, ds_config)
 
 

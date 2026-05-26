@@ -14,21 +14,17 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-import torch
-from tqdm import tqdm
-
+from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
-from .metrics import DepthMetric
 
 
 if TYPE_CHECKING:
+    import numpy as np
     from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
-    from ..datasets.config import DatasetConfig
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import WinMLEvaluationConfig
+    from .config import DatasetConfig, WinMLEvaluationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,76 +32,21 @@ logger = logging.getLogger(__name__)
 class WinMLDepthEstimationEvaluator(WinMLEvaluator):
     """Evaluator for monocular depth estimation."""
 
-    @classmethod
-    def schema_info(cls) -> list:
-        """Return expected dataset schema for depth estimation."""
-        from .config import SchemaColumn
-
-        return [
-            SchemaColumn("image", "Image", "input_column", description="PIL Image"),
-            SchemaColumn(
-                "depth_map",
-                "Image",
-                "depth_column",
-                description=(
-                    "single-channel ground-truth depth image; units must match "
-                    "the prediction after alignment (e.g. metres for NYU)"
-                ),
-            ),
-            SchemaColumn(
-                "affine",
-                "option",
-                "align",
-                required=False,
-                description=(
-                    'how to align prediction to GT: "affine" (default; fits '
-                    "scale+shift via least-squares — Depth-Anything/MiDaS/Marigold), "
-                    '"median" (scale only), "none" (no alignment — metric models '
-                    "like ZoeDepth/DepthPro)"
-                ),
-            ),
-            SchemaColumn(
-                "depth",
-                "option",
-                "depth_kind",
-                required=False,
-                description=(
-                    'prediction output space: "depth" (default; distance) or '
-                    '"disparity" (inverse depth; DPT/MiDaS-style). When '
-                    '"disparity", the evaluator inverts predictions (1/pred) '
-                    "before alignment."
-                ),
-            ),
-            SchemaColumn(
-                "1e-3",
-                "float",
-                "min_depth",
-                required=False,
-                description=(
-                    "GT pixels at or below this are excluded (sensor noise floor; NYU default)"
-                ),
-            ),
-            SchemaColumn(
-                "10.0",
-                "float | none",
-                "max_depth",
-                required=False,
-                description='GT pixels above this are excluded (NYU=10, KITTI=80, "none" disables)',
-            ),
-        ]
-
     def __init__(
         self,
         config: WinMLEvaluationConfig,
         model: WinMLPreTrainedModel,
     ) -> None:
+        from ..utils.eval_utils import get_default
+
         mapping = config.dataset.columns_mapping
-        self._input_col = mapping.get("input_column", "image")
-        self._depth_col = mapping.get("depth_column", "depth_map")
-        self._align = mapping.get("align", "affine")
-        self._depth_kind = mapping.get("depth_kind", "depth")
-        self._min_depth = float(mapping.get("min_depth", 1e-3))
-        max_depth_raw = mapping.get("max_depth", 10.0)
+        task = "depth-estimation"
+        self._input_col = mapping.get("input_column", get_default(task, "input_column"))
+        self._depth_col = mapping.get("depth_column", get_default(task, "depth_column"))
+        self._align = mapping.get("align", get_default(task, "align"))
+        self._depth_kind = mapping.get("depth_kind", get_default(task, "depth_kind"))
+        self._min_depth = float(mapping.get("min_depth", get_default(task, "min_depth")))
+        max_depth_raw = mapping.get("max_depth", get_default(task, "max_depth"))
         self._max_depth: float | None
         if isinstance(max_depth_raw, str) and max_depth_raw.lower() == "none":
             self._max_depth = None
@@ -150,6 +91,11 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
 
     def compute(self) -> dict[str, Any]:
         """Run depth evaluation over all samples."""
+        import numpy as np
+        from tqdm import tqdm
+
+        from .metrics import DepthMetric
+
         metric = DepthMetric(
             align=self._align,
             depth_kind=self._depth_kind,
@@ -178,6 +124,9 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
     @staticmethod
     def _extract_predicted_depth(result: Any) -> np.ndarray:
         """Pull the numeric depth tensor out of an HF pipeline result."""
+        import numpy as np
+        import torch
+
         if not isinstance(result, dict):
             raise TypeError(
                 f"Unexpected pipeline output type: {type(result).__name__}; expected dict.",
@@ -196,12 +145,12 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
         """Check dataset has required image and depth columns."""
         col_names = list(dataset.column_names)
         if self._input_col not in col_names:
-            raise ValueError(
+            raise DatasetValidationError(
                 f"Dataset missing input column '{self._input_col}'. "
                 f"Available: {col_names}. Set input_column in columns_mapping.",
             )
         if self._depth_col not in col_names:
-            raise ValueError(
+            raise DatasetValidationError(
                 f"Dataset missing depth column '{self._depth_col}'. "
                 f"Available: {col_names}. Set depth_column in columns_mapping.",
             )
