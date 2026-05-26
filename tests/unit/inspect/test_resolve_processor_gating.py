@@ -20,20 +20,20 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from winml.modelkit.inspect.resolver import (
+    _HubConfigResult,
     _resolve_processor_from_auto_classes,
     resolve_processor,
 )
 
 
-def _all_filled_hub_result() -> tuple[str, str, str, str, bool, bool]:
-    """Strategy 1 returns all four processor types + both config files present."""
-    return (
-        "BertProcessor",
-        "BertTokenizer",
-        "BertImageProcessor",
-        "BertFeatureExtractor",
-        True,
-        True,
+def _all_filled_hub_result() -> _HubConfigResult:
+    """Strategy 1 returns all four processor types + preprocessor_config present."""
+    return _HubConfigResult(
+        processor_class="BertProcessor",
+        tokenizer_class="BertTokenizer",
+        image_processor_class="BertImageProcessor",
+        feature_extractor_class="BertFeatureExtractor",
+        has_preprocessor_config=True,
     )
 
 
@@ -63,13 +63,12 @@ class TestResolveProcessorStrategy2Gating:
     def test_strategy2_called_with_per_field_flags(self) -> None:
         """Only the fields still missing after Strategy 1 should have try_*=True."""
         # Strategy 1 fills only image_processor and feature_extractor.
-        hub_result = (
-            None,
-            None,
-            "ConvNextImageProcessor",
-            "ConvNextFeatureExtractor",
-            True,
-            True,
+        hub_result = _HubConfigResult(
+            processor_class=None,
+            tokenizer_class=None,
+            image_processor_class="ConvNextImageProcessor",
+            feature_extractor_class="ConvNextFeatureExtractor",
+            has_preprocessor_config=True,
         )
 
         with (
@@ -93,10 +92,17 @@ class TestResolveProcessorStrategy2Gating:
 
     def test_strategy2_runs_when_nothing_filled(self) -> None:
         """Empty Strategy-1 result → Strategy 2 runs with every flag True."""
+        empty_hub_result = _HubConfigResult(
+            processor_class=None,
+            tokenizer_class=None,
+            image_processor_class=None,
+            feature_extractor_class=None,
+            has_preprocessor_config=True,
+        )
         with (
             patch(
                 "winml.modelkit.inspect.resolver._resolve_processor_from_hub_configs",
-                return_value=(None, None, None, None, True, True),
+                return_value=empty_hub_result,
             ),
             # Block Strategy 0 (HF registry) by passing no model_type below
             patch(
@@ -124,7 +130,13 @@ class TestResolveProcessorStrategy2Gating:
         AutoFeatureExtractor. The hub_configs helper now reports the
         file's existence so the caller can skip those lookups.
         """
-        hub_result = (None, None, None, None, False, True)  # no preprocessor_config
+        hub_result = _HubConfigResult(
+            processor_class=None,
+            tokenizer_class=None,
+            image_processor_class=None,
+            feature_extractor_class=None,
+            has_preprocessor_config=False,
+        )
 
         with (
             patch(
@@ -328,3 +340,47 @@ class TestAutoProcessorLeafClassDetection:
         assert proc == "CLIPProcessor"
         assert tok == "CLIPTokenizer"
         assert mock_at.call_count == 0
+
+    def test_unrecognized_leaf_falls_through_to_standalone_autos(self) -> None:
+        """Leaf class with an unrecognized suffix → standalone Auto* fills the gaps.
+
+        ``SpeechT5Processor`` ends in ``Processor`` but none of the
+        ``_is_tokenizer_class_name`` / ``_is_image_processor_class_name`` /
+        ``_is_feature_extractor_class_name`` heuristics match it. The
+        leaf-class shortcut leaves ``tokenizer_class`` / ``image_processor_class``
+        / ``feature_extractor_class`` as ``None``, and the standalone
+        ``Auto*`` calls below fill them in — documenting the graceful
+        fallback when the suffix heuristic does not match.
+        """
+        fake = self._make_leaf_instance("SpeechT5Processor")
+
+        fake_tok = type("SomeTokenizer", (), {})()
+        fake_feat = type("SomeFeatureExtractor", (), {})()
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=fake),
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=fake_tok,
+            ) as mock_at,
+            patch("transformers.AutoImageProcessor.from_pretrained") as mock_aip,
+            patch(
+                "transformers.AutoFeatureExtractor.from_pretrained",
+                return_value=fake_feat,
+            ) as mock_afe,
+        ):
+            proc, tok, _img, feat = _resolve_processor_from_auto_classes(
+                "microsoft/speecht5_tts",
+                try_processor=True,
+                try_tokenizer=True,
+                try_image_processor=False,
+                try_feature_extractor=True,
+            )
+
+        assert proc == "SpeechT5Processor"
+        # Suffix didn't match any leaf-class heuristic → standalone Auto* must run.
+        assert tok == "SomeTokenizer"
+        assert feat == "SomeFeatureExtractor"
+        assert mock_at.call_count == 1
+        assert mock_aip.call_count == 0  # gated off by try_image_processor=False
+        assert mock_afe.call_count == 1

@@ -10,7 +10,7 @@ Leverages existing loader, export, and models modules - NO NEW CONFIG LOGIC.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from ..loader.task import (
     HF_TASK_DEFAULTS,
@@ -871,26 +871,20 @@ def resolve_processor(
     # standard HuggingFace config conventions, not model-specific hardcoding.
     has_preprocessor_config = True
     try:
-        (
-            hub_proc,
-            hub_tok,
-            hub_img,
-            hub_fe,
-            has_preprocessor_config,
-            _has_tokenizer_config,
-        ) = _resolve_processor_from_hub_configs(model_id)
-        if hub_proc and processor_class is None:
-            processor_class = hub_proc
+        hub_result = _resolve_processor_from_hub_configs(model_id)
+        if hub_result.processor_class and processor_class is None:
+            processor_class = hub_result.processor_class
             processor_source = "hub_config"
-        if hub_tok and tokenizer_class is None:
-            tokenizer_class = hub_tok
+        if hub_result.tokenizer_class and tokenizer_class is None:
+            tokenizer_class = hub_result.tokenizer_class
             tokenizer_source = "hub_config"
-        if hub_img and image_processor_class is None:
-            image_processor_class = hub_img
+        if hub_result.image_processor_class and image_processor_class is None:
+            image_processor_class = hub_result.image_processor_class
             image_processor_source = "hub_config"
-        if hub_fe and feature_extractor_class is None:
-            feature_extractor_class = hub_fe
+        if hub_result.feature_extractor_class and feature_extractor_class is None:
+            feature_extractor_class = hub_result.feature_extractor_class
             feature_extractor_source = "hub_config"
+        has_preprocessor_config = hub_result.has_preprocessor_config
     except Exception as e:
         logger.debug("Failed to resolve processors from hub configs: %s", e)
 
@@ -950,9 +944,21 @@ def resolve_processor(
     )
 
 
-def _resolve_processor_from_hub_configs(
-    model_id: str,
-) -> tuple[str | None, str | None, str | None, str | None, bool, bool]:
+class _HubConfigResult(NamedTuple):
+    """Result of ``_resolve_processor_from_hub_configs``.
+
+    A NamedTuple rather than a plain tuple so the trailing boolean cannot be
+    silently swapped with the four ``str | None`` fields at the call site.
+    """
+
+    processor_class: str | None
+    tokenizer_class: str | None
+    image_processor_class: str | None
+    feature_extractor_class: str | None
+    has_preprocessor_config: bool
+
+
+def _resolve_processor_from_hub_configs(model_id: str) -> _HubConfigResult:
     """Resolve processor classes by fetching config files from HuggingFace Hub.
 
     This approach is fast because it only downloads small JSON config files,
@@ -962,14 +968,12 @@ def _resolve_processor_from_hub_configs(
         model_id: HuggingFace model identifier
 
     Returns:
-        Tuple of ``(processor_class, tokenizer_class, image_processor_class,
-        feature_extractor_class, has_preprocessor_config, has_tokenizer_config)``.
-        The two booleans report whether the respective config files actually
-        exist on the hub — a missing ``preprocessor_config.json`` is the
-        authoritative signal that the model has no image processor or
+        A ``_HubConfigResult`` whose ``has_preprocessor_config`` reports
+        whether ``preprocessor_config.json`` actually exists on the hub —
+        the authoritative signal that the model has no image processor or
         feature extractor, so the caller can skip the corresponding
         ``AutoImageProcessor`` / ``AutoFeatureExtractor`` round-trips
-        (which would each fail with a slow 404 lookup on text-only models).
+        (which would each spend ~1s confirming a 404 on text-only models).
     """
     import json
     from pathlib import Path
@@ -982,7 +986,6 @@ def _resolve_processor_from_hub_configs(
     image_processor_class: str | None = None
     feature_extractor_class: str | None = None
     has_preprocessor_config = False
-    has_tokenizer_config = False
 
     # Try to download and parse preprocessor_config.json
     # This file contains image_processor_type or processor_class
@@ -991,6 +994,10 @@ def _resolve_processor_from_hub_configs(
             repo_id=model_id,
             filename="preprocessor_config.json",
         )
+        # Set the flag as soon as the file exists on the hub, *before* parsing.
+        # A corrupt JSON is still proof that the model ships preprocessor
+        # config — fall back to Auto* lookups rather than declaring the model
+        # text-only and silently dropping its image/feature processor.
         has_preprocessor_config = True
         with Path(preprocessor_config_path).open(encoding="utf-8") as f:
             preprocessor_config = json.load(f)
@@ -1019,7 +1026,6 @@ def _resolve_processor_from_hub_configs(
             repo_id=model_id,
             filename="tokenizer_config.json",
         )
-        has_tokenizer_config = True
         with Path(tokenizer_config_path).open(encoding="utf-8") as f:
             tokenizer_config = json.load(f)
 
@@ -1032,13 +1038,12 @@ def _resolve_processor_from_hub_configs(
     except json.JSONDecodeError as e:
         logger.debug("Failed to parse tokenizer_config.json for %s: %s", model_id, e)
 
-    return (
-        processor_class,
-        tokenizer_class,
-        image_processor_class,
-        feature_extractor_class,
-        has_preprocessor_config,
-        has_tokenizer_config,
+    return _HubConfigResult(
+        processor_class=processor_class,
+        tokenizer_class=tokenizer_class,
+        image_processor_class=image_processor_class,
+        feature_extractor_class=feature_extractor_class,
+        has_preprocessor_config=has_preprocessor_config,
     )
 
 
