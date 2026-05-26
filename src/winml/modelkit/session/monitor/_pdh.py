@@ -329,8 +329,8 @@ def build_npu_query(npu_luid: str, pid: int | None = None) -> PdhQuery:
     Returns:
         An opened PdhQuery configured for NPU monitoring.
     """
-    # Neural: OpenVINO NPU
-    return build_adapter_query(npu_luid, engine_types=("Compute", "Neural"), pid=pid)
+    # Neural / 3D: OpenVINO NPU
+    return build_adapter_query(npu_luid, engine_types=("Compute", "Neural", "3D"), pid=pid)
 
 
 def build_gpu_query(gpu_luid: str, pid: int | None = None) -> PdhQuery:
