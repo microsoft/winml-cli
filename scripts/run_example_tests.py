@@ -8,7 +8,7 @@
 
 Usage:
     python scripts/run_example_tests.py --ep qnn --device npu
-    python scripts/run_example_tests.py --ep qnn --device npu --timeout 600
+    python scripts/run_example_tests.py --ep qnn --device npu --timeout 3600
     python scripts/run_example_tests.py --ep openvino --device cpu --eval-only
     python scripts/run_example_tests.py --ep vitisai --device npu \
         --models microsoft_resnet-50,BAAI_bge-base-en-v1.5
@@ -181,8 +181,8 @@ def main() -> None:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=1200,
-        help="Timeout per eval (default: 1200s)",
+        default=3600,
+        help="Timeout per eval (default: 3600s)",
     )
     parser.add_argument("--eval-only", action="store_true", help="Skip perf, only eval")
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model slugs")

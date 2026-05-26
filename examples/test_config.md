@@ -27,7 +27,7 @@ Result files intentionally use `_perf_result.json` and `_eval_result.json` becau
 `*_perf.json` is often covered by gitignore patterns and easy to miss in commits.
 
 Options:
-- `--timeout` — Per-model timeout in seconds (default: 1200)
+- `--timeout` — Per-model timeout in seconds (default: 3600)
 - `--eval-only` — Skip perf, only run eval
 - `--models` — Comma-separated model slugs to test a subset (e.g. `--models microsoft_resnet-50,BAAI_bge-base-en-v1.5`)
 
