@@ -719,14 +719,20 @@ def test_good_input_compiles_and_runs(
 # ===========================================================================
 
 
-def _assert_rejected(result: Result, error_phrase: str, src_hash: str, src_path: Path) -> None:
+def _assert_rejected(
+    result: Result,
+    error_phrase: str | tuple[str, ...],
+    src_hash: str,
+    src_path: Path,
+) -> None:
     assert result.exit_code != 0, f"Expected rejection but exit was 0:\n{result.output}"
     # Some rejections raise an uncaught exception (e.g. ``sysinfo`` raises
     # ``ValueError`` from device resolution) rather than emitting a Click
     # ``UsageError`` whose text reaches ``result.output``. Search both.
     haystack = result.output + ("" if result.exception is None else f"\n{result.exception}")
-    assert error_phrase in haystack, (
-        f"Expected {error_phrase!r} in error output, got:\n{haystack}"
+    phrases = (error_phrase,) if isinstance(error_phrase, str) else error_phrase
+    assert any(p in haystack for p in phrases), (
+        f"Expected one of {phrases!r} in error output, got:\n{haystack}"
     )
     assert _sha256(src_path) == src_hash, "Input ONNX was mutated despite rejection"
 
@@ -760,8 +766,17 @@ def test_bad_input_device_ep_conflict(
     require_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
+    # Two valid rejection paths depending on whether ORT enumerates ``ep``
+    # on ``device``:
+    #   * Yes (e.g. QNN on the cpu node) -> ``_resolve_compile_provider``
+    #     policy check raises ``--ep X cannot run on --device Y``.
+    #   * No (e.g. NvTensorRTRTX is GPU-only) -> ``resolve_device`` raises
+    #     ``Device 'X' requested but no compatible EP is available``.
     _assert_rejected(
-        result, f"cannot run on --device {device}", src_hash, simple_matmul_onnx
+        result,
+        (f"cannot run on --device {device}", "no compatible EP is available"),
+        src_hash,
+        simple_matmul_onnx,
     )
 
 
