@@ -1,0 +1,27 @@
+stem uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\qiowu\.cache\huggingface\hub\models--openai--clip-vit-large-patch14. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+[2026-05-26T14:44:59] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+
+  0%|          | 0/412 [00:00<?, ?it/s]
+  0%|          | 1/412 [00:00<04:40,  1.47it/s]
+  0%|          | 2/412 [00:00<02:32,  2.69it/s]
+  1%|          | 3/412 [00:00<01:44,  3.91it/s]
+  1%|          | 4/412 [00:01<01:37,  4.19it/s]
+  1%|          | 5/412 [00:01<03:04,  2.21it/s]
+  2%|▏         | 8/412 [00:02<01:27,  4.64it/s]
+  3%|▎         | 14/412 [00:02<00:37, 10.74it/s]
+  4%|▍         | 16/412 [00:02<00:34, 11.32it/s]
+  4%|▍         | 18/412 [00:02<00:38, 10.33it/s]
+  5%|▍         | 20/412 [00:03<01:09,  5.63it/s]
+  5%|▌         | 22/412 [00:09<06:00,  1.08it/s]
+ 12%|█▏        | 48/412 [00:09<00:56,  6.40it/s]
+ 21%|██        | 86/412 [00:09<00:19, 17.06it/s]
+ 31%|███▏      | 129/412 [00:09<00:08, 33.22it/s]
+ 41%|████      | 168/412 [00:09<00:04, 52.03it/s]
+ 50%|█████     | 206/412 [00:09<00:02, 75.01it/s]
+ 62%|██████▏   | 254/412 [00:09<00:01, 111.48it/s]
+ 73%|███████▎  | 300/412 [00:10<00:00, 150.55it/s]
+ 85%|████████▌ | 352/412 [00:10<00:00, 202.27it/s]
+ 98%|█████████▊| 402/412 [00:10<00:00, 250.74it/s]
+100%|██████████| 412/412 [00:10<00:00, 39.42it/s] 

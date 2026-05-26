@@ -1,0 +1,11 @@
+): Read timed out. (read timeout=10)"), '(Request ID: db27ae07-e1cc-41af-b1c0-48bcbdfec230)')' thrown while requesting HEAD https://huggingface.co/ProsusAI/finbert/resolve/main/config.json
+[2026-05-26T05:29:38] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: db27ae07-e1cc-41af-b1c0-48bcbdfec230)')' thrown while requesting HEAD https://huggingface.co/ProsusAI/finbert/resolve/main/config.json
+Retrying in 8s [Retry 4/5].
+[2026-05-26T05:29:38] WARNING: Retrying in 8s [Retry 4/5].
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 027bac3f-e578-4337-92fd-d298e231d0a2)')' thrown while requesting HEAD https://huggingface.co/ProsusAI/finbert/resolve/main/config.json
+[2026-05-26T05:29:56] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 027bac3f-e578-4337-92fd-d298e231d0a2)')' thrown while requesting HEAD https://huggingface.co/ProsusAI/finbert/resolve/main/config.json
+Retrying in 8s [Retry 5/5].
+[2026-05-26T05:29:56] WARNING: Retrying in 8s [Retry 5/5].
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 51e1d524-b6a9-4b65-8596-23d956e2efbe)')' thrown while requesting HEAD https://huggingface.co/ProsusAI/finbert/resolve/main/config.json
+[2026-05-26T05:30:15] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 51e1d524-b6a9-4b65-8596-23d956e2efbe)')' thrown while requesting HEAD https://huggingface.co/ProsusAI/finbert/resolve/main/config.json
+Error: Evaluation failed: Failed to load model 'ProsusAI/finbert'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task text-classification' to see supported role=path model options.

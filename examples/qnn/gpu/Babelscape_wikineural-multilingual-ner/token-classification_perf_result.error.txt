@@ -1,0 +1,30 @@
+che-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\qiowu\.cache\huggingface\hub\models--Babelscape--wikineural-multilingual-ner. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+
+  0%|          | 0/434 [00:00<?, ?it/s]
+  0%|          | 1/434 [00:00<02:41,  2.68it/s]
+  1%|          | 5/434 [00:00<00:37, 11.42it/s]
+  2%|▏         | 8/434 [00:00<00:30, 13.83it/s]
+  3%|▎         | 12/434 [00:00<00:22, 18.76it/s]
+  3%|▎         | 15/434 [00:00<00:21, 19.66it/s]
+  4%|▍         | 18/434 [00:01<00:34, 12.15it/s]
+  7%|▋         | 29/434 [00:01<00:14, 27.18it/s]
+ 11%|█         | 47/434 [00:01<00:07, 54.87it/s]
+ 35%|███▌      | 152/434 [00:01<00:01, 258.79it/s]
+ 62%|██████▏   | 267/434 [00:01<00:00, 458.43it/s]
+ 87%|████████▋ | 377/434 [00:01<00:00, 611.86it/s]
+100%|██████████| 434/434 [00:01<00:00, 219.21it/s]
+
+  0%|          | 0/387 [00:00<?, ?it/s]
+  0%|          | 1/387 [00:00<01:44,  3.71it/s]
+  1%|▏         | 5/387 [00:00<00:24, 15.32it/s]
+  2%|▏         | 8/387 [00:01<00:59,  6.41it/s]
+  3%|▎         | 12/387 [00:01<00:35, 10.42it/s]
+  4%|▍         | 15/387 [00:01<00:27, 13.35it/s]
+  5%|▍         | 18/387 [00:01<00:32, 11.21it/s]
+  8%|▊         | 32/387 [00:01<00:11, 29.92it/s]
+ 32%|███▏      | 122/387 [00:01<00:01, 179.88it/s]
+ 57%|█████▋    | 220/387 [00:02<00:00, 335.18it/s]
+ 80%|████████  | 311/387 [00:02<00:00, 459.96it/s]
+100%|██████████| 387/387 [00:02<00:00, 173.32it/s]

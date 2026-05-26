@@ -1,0 +1,11 @@
+thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json
+[2026-05-26T05:09:28] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: ca3d67d6-8a0e-4cb0-9457-184b54b3e8b7)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json
+Retrying in 8s [Retry 4/5].
+[2026-05-26T05:09:28] WARNING: Retrying in 8s [Retry 4/5].
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 2f81546a-0a73-414c-aad9-0c7c2d56b15a)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json
+[2026-05-26T05:09:46] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 2f81546a-0a73-414c-aad9-0c7c2d56b15a)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json
+Retrying in 8s [Retry 5/5].
+[2026-05-26T05:09:46] WARNING: Retrying in 8s [Retry 5/5].
+'(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 92132a07-987b-4f8c-bf53-ba5795bb9c42)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json
+[2026-05-26T05:10:04] WARNING: '(ReadTimeoutError("HTTPSConnectionPool(host='huggingface.co', port=443): Read timed out. (read timeout=10)"), '(Request ID: 92132a07-987b-4f8c-bf53-ba5795bb9c42)')' thrown while requesting HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json
+Error: Evaluation failed: Failed to load model 'openai/clip-vit-base-patch16'. Check --model, --model-id, --task, device, and EP settings. For composite models, run 'winml eval --schema --task zero-shot-image-classification' to see supported role=path model options.
