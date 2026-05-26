@@ -482,10 +482,16 @@ def _inspect_model_v2(
         task=task,
     )
 
-    # Use the parent model_type for the user-facing result.  For multimodal
+    # Use the top-level model_type for the user-facing result.  For multimodal
     # models (CLIP, etc.) `loader_config.model_type` is the narrowed sub-config
     # type (e.g. "clip_text_model"), but users expect the top-level type ("clip").
-    display_model_type = getattr(parent_hf_config, "model_type", model_type)
+    #
+    # Precedence:
+    #   1. model_type_override  — user explicitly passed --model-type
+    #   2. parent_hf_config     — pre-narrowing config (only when model_id was
+    #                             provided and AutoConfig succeeded in step 1)
+    #   3. model_type           — narrowed loader_config.model_type (fallback)
+    display_model_type = model_type_override or getattr(parent_hf_config, "model_type", model_type)
 
     return InspectResult(
         model_id=model_id or display_model_type or model_class_override or "unknown",
