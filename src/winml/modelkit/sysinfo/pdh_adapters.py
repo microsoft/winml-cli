@@ -88,17 +88,10 @@ class AdapterInfo:
 
     @property
     def is_npu(self) -> bool:
-        """NPU heuristic: only Compute engine types, no 3D/Video/Copy/etc."""
-        non_compute = {e for e in self.engine_types if not e.startswith("Compute")}
-        return len(non_compute) == 0 and len(self.engine_types) > 0
-
-    @property
-    def compute_engine_type(self) -> str | None:
-        """Return the first Compute engine type name."""
-        for et in sorted(self.engine_types):
-            if et.startswith("Compute"):
-                return et
-        return None
+        """NPU heuristic: only Compute/Neural engine types, no 3D/Video/Copy/etc."""
+        return len(self.engine_types) > 0 and all(
+            e.startswith(("Compute", "Neural")) for e in self.engine_types
+        )
 
 
 def enumerate_adapters() -> dict[str, AdapterInfo]:
