@@ -252,6 +252,7 @@ ui/node_modules/
 ui/src-tauri/target/
 
 specs/
+!docs/superpowers/specs/
 /tests/integration/pattern_crawl/output/
 /tests/unit/pattern_crawl/output/
 /tests/integration/static_analyzer/output/
