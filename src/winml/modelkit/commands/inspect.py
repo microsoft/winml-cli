@@ -186,13 +186,10 @@ def inspect(
     # Print a banner BEFORE the heavy import chain / network calls so users
     # see immediate feedback instead of ~14 s of silence and assume the
     # command hung (see #543). Banner + spinner go to stderr so `--format
-    # json` consumers still get clean stdout. Suppressed in --quiet mode
-    # and in JSON mode (Click 8.4 mixes stderr into CliRunner.result.output,
-    # and JSON consumers expect clean stdout regardless).
+    # json` consumers still get clean stdout. Suppressed in --quiet mode.
     quiet = bool(ctx.obj and ctx.obj.get("quiet"))
-    json_mode = output_format.lower() == "json"
     target = model_id or model_type or model_class
-    if not quiet and not json_mode:
+    if not quiet:
         _stderr_console.print(f"[dim]Inspecting [bold]{target}[/bold] …[/dim]")
 
     from ..inspect import InspectError, ModelNotFoundError, NetworkError
@@ -207,7 +204,7 @@ def inspect(
         logging.getLogger("winml.modelkit").setLevel(logging.DEBUG)
 
     try:
-        if quiet or json_mode:
+        if quiet:
             result = _inspect_model_v2(
                 model_id=model_id,
                 task_override=task,
