@@ -368,7 +368,6 @@ class TestGatherDeviceInfo:
             return []
 
         with (
-            patch.object(sys_cmd, "_gather_device_info", wraps=sys_cmd._gather_device_info),
             patch("winml.modelkit.sysinfo.hardware.CPU.get_all", side_effect=slow_empty),
             patch("winml.modelkit.sysinfo.hardware.GPU.get_all", side_effect=slow_empty),
             patch("winml.modelkit.sysinfo.hardware.NPU.get_all", side_effect=slow_empty),
