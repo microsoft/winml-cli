@@ -482,9 +482,14 @@ def _inspect_model_v2(
         task=task,
     )
 
+    # Use the parent model_type for the user-facing result.  For multimodal
+    # models (CLIP, etc.) `loader_config.model_type` is the narrowed sub-config
+    # type (e.g. "clip_text_model"), but users expect the top-level type ("clip").
+    display_model_type = getattr(parent_hf_config, "model_type", model_type)
+
     return InspectResult(
-        model_id=model_id or model_type or model_class_override or "unknown",
-        model_type=model_type,
+        model_id=model_id or display_model_type or model_class_override or "unknown",
+        model_type=display_model_type,
         architectures=architectures,
         task=task,
         task_source=task_source,
