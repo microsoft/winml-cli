@@ -386,45 +386,42 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
 
         console.print(torch_table)
 
-    # Backend SDKs
-    console.print("\n[bold blue]Backend SDKs[/bold blue]")
-    backend_table = Table(show_header=False, box=None, padding=(0, 2))
-    backend_table.add_column("Backend", style="bold")
-    backend_table.add_column("Status")
-    backend_table.add_column("Details")
+    # Backend SDKs — only show when at least one SDK is installed
+    backends = info["backends"]
+    qnn = backends["qnn"]
+    ov = backends["openvino"]
+    if qnn["installed"] or ov["installed"]:
+        console.print("\n[bold blue]Backend SDKs[/bold blue]")
+        backend_table = Table(show_header=False, box=None, padding=(0, 2))
+        backend_table.add_column("Backend", style="bold")
+        backend_table.add_column("Status")
+        backend_table.add_column("Details")
 
-    qnn = info["backends"]["qnn"]
-    qnn_status = "[green]Installed[/green]" if qnn["installed"] else "[yellow]Not found[/yellow]"
-    qnn_details = qnn.get("path", "-")[:50] if qnn["installed"] else "-"
-    backend_table.add_row("QNN SDK", qnn_status, qnn_details)
+        if qnn["installed"]:
+            qnn_details = qnn.get("path", "-")[:50]
+            backend_table.add_row("QNN SDK", "[green]Installed[/green]", qnn_details)
+        if ov["installed"]:
+            ov_details = ov.get("version", "-")
+            backend_table.add_row("OpenVINO", "[green]Installed[/green]", ov_details)
 
-    ov = info["backends"]["openvino"]
-    ov_status = "[green]Installed[/green]" if ov["installed"] else "[yellow]Not found[/yellow]"
-    ov_details = ov.get("version", "-") if ov["installed"] else "-"
-    backend_table.add_row("OpenVINO", ov_status, ov_details)
+        console.print(backend_table)
 
-    console.print(backend_table)
-
-    # Export Readiness
-    console.print("\n[bold blue]Export Readiness[/bold blue]")
+    # Export Readiness — only show when at least one non-ONNX backend is ready
     readiness = info["export_readiness"]
-    ready_table = Table(show_header=False, box=None, padding=(0, 2))
-    ready_table.add_column("Capability", style="bold")
-    ready_table.add_column("Status")
+    if readiness["qnn_ready"] or readiness["openvino_ready"]:
+        console.print("\n[bold blue]Export Readiness[/bold blue]")
+        ready_table = Table(show_header=False, box=None, padding=(0, 2))
+        ready_table.add_column("Capability", style="bold")
+        ready_table.add_column("Status")
 
-    onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
-    qnn_ready = (
-        "[green]Ready[/green]" if readiness["qnn_ready"] else "[yellow]SDK required[/yellow]"
-    )
-    ov_ready = (
-        "[green]Ready[/green]" if readiness["openvino_ready"] else "[yellow]Not installed[/yellow]"
-    )
+        onnx_ready = "[green]Ready[/green]" if readiness["onnx_export"] else "[red]Not ready[/red]"
+        ready_table.add_row("ONNX Export", onnx_ready)
+        if readiness["qnn_ready"]:
+            ready_table.add_row("QNN Compilation", "[green]Ready[/green]")
+        if readiness["openvino_ready"]:
+            ready_table.add_row("OpenVINO Conversion", "[green]Ready[/green]")
 
-    ready_table.add_row("ONNX Export", onnx_ready)
-    ready_table.add_row("QNN Compilation", qnn_ready)
-    ready_table.add_row("OpenVINO Conversion", ov_ready)
-
-    console.print(ready_table)
+        console.print(ready_table)
 
 
 def _output_json(info: dict[str, Any]) -> None:
@@ -455,10 +452,13 @@ def _output_compact(info: dict[str, Any]) -> None:
 
     qnn = info["backends"]["qnn"]
     ov = info["backends"]["openvino"]
-    lines.append(
-        f"QNN: {'OK' if qnn['installed'] else 'N/A'} | "
-        f"OpenVINO: {ov.get('version', 'N/A') if ov['installed'] else 'N/A'}"
-    )
+    sdk_parts = []
+    if qnn["installed"]:
+        sdk_parts.append("QNN: OK")
+    if ov["installed"]:
+        sdk_parts.append(f"OpenVINO: {ov.get('version', 'OK')}")
+    if sdk_parts:
+        lines.append(" | ".join(sdk_parts))
 
     onnx_status = "OK" if readiness["onnx_export"] else "FAIL"
     lines.append(f"Export Ready: ONNX {onnx_status}")
