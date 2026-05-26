@@ -1,12 +1,29 @@
+# Modelkit E2E Test — PR-gating pipeline.
+#
+# Runs `winml perf` against a small inline list of models across all
+# EP/device pairs on the three self-hosted agents (QNN, OV, AMD). Each
+# stage runs in parallel. Pipeline fails if any (model, EP/device pair)
+# combination fails its perf run.
+#
+# Notes on runtime mitigations:
+#   * `pr.drafts: false` — draft PRs do not trigger this pipeline.
+#   * Auto-cancel of superseded PR builds (when a new commit is pushed to
+#     the same PR) is controlled by the per-pipeline portal setting
+#     "Automatically cancel existing validation builds for previous
+#     iterations of a pull request". Enable it once in the portal — this
+#     cannot be set from YAML.
+#   * The pipeline is NOT yet added as a required branch-policy check.
+#     During the prototype phase, failures appear as a red status on the
+#     PR but do not block merge. Promote to a required check from the
+#     portal once we are confident.
+
 trigger: none
 
-schedules:
-  - cron: '0 0 * * Fri'
-    displayName: 'Weekly run — Friday 08:00 (UTC+8)'
-    branches:
-      include:
-        - main
-    always: true
+pr:
+  branches:
+    include:
+      - main
+  drafts: false
 
 resources:
   repositories:
@@ -17,18 +34,20 @@ resources:
       ref: main
 
 parameters:
-  - name: evalDate
-    displayName: 'Eval date (auto = today, e.g. 2026-04-01)'
-    type: string
-    default: 'auto'
-  - name: continueRun
-    displayName: 'Skip already-evaluated models (--continue)'
-    type: boolean
-    default: true
-  - name: retryFailed
-    displayName: 'Retry previously failed models (--retry-failed)'
-    type: boolean
-    default: false
+  # Inline model list. Each entry: { hf_id: <str>, task: <str> }.
+  # Extend over time; keep small to keep PR feedback fast.
+  - name: models
+    displayName: 'Models to test (inline list)'
+    type: object
+    default:
+      - hf_id: facebook/convnext-tiny-224
+        task: image-classification
+
+  - name: modelTimeout
+    displayName: 'Per-model timeout (seconds)'
+    type: number
+    default: 1800
+
   - name: qnnAgentName
     displayName: 'QNN: self-hosted agent name (Agent.Name)'
     type: string
@@ -39,6 +58,7 @@ parameters:
     default:
       - qnn_npu
       - qnn_gpu
+
   - name: ovAgentName
     displayName: 'OV: self-hosted agent name (Agent.Name)'
     type: string
@@ -52,6 +72,7 @@ parameters:
       - ov_cpu
       - ov_gpu
       - ov_npu
+
   - name: amdAgentName
     displayName: 'AMD: self-hosted agent name (Agent.Name)'
     type: string
@@ -64,39 +85,36 @@ parameters:
 
 stages:
   - stage: NPU_QNN
-    displayName: 'E2E Eval — QNN'
+    displayName: 'E2E Test — QNN'
     jobs:
-      - template: templates/e2e-eval-jobs.yml
+      - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.qnnAgentName }}
           agentSuffix: qnn
-          evalDate: ${{ parameters.evalDate }}
-          continueRun: ${{ parameters.continueRun }}
-          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.qnnPairs }}
+          models: ${{ parameters.models }}
+          modelTimeout: ${{ parameters.modelTimeout }}
 
   - stage: NPU_OV
-    displayName: 'E2E Eval — OV'
+    displayName: 'E2E Test — OV'
     dependsOn: []
     jobs:
-      - template: templates/e2e-eval-jobs.yml
+      - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.ovAgentName }}
           agentSuffix: ov
-          evalDate: ${{ parameters.evalDate }}
-          continueRun: ${{ parameters.continueRun }}
-          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.ovPairs }}
+          models: ${{ parameters.models }}
+          modelTimeout: ${{ parameters.modelTimeout }}
 
   - stage: NPU_AMD
-    displayName: 'E2E Eval — AMD'
+    displayName: 'E2E Test — AMD'
     dependsOn: []
     jobs:
-      - template: templates/e2e-eval-jobs.yml
+      - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.amdAgentName }}
           agentSuffix: amd
-          evalDate: ${{ parameters.evalDate }}
-          continueRun: ${{ parameters.continueRun }}
-          retryFailed: ${{ parameters.retryFailed }}
           pairNames: ${{ parameters.amdPairs }}
+          models: ${{ parameters.models }}
+          modelTimeout: ${{ parameters.modelTimeout }}
