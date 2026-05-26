@@ -17,7 +17,7 @@ The script:
 1. Finds all `*_config.json` files under `examples/<ep>/<hardware>/`
 2. For each config, runs **perf** then **eval**:
    - `winml perf -m <hf_id> --device <device> -c <config> -o <perf_output>`
-   - `winml eval -m <hf_id> --device <device> -c <config> -o <eval_output>`
+  - `winml eval -m <hf_id> --ep <ep> --device <device> -c <config> -o <eval_output>`
 3. Adds `--trust-remote-code` automatically when config has `dataset_script`
 4. Skips configs that already have `_perf_result.json`/`_eval_result.json`, `_error.txt`, or `.timeout` results
 5. Cleans HF/winml caches between different models to save disk space
@@ -67,11 +67,13 @@ winml perf -m microsoft/resnet-50 --device npu \
 
 # 2. Eval (uses cached build artifacts from perf)
 winml eval -m microsoft/resnet-50 --device npu \
+  --ep qnn \
   -c examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_config.json \
   -o examples/qnn/npu/microsoft_resnet-50/image-classification_w8a8_eval_result.json
 
 # Model with dataset_script (adds --trust-remote-code to eval)
 winml eval -m w11wo/indonesian-roberta-base-posp-tagger --device npu \
+  --ep qnn \
   -c examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_config.json \
   -o examples/qnn/npu/w11wo_indonesian-roberta-base-posp-tagger/token-classification_w8a8_eval_result.json \
   --trust-remote-code
@@ -91,7 +93,7 @@ winml build -m <hf_id> --device npu -c <config_path> -o <output_dir>
 winml perf -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_perf_result.json
 
 # Eval only
-winml eval -m <hf_id> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_eval_result.json
+winml eval -m <hf_id> --ep <ep> --device npu -c <config_path> -o <output_dir>/<task>_<precision>_eval_result.json
 ```
 
 ### Result status

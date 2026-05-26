@@ -31,6 +31,7 @@ def run_eval(
     hf_id: str,
     config_path: Path,
     output_path: Path,
+    ep: str,
     device: str,
     timeout: int,
     trust_remote_code: bool = False,
@@ -43,6 +44,8 @@ def run_eval(
         "eval",
         "-m",
         hf_id,
+        "--ep",
+        ep,
         "--device",
         device,
         "-c",
@@ -246,7 +249,7 @@ def main() -> None:
 
         # Run eval
         print(f"[{i}/{len(configs)}] {hf_id} / {stem} eval ...", end=" ", flush=True)
-        status = run_eval(hf_id, cfg_path, eval_output, args.device, args.timeout, trust)
+        status = run_eval(hf_id, cfg_path, eval_output, args.ep, args.device, args.timeout, trust)
         results[status] += 1
         print(status)
 
