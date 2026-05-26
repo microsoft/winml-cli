@@ -59,28 +59,25 @@ EXPECTED_TOP_KEYS = {
 def _run_json(*args: str) -> dict:
     """Invoke inspect with *args + '-f json' and return parsed JSON.
 
-    Reads ``result.stdout`` (not ``result.output``) so the banner and
-    spinner emitted on stderr do not corrupt the JSON payload — Click 8.4's
-    ``result.output`` aggregates both streams.
+    Asserts exit_code == 0 and that the output is valid JSON.
     """
     result = _run(*args, "-f", "json")
     assert result.exit_code == 0, f"inspect exited {result.exit_code}:\n{result.output}"
-    return json.loads(result.stdout)
+    return json.loads(result.output)
 
 
 def _run_network(model: str, task: str | None = None) -> dict:
     """Invoke inspect with a real model ID and return parsed JSON output.
 
-    Reads ``result.stdout`` (not ``result.output``) so the banner and
-    spinner emitted on stderr do not corrupt the JSON payload — Click 8.4's
-    ``result.output`` aggregates both streams.
+    Raises AssertionError when the command exits non-zero or the
+    output is not valid JSON.
     """
     args: list[str] = ["-m", model, "-f", "json"]
     if task:
         args.extend(["-t", task])
     result = CliRunner().invoke(inspect, args, obj={}, catch_exceptions=False)
     assert result.exit_code == 0, f"inspect failed (exit {result.exit_code}):\n{result.output}"
-    return json.loads(result.stdout)
+    return json.loads(result.output)
 
 
 def _assert_common_structure(data: dict, model_id: str, expected_task: str) -> None:
