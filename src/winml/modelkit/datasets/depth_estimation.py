@@ -12,10 +12,8 @@ to emit that exact size so calibration samples match the model input.
 from __future__ import annotations
 
 import logging
-from random import Random
 from typing import Any
 
-from datasets import load_dataset
 from datasets.features import Image
 from transformers import AutoImageProcessor
 
@@ -94,42 +92,12 @@ class DepthEstimationDataset(ImageDataset):
         if self._dataset_name is None:
             self._get_default_dataset()
 
-        revision = getattr(self, "_revision", None)
-
-        # Load dataset
-        logger.info(
-            "Loading depth estimation dataset: %s with split: %s (revision=%s)",
-            self._dataset_name,
-            self._data_split,
-            revision,
-        )
-        try:
-            dataset = load_dataset(
-                self._dataset_name,
-                split=self._data_split,
-                revision=revision,
-            )
-        except Exception as e:
-            logger.error("Failed to load dataset %s: %s", self._dataset_name, e)
-            raise
+        # Reuse the parent helper so streaming/shuffle/max_samples behavior
+        # stays consistent with ImageDataset and ObjectDetectionDataset.
+        dataset = self._load_and_sample(revision=getattr(self, "_revision", None))
 
         # Detect the input image column and the depth target column.
         self._detect_image_column(dataset)
-
-        # Sample once up front so calibration stays lightweight.
-        shuffle = self._config.get("shuffle", False)
-        seed = self._config.get("seed", 42)
-
-        if self._max_samples is not None:
-            max_samples = min(self._max_samples, len(dataset))
-            indices = (
-                Random(seed).sample(range(len(dataset)), max_samples)
-                if shuffle
-                else list(range(max_samples))
-            )
-            dataset = dataset.select(indices)
-        elif shuffle:
-            dataset = dataset.shuffle(seed=seed)
 
         # Match processor output to the ONNX input shape when available.
         io_config = self._config.get("io_config")

@@ -164,10 +164,6 @@ _DEFAULT_DATASETS: dict[str, dict] = {
         # Loaded via the parquet-mirror revision so the dataset works without
         # the legacy `nyu_depth_v2.py` loader script.
         "revision": "refs/convert/parquet",
-        "columns_mapping": {
-            "input_column": "image",
-            "depth_column": "depth_map",
-        },
     },
 }
 

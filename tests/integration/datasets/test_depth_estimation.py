@@ -91,7 +91,7 @@ class TestDepthEstimationDatasetDeriveOverrides:
 class TestDepthEstimationDatasetWithMockedDeps:
     """Tests with mocked dependencies for faster execution."""
 
-    @patch("winml.modelkit.datasets.depth_estimation.load_dataset")
+    @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
     def test_processor_created_with_static_shape(
         self,
@@ -114,6 +114,7 @@ class TestDepthEstimationDatasetWithMockedDeps:
         mock_mapped.__len__ = MagicMock(return_value=2)
         mock_mapped.with_format.return_value = mock_mapped
         mock_ds.map.return_value = mock_mapped
+        mock_ds.select.return_value = mock_ds
         mock_load_dataset.return_value = mock_ds
 
         io_config = {"pixel_values": {"shape": [1, 3, 518, 518]}}
@@ -131,7 +132,7 @@ class TestDepthEstimationDatasetWithMockedDeps:
         assert call_kwargs.get("keep_aspect_ratio") is False
         assert call_kwargs.get("do_pad") is False
 
-    @patch("winml.modelkit.datasets.depth_estimation.load_dataset")
+    @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
     def test_uses_default_size_when_no_io_config(
         self,
@@ -157,6 +158,7 @@ class TestDepthEstimationDatasetWithMockedDeps:
         mock_mapped.__len__ = MagicMock(return_value=2)
         mock_mapped.with_format.return_value = mock_mapped
         mock_ds.map.return_value = mock_mapped
+        mock_ds.select.return_value = mock_ds
         mock_load_dataset.return_value = mock_ds
 
         DepthEstimationDataset(
@@ -176,7 +178,7 @@ class TestDepthEstimationDatasetWithMockedDeps:
 class TestDepthEstimationDatasetColumnDetection:
     """Tests for column detection without ClassLabel."""
 
-    @patch("winml.modelkit.datasets.depth_estimation.load_dataset")
+    @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
     def test_detects_image_and_depth_columns(
         self,
@@ -199,6 +201,7 @@ class TestDepthEstimationDatasetColumnDetection:
         mock_mapped.__len__ = MagicMock(return_value=1)
         mock_mapped.with_format.return_value = mock_mapped
         mock_ds.map.return_value = mock_mapped
+        mock_ds.select.return_value = mock_ds
         mock_load_dataset.return_value = mock_ds
 
         ds = DepthEstimationDataset(
@@ -211,7 +214,7 @@ class TestDepthEstimationDatasetColumnDetection:
         assert ds._image_col == "image"
         assert ds.label_col == "depth_map"
 
-    @patch("winml.modelkit.datasets.depth_estimation.load_dataset")
+    @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
     def test_raises_when_no_image_column(
         self,
@@ -226,6 +229,7 @@ class TestDepthEstimationDatasetColumnDetection:
 
         mock_ds = MagicMock()
         mock_ds.features = {"text": MagicMock()}
+        mock_ds.select.return_value = mock_ds
         mock_load_dataset.return_value = mock_ds
 
         with pytest.raises(ValueError, match="No Image column"):
@@ -245,7 +249,7 @@ class TestDepthEstimationDatasetCalibrationDefaults:
     defaults (NYU + parquet revision) inside _initialize().
     """
 
-    @patch("winml.modelkit.datasets.depth_estimation.load_dataset")
+    @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
     def test_uses_nyu_with_parquet_revision_when_no_dataset_name(
         self,
@@ -273,6 +277,7 @@ class TestDepthEstimationDatasetCalibrationDefaults:
         mock_mapped.__len__ = MagicMock(return_value=1)
         mock_mapped.with_format.return_value = mock_mapped
         mock_ds.map.return_value = mock_mapped
+        mock_ds.select.return_value = mock_ds
         mock_load_dataset.return_value = mock_ds
 
         DepthEstimationDataset(
@@ -286,7 +291,7 @@ class TestDepthEstimationDatasetCalibrationDefaults:
         assert kwargs.get("split") == DEFAULT_DEPTH_ESTIMATION_SPLIT
         assert kwargs.get("revision") == DEFAULT_DEPTH_ESTIMATION_REVISION
 
-    @patch("winml.modelkit.datasets.depth_estimation.load_dataset")
+    @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
     def test_no_revision_when_user_specifies_dataset(
         self,
@@ -309,6 +314,7 @@ class TestDepthEstimationDatasetCalibrationDefaults:
         mock_mapped.__len__ = MagicMock(return_value=1)
         mock_mapped.with_format.return_value = mock_mapped
         mock_ds.map.return_value = mock_mapped
+        mock_ds.select.return_value = mock_ds
         mock_load_dataset.return_value = mock_ds
 
         DepthEstimationDataset(

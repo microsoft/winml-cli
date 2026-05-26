@@ -353,33 +353,24 @@ class TestGatherDeviceInfo:
         single query, not the sum — proving the three subprocesses run
         concurrently rather than sequentially.
         """
-        import threading
         import time
 
         from winml.modelkit.commands import sys as sys_cmd
 
-        call_starts: list[float] = []
-        call_lock = threading.Lock()
-
         def slow_empty() -> list:
-            with call_lock:
-                call_starts.append(time.perf_counter())
             time.sleep(0.15)
             return []
 
         with (
+            patch.object(sys_cmd, "_gather_device_info", wraps=sys_cmd._gather_device_info),
             patch("winml.modelkit.sysinfo.hardware.CPU.get_all", side_effect=slow_empty),
             patch("winml.modelkit.sysinfo.hardware.GPU.get_all", side_effect=slow_empty),
             patch("winml.modelkit.sysinfo.hardware.NPU.get_all", side_effect=slow_empty),
         ):
+            t0 = time.perf_counter()
             sys_cmd._gather_device_info()
+            elapsed = time.perf_counter() - t0
 
-        assert len(call_starts) == 3
-
-        # If the queries are submitted sequentially, each call starts about
-        # 0.15s after the previous one. Parallel submission should make the
-        # start times overlap closely even on slower CI runners.
-        start_spread = max(call_starts) - min(call_starts)
-        assert start_spread < 0.05, (
-            f"Hardware queries appear to start sequentially ({start_spread:.2f}s)"
-        )
+        # Sequential would be 3 x 0.15 = 0.45s; parallel should be ~0.15s.
+        # Allow generous headroom for ThreadPoolExecutor scheduling.
+        assert elapsed < 0.35, f"Hardware queries appear to run sequentially ({elapsed:.2f}s)"

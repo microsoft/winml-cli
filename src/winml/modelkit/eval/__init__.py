@@ -133,4 +133,5 @@ __all__ = [
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
+    "get_evaluator_class",
 ]

@@ -9,7 +9,6 @@ column-mapping handling, and pipeline-output extraction."""
 import numpy as np
 import pytest
 import torch
-from datasets import Dataset, Features, Image, Value
 from PIL import Image as PILImage
 
 from winml.modelkit.eval import WinMLDepthEstimationEvaluator
@@ -52,27 +51,6 @@ def make_evaluator(
 
 def create_rgb_image(width: int, height: int):
     return PILImage.new("RGB", (width, height), (128, 128, 128))
-
-
-def create_depth_image(arr: np.ndarray):
-    """Create an HF-friendly single-channel float depth image."""
-    return PILImage.fromarray(arr.astype(np.float32), mode="F")
-
-
-def make_depth_dataset(images, depth_maps, depth_col: str = "depth_map"):
-    features = Features(
-        {
-            "image": Image(mode="RGB"),
-            depth_col: Image(mode="F"),
-        }
-    )
-    return Dataset.from_dict(
-        {
-            "image": images,
-            depth_col: depth_maps,
-        },
-        features=features,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -128,46 +106,6 @@ class TestTaskSchema:
         assert "depth_kind" in params
         assert params["align"].default == "affine"
         assert params["depth_kind"].default == "depth"
-
-
-# ---------------------------------------------------------------------------
-# Schema validation
-# ---------------------------------------------------------------------------
-
-
-class TestValidateSchema:
-    def test_valid_schema_passes(self):
-        ev = make_evaluator()
-        img = create_rgb_image(4, 3)
-        depth = create_depth_image(np.ones((3, 4), dtype=np.float32))
-        ds = make_depth_dataset([img], [depth])
-        ev._validate_schema(ds)  # should not raise
-
-    def test_missing_image_column_raises(self):
-        from winml.modelkit.utils.eval_utils import DatasetValidationError
-
-        ev = make_evaluator()
-        ds = Dataset.from_dict({"text": ["hello"], "depth_map": ["a"]})
-        with pytest.raises(DatasetValidationError, match="missing input column 'image'"):
-            ev._validate_schema(ds)
-
-    def test_missing_depth_column_raises(self):
-        from winml.modelkit.utils.eval_utils import DatasetValidationError
-
-        ev = make_evaluator()
-        features = Features({"image": Image(mode="RGB"), "label": Value("int64")})
-        img = create_rgb_image(4, 3)
-        ds = Dataset.from_dict({"image": [img], "label": [0]}, features=features)
-        with pytest.raises(DatasetValidationError, match="missing depth column 'depth_map'"):
-            ev._validate_schema(ds)
-
-    def test_custom_columns_mapping(self):
-        ev = make_evaluator(input_col="rgb", depth_col="z")
-        features = Features({"rgb": Image(mode="RGB"), "z": Image(mode="F")})
-        img = create_rgb_image(4, 3)
-        depth = create_depth_image(np.ones((3, 4), dtype=np.float32))
-        ds = Dataset.from_dict({"rgb": [img], "z": [depth]}, features=features)
-        ev._validate_schema(ds)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -319,33 +257,6 @@ class TestPreparePipeline:
         # Untouched
         assert pipe.image_processor.size == {"height": 0, "width": 0}
         assert pipe.image_processor.keep_aspect_ratio is True
-
-
-# ---------------------------------------------------------------------------
-# align_labels
-# ---------------------------------------------------------------------------
-
-
-class TestAlignLabels:
-    def test_align_labels_returns_dataset_unchanged(self):
-        ev = make_evaluator()
-        img = create_rgb_image(4, 3)
-        depth = create_depth_image(np.ones((3, 4), dtype=np.float32))
-        ds = make_depth_dataset([img], [depth])
-        ds_config = type("Cfg", (), {"label_mapping": None})()
-        result = ev.align_labels(ds, ds_config)
-        # Same dataset, no remapping.
-        assert result.column_names == ds.column_names
-        assert len(result) == len(ds)
-
-    def test_align_labels_invalid_schema_raises(self):
-        from winml.modelkit.utils.eval_utils import DatasetValidationError
-
-        ev = make_evaluator()
-        bad = Dataset.from_dict({"foo": [1]})
-        ds_config = type("Cfg", (), {"label_mapping": None})()
-        with pytest.raises(DatasetValidationError, match="missing input column"):
-            ev.align_labels(bad, ds_config)
 
 
 # ---------------------------------------------------------------------------

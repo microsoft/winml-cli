@@ -14,17 +14,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
 
 
 if TYPE_CHECKING:
     import numpy as np
-    from datasets import Dataset
     from transformers.pipelines.base import Pipeline
 
     from ..models.winml.base import WinMLPreTrainedModel
-    from .config import DatasetConfig, WinMLEvaluationConfig
+    from .config import WinMLEvaluationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -80,15 +78,6 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
 
         return pipe
 
-    def align_labels(
-        self,
-        dataset: Dataset,
-        ds_config: DatasetConfig,
-    ) -> Dataset:
-        """Validate input and depth columns; no class-label mapping for depth."""
-        self._validate_schema(dataset)
-        return dataset
-
     def compute(self) -> dict[str, Any]:
         """Run depth evaluation over all samples."""
         import numpy as np
@@ -140,17 +129,3 @@ class WinMLDepthEstimationEvaluator(WinMLEvaluator):
         if isinstance(predicted, torch.Tensor):
             predicted = predicted.detach().cpu().numpy()
         return np.asarray(predicted, dtype=np.float32).squeeze()
-
-    def _validate_schema(self, dataset: Dataset) -> None:
-        """Check dataset has required image and depth columns."""
-        col_names = list(dataset.column_names)
-        if self._input_col not in col_names:
-            raise DatasetValidationError(
-                f"Dataset missing input column '{self._input_col}'. "
-                f"Available: {col_names}. Set input_column in columns_mapping.",
-            )
-        if self._depth_col not in col_names:
-            raise DatasetValidationError(
-                f"Dataset missing depth column '{self._depth_col}'. "
-                f"Available: {col_names}. Set depth_column in columns_mapping.",
-            )
