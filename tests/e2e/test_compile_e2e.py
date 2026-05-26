@@ -235,7 +235,8 @@ class TestCliSurface:
         assert "ort" in result.output.lower()
 
     def test_list_for_npu_includes_qairt(self) -> None:
-        result = _invoke("--list", "--device", "npu")
+        require_ep("qnn")
+        result = _invoke("--list", "--device", "npu", "--ep", "qnn")
         assert result.exit_code == 0, result.output
         out = result.output.lower()
         assert "ort" in out and "qairt" in out
@@ -760,7 +761,7 @@ def test_bad_input_device_ep_conflict(
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
     _assert_rejected(
-        result, "no compatible EP is available", src_hash, simple_matmul_onnx
+        result, f"cannot run on --device {device}", src_hash, simple_matmul_onnx
     )
 
 
@@ -797,8 +798,9 @@ def test_bad_input_ep_not_registered(
     """``--ep X`` on a host without X is rejected.
 
     With the EP unavailable on host, ``sysinfo``'s device-resolution
-    preflight finds no compatible EP for ``--device`` and raises before
-    reaching the EP-registration check in ``commands/compile.py``.
+    preflight raises ``ValueError`` ("Requested EP 'X' is not available
+    on this system"), which the ``compile`` command converts to a
+    ``UsageError`` at the CLI boundary.
     """
     require_not_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
@@ -806,7 +808,7 @@ def test_bad_input_ep_not_registered(
         "-m", str(simple_matmul_onnx), "--device", device, "--ep", ep
     )
     _assert_rejected(
-        result, "no compatible EP is available", src_hash, simple_matmul_onnx
+        result, "is not available on this system", src_hash, simple_matmul_onnx
     )
 
 
