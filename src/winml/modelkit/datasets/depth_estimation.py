@@ -130,21 +130,17 @@ class DepthEstimationDataset(ImageDataset):
         logger.info("Dataset initialized with %d samples", len(self._dataset))
 
     def _detect_image_column(self, dataset: Any) -> None:
-        """Detect the input image column and depth target column.
+        """Detect the input image column for calibration.
 
-        Depth-estimation datasets usually contain one image column for the
-        source image and another column for the ground-truth depth map.
+        PTQ calibration only consumes ``pixel_values``; the depth target is
+        not needed and is not read here.
         """
         if not hasattr(dataset, "features"):
             raise ValueError(f"Dataset {self._dataset_name} has no features metadata")
 
         features = dataset.features
 
-        # Use the first image column as the model input.
         self._image_col = None
-        self._label_col = None
-        self._label_feature = None
-
         for col_name, feature in features.items():
             if isinstance(feature, Image):
                 self._image_col = col_name
@@ -158,29 +154,12 @@ class DepthEstimationDataset(ImageDataset):
                 f"Available: {dict(zip(available_cols, available_types, strict=False))}"
             )
 
-        # Prefer common depth-target column names when present.
-        for col_name in ["depth_map", "depth", "depths"]:
-            if col_name in features and col_name != self._image_col:
-                self._label_col = col_name
-                break
-
-        if self._label_col is None:
-            # Fall back to the first non-input column.
-            for col_name in features:
-                if col_name != self._image_col:
-                    self._label_col = col_name
-                    break
-
-        logger.info(
-            "Detected columns - image: '%s', depth: '%s'",
-            self._image_col,
-            self._label_col,
-        )
+        logger.info("Detected image column: '%s'", self._image_col)
 
     @property
     def label_col(self) -> str:
-        """Get the depth-map column name (readonly)."""
-        return self._label_col or ""
+        """No label column is used for depth-estimation calibration."""
+        return ""
 
     @property
     def label_names(self) -> list[str]:

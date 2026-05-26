@@ -180,12 +180,12 @@ class TestDepthEstimationDatasetColumnDetection:
 
     @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
-    def test_detects_image_and_depth_columns(
+    def test_detects_image_column_only(
         self,
         mock_processor_cls: MagicMock,
         mock_load_dataset: MagicMock,
     ) -> None:
-        """Detects Image column for input and depth_map column for ground truth."""
+        """Detects the Image column used for calibration; no label column."""
         from datasets.features import Image
 
         from winml.modelkit.datasets import DepthEstimationDataset
@@ -212,7 +212,8 @@ class TestDepthEstimationDatasetColumnDetection:
         )
 
         assert ds._image_col == "image"
-        assert ds.label_col == "depth_map"
+        assert ds.label_col == ""
+        assert ds.label_names == []
 
     @patch("winml.modelkit.datasets.image.load_dataset")
     @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
