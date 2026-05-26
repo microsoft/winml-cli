@@ -673,7 +673,7 @@ def test_good_input_compiles_and_runs(
     device: str | None,
     ep: str | None,
     require_ep_name: str,
-    simple_matmul_onnx: Path,
+    request: pytest.FixtureRequest,
     sample_input: dict,
     tmp_path: Path,
 ) -> None:
@@ -682,8 +682,18 @@ def test_good_input_compiles_and_runs(
     """
     require_ep(require_ep_name)
 
+    # VitisAI's compile path crashes inside ``onnxruntime_vitisai_ep.dll``
+    # when the input graph has no compilable subgraph (i.e. an FP32 MatMul).
+    # Feed it a synthetic QDQ INT8 variant with the same A/C signature so
+    # the EP has a quantized op to claim. All other EPs continue to use
+    # the FP32 fixture — this keeps behaviour unchanged on non-VitisAI hosts.
+    fixture_name = (
+        "qdq_matmul_onnx" if require_ep_name == "vitisai" else "simple_matmul_onnx"
+    )
+    source_onnx: Path = request.getfixturevalue(fixture_name)
+
     out = tmp_path / f"{device or 'nodev'}_{ep or 'noep'}.onnx"
-    cmd = ["-m", str(simple_matmul_onnx), "-o", str(out)]
+    cmd = ["-m", str(source_onnx), "-o", str(out)]
     if device is not None:
         cmd.extend(["--device", device])
     if ep is not None:
@@ -692,7 +702,7 @@ def test_good_input_compiles_and_runs(
 
     assert result.exit_code == 0, f"compile failed:\n{result.output}"
     assert "Success! Model compiled" in result.output, result.output
-    assert_epcontext_artifact(out, simple_matmul_onnx, embed=False)
+    assert_epcontext_artifact(out, source_onnx, embed=False)
     assert_banner_matches_artifact(result, out)
     # When ``--ep`` is explicit, bind that EP. When it's omitted, the resolver
     # picks an EP based on host registry order, which is not deterministic

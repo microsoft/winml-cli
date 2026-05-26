@@ -201,6 +201,66 @@ def simple_matmul_onnx(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def qdq_matmul_onnx(tmp_path: Path) -> Path:
+    """Synthetic QDQ INT8 MatMul (A @ B = C) for EPs that require quantized
+    graphs (e.g. VitisAI on AMD NPU, which crashes on FP32 graphs lacking a
+    compilable subgraph).
+
+    Same A/C signature as ``simple_matmul_onnx`` so ``sample_input`` works
+    unchanged. Scales and zero points are synthetic — no real calibration
+    is performed; just a symmetric INT8 scheme with ``scale = max(|x|)/127``
+    and ``zero_point = 0``.
+    """
+    from onnx import numpy_helper
+
+    np.random.seed(42)
+    b_fp32 = np.random.randn(4, 4).astype(np.float32)
+    b_scale = float(np.max(np.abs(b_fp32)) / 127.0)
+    b_int8 = np.clip(np.round(b_fp32 / b_scale), -128, 127).astype(np.int8)
+
+    a_scale = np.float32(1.0 / 127.0)
+    y_scale = np.float32(1.0 / 127.0)
+    zp = np.int8(0)
+
+    initializers = [
+        numpy_helper.from_array(b_int8, name="B_int8"),
+        numpy_helper.from_array(np.array(b_scale, np.float32), name="B_scale"),
+        numpy_helper.from_array(np.array(zp, np.int8), name="B_zp"),
+        numpy_helper.from_array(np.array(a_scale, np.float32), name="A_scale"),
+        numpy_helper.from_array(np.array(zp, np.int8), name="A_zp"),
+        numpy_helper.from_array(np.array(y_scale, np.float32), name="Y_scale"),
+        numpy_helper.from_array(np.array(zp, np.int8), name="Y_zp"),
+    ]
+
+    a_input = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 4])
+    c_output = helper.make_tensor_value_info("C", TensorProto.FLOAT, [1, 4])
+
+    nodes = [
+        helper.make_node("QuantizeLinear", ["A", "A_scale", "A_zp"], ["A_q"], name="Q_A"),
+        helper.make_node(
+            "DequantizeLinear", ["A_q", "A_scale", "A_zp"], ["A_dq"], name="DQ_A"
+        ),
+        helper.make_node(
+            "DequantizeLinear", ["B_int8", "B_scale", "B_zp"], ["B_dq"], name="DQ_B"
+        ),
+        helper.make_node("MatMul", ["A_dq", "B_dq"], ["M_out"], name="matmul"),
+        helper.make_node(
+            "QuantizeLinear", ["M_out", "Y_scale", "Y_zp"], ["M_q"], name="Q_M"
+        ),
+        helper.make_node(
+            "DequantizeLinear", ["M_q", "Y_scale", "Y_zp"], ["C"], name="DQ_M"
+        ),
+    ]
+    graph = helper.make_graph(nodes, "qdq_matmul", [a_input], [c_output], initializers)
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)])
+    model.ir_version = 10
+    onnx.checker.check_model(model)
+    path = tmp_path / "test_matmul_qdq.onnx"
+    onnx.save(model, str(path))
+    return path
+
+
+@pytest.fixture
 def sample_input() -> dict[str, np.ndarray]:
     """Create sample input for MatMul model."""
     np.random.seed(123)
