@@ -344,7 +344,13 @@ class TestAnalyzeHappyPath:
         )
         monkeypatch.setattr(
             "winml.modelkit.commands.analyze._get_local_ep_device_pairs",
-            lambda: [("QNNExecutionProvider", "GPU"), ("QNNExecutionProvider", "NPU")],
+            lambda: [
+                ("QNNExecutionProvider", "NPU"),
+                ("QNNExecutionProvider", "GPU"),
+                ("QNNExecutionProvider", "CPU"),
+                ("DmlExecutionProvider", "GPU"),
+                ("CPUExecutionProvider", "CPU"),
+            ],
         )
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "GPU")
