@@ -1031,6 +1031,20 @@ def save_environment_info(path: Path) -> None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass  # git not available or timed out; commit info stays empty
 
+    # `winml sys --format json` captures hardware details (devices, EPs,
+    # backends) that the lightweight package-version probes above miss.
+    try:
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "winml", "sys", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            info["winml_sys"] = json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        pass
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2), encoding="utf-8")
 
