@@ -11,7 +11,9 @@
 | QNN (Qualcomm, NPU) - w8a16 | 55 | 63 | 63/63 (100%) | 48/63 (76%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, NPU) - w8a8 | 55 | 63 | 63/63 (100%) | 48/63 (76%) | [Report](qnn/npu/REPORT.md) |
 | QNN (Qualcomm, GPU) | - | - | - | - | - |
-| OpenVINO (Intel, NPU) | - | - | - | - | - |
+| OpenVINO (Intel, NPU) - fp16 | 48 | 56 | 55/56 (98%) | 49/56 (88%) | - |
+| OpenVINO (Intel, NPU) - w8a16 | 48 | 56 | 55/56 (98%) | 51/56 (91%) | - |
+| OpenVINO (Intel, NPU) - w8a8 | 48 | 56 | 55/56 (98%) | 51/56 (91%) | - |
 | OpenVINO (Intel, CPU) | - | - | - | - | - |
 | OpenVINO (Intel, GPU) | - | - | - | - | - |
 | DML (GPU) | 55 | 63 | 54/63 (86%) | 38/63 (60%) | [Report](dml/gpu/REPORT.md) |

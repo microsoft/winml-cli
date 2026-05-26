@@ -1,0 +1,38 @@
+{
+  "model_id": "deepset/bert-large-uncased-whole-word-masking-squad2",
+  "task": "question-answering",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "validation",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "rajpurkar/squad_v2",
+    "columns_mapping": {
+      "question_column": "question",
+      "context_column": "context",
+      "id_column": "id",
+      "label_column": "answers"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\deepset_bert-large-uncased-whole-word-masking-squad2\\question-answering_fp16_eval_result.json",
+  "metrics": {
+    "exact": 88.0,
+    "f1": 89.85,
+    "total": 100,
+    "HasAns_exact": 87.5,
+    "HasAns_f1": 91.35416666666667,
+    "HasAns_total": 48,
+    "NoAns_exact": 88.46153846153847,
+    "NoAns_f1": 88.46153846153847,
+    "NoAns_total": 52,
+    "best_exact": 88.0,
+    "best_exact_thresh": 0.9950351715087891,
+    "best_f1": 89.85,
+    "best_f1_thresh": 0.9950351715087891,
+    "total_time_in_seconds": 12.83064259996172,
+    "samples_per_second": 7.793841907832297,
+    "latency_in_seconds": 0.1283064259996172
+  }
+}

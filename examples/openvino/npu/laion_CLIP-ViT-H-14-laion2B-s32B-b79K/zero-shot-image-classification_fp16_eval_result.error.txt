@@ -1,0 +1,32 @@
+^^^^^^^^^^^^^^^^
+  File "C:\Users\shzhen\AppData\Local\repo\WinML-ModelKit\.venv\Lib\site-packages\optimum\exporters\tasks.py", line 1300, in get_exporter_config_constructor
+    raise ValueError(
+ValueError: clip_vision_model doesn't support task image-feature-extraction for the onnx backend. Supported tasks are: feature-extraction.
+[2026-05-25T23:48:02] WARNING: Model producer not matched: Expected "pytorch", Got "onnxruntime.transformers".Please specify correct --model_type parameter.
+[2026-05-25T23:49:02] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+  0%|          | 0/969 [00:00<?, ?it/s]
+  3%|▎         | 32/969 [00:00<00:02, 319.28it/s]
+ 10%|█         | 99/969 [00:00<00:01, 525.26it/s]
+ 17%|█▋        | 163/969 [00:00<00:01, 575.96it/s]
+ 23%|██▎       | 227/969 [00:00<00:01, 583.02it/s]
+ 31%|███       | 300/969 [00:00<00:01, 613.63it/s]
+ 38%|███▊      | 367/969 [00:00<00:00, 630.25it/s]
+ 45%|████▌     | 438/969 [00:00<00:00, 646.87it/s]
+ 52%|█████▏    | 503/969 [00:00<00:00, 569.68it/s]
+ 58%|█████▊    | 565/969 [00:00<00:00, 569.65it/s]
+ 65%|██████▍   | 629/969 [00:01<00:00, 573.08it/s]
+ 72%|███████▏  | 698/969 [00:01<00:00, 588.34it/s]
+ 79%|███████▉  | 765/969 [00:01<00:00, 605.39it/s]
+ 86%|████████▌ | 830/969 [00:01<00:00, 614.57it/s]
+ 93%|█████████▎| 898/969 [00:01<00:00, 627.54it/s]
+ 99%|█████████▉| 962/969 [00:01<00:00, 628.41it/s]
+100%|██████████| 969/969 [00:01<00:00, 600.55it/s]
+[2026-05-25T23:49:04] WARNING: No runtime check data found. Follow https://github.com/microsoft/WinML-ModelKit/blob/main/CONTRIBUTING.md to set up runtime check files.
+
+Aligning the labels:   0%|          | 0/10 [00:00<?, ? examples/s]
+Aligning the labels: 100%|██████████| 10/10 [00:00<00:00, 517.11 examples/s]
+
+Map:   0%|          | 0/10 [00:00<?, ? examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 67.42 examples/s]
+Map: 100%|██████████| 10/10 [00:00<00:00, 64.53 examples/s]

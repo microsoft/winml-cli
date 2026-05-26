@@ -1,0 +1,22 @@
+{
+  "model_id": "FacebookAI/roberta-base",
+  "task": "fill-mask",
+  "device": "npu",
+  "ep": "openvino",
+  "dataset": {
+    "split": "test",
+    "samples": 100,
+    "shuffle": true,
+    "seed": 42,
+    "path": "Salesforce/wikitext",
+    "name": "wikitext-2-raw-v1",
+    "columns_mapping": {
+      "input_column": "text"
+    }
+  },
+  "output_path": "C:\\Users\\shzhen\\AppData\\Local\\repo\\WinML-ModelKit\\examples\\openvino\\npu\\FacebookAI_roberta-base\\fill-mask_w8a16_eval_result.json",
+  "metrics": {
+    "pseudo_perplexity": 5.3275,
+    "nll": 1.6729
+  }
+}
