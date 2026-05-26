@@ -100,7 +100,7 @@ class ConsoleWriter(StepAwareWriter):
     @step(ExportStep.MODEL_PREP)
     def write_model_prep(self, export_step: ExportStep, data: ExportData) -> int:
         """Step 1: Model preparation."""
-        if not self.verbose or not data.model_prep:
+        if not data.model_prep:
             return 0
 
         self._current_step = 1
@@ -128,7 +128,7 @@ class ConsoleWriter(StepAwareWriter):
     @step(ExportStep.INPUT_GEN)
     def write_input_gen(self, export_step: ExportStep, data: ExportData) -> int:
         """Step 2: Input generation."""
-        if not self.verbose or not data.input_gen:
+        if not data.input_gen:
             return 0
 
         self._current_step = 2
@@ -163,7 +163,7 @@ class ConsoleWriter(StepAwareWriter):
     @step(ExportStep.HIERARCHY)
     def write_hierarchy(self, export_step: ExportStep, data: ExportData) -> int:
         """Step 3: Hierarchy building."""
-        if not self.verbose or not data.hierarchy:
+        if not data.hierarchy:
             return 0
 
         self._current_step = 3
@@ -190,7 +190,7 @@ class ConsoleWriter(StepAwareWriter):
     @step(ExportStep.ONNX_EXPORT)
     def write_onnx_export(self, export_step: ExportStep, data: ExportData) -> int:
         """Step 4: ONNX export."""
-        if not self.verbose or not data.onnx_export:
+        if not data.onnx_export:
             return 0
 
         self._current_step = 4
@@ -242,7 +242,7 @@ class ConsoleWriter(StepAwareWriter):
     @step(ExportStep.NODE_TAGGING)
     def write_node_tagging(self, export_step: ExportStep, data: ExportData) -> int:
         """Step 5: Node tagging."""
-        if not self.verbose or not data.node_tagging:
+        if not data.node_tagging:
             return 0
 
         self._current_step = 5
@@ -262,8 +262,9 @@ class ConsoleWriter(StepAwareWriter):
         # Display tagging statistics
         self._display_tagging_statistics(data.node_tagging)
 
-        # Display nodes by hierarchy
-        self._display_nodes_by_hierarchy(data.node_tagging.tagged_nodes)
+        # Display nodes by hierarchy (verbose only)
+        if self.verbose:
+            self._display_nodes_by_hierarchy(data.node_tagging.tagged_nodes)
 
         # Display hierarchy tree with node counts
         if data.hierarchy and data.hierarchy.hierarchy and data.node_tagging.tagged_nodes:
@@ -281,7 +282,7 @@ class ConsoleWriter(StepAwareWriter):
     @step(ExportStep.TAG_INJECTION)
     def write_tag_injection(self, export_step: ExportStep, data: ExportData) -> int:
         """Step 6: Tag injection."""
-        if not self.verbose or not data.tag_injection:
+        if not data.tag_injection:
             return 0
 
         self._current_step = 6

@@ -56,3 +56,11 @@ def configure_logging(
         stream=sys.stderr,
         force=True,
     )
+
+
+def flush_ort_startup_logs() -> None:
+    """No-op kept for backward compatibility.
+
+    ORT startup stderr is now discarded to devnull (not captured), so there
+    is nothing to replay.
+    """
