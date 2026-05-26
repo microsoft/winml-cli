@@ -57,12 +57,6 @@ def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> Non
         cfg.compile = None
 
 
-def _is_onnx_file(model_input: str) -> bool:
-    """Check if input is a path to an existing .onnx file."""
-    path = Path(model_input)
-    return path.suffix == ".onnx" and path.exists()
-
-
 @click.command("config")
 @click.option(
     "-m",
@@ -289,12 +283,12 @@ def config(
             _shape_config_file = shape_config_path.name
 
         # ONNX file detection: generate simpler config without loader/export
-        if hf_model and _is_onnx_file(hf_model) and module:
+        if hf_model and cli_utils.is_onnx_file_path(hf_model) and module:
             raise click.UsageError(
                 "--module is not supported with ONNX file input. "
                 "Module discovery requires a HuggingFace model."
             )
-        if hf_model and _is_onnx_file(hf_model):
+        if hf_model and cli_utils.is_onnx_file_path(hf_model):
             config_obj = generate_onnx_build_config(
                 hf_model,
                 task=task,

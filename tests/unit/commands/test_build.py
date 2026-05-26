@@ -68,7 +68,7 @@ def mock_task_model_compatibility_validator():
     HuggingFace config resolution paths.
     """
     with patch(
-        "winml.modelkit.commands.build.validate_task_supported_for_model",
+        "winml.modelkit.commands.build._validate_task_supported_for_model",
         return_value=None,
     ):
         yield
@@ -364,7 +364,7 @@ class TestBuildArgValidation:
 
         with (
             patch(
-                "winml.modelkit.commands.build.validate_task_supported_for_model",
+                "winml.modelkit.commands.build._validate_task_supported_for_model",
                 side_effect=ValueError(msg),
             ) as mock_validate,
             patch("winml.modelkit.commands.build._run_single_build") as mock_run,
@@ -378,6 +378,7 @@ class TestBuildArgValidation:
             task="text-generation",
             task_field_name="config.loader.task",
             trust_remote_code=False,
+            hf_config=None,
         )
         mock_run.assert_not_called()
 
@@ -1291,7 +1292,7 @@ class TestBuildOnnxAutoDetect:
             ["-c", str(sample_config_file), "-m", "nonexistent.onnx", "-o", str(output_dir)],
             obj={"debug": False},
         )
-        # _is_onnx_file checks suffix AND exists(); nonexistent.onnx
+        # is_onnx_file_path checks suffix AND exists(); nonexistent.onnx
         # falls through to HF path since the file doesn't exist on disk
         assert result.exit_code == 0, f"Build failed: {result.output}"
         assert mock_build_api.called

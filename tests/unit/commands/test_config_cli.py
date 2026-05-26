@@ -314,7 +314,7 @@ class TestConfigOnnxOverrides:
         """--no-quant should set quant=None even for ONNX configs."""
         from winml.modelkit.commands.config import config
 
-        # Create a fake .onnx file so _is_onnx_file returns True
+        # Create a fake .onnx file so is_onnx_file_path returns True
         onnx_file = tmp_path / "model.onnx"
         onnx_file.write_bytes(b"fake")
 

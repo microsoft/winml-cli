@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING
 import click
 from rich.logging import RichHandler
 
-from ..loader import validate_task_supported_for_model
 from ..utils import cli as cli_utils
 from ..utils.console import (
     detect_model_source,
@@ -225,35 +224,142 @@ def _build_modules(
     return results
 
 
+def _validate_task_supported_for_model(
+    model_id: str,
+    task: str,
+    *,
+    task_field_name: str = "task",
+    trust_remote_code: bool = False,
+    library_name: str = "transformers",
+    hf_config: Any | None = None,
+) -> Any:
+    """Validate that a task is supported for a model's architecture.
+
+    Private helper for ``winml build`` only. Loads HuggingFace config metadata
+    and validates against ``TasksManager`` supported-task mapping.
+
+    Why this lives here and not in ``loader/`` as public API:
+        Only ``winml build`` accepts task and model from independent sources
+        (config JSON's ``loader.task`` + ``--model``) and runs the full
+        export+optimize+quantize+compile pipeline that benefits from a fast
+        upfront fail. Other CLI entrypoints get equivalent coverage through
+        their existing resolution paths:
+
+        - ``winml config`` derives task from the model when both are present,
+          so the mismatch can't be silently constructed.
+        - ``winml export`` / ``winml perf`` surface incompatibilities through
+          ``resolve_cfg`` -> ``ONNXConfigNotFoundError`` later in the call.
+
+        Promoting this to public API would signal that any command should
+        wire it in, which is not the current design. If a second caller
+        appears, move this back to ``loader/`` and re-export it.
+
+    Args:
+        model_id: HuggingFace model ID or local path.
+        task: Requested task name.
+        task_field_name: Field label used in user-facing error messages.
+        trust_remote_code: Whether to trust remote/custom code while loading config.
+        library_name: Source library for TasksManager lookup.
+        hf_config: Optional pre-loaded HF config. When supplied, the
+            ``AutoConfig.from_pretrained`` round-trip is skipped. Used by
+            ``_validate_loader_tasks_for_model`` to preflight multiple tasks
+            against the same model without re-fetching.
+
+    Returns:
+        The loaded (or passed-through) HuggingFace config. Callers can reuse
+        this to avoid a duplicate ``AutoConfig.from_pretrained`` later
+        (see PR #719 -- same deduping pattern as ``resolve_loader_config``).
+
+    Raises:
+        ValueError: If the task is not supported for the model architecture.
+    """
+    from ..export.io import ensure_hf_models_registered
+    from ..loader.task import get_supported_tasks, normalize_task
+
+    if hf_config is None:
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(
+            model_id,
+            trust_remote_code=trust_remote_code,
+        )
+    model_type = getattr(hf_config, "model_type", None)
+    if not model_type:
+        return hf_config
+
+    # Ensure optimum.exporters.onnx.model_configs is imported before querying
+    # the registry. TasksManager._SUPPORTED_MODEL_TYPE is populated lazily
+    # when optimum's ONNX model_configs module is first imported (triggered by
+    # any import of optimum.exporters.onnx). Without this, get_supported_tasks
+    # returns [] for models like resnet that are registered there, not in the
+    # winml custom registry.
+    ensure_hf_models_registered()
+
+    supported_tasks = get_supported_tasks(model_type, library_name=library_name)
+    # If the upstream registry has no task list for this architecture,
+    # defer to downstream loader resolution instead of hard-failing here.
+    if not supported_tasks:
+        return hf_config
+
+    normalized_supported = {normalize_task(t) for t in supported_tasks}
+    if normalize_task(task) in normalized_supported:
+        return hf_config
+
+    supported_list = ", ".join(supported_tasks)
+    raise ValueError(
+        f"{task_field_name}='{task}' is not supported for --model {model_id} "
+        f"(architecture: {model_type}).\n"
+        f"Supported tasks: {supported_list}."
+    )
+
+
 def _validate_loader_tasks_for_model(
     *,
     model_id: str | None,
     configs: list[WinMLBuildConfig],
     trust_remote_code: bool,
-) -> None:
+) -> Any | None:
     """Validate config loader task(s) against --model architecture.
 
     This runs at command entry before setup/stage output so incompatible
     config/model combinations fail with an actionable one-line error.
+
+    Loads ``AutoConfig`` at most once and reuses it across every per-task
+    check, then returns it so the build pipeline can plumb it down to
+    ``load_hf_model`` and avoid the second/third round-trip that PR #719
+    deduped on the inspect path.
+
+    See ``_validate_task_supported_for_model`` for the rationale on why this
+    preflight is wired into ``winml build`` only.
+
+    Returns:
+        Pre-loaded ``PretrainedConfig`` (caller should pass this into
+        ``_run_single_build`` so ``load_hf_model`` skips its own
+        ``AutoConfig.from_pretrained`` call), or ``None`` when no model_id
+        was provided / model_id is an ONNX file / no task to validate.
     """
     if model_id is None:
-        return
+        return None
 
-    from .config import _is_onnx_file
-
-    if _is_onnx_file(model_id):
-        return
+    if cli_utils.is_onnx_file_path(model_id):
+        return None
 
     tasks = {
         cfg.loader.task for cfg in configs if cfg.loader is not None and cfg.loader.task is not None
     }
+    if not tasks:
+        return None
+
+    hf_config: Any | None = None
     for task in sorted(tasks):
-        validate_task_supported_for_model(
+        hf_config = _validate_task_supported_for_model(
             model_id=model_id,
             task=task,
             task_field_name="config.loader.task",
             trust_remote_code=trust_remote_code,
+            hf_config=hf_config,
         )
+    return hf_config
 
 
 # =============================================================================
@@ -508,7 +614,7 @@ def build(
         except ValueError as e:
             raise click.UsageError(f"Config validation failed: {e}") from e
 
-        _validate_loader_tasks_for_model(
+        preloaded_hf_config = _validate_loader_tasks_for_model(
             model_id=model_id,
             configs=_configs_to_validate,
             trust_remote_code=trust_remote_code,
@@ -631,6 +737,7 @@ def build(
                 ep=ep,
                 device=device,
                 extra_kwargs=extra_kwargs,
+                preloaded_hf_config=preloaded_hf_config,
             )
 
     except click.UsageError:
@@ -677,11 +784,10 @@ def _run_single_build(
     ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
+    preloaded_hf_config: Any | None = None,
 ) -> None:
     """Run single-model build with Rich Live progress per stage."""
-    from .config import _is_onnx_file
-
-    _is_onnx = model_id is not None and _is_onnx_file(model_id)
+    _is_onnx = model_id is not None and cli_utils.is_onnx_file_path(model_id)
     # Derive source from _is_onnx to guarantee header label matches pipeline
     source = "ONNX" if _is_onnx else detect_model_source(model_id)
 
@@ -746,6 +852,7 @@ def _run_single_build(
                 ep=ep,
                 device=device,
                 extra_kwargs=extra_kwargs,
+                preloaded_hf_config=preloaded_hf_config,
             )
 
         elapsed = time.monotonic() - start_time
@@ -1136,6 +1243,7 @@ def _build_hf_pipeline(
     ep: EPNameOrAlias | None,
     device: str | None,
     extra_kwargs: dict[str, Any],
+    preloaded_hf_config: Any | None = None,
 ) -> list[tuple[str, float | None]] | None:
     """HF build pipeline with cascading StageLive per stage.
 
@@ -1189,7 +1297,9 @@ def _build_hf_pipeline(
         sl.set_status("Exporting to ONNX...")
 
         # Load + export (blocking)
-        pytorch_model = _load_model(config, model_id, trust_remote_code=False)
+        pytorch_model = _load_model(
+            config, model_id, trust_remote_code=False, hf_config=preloaded_hf_config
+        )
         t0 = time.monotonic()
         export_onnx(
             model=pytorch_model,
