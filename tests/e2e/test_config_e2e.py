@@ -32,6 +32,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from tests.e2e.require_ep import require_ep
 from winml.modelkit.commands.config import config
 
 
@@ -372,6 +373,7 @@ class TestConfigFlagVariations:
 
     def test_compile_enabled(self) -> None:
         """--compile (negated default) should produce a compile section."""
+        require_ep("qnn")
         data = _run_config(
             "-m",
             self.MODEL,
