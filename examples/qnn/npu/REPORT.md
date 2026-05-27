@@ -5,13 +5,13 @@
 - Models: 77
 - Configs: 216
 - Perf Pass: 188/216 (87%)
-- Eval Pass: 167/216 (77%)
+- Eval Pass: 168/216 (78%)
 
 ### Per-precision breakdown
 
 | Precision | Models | Configs | Perf Pass | Eval Pass |
 |---|---|---|---|---|
-| fp16 | 77 | 90 | 62/90 (69%) | 61/90 (68%) |
+| fp16 | 77 | 90 | 62/90 (69%) | 62/90 (69%) |
 | w8a16 | 55 | 63 | 63/63 (100%) | 53/63 (84%) |
 | w8a8 | 55 | 63 | 63/63 (100%) | 53/63 (84%) |
 
@@ -217,7 +217,7 @@
 |  | fill-mask | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/fill-mask_fp16_config.json) | — | pseudo_perplexity=303396.8032, nll=12.6228 ([metric](./sentence-transformers_all-mpnet-base-v2/fill-mask_fp16_eval_result.json)) |
 |  | sentence-similarity | fp16 | [config](./sentence-transformers_all-mpnet-base-v2/sentence-similarity_fp16_config.json) | — | cosine_spearman=29.6817 ([metric](./sentence-transformers_all-mpnet-base-v2/sentence-similarity_fp16_eval_result.json)) |
 | sentence-transformers/multi-qa-mpnet-base-dot-v1 | feature-extraction | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_config.json) | — | cosine_spearman=27.3779 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_eval_result.json)) |
-|  | fill-mask | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_config.json) | — | — |
+|  | fill-mask | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_config.json) | — | pseudo_perplexity=1516611.1981, nll=14.2320 ([metric](./sentence-transformers_multi-qa-mpnet-base-dot-v1/fill-mask_fp16_eval_result.json)) |
 |  | sentence-similarity | fp16 | [config](./sentence-transformers_multi-qa-mpnet-base-dot-v1/sentence-similarity_fp16_config.json) | — | — |
 | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 | feature-extraction | fp16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_config.json) | 26.83ms, 37.3sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_perf_result.json)) | cosine_spearman=84.1603 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_fp16_eval_result.json)) |
 |  | feature-extraction | w8a16 | [config](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_config.json) | 27.64ms, 36.2sps ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_perf_result.json)) | cosine_spearman=64.0256 ([metric](./sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2/feature-extraction_w8a16_eval_result.json)) |
