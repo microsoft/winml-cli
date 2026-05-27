@@ -1,0 +1,5 @@
+[0;93m2026-05-27 10:28:05.1356706 [W:onnxruntime:Default, onnxruntime_pybind_module.cc:44 onnxruntime::python::CreateOrtEnv] Init provider bridge failed.[m
+Usage: python -m winml.modelkit eval [OPTIONS]
+Try 'python -m winml.modelkit eval --help' for help.
+
+Error: Invalid value for '--ep' / '--execution-provider': 'mlas' is not one of 'cpuexecutionprovider', 'dmlexecutionprovider', 'migraphxexecutionprovider', 'nvtensorrtrtxexecutionprovider', 'openvinoexecutionprovider', 'qnnexecutionprovider', 'vitisaiexecutionprovider', 'qnn', 'openvino', 'vitisai', 'cpu', 'dml', 'nvtensorrtrtx', 'nv_tensorrt_rtx', 'migraphx'.
