@@ -1,7 +1,5 @@
 # Installation
 
-winml-cli is a Python toolkit for converting and optimizing PyTorch models to ONNX format, targeting deployment on the [Windows ML](https://learn.microsoft.com/en-us/windows/ai/windows-ml/) runtime. It supports multiple hardware backends including QNN (Qualcomm NPU), OpenVINO (Intel CPU/GPU), DirectML, and ONNX Runtime. To get started you need a Windows machine, Python 3.11, and the `uv` package manager.
-
 ## Prerequisites
 
 | Component | Details |
