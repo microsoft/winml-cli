@@ -1,0 +1,72 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "BAAI/bge-small-en-v1.5",
+                           "task":  "sentence-similarity",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T09:57:36.395236+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask",
+                                           "token_type_ids"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "last_hidden_state",
+                                            "1341"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 384
+                                             ],
+                                             [
+                                                 1,
+                                                 384
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  7.3,
+                       "min":  6.81,
+                       "max":  8.09,
+                       "p50":  7.23,
+                       "p90":  8.09,
+                       "p95":  8.09,
+                       "p99":  8.09,
+                       "std":  0.35,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  137.05,
+                       "batches_per_sec":  137.05
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

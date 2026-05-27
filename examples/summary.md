@@ -13,8 +13,8 @@
 | OpenVINO (Intel, NPU) - fp16 | 48 | 56 | 55/56 (98%) | 49/56 (88%) | [Report](openvino/npu/REPORT.md) |
 | OpenVINO (Intel, NPU) - w8a16 | 48 | 56 | 55/56 (98%) | 51/56 (91%) | [Report](openvino/npu/REPORT.md) |
 | OpenVINO (Intel, NPU) - w8a8 | 48 | 56 | 55/56 (98%) | 51/56 (91%) | [Report](openvino/npu/REPORT.md) |
-| OpenVINO (Intel, CPU) | 69 | 82 | 0/82 (0%) | 49/82 (60%) | [Report](openvino/cpu/REPORT.md) |
-| OpenVINO (Intel, GPU) | 71 | 84 | 0/84 (0%) | 56/84 (67%) | [Report](openvino/gpu/REPORT.md) |
+| OpenVINO (Intel, CPU) | 69 | 82 | 80/82 (98%) | 49/82 (60%) | [Report](openvino/cpu/REPORT.md) |
+| OpenVINO (Intel, GPU) | 71 | 84 | 78/84 (93%) | 56/84 (67%) | [Report](openvino/gpu/REPORT.md) |
 | DML (GPU) | 55 | 63 | 57/63 (90%) | 43/63 (68%) | [Report](dml/gpu/REPORT.md) |
 | MLAS (CPU) | 55 | 63 | 61/63 (97%) | 47/63 (75%) | [Report](mlas/cpu/REPORT.md) |
 | NVIDIA TensorRT RTX (GPU) | 55 | 63 | 51/63 (81%) | 57/63 (90%) | [Report](nv_tensorrt_rtx/gpu/REPORT.md) |

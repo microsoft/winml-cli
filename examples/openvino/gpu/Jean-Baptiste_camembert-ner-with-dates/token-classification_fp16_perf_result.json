@@ -1,0 +1,61 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "Jean-Baptiste/camembert-ner-with-dates",
+                           "task":  "token-classification",
+                           "device":  "gpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "fp16",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-20T10:35:14.524045+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 6
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  10.46,
+                       "min":  10.09,
+                       "max":  11.49,
+                       "p50":  10.37,
+                       "p90":  11.49,
+                       "p95":  11.49,
+                       "p99":  11.49,
+                       "std":  0.39,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  95.64,
+                       "batches_per_sec":  95.64
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

@@ -1,0 +1,61 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "sentence-transformers/all-mpnet-base-v2",
+                           "task":  "fill-mask",
+                           "device":  "cpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "fp16",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-21T12:08:43.088551+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                512
+                                            ],
+                                            [
+                                                1,
+                                                512
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "logits"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512,
+                                                 30527
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  283.6,
+                       "min":  276.42,
+                       "max":  297.65,
+                       "p50":  279.63,
+                       "p90":  297.65,
+                       "p95":  297.65,
+                       "p99":  297.65,
+                       "std":  7.6,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  3.53,
+                       "batches_per_sec":  3.53
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}

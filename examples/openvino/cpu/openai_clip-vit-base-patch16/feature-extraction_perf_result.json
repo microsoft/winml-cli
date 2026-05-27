@@ -1,0 +1,66 @@
+﻿{
+    "benchmark_info":  {
+                           "model_id":  "openai/clip-vit-base-patch16",
+                           "task":  "feature-extraction",
+                           "device":  "cpu",
+                           "ep":  "OpenVINOExecutionProvider",
+                           "precision":  "",
+                           "iterations":  10,
+                           "warmup":  2,
+                           "batch_size":  1,
+                           "timestamp":  "2026-05-21T11:47:08.009033+00:00"
+                       },
+    "model_info":  {
+                       "input_names":  [
+                                           "input_ids",
+                                           "attention_mask"
+                                       ],
+                       "input_shapes":  [
+                                            [
+                                                1,
+                                                77
+                                            ],
+                                            [
+                                                1,
+                                                77
+                                            ]
+                                        ],
+                       "input_types":  [
+                                           "int32",
+                                           "int32"
+                                       ],
+                       "output_names":  [
+                                            "text_embeds",
+                                            "last_hidden_state"
+                                        ],
+                       "output_shapes":  [
+                                             [
+                                                 1,
+                                                 512
+                                             ],
+                                             [
+                                                 1,
+                                                 77,
+                                                 512
+                                             ]
+                                         ]
+                   },
+    "latency_ms":  {
+                       "mean":  15.39,
+                       "min":  14.77,
+                       "max":  16.91,
+                       "p50":  15.26,
+                       "p90":  16.91,
+                       "p95":  16.91,
+                       "p99":  16.91,
+                       "std":  0.62,
+                       "warmup_mean":  null
+                   },
+    "throughput":  {
+                       "samples_per_sec":  64.96,
+                       "batches_per_sec":  64.96
+                   },
+    "raw_samples_ms":  [
+
+                       ]
+}
