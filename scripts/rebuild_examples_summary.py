@@ -108,14 +108,14 @@ def _builtin_models() -> list[tuple[str, str, dict[tuple[str, str], list[str]]]]
     """Return list of (model_slug, task, bucket_to_precisions) for tuples that
     qualify as builtin models per the criteria documented at the top of this file.
 
-    Each entry's bucket_to_precisions maps (ep, hardware) -> list of precision
-    strings (or [""] for cpu/gpu) for which a config exists.
+    A (model, task) qualifies when, for every one of the 9 (ep, hardware)
+    buckets:
+      - at least one config exists,
+      - every existing config has a sibling *_perf_result.json,
+      - at least one existing config has a sibling *_eval_result.json.
     """
-    # (slug, task) -> { (ep, hw): [precision, ...] }
-    configs_by_key: dict[tuple[str, str], dict[tuple[str, str], list[str]]] = {}
-    # (slug, task) -> all_perf_pass flag (True until we see a missing perf)
-    all_perf: dict[tuple[str, str], bool] = {}
-    any_eval: dict[tuple[str, str], bool] = {}
+    # (slug, task) -> { (ep, hw): { "precisions": [..], "perf_all": bool, "eval_any": bool } }
+    by_key: dict[tuple[str, str], dict[tuple[str, str], dict]] = {}
 
     for ep, hw in ALL_EP_BUCKETS:
         folder = EXAMPLES / ep / hw
@@ -128,26 +128,23 @@ def _builtin_models() -> list[tuple[str, str, dict[tuple[str, str], list[str]]]]
                 stem = cfg.name[: -len("_config.json")]
                 task, precision = _split_stem(stem)
                 key = (model_dir.name, task)
-                configs_by_key.setdefault(key, {}).setdefault((ep, hw), []).append(precision or "")
-                has_perf = (model_dir / f"{stem}_perf_result.json").exists()
-                has_eval = (model_dir / f"{stem}_eval_result.json").exists()
-                if not has_perf:
-                    all_perf[key] = False
-                else:
-                    all_perf.setdefault(key, True)
-                if has_eval:
-                    any_eval[key] = True
+                bucket = by_key.setdefault(key, {}).setdefault(
+                    (ep, hw), {"precisions": [], "perf_all": True, "eval_any": False}
+                )
+                bucket["precisions"].append(precision or "")
+                if not (model_dir / f"{stem}_perf_result.json").exists():
+                    bucket["perf_all"] = False
+                if (model_dir / f"{stem}_eval_result.json").exists():
+                    bucket["eval_any"] = True
 
     qualified: list[tuple[str, str, dict[tuple[str, str], list[str]]]] = []
-    required_buckets = set(ALL_EP_BUCKETS)
-    for key, buckets in sorted(configs_by_key.items()):
-        if set(buckets.keys()) != required_buckets:
+    required = set(ALL_EP_BUCKETS)
+    for key, buckets in sorted(by_key.items()):
+        if set(buckets.keys()) != required:
             continue
-        if not all_perf.get(key, False):
+        if not all(b["perf_all"] and b["eval_any"] for b in buckets.values()):
             continue
-        if not any_eval.get(key, False):
-            continue
-        qualified.append((key[0], key[1], buckets))
+        qualified.append((key[0], key[1], {k: v["precisions"] for k, v in buckets.items()}))
     return qualified
 
 
@@ -160,9 +157,9 @@ def main() -> int:
         "## Builtin Models",
         "",
         (
-            "Models that have a config in every one of the 9 (EP, device) "
-            "buckets, all configs have perf pass, and at least one config has "
-            "eval pass."
+            "Models that, in every one of the 9 (EP, device) buckets, have at "
+            "least one config, perf pass on every existing config (all "
+            "precisions for NPU), and eval pass on at least one precision."
         ),
         "",
         f"Total: **{len(builtins)}** (model, task) tuples.",

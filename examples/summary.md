@@ -2,40 +2,19 @@
 
 ## Builtin Models
 
-Models that have a config in every one of the 9 (EP, device) buckets, all configs have perf pass, and at least one config has eval pass.
+Models that, in every one of the 9 (EP, device) buckets, have at least one config, perf pass on every existing config (all precisions for NPU), and eval pass on at least one precision.
 
-Total: **28** (model, task) tuples.
+Total: **7** (model, task) tuples.
 
 | Model | Task |
 |---|---|
-| apple/mobilevit-small | image-classification |
 | cardiffnlp/twitter-roberta-base-sentiment-latest | text-classification |
 | deepset/roberta-base-squad2 | question-answering |
 | deepset/tinyroberta-squad2 | question-answering |
-| distilbert/distilbert-base-cased-distilled-squad | question-answering |
-| distilbert/distilbert-base-uncased | fill-mask |
-| distilbert/distilbert-base-uncased-distilled-squad | question-answering |
-| distilbert/distilbert-base-uncased-finetuned-sst-2-english | text-classification |
-| facebook/dino-vitb16 | image-feature-extraction |
 | facebook/dinov2-base | image-feature-extraction |
 | facebook/dinov2-small | image-feature-extraction |
-| google-bert/bert-base-multilingual-cased | fill-mask |
-| hustvl/yolos-small | object-detection |
-| laion/CLIP-ViT-B-32-laion2B-s34B-b79K | zero-shot-image-classification |
-| lxyuan/distilbert-base-multilingual-cased-sentiments-student | zero-shot-classification |
-| microsoft/resnet-18 | image-classification |
-| monologg/koelectra-small-v2-distilled-korquad-384 | question-answering |
-| openai/clip-vit-base-patch32 | feature-extraction |
-| rizvandwiki/gender-classification | image-classification |
 | sentence-transformers/all-MiniLM-L6-v2 | feature-extraction |
 | sentence-transformers/all-MiniLM-L6-v2 | sentence-similarity |
-| sentence-transformers/all-mpnet-base-v2 | feature-extraction |
-| sentence-transformers/all-mpnet-base-v2 | fill-mask |
-| sentence-transformers/all-mpnet-base-v2 | sentence-similarity |
-| sentence-transformers/multi-qa-mpnet-base-dot-v1 | feature-extraction |
-| sentence-transformers/multi-qa-mpnet-base-dot-v1 | fill-mask |
-| sentence-transformers/multi-qa-mpnet-base-dot-v1 | sentence-similarity |
-| valentinafeve/yolos-fashionpedia | object-detection |
 
 ## Overview
 
